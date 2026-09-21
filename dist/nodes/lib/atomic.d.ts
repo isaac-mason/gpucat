@@ -1,8 +1,8 @@
 import type { Any } from '../../schema/schema';
 import * as d from '../../schema/schema';
 import { type Node } from './core';
-type AtomicPtrDesc = d.i32 | d.u32 | d.atomicI32 | d.atomicU32;
-type ScalarResultDesc = d.i32 | d.u32;
+export type AtomicPtrDesc = d.i32 | d.u32 | d.atomicI32 | d.atomicU32;
+export type ScalarResultDesc = d.i32 | d.u32;
 /**
  * Atomically adds `value` to the atomic value at `ptr` and returns the old value.
  * The call is always added to the stack so side effects are captured even if the
@@ -91,4 +91,3 @@ export declare function atomicExchange<D extends AtomicPtrDesc>(ptr: Node<D>, va
  * which you need to access via .old_value and .exchanged fields.
  */
 export declare function atomicCompareExchangeWeak<D extends AtomicPtrDesc>(ptr: Node<D>, comparator: Node<d.i32 | d.u32>, value: Node<d.i32 | d.u32>): Node<Any>;
-export {};

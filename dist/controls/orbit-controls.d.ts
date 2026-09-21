@@ -10,7 +10,7 @@ declare const STATE: {
     readonly TOUCH_DOLLY_PAN: 5;
     readonly TOUCH_DOLLY_ROTATE: 6;
 };
-type StateValue = (typeof STATE)[keyof typeof STATE];
+export type StateValue = (typeof STATE)[keyof typeof STATE];
 export declare const MOUSE: {
     readonly ROTATE: 0;
     readonly DOLLY: 1;
@@ -222,6 +222,6 @@ export declare class OrbitControls {
         deltaY: number;
     };
 }
-/** The factory form, matching `createFlyControls` and `createTransformControls`. */
+/** The factory form, matching the other `create*` resource constructors. */
 export declare function createOrbitControls(object: Camera, domElement?: HTMLElement | null): OrbitControls;
 export {};

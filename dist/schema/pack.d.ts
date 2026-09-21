@@ -28,7 +28,7 @@ export type CompiledLayout<T = unknown> = {
     /** Generated read function */
     read: (view: DataView, offset: number) => T;
 };
-type BufferSource = ArrayBuffer | ArrayBufferView;
+export type BufferSource = ArrayBuffer | ArrayBufferView;
 /**
  * Pack a value into a new ArrayBuffer.
  *
@@ -119,4 +119,3 @@ export declare function packToView<D extends Any>(schema: D, view: DataView, off
 value: Infer<D> | TypedArrayFor<D>, memLayout?: MemoryLayout): void;
 /** Unpack a value from a DataView. */
 export declare function unpackFromView<D extends Any>(schema: D, view: DataView, offset: number, memLayout?: MemoryLayout): Infer<D>;
-export {};

@@ -30,7 +30,7 @@ import type { ComputeNode, InspectorNode } from '../nodes/nodes';
 import type { Any } from '../schema/schema';
 import { type InspectableRenderer, InspectorBase } from './inspector-base';
 /** Base fields shared by all timeline entries */
-type TimelineEntryBase = {
+export type TimelineEntryBase = {
     /** Entry name (pass ID or marker name) */
     name: string;
     /** Start time relative to frame start (ms) */
@@ -241,4 +241,3 @@ export declare class RendererInspector extends InspectorBase {
      */
     private _resolveTimestamps;
 }
-export {};

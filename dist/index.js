@@ -290,7 +290,7 @@ function create$8() {
     return [0, 0, 0];
 }
 /** Create a new Color with the given linear r, g, b values. */
-function fromValues$2(r, g, b) {
+function fromValues$1(r, g, b) {
     return [r, g, b];
 }
 /** Create a new Color that is a copy of `c`. */
@@ -373,7 +373,7 @@ function sub$1(out, a, b) {
     return out;
 }
 /** Multiply `a * b` component-wise into `out` (tinting). Returns `out`. */
-function multiply$3(out, a, b) {
+function multiply$1(out, a, b) {
     out[0] = a[0] * b[0];
     out[1] = a[1] * b[1];
     out[2] = a[2] * b[2];
@@ -427,10 +427,10 @@ var color = /*#__PURE__*/Object.freeze({
     equals: equals,
     fromColorInput: fromColorInput,
     fromSRGB: fromSRGB,
-    fromValues: fromValues$2,
+    fromValues: fromValues$1,
     lerp: lerp,
     luminance: luminance,
-    multiply: multiply$3,
+    multiply: multiply$1,
     multiplyScalar: multiplyScalar,
     set: set$2,
     setFromColorInput: setFromColorInput,
@@ -479,7 +479,7 @@ function clone$2(a) {
  * @param z Z component
  * @returns a new 3D vector
  */
-function fromValues$1(x, y, z) {
+function fromValues(x, y, z) {
     return [x, y, z];
 }
 /**
@@ -561,34 +561,6 @@ function subtract$1(out, a, b) {
     out[0] = a[0] - b[0];
     out[1] = a[1] - b[1];
     out[2] = a[2] - b[2];
-    return out;
-}
-/**
- * Multiplies two vec3's
- *
- * @param out the receiving vector
- * @param a the first operand
- * @param b the second operand
- * @returns out
- */
-function multiply$2(out, a, b) {
-    out[0] = a[0] * b[0];
-    out[1] = a[1] * b[1];
-    out[2] = a[2] * b[2];
-    return out;
-}
-/**
- * Divides two vec3's
- *
- * @param out the receiving vector
- * @param a the first operand
- * @param b the second operand
- * @returns out
- */
-function divide(out, a, b) {
-    out[0] = a[0] / b[0];
-    out[1] = a[1] / b[1];
-    out[2] = a[2] / b[2];
     return out;
 }
 /**
@@ -771,23 +743,6 @@ function transformQuat(out, a, q) {
     out[2] = z + uvz + uuvz;
     return out;
 }
-/**
- * Get the angle between two 3D vectors
- * @param a The first operand
- * @param b The second operand
- * @returns The angle in radians
- */
-function angle(a, b) {
-    const ax = a[0];
-    const ay = a[1];
-    const az = a[2];
-    const bx = b[0];
-    const by = b[1];
-    const bz = b[2];
-    const mag = Math.sqrt((ax * ax + ay * ay + az * az) * (bx * bx + by * by + bz * bz));
-    const cosine = mag && dot$1(a, b) / mag;
-    return Math.acos(Math.min(Math.max(cosine, -1), 1));
-}
 
 /**
  * Copy the values from one vec4 to another
@@ -917,19 +872,6 @@ function create$4() {
     return [0, 0, 0, 1];
 }
 /**
- * Set a quat to the identity quaternion
- *
- * @param out the receiving quaternion
- * @returns out
- */
-function identity$1(out) {
-    out[0] = 0;
-    out[1] = 0;
-    out[2] = 0;
-    out[3] = 1;
-    return out;
-}
-/**
  * Sets a quat from the given angle and rotation axis,
  * then returns it.
  *
@@ -945,56 +887,6 @@ function setAxisAngle(out, axis, rad) {
     out[1] = s * axis[1];
     out[2] = s * axis[2];
     out[3] = Math.cos(rad);
-    return out;
-}
-/**
- * Multiplies two quat's
- *
- * @param out the receiving quaternion
- * @param a the first operand
- * @param b the second operand
- * @returns out
- */
-function multiply$1(out, a, b) {
-    const ax = a[0];
-    const ay = a[1];
-    const az = a[2];
-    const aw = a[3];
-    const bx = b[0];
-    const by = b[1];
-    const bz = b[2];
-    const bw = b[3];
-    out[0] = ax * bw + aw * bx + ay * bz - az * by;
-    out[1] = ay * bw + aw * by + az * bx - ax * bz;
-    out[2] = az * bw + aw * bz + ax * by - ay * bx;
-    out[3] = aw * bw - ax * bx - ay * by - az * bz;
-    return out;
-}
-/**
- * Calculates the inverse of a quat
- *
- * @param out the receiving quaternion
- * @param a quat to calculate inverse of
- * @returns out
- */
-function invert$1(out, a) {
-    const a0 = a[0];
-    const a1 = a[1];
-    const a2 = a[2];
-    const a3 = a[3];
-    const dot = a0 * a0 + a1 * a1 + a2 * a2 + a3 * a3;
-    if (dot === 0) {
-        out[0] = 0;
-        out[1] = 0;
-        out[2] = 0;
-        out[3] = 0;
-        return out;
-    }
-    const invDot = 1.0 / dot;
-    out[0] = -a0 * invDot;
-    out[1] = -a1 * invDot;
-    out[2] = -a2 * invDot;
-    out[3] = a3 * invDot;
     return out;
 }
 /**
@@ -1068,67 +960,6 @@ function fromMat4(out, m) {
     return fromMat3(out, m3);
 }
 /**
- * Creates a quaternion from the given euler
- * @param out the receiving quaternion
- * @param euler the euler to create the quaternion from
- * @returns out
- */
-function fromEuler(out, euler) {
-    const x = euler[0];
-    const y = euler[1];
-    const z = euler[2];
-    const order = euler[3] || 'xyz';
-    const cos = Math.cos;
-    const sin = Math.sin;
-    const c1 = cos(x / 2);
-    const c2 = cos(y / 2);
-    const c3 = cos(z / 2);
-    const s1 = sin(x / 2);
-    const s2 = sin(y / 2);
-    const s3 = sin(z / 2);
-    switch (order) {
-        case 'xyz':
-            out[0] = s1 * c2 * c3 + c1 * s2 * s3;
-            out[1] = c1 * s2 * c3 - s1 * c2 * s3;
-            out[2] = c1 * c2 * s3 + s1 * s2 * c3;
-            out[3] = c1 * c2 * c3 - s1 * s2 * s3;
-            break;
-        case 'yxz':
-            out[0] = s1 * c2 * c3 + c1 * s2 * s3;
-            out[1] = c1 * s2 * c3 - s1 * c2 * s3;
-            out[2] = c1 * c2 * s3 - s1 * s2 * c3;
-            out[3] = c1 * c2 * c3 + s1 * s2 * s3;
-            break;
-        case 'zxy':
-            out[0] = s1 * c2 * c3 - c1 * s2 * s3;
-            out[1] = c1 * s2 * c3 + s1 * c2 * s3;
-            out[2] = c1 * c2 * s3 + s1 * s2 * c3;
-            out[3] = c1 * c2 * c3 - s1 * s2 * s3;
-            break;
-        case 'zyx':
-            out[0] = s1 * c2 * c3 - c1 * s2 * s3;
-            out[1] = c1 * s2 * c3 + s1 * c2 * s3;
-            out[2] = c1 * c2 * s3 - s1 * s2 * c3;
-            out[3] = c1 * c2 * c3 + s1 * s2 * s3;
-            break;
-        case 'yzx':
-            out[0] = s1 * c2 * c3 + c1 * s2 * s3;
-            out[1] = c1 * s2 * c3 + s1 * c2 * s3;
-            out[2] = c1 * c2 * s3 - s1 * s2 * c3;
-            out[3] = c1 * c2 * c3 - s1 * s2 * s3;
-            break;
-        case 'xzy':
-            out[0] = s1 * c2 * c3 - c1 * s2 * s3;
-            out[1] = c1 * s2 * c3 - s1 * c2 * s3;
-            out[2] = c1 * c2 * s3 + s1 * s2 * c3;
-            out[3] = c1 * c2 * c3 + s1 * s2 * s3;
-            break;
-        default:
-            console.warn(`fromEuler() encountered an unknown order: ${order}`);
-    }
-    return out;
-}
-/**
  * Copy the values from one quat to another
  *
  * @param out the receiving quaternion
@@ -1157,8 +988,8 @@ const normalize$2 = normalize$3;
  */
 const rotationTo = /* @__PURE__ */ (() => {
     const tmpvec3 = create$6();
-    const xUnitVec3 = fromValues$1(1, 0, 0);
-    const yUnitVec3 = fromValues$1(0, 1, 0);
+    const xUnitVec3 = fromValues(1, 0, 0);
+    const yUnitVec3 = fromValues(0, 1, 0);
     return (out, a, b) => {
         const dot = dot$1(a, b);
         if (dot < -0.999999) {
@@ -1184,18 +1015,6 @@ const rotationTo = /* @__PURE__ */ (() => {
         return normalize$2(out, out);
     };
 })();
-
-/**
- * Creates a new Euler from the given values.
- * @param x The x rotation in radians.
- * @param y The y rotation in radians.
- * @param z The z rotation in radians.
- * @param order The order of rotation.
- * @returns A new Euler.
- */
-function fromValues(x, y, z, order) {
-    return [x, y, z, order];
-}
 
 /**
  * Creates a new identity mat4
@@ -1254,55 +1073,6 @@ function identity(out) {
     out[13] = 0;
     out[14] = 0;
     out[15] = 1;
-    return out;
-}
-/**
- * Transpose the values of a mat4
- *
- * @param out the receiving matrix
- * @param a the source matrix
- * @returns out
- */
-function transpose$1(out, a) {
-    // If we are transposing ourselves we can skip a few steps but have to cache some values
-    if (out === a) {
-        const a01 = a[1];
-        const a02 = a[2];
-        const a03 = a[3];
-        const a12 = a[6];
-        const a13 = a[7];
-        const a23 = a[11];
-        out[1] = a[4];
-        out[2] = a[8];
-        out[3] = a[12];
-        out[4] = a01;
-        out[6] = a[9];
-        out[7] = a[13];
-        out[8] = a02;
-        out[9] = a12;
-        out[11] = a[14];
-        out[12] = a03;
-        out[13] = a13;
-        out[14] = a23;
-    }
-    else {
-        out[0] = a[0];
-        out[1] = a[4];
-        out[2] = a[8];
-        out[3] = a[12];
-        out[4] = a[1];
-        out[5] = a[5];
-        out[6] = a[9];
-        out[7] = a[13];
-        out[8] = a[2];
-        out[9] = a[6];
-        out[10] = a[10];
-        out[11] = a[14];
-        out[12] = a[3];
-        out[13] = a[7];
-        out[14] = a[11];
-        out[15] = a[15];
-    }
     return out;
 }
 /**
@@ -1426,118 +1196,6 @@ function multiply(out, a, b) {
     return out;
 }
 /**
- * Rotates a matrix by the given angle around the X axis
- *
- * @param out the receiving matrix
- * @param a the matrix to rotate
- * @param rad the angle to rotate the matrix by
- * @returns out
- */
-function rotateX(out, a, rad) {
-    const s = Math.sin(rad);
-    const c = Math.cos(rad);
-    const a10 = a[4];
-    const a11 = a[5];
-    const a12 = a[6];
-    const a13 = a[7];
-    const a20 = a[8];
-    const a21 = a[9];
-    const a22 = a[10];
-    const a23 = a[11];
-    if (a !== out) {
-        // If the source and destination differ, copy the unchanged rows
-        out[0] = a[0];
-        out[1] = a[1];
-        out[2] = a[2];
-        out[3] = a[3];
-        out[12] = a[12];
-        out[13] = a[13];
-        out[14] = a[14];
-        out[15] = a[15];
-    }
-    // Perform axis-specific matrix multiplication
-    out[4] = a10 * c + a20 * s;
-    out[5] = a11 * c + a21 * s;
-    out[6] = a12 * c + a22 * s;
-    out[7] = a13 * c + a23 * s;
-    out[8] = a20 * c - a10 * s;
-    out[9] = a21 * c - a11 * s;
-    out[10] = a22 * c - a12 * s;
-    out[11] = a23 * c - a13 * s;
-    return out;
-}
-/**
- * Rotates a matrix by the given angle around the Y axis
- *
- * @param out the receiving matrix
- * @param a the matrix to rotate
- * @param rad the angle to rotate the matrix by
- * @returns out
- */
-function rotateY(out, a, rad) {
-    const s = Math.sin(rad);
-    const c = Math.cos(rad);
-    const a00 = a[0];
-    const a01 = a[1];
-    const a02 = a[2];
-    const a03 = a[3];
-    const a20 = a[8];
-    const a21 = a[9];
-    const a22 = a[10];
-    const a23 = a[11];
-    if (a !== out) {
-        // If the source and destination differ, copy the unchanged rows
-        out[4] = a[4];
-        out[5] = a[5];
-        out[6] = a[6];
-        out[7] = a[7];
-        out[12] = a[12];
-        out[13] = a[13];
-        out[14] = a[14];
-        out[15] = a[15];
-    }
-    // Perform axis-specific matrix multiplication
-    out[0] = a00 * c - a20 * s;
-    out[1] = a01 * c - a21 * s;
-    out[2] = a02 * c - a22 * s;
-    out[3] = a03 * c - a23 * s;
-    out[8] = a00 * s + a20 * c;
-    out[9] = a01 * s + a21 * c;
-    out[10] = a02 * s + a22 * c;
-    out[11] = a03 * s + a23 * c;
-    return out;
-}
-/**
- * Creates a matrix from a vector translation
- * This is equivalent to (but much faster than):
- *
- *     mat4.identity(dest);
- *     mat4.translate(dest, dest, vec);
- *
- * @param out mat4 receiving operation result
- * @param v Translation vector
- * @returns out
- */
-function fromTranslation(out, v) {
-    out[0] = 1;
-    out[1] = 0;
-    out[2] = 0;
-    out[3] = 0;
-    out[4] = 0;
-    out[5] = 1;
-    out[6] = 0;
-    out[7] = 0;
-    out[8] = 0;
-    out[9] = 0;
-    out[10] = 1;
-    out[11] = 0;
-    out[12] = v[0];
-    out[13] = v[1];
-    out[14] = v[2];
-    out[15] = 1;
-    return out;
-}
-/**
  * Returns the translation vector component of a transformation
  *  matrix. If a matrix is built with fromRotationTranslation,
  *  the returned vector will be the same as the translation vector
@@ -1632,75 +1290,6 @@ function getRotation(out, mat) {
         out[2] = 0.25 * S;
     }
     return out;
-}
-/**
- * Decomposes a transformation matrix into its rotation, translation
- * and scale components. Returns only the rotation component
- * @param out_r Quaternion to receive the rotation component
- * @param out_t Vector to receive the translation vector
- * @param out_s Vector to receive the scaling factor
- * @param mat Matrix to be decomposed (input)
- * @returns out_r
- */
-function decompose(out_r, out_t, out_s, mat) {
-    out_t[0] = mat[12];
-    out_t[1] = mat[13];
-    out_t[2] = mat[14];
-    const m11 = mat[0];
-    const m12 = mat[1];
-    const m13 = mat[2];
-    const m21 = mat[4];
-    const m22 = mat[5];
-    const m23 = mat[6];
-    const m31 = mat[8];
-    const m32 = mat[9];
-    const m33 = mat[10];
-    out_s[0] = Math.sqrt(m11 * m11 + m12 * m12 + m13 * m13);
-    out_s[1] = Math.sqrt(m21 * m21 + m22 * m22 + m23 * m23);
-    out_s[2] = Math.sqrt(m31 * m31 + m32 * m32 + m33 * m33);
-    const is1 = 1 / out_s[0];
-    const is2 = 1 / out_s[1];
-    const is3 = 1 / out_s[2];
-    const sm11 = m11 * is1;
-    const sm12 = m12 * is2;
-    const sm13 = m13 * is3;
-    const sm21 = m21 * is1;
-    const sm22 = m22 * is2;
-    const sm23 = m23 * is3;
-    const sm31 = m31 * is1;
-    const sm32 = m32 * is2;
-    const sm33 = m33 * is3;
-    const trace = sm11 + sm22 + sm33;
-    let S = 0;
-    if (trace > 0) {
-        S = Math.sqrt(trace + 1.0) * 2;
-        out_r[3] = 0.25 * S;
-        out_r[0] = (sm23 - sm32) / S;
-        out_r[1] = (sm31 - sm13) / S;
-        out_r[2] = (sm12 - sm21) / S;
-    }
-    else if (sm11 > sm22 && sm11 > sm33) {
-        S = Math.sqrt(1.0 + sm11 - sm22 - sm33) * 2;
-        out_r[3] = (sm23 - sm32) / S;
-        out_r[0] = 0.25 * S;
-        out_r[1] = (sm12 + sm21) / S;
-        out_r[2] = (sm31 + sm13) / S;
-    }
-    else if (sm22 > sm33) {
-        S = Math.sqrt(1.0 + sm22 - sm11 - sm33) * 2;
-        out_r[3] = (sm31 - sm13) / S;
-        out_r[0] = (sm12 + sm21) / S;
-        out_r[1] = 0.25 * S;
-        out_r[2] = (sm23 + sm32) / S;
-    }
-    else {
-        S = Math.sqrt(1.0 + sm33 - sm11 - sm22) * 2;
-        out_r[3] = (sm12 - sm21) / S;
-        out_r[0] = (sm31 + sm13) / S;
-        out_r[1] = (sm23 + sm32) / S;
-        out_r[2] = 0.25 * S;
-    }
-    return out_r;
 }
 /**
  * Creates a matrix from a quaternion rotation, vector translation and vector scale
@@ -2425,287 +2014,6 @@ class OrthographicCamera extends Camera {
 /** The factory form, matching `createPerspectiveCamera` and the other object constructors. */
 function createOrthographicCamera(left, right, top, bottom, near, far) {
     return new OrthographicCamera(left, right, top, bottom, near, far);
-}
-
-const topic = () => {
-    return {
-        listeners: new Set(),
-        add(handler) {
-            this.listeners.add(handler);
-            return () => this.remove(handler);
-        },
-        remove(handler) {
-            this.listeners.delete(handler);
-        },
-        emit(...data) {
-            for (const handler of this.listeners) {
-                handler(...data);
-            }
-        },
-        clear() {
-            this.listeners.clear();
-        },
-    };
-};
-
-const _EPS$1 = 0.000001;
-const _forward = [0, 0, 0];
-const _right = [0, 0, 0];
-const _moveDir = [0, 0, 0];
-/**
- * FlyControls, WASD + right-click look camera controller.
- *
- * Movement: W/S forward/back, A/D strafe left/right, Space up, Shift down.
- * Look: Right-click + drag to yaw/pitch.
- * Speed: Scroll wheel adjusts movementSpeed.
- *
- * Call `update(delta)` each frame where delta is seconds since last frame.
- */
-class FlyControls {
-    object;
-    domElement = null;
-    enabled = true;
-    /** Movement speed in world units per second. */
-    movementSpeed = 5.0;
-    /** Look sensitivity in radians per pixel. */
-    lookSpeed = 0.002;
-    /** Scroll wheel speed multiplier factor. Each tick multiplies/divides movementSpeed by this. */
-    speedScrollFactor = 1.1;
-    /** Minimum movementSpeed (clamped on scroll). */
-    minSpeed = 0.1;
-    /** Maximum movementSpeed (clamped on scroll). */
-    maxSpeed = 200.0;
-    // -- internal state --
-    _yaw = 0;
-    _pitch = 0;
-    _moveState = {
-        forward: 0,
-        back: 0,
-        left: 0,
-        right: 0,
-        up: 0,
-        down: 0,
-    };
-    _looking = false;
-    _lastPosition = [0, 0, 0];
-    _lastQuaternion = [0, 0, 0, 1];
-    // bound event handlers
-    _onKeyDown;
-    _onKeyUp;
-    _onPointerDown;
-    _onPointerMove;
-    _onPointerUp;
-    _onContextMenu;
-    _onWheel;
-    onChange = topic();
-    constructor(object, domElement = null) {
-        this.object = object;
-        // Initialize yaw/pitch from current camera quaternion
-        this._extractYawPitch();
-        this._onKeyDown = onKeyDown.bind(this);
-        this._onKeyUp = onKeyUp.bind(this);
-        this._onPointerDown = onPointerDown.bind(this);
-        this._onPointerMove = onPointerMove.bind(this);
-        this._onPointerUp = onPointerUp.bind(this);
-        this._onContextMenu = onContextMenu.bind(this);
-        this._onWheel = onWheel.bind(this);
-        if (domElement !== null) {
-            this.connect(domElement);
-        }
-    }
-    // -- connect / disconnect --
-    connect(element) {
-        this.domElement = element;
-        window.addEventListener('keydown', this._onKeyDown);
-        window.addEventListener('keyup', this._onKeyUp);
-        element.addEventListener('pointerdown', this._onPointerDown);
-        element.addEventListener('contextmenu', this._onContextMenu);
-        element.addEventListener('wheel', this._onWheel, { passive: false });
-        element.style.touchAction = 'none';
-    }
-    disconnect() {
-        window.removeEventListener('keydown', this._onKeyDown);
-        window.removeEventListener('keyup', this._onKeyUp);
-        if (this.domElement) {
-            this.domElement.removeEventListener('pointerdown', this._onPointerDown);
-            this.domElement.removeEventListener('contextmenu', this._onContextMenu);
-            this.domElement.removeEventListener('wheel', this._onWheel);
-            this.domElement.style.touchAction = '';
-        }
-    }
-    dispose() {
-        this.disconnect();
-    }
-    // -- update (call each frame) --
-    /**
-     * Update camera position and orientation.
-     * @param delta - Time elapsed since last frame in seconds.
-     */
-    update(delta) {
-        if (!this.enabled)
-            return;
-        // -- movement --
-        const moveX = -this._moveState.left + this._moveState.right;
-        const moveY = -this._moveState.down + this._moveState.up;
-        const moveZ = -this._moveState.forward + this._moveState.back;
-        if (moveX !== 0 || moveY !== 0 || moveZ !== 0) {
-            // camera forward = -Z column of the camera's local rotation
-            const q = this.object.quaternion;
-            // forward direction (camera looks down -Z)
-            set$1(_forward, 0, 0, -1);
-            transformQuat(_forward, _forward, q);
-            // right direction (+X in camera space)
-            set$1(_right, 1, 0, 0);
-            transformQuat(_right, _right, q);
-            // build move direction
-            set$1(_moveDir, 0, 0, 0);
-            // forward/back: project forward onto XZ plane for ground-relative movement
-            scaleAndAdd(_moveDir, _moveDir, _forward, -moveZ);
-            // strafe
-            scaleAndAdd(_moveDir, _moveDir, _right, moveX);
-            // vertical: world Y
-            _moveDir[1] += moveY;
-            const len = length$1(_moveDir);
-            if (len > _EPS$1) {
-                scale(_moveDir, _moveDir, 1 / len);
-            }
-            const speed = this.movementSpeed * delta;
-            scaleAndAdd(this.object.position, this.object.position, _moveDir, speed);
-        }
-        // -- apply yaw/pitch to quaternion --
-        const e = fromValues(this._pitch, this._yaw, 0, 'yxz');
-        fromEuler(this.object.quaternion, e);
-        // -- update matrices --
-        this.object.updateWorldMatrix();
-        this.object.updateViewMatrix();
-        // -- check if changed --
-        const posDist = squaredDistance(this._lastPosition, this.object.position);
-        const quatDot = this._lastQuaternion[0] * this.object.quaternion[0] +
-            this._lastQuaternion[1] * this.object.quaternion[1] +
-            this._lastQuaternion[2] * this.object.quaternion[2] +
-            this._lastQuaternion[3] * this.object.quaternion[3];
-        const quatDist = 8 * (1 - Math.abs(quatDot));
-        if (posDist > _EPS$1 || quatDist > _EPS$1) {
-            this.onChange.emit();
-            copy$5(this._lastPosition, this.object.position);
-            copy$3(this._lastQuaternion, this.object.quaternion);
-        }
-    }
-    // -- private --
-    /** Extract yaw and pitch from the current camera quaternion. */
-    _extractYawPitch() {
-        // Convert quaternion to a forward direction, then extract yaw/pitch.
-        const q = this.object.quaternion;
-        // forward = quaternion * (0, 0, -1)
-        set$1(_forward, 0, 0, -1);
-        transformQuat(_forward, _forward, q);
-        // yaw = atan2(forward.x, forward.z), but forward is -Z, so:
-        this._yaw = Math.atan2(-_forward[0], -_forward[2]);
-        // pitch = asin(-forward.y), clamped
-        this._pitch = Math.asin(Math.max(-1, Math.min(1, -_forward[1])));
-    }
-}
-// -- event handlers (bound to FlyControls instance) --
-function onKeyDown(event) {
-    if (!this.enabled || event.altKey)
-        return;
-    switch (event.code) {
-        case 'KeyW':
-            this['_moveState'].forward = 1;
-            break;
-        case 'KeyS':
-            this['_moveState'].back = 1;
-            break;
-        case 'KeyA':
-            this['_moveState'].left = 1;
-            break;
-        case 'KeyD':
-            this['_moveState'].right = 1;
-            break;
-        case 'Space':
-            this['_moveState'].up = 1;
-            event.preventDefault();
-            break;
-        case 'ShiftLeft':
-        case 'ShiftRight':
-            this['_moveState'].down = 1;
-            break;
-    }
-}
-function onKeyUp(event) {
-    if (!this.enabled)
-        return;
-    switch (event.code) {
-        case 'KeyW':
-            this['_moveState'].forward = 0;
-            break;
-        case 'KeyS':
-            this['_moveState'].back = 0;
-            break;
-        case 'KeyA':
-            this['_moveState'].left = 0;
-            break;
-        case 'KeyD':
-            this['_moveState'].right = 0;
-            break;
-        case 'Space':
-            this['_moveState'].up = 0;
-            break;
-        case 'ShiftLeft':
-        case 'ShiftRight':
-            this['_moveState'].down = 0;
-            break;
-    }
-}
-function onPointerDown(event) {
-    if (!this.enabled)
-        return;
-    // Right-click to look
-    if (event.button === 2) {
-        this['_looking'] = true;
-        this.domElement.requestPointerLock();
-        document.addEventListener('pointermove', this['_onPointerMove']);
-        document.addEventListener('pointerup', this['_onPointerUp']);
-    }
-}
-function onPointerMove(event) {
-    if (!this.enabled || !this['_looking'])
-        return;
-    const dx = event.movementX;
-    const dy = event.movementY;
-    this['_yaw'] -= dx * this.lookSpeed;
-    this['_pitch'] -= dy * this.lookSpeed;
-    // Clamp pitch to avoid gimbal flip
-    const limit = Math.PI / 2 - 0.01;
-    this['_pitch'] = Math.max(-limit, Math.min(limit, this['_pitch']));
-}
-function onPointerUp(event) {
-    if (event.button === 2) {
-        this['_looking'] = false;
-        document.exitPointerLock();
-        document.removeEventListener('pointermove', this['_onPointerMove']);
-        document.removeEventListener('pointerup', this['_onPointerUp']);
-    }
-}
-function onContextMenu(event) {
-    if (!this.enabled)
-        return;
-    event.preventDefault();
-}
-function onWheel(event) {
-    if (!this.enabled)
-        return;
-    event.preventDefault();
-    if (event.deltaY < 0) {
-        this.movementSpeed = Math.min(this.maxSpeed, this.movementSpeed * this.speedScrollFactor);
-    }
-    else if (event.deltaY > 0) {
-        this.movementSpeed = Math.max(this.minSpeed, this.movementSpeed / this.speedScrollFactor);
-    }
-}
-/** The factory form, matching `createOrbitControls` and `createTransformControls`. */
-function createFlyControls(object, domElement = null) {
-    return new FlyControls(object, domElement);
 }
 
 const STATE = {
@@ -3772,9 +3080,180 @@ function _interceptControlUp(event) {
         });
     }
 }
-/** The factory form, matching `createFlyControls` and `createTransformControls`. */
+/** The factory form, matching the other `create*` resource constructors. */
 function createOrbitControls(object, domElement = null) {
     return new OrbitControls(object, domElement);
+}
+
+/**
+ * texture-size.ts (renderer core) — how many bytes a texture occupies, decided in one place.
+ *
+ * Both backends call this. The format vocabulary is WebGPU's `GPUTextureFormat` either way (the WebGL
+ * backend translates it at bind time, it does not carry a second vocabulary), so the byte size of a
+ * format is a fact about gpucat's own descriptor, not about a device. Same reasoning as
+ * `update-ranges.ts`, `partial-upload.ts`, `buffer-upload.ts` and `render-state.ts`.
+ *
+ * Deliberately an ESTIMATE, in the same spirit as three.js `Info._getTextureMemorySize`: it is a
+ * budget figure for a debug panel, not an allocator. Drivers pad rows, pick their own internal
+ * layouts, and may keep a staging copy, so treat the number as "which textures are the expensive
+ * ones" rather than as the exact resident footprint.
+ */
+/** The uncompressed formats gpucat uses; anything else, including every compressed and depth format. */
+function knownBytesPerTexel(format) {
+    switch (format) {
+        case 'r8unorm':
+        case 'r8snorm':
+        case 'r8uint':
+        case 'r8sint':
+            return 1;
+        case 'r16uint':
+        case 'r16sint':
+        case 'r16float':
+        case 'rg8unorm':
+        case 'rg8snorm':
+        case 'rg8uint':
+        case 'rg8sint':
+            return 2;
+        case 'r32uint':
+        case 'r32sint':
+        case 'r32float':
+        case 'rg16uint':
+        case 'rg16sint':
+        case 'rg16float':
+        case 'rgba8unorm':
+        case 'rgba8unorm-srgb':
+        case 'rgba8snorm':
+        case 'rgba8uint':
+        case 'rgba8sint':
+        case 'bgra8unorm':
+        case 'bgra8unorm-srgb':
+            return 4;
+        case 'rg32uint':
+        case 'rg32sint':
+        case 'rg32float':
+        case 'rgba16uint':
+        case 'rgba16sint':
+        case 'rgba16float':
+            return 8;
+        case 'rgba32uint':
+        case 'rgba32sint':
+        case 'rgba32float':
+            return 16;
+        default:
+            return undefined;
+    }
+}
+/** A texel stride, for the row and offset arithmetic that has to be exact. */
+function bytesPerTexel(format) {
+    const bytes = knownBytesPerTexel(format);
+    if (bytes === undefined) {
+        throw new Error(`[gpucat] no texel stride known for '${format}'; add it rather than reading at a guessed one.`);
+    }
+    return bytes;
+}
+/** The debug panel's figure, which wants a number more than it wants to be right. */
+function estimatedBytesPerTexel(format) {
+    return knownBytesPerTexel(format) ?? 4;
+}
+/** Levels in a full mip chain down to 1x1, for a texture of this size. */
+function fullMipChainLength(width, height) {
+    return Math.floor(Math.log2(Math.max(width, height))) + 1;
+}
+/**
+ * Mip levels a texture actually allocates.
+ *
+ * Explicit user mip images win (level 0 plus the supplied levels), else the full chain when
+ * auto-generating, else the descriptor's own count floored at 1. Shared because the answer decides
+ * both how much storage a backend allocates and how many levels the size estimate sums, and those two
+ * must not disagree.
+ */
+function mipLevelCountFor(texture) {
+    if (texture.mipmaps.length > 0)
+        return texture.mipmaps.length + 1;
+    if (texture.generateMipmaps)
+        return fullMipChainLength(texture.width, texture.height);
+    return Math.max(1, texture.mipLevelCount);
+}
+/**
+ * Estimated bytes for a whole texture: every array layer / cube face, summed over the mip chain.
+ * Each mip halves both dimensions with a floor of 1, which is the allocation rule both APIs follow.
+ *
+ * The chain length comes from `mipLevelCountFor`, not the raw `mipLevelCount`: an auto-mipmapped
+ * texture allocates a full chain while its descriptor still reads 1, and summing the descriptor would
+ * undercount every atlas by a third.
+ */
+function gpuTextureBytes(texture) {
+    const perTexel = estimatedBytesPerTexel(texture.format);
+    const layers = Math.max(1, texture.depthOrArrayLayers);
+    const mips = mipLevelCountFor(texture);
+    let bytes = 0;
+    for (let level = 0; level < mips; level++) {
+        const width = Math.max(1, texture.width >> level);
+        const height = Math.max(1, texture.height >> level);
+        bytes += width * height * perTexel;
+    }
+    return bytes * layers;
+}
+
+let _samplerId = 0;
+/**
+ * Declarative sampler settings.
+ *
+ * Does NOT hold the GPU resource - that's managed by the renderer's cache.
+ * The settingsKey is used for deduplication (multiple GpuSampler instances
+ * with the same settings share one GPUSampler).
+ */
+class GpuSampler {
+    isGpuSampler = true;
+    id = _samplerId++;
+    minFilter;
+    magFilter;
+    mipmapFilter;
+    addressModeU;
+    addressModeV;
+    addressModeW;
+    maxAnisotropy;
+    lodMinClamp;
+    lodMaxClamp;
+    /** For comparison samplers (shadow mapping) */
+    compare;
+    /** Renderer-set callback to clean up cache entry */
+    _onDispose = null;
+    disposed = false;
+    constructor(options = {}) {
+        this.minFilter = options.minFilter ?? 'linear';
+        this.magFilter = options.magFilter ?? 'linear';
+        this.mipmapFilter = options.mipmapFilter ?? 'linear';
+        this.addressModeU = options.addressModeU ?? 'clamp-to-edge';
+        this.addressModeV = options.addressModeV ?? 'clamp-to-edge';
+        this.addressModeW = options.addressModeW ?? 'clamp-to-edge';
+        this.maxAnisotropy = options.maxAnisotropy ?? 1;
+        this.lodMinClamp = options.lodMinClamp ?? 0;
+        this.lodMaxClamp = options.lodMaxClamp ?? 32;
+        this.compare = options.compare;
+    }
+    /** Is this a comparison sampler? */
+    get isComparison() {
+        return this.compare !== undefined;
+    }
+    /** Settings key for deduplication */
+    get settingsKey() {
+        const base = `${this.minFilter}-${this.magFilter}-${this.mipmapFilter}-` +
+            `${this.addressModeU}-${this.addressModeV}-${this.addressModeW}-` +
+            `${this.maxAnisotropy}-${this.lodMinClamp}-${this.lodMaxClamp}`;
+        return this.compare ? `${base}-cmp-${this.compare}` : base;
+    }
+    dispose() {
+        if (this.disposed)
+            return;
+        this.disposed = true;
+        this._onDispose?.();
+        this._onDispose = null;
+    }
+}
+/** The factory form; the sampler is settings only, the device resource is the renderer's. */
+function createSampler(options = {}) {
+    return new GpuSampler(options);
 }
 
 /**
@@ -4640,6 +4119,1333 @@ var schema = /*#__PURE__*/Object.freeze({
     wgslSizeOf: wgslSizeOf,
     wgslStrideOf: wgslStrideOf
 });
+
+let _sourceId = 0;
+/**
+ * Represents the data source of a texture.
+ *
+ * The main purpose of this class is to decouple the data definition from the texture
+ * definition so the same data can be used with multiple texture instances.
+ */
+class Source {
+    /** unique numeric ID */
+    id;
+    /** the data definition of a texture, can be an ImageBitmap, HTMLImageElement, canvas, video, or null */
+    data;
+    /** when set to `false`, the engine performs memory allocation but does not transfer data to GPU memory, useful for deferred loading */
+    dataReady = true;
+    /** version number, incremented when `needsUpdate` is set to true, used for dirty checking by the renderer */
+    version = 0;
+    /**
+     * Constructs a new Source
+     * @param data the data definition (ImageBitmap, HTMLImageElement, etc.)
+     */
+    constructor(data) {
+        this.id = _sourceId++;
+        this.data = data;
+    }
+    /** when set to `true`, increments the version counter to trigger a GPU upload on the next render */
+    set needsUpdate(value) {
+        if (value === true)
+            this.version++;
+    }
+    /** returns the width of the source data, or 0 if no data */
+    get width() {
+        const data = this.data;
+        if (!data || typeof data !== 'object')
+            return 0;
+        if (typeof HTMLVideoElement !== 'undefined' && data instanceof HTMLVideoElement) {
+            return data.videoWidth;
+        }
+        if (typeof VideoFrame !== 'undefined' && data instanceof VideoFrame) {
+            return data.displayWidth;
+        }
+        if ('width' in data && typeof data.width === 'number') {
+            return data.width;
+        }
+        return 0;
+    }
+    /** returns the height of the source data, or 0 if no data */
+    get height() {
+        const data = this.data;
+        if (!data || typeof data !== 'object')
+            return 0;
+        if (typeof HTMLVideoElement !== 'undefined' && data instanceof HTMLVideoElement) {
+            return data.videoHeight;
+        }
+        if (typeof VideoFrame !== 'undefined' && data instanceof VideoFrame) {
+            return data.displayHeight;
+        }
+        if ('height' in data && typeof data.height === 'number') {
+            return data.height;
+        }
+        return 0;
+    }
+    /** returns the depth of the source data (for 3D textures), or 0 */
+    get depth() {
+        const data = this.data;
+        if (!data || typeof data !== 'object')
+            return 0;
+        if ('depth' in data && typeof data.depth === 'number') {
+            return data.depth;
+        }
+        return 0;
+    }
+}
+/** The factory form; a `Source` is the uploadable image data a texture points at. */
+function createSource(data) {
+    return new Source(data);
+}
+
+/*
+ *the one dirty-region representation for textures, plus the exact
+ * merge rules the renderer relies on.
+ *
+ * A *range* is 1D and belongs to buffers (see GpuBuffer); a *region* is a box and belongs to
+ * textures. Keeping the two words distinct is deliberate: modelling 2D/3D dirty state as a linear
+ * run is what forced every earlier partial-upload path to round out to whole rows.
+ *
+ * `z` addresses array layers, cube faces and 3D slices - one axis, the same meaning on both
+ * backends, matching `writeTexture`'s `origin.z` and `texSubImage3D`'s `zoffset`.
+ */
+/**
+ * Pending regions past this point stop being tracked exactly: the list is coalesced to one bounding
+ * box per `(level, z, depth)` plane. Bounds both memory and per-add merge cost regardless of access
+ * pattern.
+ */
+const REGION_CAP = 16;
+/** Fill omitted fields from `extent`, clamp to it, and return a whole region. */
+function normalizeRegion(init, extent) {
+    const x = Math.max(0, init.x ?? 0);
+    const y = Math.max(0, init.y ?? 0);
+    const z = Math.max(0, init.z ?? 0);
+    return {
+        x,
+        y,
+        z,
+        width: Math.max(0, Math.min(init.width ?? extent.width, extent.width - x)),
+        height: Math.max(0, Math.min(init.height ?? extent.height, extent.height - y)),
+        depth: Math.max(0, Math.min(init.depth ?? extent.depth, extent.depth - z)),
+        level: Math.max(0, init.level ?? 0),
+    };
+}
+/** Texels covered by `r`. */
+function regionTexelCount(r) {
+    return r.width * r.height * r.depth;
+}
+function isEmpty(r) {
+    return r.width <= 0 || r.height <= 0 || r.depth <= 0;
+}
+function contains(a, b) {
+    return (a.x <= b.x &&
+        a.x + a.width >= b.x + b.width &&
+        a.y <= b.y &&
+        a.y + a.height >= b.y + b.height &&
+        a.z <= b.z &&
+        a.z + a.depth >= b.z + b.depth);
+}
+/** Merge along one axis, or null when the two are disjoint with a gap on it. */
+function mergeAxis(a, b, origin, size) {
+    const a0 = a[origin];
+    const a1 = a0 + a[size];
+    const b0 = b[origin];
+    const b1 = b0 + b[size];
+    // Touching counts as mergeable (b0 === a1); only a real gap blocks the merge.
+    if (b0 > a1 || a0 > b1)
+        return null;
+    const lo = Math.min(a0, b0);
+    const hi = Math.max(a1, b1);
+    return { ...a, [origin]: lo, [size]: hi - lo };
+}
+/**
+ * Merge two regions iff their union is ITSELF a box: same level, and either one contains the other,
+ * or they agree exactly on two of the three axis intervals and touch/overlap on the third. Returns
+ * null otherwise. Never returns a bounding box - a merge must not pick up a texel that was clean.
+ */
+function tryMergeRegions(a, b) {
+    if (a.level !== b.level)
+        return null;
+    if (contains(a, b))
+        return a;
+    if (contains(b, a))
+        return b;
+    const xEq = a.x === b.x && a.width === b.width;
+    const yEq = a.y === b.y && a.height === b.height;
+    const zEq = a.z === b.z && a.depth === b.depth;
+    if ((xEq ? 1 : 0) + (yEq ? 1 : 0) + (zEq ? 1 : 0) < 2)
+        return null;
+    if (!xEq)
+        return mergeAxis(a, b, 'x', 'width');
+    if (!yEq)
+        return mergeAxis(a, b, 'y', 'height');
+    if (!zEq)
+        return mergeAxis(a, b, 'z', 'depth');
+    return a; // all three equal - identical regions
+}
+/** After `list[i]` grew, absorb any other entries it can now merge with. */
+function cascade(list, i) {
+    for (let j = list.length - 1; j >= 0; j--) {
+        if (j === i)
+            continue;
+        const merged = tryMergeRegions(list[i], list[j]);
+        if (!merged)
+            continue;
+        list[i] = merged;
+        list.splice(j, 1);
+        if (j < i)
+            i--;
+    }
+}
+/** Coalesce to one bounding box per `(level, z, depth)` plane. The cap's escape hatch. */
+function coalesceToPlanes(list) {
+    const byPlane = new Map();
+    for (const r of list) {
+        const key = `${r.level}:${r.z}:${r.depth}`;
+        const seen = byPlane.get(key);
+        if (!seen) {
+            byPlane.set(key, { ...r });
+            continue;
+        }
+        const x1 = Math.max(seen.x + seen.width, r.x + r.width);
+        const y1 = Math.max(seen.y + seen.height, r.y + r.height);
+        seen.x = Math.min(seen.x, r.x);
+        seen.y = Math.min(seen.y, r.y);
+        seen.width = x1 - seen.x;
+        seen.height = y1 - seen.y;
+    }
+    list.length = 0;
+    for (const r of byPlane.values())
+        list.push(r);
+}
+/**
+ * Queue `region` into `list`, merging exactly where possible.
+ *
+ * Insertion is cheap by construction: the most recently added region is tried first, so a sequential
+ * write loop (`for (i...) packAtIndex(i)`) merges in O(1) and never scans. Past `cap` pending regions
+ * the list is coalesced per plane, bounding both memory and per-add cost.
+ */
+function addRegion(list, region, cap = REGION_CAP) {
+    if (isEmpty(region))
+        return;
+    const n = list.length;
+    if (n > 0) {
+        const merged = tryMergeRegions(list[n - 1], region);
+        if (merged) {
+            list[n - 1] = merged;
+            cascade(list, n - 1);
+            return;
+        }
+    }
+    for (let i = 0; i < n - 1; i++) {
+        const merged = tryMergeRegions(list[i], region);
+        if (merged) {
+            list[i] = merged;
+            cascade(list, i);
+            return;
+        }
+    }
+    list.push(region);
+    if (list.length > cap)
+        coalesceToPlanes(list);
+}
+/**
+ * Convert a linear run of `count` texels from `start` into regions, exactly. A run inside one row is
+ * a single 1-row box; a run that crosses a row boundary becomes at most three (head partial row,
+ * full-row middle, tail partial row). This is what keeps a small record in a wide texture from
+ * dirtying the whole row.
+ */
+function regionsFromLinearRun(start, count, width) {
+    if (count <= 0 || width <= 0)
+        return [];
+    const out = [];
+    const push = (x, y, w, h) => {
+        out.push({ x, y, z: 0, width: w, height: h, depth: 1, level: 0 });
+    };
+    const end = start + count;
+    const y0 = Math.floor(start / width);
+    const x0 = start % width;
+    const yLast = Math.floor((end - 1) / width);
+    if (y0 === yLast) {
+        push(x0, y0, count, 1);
+        return out;
+    }
+    let midStart = y0;
+    let midEnd = yLast + 1;
+    if (x0 > 0) {
+        push(x0, y0, width - x0, 1);
+        midStart = y0 + 1;
+    }
+    const xEnd = ((end - 1) % width) + 1;
+    if (xEnd < width) {
+        push(0, yLast, xEnd, 1);
+        midEnd = yLast;
+    }
+    if (midEnd > midStart)
+        push(0, midStart, width, midEnd - midStart);
+    return out;
+}
+/**
+ * Derive the region covering the same texels at mip `level`, halving per level. Origins floor and
+ * extents ceil so the derived box always covers the footprint of the original rather than shaving a
+ * texel off its edge, then clamp to the level's own size.
+ *
+ * This is what lets a write to level 0 patch an explicit mip chain automatically. Without it a partial
+ * upload leaves every other level stale, which is silent corruption rather than a visible failure.
+ */
+function deriveMipRegion(r, level, levelWidth, levelHeight) {
+    const s = 1 << level;
+    const x0 = Math.min(Math.floor(r.x / s), Math.max(0, levelWidth - 1));
+    const y0 = Math.min(Math.floor(r.y / s), Math.max(0, levelHeight - 1));
+    const x1 = Math.min(levelWidth, Math.max(x0 + 1, Math.ceil((r.x + r.width) / s)));
+    const y1 = Math.min(levelHeight, Math.max(y0 + 1, Math.ceil((r.y + r.height) / s)));
+    return { x: x0, y: y0, z: r.z, width: x1 - x0, height: y1 - y0, depth: r.depth, level };
+}
+
+/**
+ * GPUTextureUsage flag bits, spec-fixed numeric values. Used instead of the global
+ * `GPUTextureUsage` so texture construction works in headless/Node (no WebGPU global).
+ */
+const TEXTURE_USAGE = {
+    COPY_SRC: 0x01,
+    COPY_DST: 0x02,
+    TEXTURE_BINDING: 0x04,
+    STORAGE_BINDING: 0x08,
+    RENDER_ATTACHMENT: 0x10,
+};
+let _textureId = 0;
+class GpuTexture {
+    isGpuTexture = true;
+    /** Unique ID */
+    id = _textureId++;
+    /** Schema type descriptor, source of truth for WGSL type */
+    type;
+    /** GPU texture dimension ('1d', '2d', '3d') */
+    dimension;
+    /** View dimension for createView() */
+    viewDimension;
+    // ─────────────────────────────────────────────────────────────────────────
+    // GPUTextureDescriptor fields
+    // ─────────────────────────────────────────────────────────────────────────
+    width;
+    height;
+    depthOrArrayLayers;
+    format;
+    usage;
+    mipLevelCount;
+    sampleCount;
+    // ─────────────────────────────────────────────────────────────────────────
+    // Source data
+    // ─────────────────────────────────────────────────────────────────────────
+    /** Primary source (for 2D/3D) */
+    source = null;
+    /** Per-layer/face sources (for array/cube textures) */
+    sources = [];
+    /**
+     * User-supplied mip levels (index 0 = level 1; level 0 lives in `source`/`sources`).
+     * When non-empty the renderer uploads these and skips render-pass mip generation.
+     */
+    mipmaps = [];
+    /** Generate mipmaps on upload */
+    generateMipmaps = false;
+    /** Storage textures: regenerate mips after a compute pass writes this texture (if it has mips). */
+    mipmapsAutoUpdate = true;
+    /** Flip Y on upload (for image sources) */
+    flipY = false;
+    /** Premultiply alpha on upload */
+    premultiplyAlpha = false;
+    // ─────────────────────────────────────────────────────────────────────────
+    // Dirty tracking (same pattern as GpuBuffer)
+    // ─────────────────────────────────────────────────────────────────────────
+    /** Version number, incremented when needsUpdate is set */
+    version = 0;
+    /** Mark texture as needing a FULL re-upload. Takes priority over {@link updateRegions}. */
+    set needsUpdate(_) {
+        this.version++;
+        this.needsFullUpload = true;
+    }
+    /**
+     * Pending partial-upload regions: boxes of texels into `source.data`. When non-empty at upload and
+     * {@link needsFullUpload} is not set, the renderer uploads only these instead of the whole texture
+     * (`texSubImage2D` / `writeTexture`). Populated via {@link addUpdateRegion}; cleared by the renderer
+     * after upload. Overridden by a full upload (needsUpdate / resize).
+     *
+     * Regions are merged exactly on insert, never bounding-boxed, so a merge can never pick up a texel
+     * that was clean. Currently only 2D source-backed textures take the partial path; array, cube and 3D
+     * textures always take the full-upload path.
+     */
+    updateRegions = [];
+    /**
+     * When true, the next upload re-specifies the whole texture (set by `needsUpdate`, a resize, or the
+     * first upload) and takes priority over {@link updateRegions}. The renderer resets it after uploading.
+     */
+    needsFullUpload = false;
+    /**
+     * Queue a partial update of one box of texels and trigger a re-upload, WITHOUT forcing a full one.
+     * Omitted fields default to the full extent at the origin, so `{ z: 7, depth: 1 }` is "layer 7" and
+     * `{ x, y, width, height }` is a sub-rect. `z` addresses array layers, cube faces and 3D slices
+     * alike.
+     */
+    addUpdateRegion(region) {
+        const base = normalizeRegion(region, {
+            width: this.width,
+            height: this.height,
+            depth: this.depthOrArrayLayers,
+        });
+        addRegion(this.updateRegions, base);
+        // A write to level 0 leaves an explicit mip chain stale. Derive the matching box at every
+        // supplied level so callers cannot forget, since forgetting is silent corruption rather than a
+        // visible failure. Auto-generated mips need no derivation, the renderer regenerates them.
+        if (base.level === 0 && this.mipmaps.length > 0) {
+            for (let level = 1; level <= this.mipmaps.length; level++) {
+                const levelWidth = Math.max(1, this.width >> level);
+                const levelHeight = Math.max(1, this.height >> level);
+                addRegion(this.updateRegions, deriveMipRegion(base, level, levelWidth, levelHeight));
+            }
+        }
+        this.version++;
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // Render target flag
+    // ─────────────────────────────────────────────────────────────────────────
+    /**
+     * Whether this texture is a render target (managed by RenderTarget system).
+     * When true, the renderer skips source data upload - the GPU texture is
+     * created and managed by RenderTarget.
+     */
+    isRenderTargetTexture = false;
+    /**
+     * Render target this texture belongs to (color or depth attachment), or null.
+     * Lets the bind path lazily (re)allocate a sampled render target whose own
+     * render pass hasn't run this frame, e.g. it was resized between renders.
+     */
+    renderTarget = null;
+    // ─────────────────────────────────────────────────────────────────────────
+    // Lifecycle
+    // ─────────────────────────────────────────────────────────────────────────
+    /** Renderer-set callback to destroy GPU resources */
+    _onDispose = null;
+    /** Set to true after dispose() */
+    disposed = false;
+    // ─────────────────────────────────────────────────────────────────────────
+    // Constructor
+    // ─────────────────────────────────────────────────────────────────────────
+    constructor(type, options) {
+        this.type = type;
+        // Derive dimension and viewDimension from schema type
+        this.dimension = textureDimension(type);
+        this.viewDimension = textureViewDimension(type);
+        // Extract size from options (type-safe per schema)
+        const { width, height, depthOrArrayLayers } = extractTextureSize(type, options);
+        this.width = width;
+        this.height = height;
+        this.depthOrArrayLayers = depthOrArrayLayers;
+        // Format defaults: storage → descriptor's format, depth → depth32float, else rgba8unorm.
+        this.format =
+            options.format ??
+                (isStorageTextureDesc(type) ? type.format : isDepthTextureDesc(type) ? 'depth32float' : 'rgba8unorm');
+        // Usage defaults. Storage textures get STORAGE_BINDING and keep TEXTURE_BINDING (so the same
+        // texture can be sampled in a later render pass) plus COPY_SRC for readback.
+        this.usage =
+            options.usage ??
+                (isStorageTextureDesc(type)
+                    ? TEXTURE_USAGE.STORAGE_BINDING | TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST | TEXTURE_USAGE.COPY_SRC
+                    : TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST);
+        this.mipmapsAutoUpdate = options.mipmapsAutoUpdate ?? true;
+        // Mip levels
+        this.mipLevelCount = options.mipLevelCount ?? 1;
+        this.sampleCount = options.sampleCount ?? 1;
+        // Source handling
+        this.generateMipmaps = options.generateMipmaps ?? false;
+        this.flipY = options.flipY ?? false;
+        this.premultiplyAlpha = options.premultiplyAlpha ?? false;
+        // Handle source(s) based on texture type
+        const opts = options;
+        if (opts.mipmaps) {
+            this.mipmaps = opts.mipmaps.map((s) => (s instanceof Source ? s : new Source(s)));
+        }
+        if (opts.source) {
+            this.source = opts.source instanceof Source ? opts.source : new Source(opts.source);
+        }
+        if (opts.sources) {
+            this.sources = opts.sources.map((s) => (s instanceof Source ? s : new Source(s)));
+        }
+        if (opts.faces) {
+            this.sources = opts.faces.map((s) => (s instanceof Source ? s : new Source(s)));
+        }
+    }
+    // Convenience getters
+    /** For cube textures: the size (width = height) */
+    get size() {
+        return this.width;
+    }
+    /** For 2D array: number of layers */
+    get layers() {
+        return this.depthOrArrayLayers;
+    }
+    /** For 3D: depth */
+    get depth() {
+        return this.depthOrArrayLayers;
+    }
+    /** For cube array: number of cubes */
+    get cubeCount() {
+        return this.depthOrArrayLayers / 6;
+    }
+    /** Is this a depth texture? */
+    get isDepth() {
+        return isDepthTextureDesc(this.type);
+    }
+    /** Is all source data ready for upload? */
+    get isComplete() {
+        if (this.source && !this.source.dataReady)
+            return false;
+        for (const s of this.sources) {
+            if (!s.dataReady)
+                return false;
+        }
+        // Cube textures need exactly 6 faces
+        if (isCubeTextureDesc(this.type) && this.sources.length !== 6)
+            return false;
+        return true;
+    }
+    dispose() {
+        if (this.disposed)
+            return;
+        this.disposed = true;
+        this._onDispose?.();
+        this._onDispose = null;
+        this.source = null;
+        this.sources = [];
+        this.mipmaps = [];
+    }
+}
+function extractTextureSize(type, options) {
+    const viewDim = textureViewDimension(type);
+    const opts = options;
+    switch (viewDim) {
+        case 'cube':
+            return { width: opts.size, height: opts.size, depthOrArrayLayers: 6 };
+        case 'cube-array':
+            return {
+                width: opts.size,
+                height: opts.size,
+                depthOrArrayLayers: opts.cubeCount * 6,
+            };
+        case '2d-array':
+            return { width: opts.width, height: opts.height, depthOrArrayLayers: opts.layers };
+        case '3d':
+            return { width: opts.width, height: opts.height, depthOrArrayLayers: opts.depth };
+        case '1d':
+            return { width: opts.width, height: 1, depthOrArrayLayers: 1 };
+        default:
+            return { width: opts.width, height: opts.height, depthOrArrayLayers: 1 };
+    }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// Storage texture creation helpers
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Storage textures are written from compute shaders via `textureStore` and read via
+// `textureLoad`. They default to STORAGE_BINDING | TEXTURE_BINDING usage, so the same
+// texture can be written in compute and then sampled in a later render pass.
+// `access` is a per-binding property set on the node (see `storageTexture(...)`), not
+// the texture — the descriptor's default `'write'` is just the node's default.
+/** Create a 2D storage texture (`texture_storage_2d<format, _>`). */
+function createStorageTexture(width, height, format) {
+    return new GpuTexture(textureStorage2d(format), { width, height });
+}
+/** Create a 3D storage texture (`texture_storage_3d<format, _>`). */
+function createStorageTexture3d(width, height, depth, format) {
+    return new GpuTexture(textureStorage3d(format), { width, height, depth });
+}
+/** Create a 2D-array storage texture (`texture_storage_2d_array<format, _>`). */
+function createStorageTextureArray(width, height, layers, format) {
+    return new GpuTexture(textureStorage2dArray(format), { width, height, layers });
+}
+/** Create a 1D storage texture (`texture_storage_1d<format, _>`). */
+function createStorageTexture1d(width, format) {
+    return new GpuTexture(textureStorage1d(format), { width });
+}
+
+/**
+ * A texture for cubemaps (environment maps, skyboxes, etc).
+ *
+ * Stores 6 faces: +X, -X, +Y, -Y, +Z, -Z.
+ * Sampled using a 3D direction vector.
+ */
+class CubeTexture {
+    /** Type flag for runtime checking */
+    isCubeTexture = true;
+    /** The underlying GPU texture resource */
+    _gpuTexture;
+    /** The underlying sampler */
+    _gpuSampler;
+    /** Optional name for debugging */
+    name = '';
+    /**
+     * Mapping mode - determines default UV vector.
+     * - 'reflection': uses reflect(viewDir, normal)
+     * - 'refraction': uses refract(viewDir, normal, ior)
+     */
+    mapping;
+    /**
+     * Constructs a new CubeTexture.
+     *
+     * @param faces - Array of 6 images for cube faces (+X, -X, +Y, -Y, +Z, -Z)
+     * @param options - Texture options
+     */
+    constructor(faces = [], options = {}) {
+        // Determine size from the first face, or from options.size for a
+        // render-only cube (no face images, e.g. a CubeRenderTarget).
+        const firstFace = faces[0];
+        let size = options.size ?? 1;
+        if (firstFace) {
+            if (firstFace instanceof Source) {
+                size = firstFace.width || 1;
+            }
+            else if (typeof firstFace === 'object' && firstFace !== null && 'width' in firstFace) {
+                size = firstFace.width || 1;
+            }
+        }
+        this._gpuTexture = new GpuTexture(textureCube(), {
+            size,
+            faces: faces.map((f) => (f instanceof Source ? f : new Source(f))),
+            format: options.format,
+            generateMipmaps: options.generateMipmaps ?? true,
+            flipY: options.flipY ?? false,
+        });
+        // A render-only cube (no faces) is filled by the renderer, not uploaded.
+        if (faces.length === 0) {
+            this._gpuTexture.isRenderTargetTexture = true;
+        }
+        this._gpuSampler = new GpuSampler({
+            addressModeU: options.wrapS ?? 'clamp-to-edge',
+            addressModeV: options.wrapT ?? 'clamp-to-edge',
+            addressModeW: 'clamp-to-edge',
+            magFilter: options.magFilter ?? 'linear',
+            minFilter: options.minFilter ?? 'linear',
+            mipmapFilter: options.mipmapFilter ?? 'linear',
+        });
+        this.mapping = options.mapping ?? 'reflection';
+    }
+    // ─── Convenience getters/setters ───
+    get id() {
+        return this._gpuTexture.id;
+    }
+    get width() {
+        return this._gpuTexture.width;
+    }
+    get height() {
+        return this._gpuTexture.height;
+    }
+    get size() {
+        return this._gpuTexture.size;
+    }
+    /** Check if all 6 faces are present and ready */
+    get isComplete() {
+        return this._gpuTexture.isComplete;
+    }
+    /** The 6 face images as SourceData */
+    get images() {
+        return this._gpuTexture.sources.map((s) => s.data);
+    }
+    set images(value) {
+        this._gpuTexture.sources = value.map((img) => (img instanceof Source ? img : new Source(img)));
+        // Update size from first face
+        if (value.length > 0) {
+            const first = this._gpuTexture.sources[0];
+            if (first) {
+                this._gpuTexture.width = first.width || 1;
+                this._gpuTexture.height = first.height || 1;
+            }
+        }
+        this._gpuTexture.needsUpdate = true;
+    }
+    /** The 6 face Sources */
+    get imageSources() {
+        return this._gpuTexture.sources;
+    }
+    get wrapS() {
+        return this._gpuSampler.addressModeU;
+    }
+    set wrapS(v) {
+        this._gpuSampler.addressModeU = v;
+    }
+    get wrapT() {
+        return this._gpuSampler.addressModeV;
+    }
+    set wrapT(v) {
+        this._gpuSampler.addressModeV = v;
+    }
+    get magFilter() {
+        return this._gpuSampler.magFilter;
+    }
+    set magFilter(v) {
+        this._gpuSampler.magFilter = v;
+    }
+    get minFilter() {
+        return this._gpuSampler.minFilter;
+    }
+    set minFilter(v) {
+        this._gpuSampler.minFilter = v;
+    }
+    get mipmapFilter() {
+        return this._gpuSampler.mipmapFilter;
+    }
+    set mipmapFilter(v) {
+        this._gpuSampler.mipmapFilter = v;
+    }
+    get anisotropy() {
+        return this._gpuSampler.maxAnisotropy;
+    }
+    set anisotropy(v) {
+        this._gpuSampler.maxAnisotropy = v;
+    }
+    get format() {
+        return this._gpuTexture.format;
+    }
+    set format(v) {
+        this._gpuTexture.format = v;
+    }
+    get generateMipmaps() {
+        return this._gpuTexture.generateMipmaps;
+    }
+    set generateMipmaps(v) {
+        this._gpuTexture.generateMipmaps = v;
+    }
+    get flipY() {
+        return this._gpuTexture.flipY;
+    }
+    set flipY(v) {
+        this._gpuTexture.flipY = v;
+    }
+    get premultiplyAlpha() {
+        return this._gpuTexture.premultiplyAlpha;
+    }
+    set premultiplyAlpha(v) {
+        this._gpuTexture.premultiplyAlpha = v;
+    }
+    get version() {
+        return this._gpuTexture.version;
+    }
+    set needsUpdate(v) {
+        if (v)
+            this._gpuTexture.needsUpdate = true;
+    }
+    /**
+     * Queue a partial upload of one box of texels, without forcing a full re-upload. Omitted fields
+     * default to the full extent at the origin.
+     */
+    addUpdateRegion(region) {
+        this._gpuTexture.addUpdateRegion(region);
+        return this;
+    }
+    /**
+     * Queue a partial upload of a single face, optionally only a sub-rect of it. Face order is
+     * +X, -X, +Y, -Y, +Z, -Z; the index is this texture's vocabulary for the region's `z` axis, and it
+     * means the same face on both backends.
+     */
+    addUpdateFace(face, rect = {}) {
+        return this.addUpdateRegion({ ...rect, z: face, depth: 1 });
+    }
+    clone() {
+        const tex = new CubeTexture(this.images, {
+            wrapS: this.wrapS,
+            wrapT: this.wrapT,
+            magFilter: this.magFilter,
+            minFilter: this.minFilter,
+            mipmapFilter: this.mipmapFilter,
+            format: this.format,
+            generateMipmaps: this.generateMipmaps,
+            flipY: this.flipY,
+            mapping: this.mapping,
+        });
+        tex.name = this.name;
+        return tex;
+    }
+    dispose() {
+        this._gpuTexture.dispose();
+        this._gpuSampler.dispose();
+    }
+}
+/** The factory form; pass no faces (and `options.size`) for a render-only cube. */
+function createCubeTexture(faces = [], options = {}) {
+    return new CubeTexture(faces, options);
+}
+
+/**
+ * A texture for storing depth information.
+ * Used as the depth attachment in RenderTarget, or for shadow mapping.
+ *
+ * Defaults to comparison sampler for shadow mapping convenience.
+ *
+ * No region API, deliberately: this is a render-target attachment whose contents are written by the
+ * GPU, so there is no CPU-side source for a partial upload to read from.
+ */
+class DepthTexture {
+    isDepthTexture = true;
+    /** The underlying GPU texture resource */
+    _gpuTexture;
+    /** The underlying sampler */
+    _gpuSampler;
+    /** Optional name for debugging */
+    name = '';
+    /**
+     * Constructs a new DepthTexture.
+     *
+     * @param width - The width of the texture
+     * @param height - The height of the texture
+     * @param format - The depth format (default: 'depth24plus')
+     */
+    constructor(width, height, format = 'depth24plus') {
+        this._gpuTexture = new GpuTexture(textureDepth2d, {
+            width,
+            height,
+            format,
+            // Spec-fixed numeric flags (not the WebGPU `GPUTextureUsage` global), so a DepthTexture can be
+            // constructed under a WebGL2 context / headless where that global is undefined.
+            usage: TEXTURE_USAGE.RENDER_ATTACHMENT | TEXTURE_USAGE.TEXTURE_BINDING,
+        });
+        // Default to comparison sampler for shadow mapping
+        this._gpuSampler = new GpuSampler({
+            compare: 'less',
+            magFilter: 'linear',
+            minFilter: 'linear',
+        });
+    }
+    get id() {
+        return this._gpuTexture.id;
+    }
+    get width() {
+        return this._gpuTexture.width;
+    }
+    get height() {
+        return this._gpuTexture.height;
+    }
+    get format() {
+        return this._gpuTexture.format;
+    }
+    get compareFunction() {
+        return this._gpuSampler.compare;
+    }
+    set compareFunction(v) {
+        this._gpuSampler.compare = v;
+    }
+    /** Version for dirty tracking. */
+    get version() {
+        return this._gpuTexture.version;
+    }
+    /** Mark as needing re-upload. */
+    set needsUpdate(v) {
+        if (v)
+            this._gpuTexture.needsUpdate = true;
+    }
+    /** Set the size of the depth texture. */
+    setSize(width, height) {
+        if (this._gpuTexture.width !== width || this._gpuTexture.height !== height) {
+            this._gpuTexture.width = width;
+            this._gpuTexture.height = height;
+            this._gpuTexture.needsUpdate = true;
+        }
+    }
+    clone() {
+        const tex = new DepthTexture(this.width, this.height, this.format);
+        tex.name = this.name;
+        tex.compareFunction = this.compareFunction;
+        return tex;
+    }
+    dispose() {
+        this._gpuTexture.dispose();
+        this._gpuSampler.dispose();
+    }
+}
+/** The factory form; the contents are written by the GPU, so there is no data argument. */
+function createDepthTexture(width, height, format) {
+    return new DepthTexture(width, height, format);
+}
+
+/**
+ * High-level 2D texture class.
+ *
+ * Holds sampling parameters and references a Source for image data.
+ */
+class Texture {
+    /** Type flag for runtime type checking */
+    isTexture = true;
+    /** The underlying GPU texture resource */
+    _gpuTexture;
+    /** The underlying sampler */
+    _gpuSampler;
+    /** Optional name for debugging */
+    name = '';
+    /**
+     * Callback fired when the texture is updated.
+     */
+    onUpdate = null;
+    /**
+     * Whether this texture belongs to a render target. Forwards to the underlying `GpuTexture` (the
+     * single source of truth the backends read), so setting it on the wrapper always takes effect;
+     * a plain field here would silently not reach the `GpuTexture`, making the backend treat the
+     * texture as a source upload (0-sized storage) instead of a render-target allocation.
+     * @default false
+     */
+    get isRenderTargetTexture() {
+        return this._gpuTexture.isRenderTargetTexture;
+    }
+    set isRenderTargetTexture(value) {
+        this._gpuTexture.isRenderTargetTexture = value;
+    }
+    /**
+     * Constructs a new Texture.
+     *
+     * @param image - The image source (ImageBitmap, HTMLImageElement, Source, etc.)
+     * @param options - Texture options
+     */
+    constructor(image, options = {}) {
+        // Create the source
+        const src = image instanceof Source ? image : image !== null ? new Source(image) : null;
+        // Create the underlying GpuTexture
+        this._gpuTexture = new GpuTexture(texture2d(), {
+            width: src?.width || 1,
+            height: src?.height || 1,
+            source: src ?? undefined,
+            format: options.format,
+            generateMipmaps: options.generateMipmaps ?? true,
+            flipY: options.flipY ?? false,
+            premultiplyAlpha: options.premultiplyAlpha ?? false,
+        });
+        // Create the underlying sampler
+        this._gpuSampler = new GpuSampler({
+            addressModeU: options.wrapS ?? 'clamp-to-edge',
+            addressModeV: options.wrapT ?? 'clamp-to-edge',
+            magFilter: options.magFilter ?? 'linear',
+            minFilter: options.minFilter ?? 'linear',
+            mipmapFilter: options.mipmapFilter ?? 'linear',
+            maxAnisotropy: options.anisotropy ?? 1,
+        });
+    }
+    // ─── Convenience getters/setters that forward to internals ───
+    /** Unique numeric ID */
+    get id() {
+        return this._gpuTexture.id;
+    }
+    /** Returns the width of the source, or 1 if no data. */
+    get width() {
+        return this._gpuTexture.width;
+    }
+    /** Returns the height of the source, or 1 if no data. */
+    get height() {
+        return this._gpuTexture.height;
+    }
+    /** The data source for this texture. */
+    get source() {
+        return this._gpuTexture.source;
+    }
+    set source(s) {
+        this._gpuTexture.source = s;
+        if (s) {
+            this._gpuTexture.width = s.width || 1;
+            this._gpuTexture.height = s.height || 1;
+        }
+    }
+    /** Convenience getter for the source data. */
+    get image() {
+        return this._gpuTexture.source?.data;
+    }
+    /** Convenience setter for the source data. */
+    set image(value) {
+        if (this._gpuTexture.source) {
+            this._gpuTexture.source.data = value;
+        }
+        else if (value !== null) {
+            this._gpuTexture.source = new Source(value);
+        }
+    }
+    /** Horizontal wrap mode (U direction). */
+    get wrapS() {
+        return this._gpuSampler.addressModeU;
+    }
+    set wrapS(v) {
+        this._gpuSampler.addressModeU = v;
+    }
+    /** Vertical wrap mode (V direction). */
+    get wrapT() {
+        return this._gpuSampler.addressModeV;
+    }
+    set wrapT(v) {
+        this._gpuSampler.addressModeV = v;
+    }
+    /** Magnification filter. */
+    get magFilter() {
+        return this._gpuSampler.magFilter;
+    }
+    set magFilter(v) {
+        this._gpuSampler.magFilter = v;
+    }
+    /** Minification filter. */
+    get minFilter() {
+        return this._gpuSampler.minFilter;
+    }
+    set minFilter(v) {
+        this._gpuSampler.minFilter = v;
+    }
+    /** Mipmap filter mode. */
+    get mipmapFilter() {
+        return this._gpuSampler.mipmapFilter;
+    }
+    set mipmapFilter(v) {
+        this._gpuSampler.mipmapFilter = v;
+    }
+    /** Anisotropic filtering level. */
+    get anisotropy() {
+        return this._gpuSampler.maxAnisotropy;
+    }
+    set anisotropy(v) {
+        this._gpuSampler.maxAnisotropy = v;
+    }
+    /** WebGPU texture format. */
+    get format() {
+        return this._gpuTexture.format;
+    }
+    set format(v) {
+        this._gpuTexture.format = v;
+    }
+    /** Whether to auto-generate mipmaps. */
+    get generateMipmaps() {
+        return this._gpuTexture.generateMipmaps;
+    }
+    set generateMipmaps(v) {
+        this._gpuTexture.generateMipmaps = v;
+    }
+    /**
+     * User-provided mip levels (index 0 = level 1). When non-empty the renderer
+     * uploads these and skips auto-generation. Empty by default.
+     */
+    get mipmaps() {
+        return this._gpuTexture.mipmaps;
+    }
+    set mipmaps(v) {
+        this._gpuTexture.mipmaps = v;
+    }
+    /** Whether to flip the image vertically when uploading. */
+    get flipY() {
+        return this._gpuTexture.flipY;
+    }
+    set flipY(v) {
+        this._gpuTexture.flipY = v;
+    }
+    /** Whether to premultiply alpha. */
+    get premultiplyAlpha() {
+        return this._gpuTexture.premultiplyAlpha;
+    }
+    set premultiplyAlpha(v) {
+        this._gpuTexture.premultiplyAlpha = v;
+    }
+    /** Version for dirty tracking. */
+    get version() {
+        return this._gpuTexture.version;
+    }
+    /** Set to `true` to trigger a GPU upload on the next render. */
+    set needsUpdate(value) {
+        if (value) {
+            this._gpuTexture.needsUpdate = true;
+            if (this._gpuTexture.source) {
+                this._gpuTexture.source.needsUpdate = true;
+            }
+            this.onUpdate?.(this);
+        }
+    }
+    /**
+     * Queue a partial upload of one box of texels, without forcing a full re-upload. Omitted fields
+     * default to the full extent at the origin.
+     *
+     * NOTE: a texture backed by a DOM source (image, canvas, video) has no addressable rows in a packed
+     * buffer, so the renderer serves the region with a full upload rather than a partial one. The write
+     * still lands, it just is not cheaper. Sub-rect upload from a DOM source needs a separate
+     * `copyExternalImageToTexture` / `TexImageSource` path in both backends.
+     */
+    addUpdateRegion(region) {
+        this._gpuTexture.addUpdateRegion(region);
+        if (this._gpuTexture.source)
+            this._gpuTexture.source.needsUpdate = true;
+        return this;
+    }
+    /** Renderer-set callback to destroy GPU resources. */
+    // TODO: did we ever need it?
+    // get _onDispose(): (() => void) | null { return this._gpuTexture._onDispose; }
+    // set _onDispose(v: (() => void) | null) { this._gpuTexture._onDispose = v; }
+    /**
+     * Creates a clone of this texture.
+     * Note: The clone shares the same Source by default.
+     */
+    clone() {
+        const tex = new Texture(this.source, {
+            wrapS: this.wrapS,
+            wrapT: this.wrapT,
+            magFilter: this.magFilter,
+            minFilter: this.minFilter,
+            mipmapFilter: this.mipmapFilter,
+            anisotropy: this.anisotropy,
+            format: this.format,
+            generateMipmaps: this.generateMipmaps,
+            flipY: this.flipY,
+            premultiplyAlpha: this.premultiplyAlpha,
+        });
+        tex.name = this.name;
+        tex.mipmaps = [...this.mipmaps];
+        return tex;
+    }
+    /**
+     * Disposes of the texture and its GPU resources.
+     */
+    dispose() {
+        this._gpuTexture.dispose();
+        this._gpuSampler.dispose();
+    }
+}
+/** The factory form, matching `createDataTexture` and the other texture constructors. */
+function createTexture(image, options = {}) {
+    return new Texture(image, options);
+}
+
+/**
+ * A render target is a buffer where the video card draws pixels for a scene
+ * that is being rendered in the background. It is used in different effects,
+ * such as applying postprocessing to a rendered image before displaying it
+ * on the screen.
+ */
+class RenderTarget {
+    isRenderTarget = true;
+    clearColor;
+    /** Brand set true on CubeRenderTarget; declared here so `rt.isCubeRenderTarget` types on a RenderTarget ref. */
+    isCubeRenderTarget;
+    /** The width of the render target */
+    width;
+    /** The height of the render target */
+    height;
+    /** The MSAA sample count of the render target */
+    samples;
+    /**
+     * Array of color attachment textures.
+     * Each has its own mutable `.format` (per-attachment formats supported by mutating `textures[i].format`).
+     * Each has a `.name` for MRT mapping; the first texture is also accessible via the `texture` getter.
+     */
+    textures;
+    /**
+     * The depth ATTACHMENT texture — always present when the target has a depth buffer, and what the
+     * backends read to build/attach depth (so depth testing always works). Internal: it is NOT the
+     * sampling surface. Consumers sample via the public {@link depthTexture} getter, which only exposes
+     * this when the depth is declared sampled.
+     */
+    _depthAttachment = null;
+    /**
+     * The depth attachment exposed for SAMPLING, or null when the depth isn't declared sampled.
+     * three.js-aligned: a render target's depth is readable as a texture only when you opt in
+     * (`depthSampled: true`, an explicit `depthTexture`, or `RenderTextureNode.getDepthTextureNode()`), mirroring
+     * three.js where the *presence* of `renderTarget.depthTexture` is the signal. The actual depth
+     * attachment for depth testing always exists (see {@link _depthAttachment}); returning null here
+     * makes sampling an undeclared depth fail loud (a null at wiring time) instead of silently reading
+     * an unwritten texture — which on the WebGL backend reads as ~1.0 everywhere, e.g. no shadows.
+     */
+    get depthTexture() {
+        return this.depthSampled ? this._depthAttachment : null;
+    }
+    /**
+     * Whether the depth attachment is sampled. When false and the target owns an
+     * auto-allocated depth, the WebGL backend attaches a depth RENDERBUFFER instead
+     * of a texture (three.js parity, more broadly FBO-complete; depth-testing still
+     * works). Set true by `RenderTextureNode.getDepthTextureNode()` or the `depthSampled` option.
+     * WebGPU always allocates the attachment as a texture, so it is unaffected.
+     */
+    depthSampled = false;
+    /** Constructs a new render target */
+    constructor(width, height, opts = {}) {
+        this.width = width;
+        this.height = height;
+        this.samples = opts.samples ?? 1;
+        this.clearColor = opts.clearColor ?? [0, 0, 0, 1];
+        const defaultFormat = opts.colorFormat ?? 'rgba16float';
+        const count = opts.count ?? 1;
+        this.textures = [];
+        for (let i = 0; i < count; i++) {
+            const texture = createRenderTargetTexture(this, width, height, defaultFormat);
+            texture.name = i === 0 ? 'output' : `output${i}`;
+            texture._gpuTexture.renderTarget = this;
+            this.textures.push(texture);
+        }
+        if (opts.depthTexture) {
+            this._depthAttachment = opts.depthTexture;
+            this._depthAttachment._gpuTexture.isRenderTargetTexture = true;
+            // A caller-provided depth texture exists to be read/shared.
+            this.depthSampled = true;
+        }
+        else if (opts.depthBuffer !== false) {
+            const depthFormat = opts.depthFormat ?? (opts.stencilBuffer ? 'depth24plus-stencil8' : 'depth24plus');
+            const depthTexture = new DepthTexture(width, height, depthFormat);
+            depthTexture.name = 'depth';
+            depthTexture._gpuTexture.isRenderTargetTexture = true;
+            this._depthAttachment = depthTexture;
+            // The attachment always exists (depth testing); whether it's sampleable (a texture vs a WebGL
+            // renderbuffer, and exposed via `depthTexture`) is opt-in. `getDepthTextureNode()` also flips this.
+            this.depthSampled = opts.depthSampled ?? false;
+        }
+        if (this._depthAttachment) {
+            this._depthAttachment._gpuTexture.renderTarget = this;
+        }
+    }
+    /** The first color attachment texture, or undefined when count=0 (depth-only target). */
+    get texture() {
+        return this.textures[0];
+    }
+    set texture(value) {
+        if (value === undefined) {
+            this.textures.length = 0;
+            return;
+        }
+        if (this.textures.length === 0) {
+            this.textures.push(value);
+        }
+        else {
+            this.textures[0] = value;
+        }
+    }
+    /**
+     * Resize the render target. Old GPU resources are NOT destroyed here: the
+     * renderer reallocates lazily on next use in `ensureRenderTargetTexturesAllocated`,
+     * where `setRenderTargetTexture` destroys the old texture and creates the new
+     * one atomically. Marking `needsUpdate` (+ the size mismatch) is enough to
+     * trigger that: a version-driven reallocation rather than eager destruction.
+     *
+     * Eagerly disposing here would destroy a GPU texture synchronously, opening a
+     * window where another pass that already recorded a draw against it (e.g. a
+     * shared depth attachment) submits with a destroyed texture. The lazy path has
+     * no such window.
+     */
+    setSize(width, height) {
+        if (this.width === width && this.height === height)
+            return;
+        this.width = width;
+        this.height = height;
+        // update texture dimensions on the GpuTexture
+        for (const tex of this.textures) {
+            tex._gpuTexture.width = width;
+            tex._gpuTexture.height = height;
+            tex._gpuTexture.needsUpdate = true;
+        }
+        if (this._depthAttachment) {
+            this._depthAttachment.setSize(width, height);
+        }
+    }
+    /**
+     * Dispose of the render target's GPU resources.
+     * This triggers the _onDispose callbacks set by the renderer cache.
+     */
+    dispose() {
+        for (const tex of this.textures) {
+            tex._gpuTexture.dispose();
+        }
+        if (this._depthAttachment) {
+            this._depthAttachment._gpuTexture.dispose();
+        }
+    }
+    /** Returns the texture index for the given name, or -1 if not found. */
+    getTextureIndex(name) {
+        for (let i = 0; i < this.textures.length; i++) {
+            if (this.textures[i].name === name)
+                return i;
+        }
+        return -1;
+    }
+}
+/** creates a Texture configured for use as a render target color attachment */
+function createRenderTargetTexture(_renderTarget, width, height, format) {
+    // create placeholder image object with dimensions
+    const image = { width, height };
+    const texture = new Texture(image);
+    texture.format = format;
+    texture.isRenderTargetTexture = true;
+    texture.generateMipmaps = false;
+    texture.flipY = false;
+    // Mark the underlying GpuTexture as a render target texture too
+    texture._gpuTexture.isRenderTargetTexture = true;
+    return texture;
+}
+/** Holds no device: the backend allocates the textures on first use. */
+function createRenderTarget(width, height, opts = {}) {
+    return new RenderTarget(width, height, opts);
+}
+/** The name of the first attachment whose texture is disposed, or null. Depth counts: a submit dies on either. */
+function deadAttachment(rt) {
+    for (const tex of rt.textures) {
+        if (tex._gpuTexture.disposed)
+            return tex.name;
+    }
+    return rt._depthAttachment?._gpuTexture.disposed === true ? 'depth' : null;
+}
+
+/**
+ * A render target whose color attachment is a cube texture. Render each of the
+ * six faces (a pass per face, naming it with `PassDesc.layer`; see `CubeCamera`),
+ * then sample the result as an environment map via `cubeTexture(rt.texture)`.
+ *
+ * Usually driven by a `CubeCamera`, which sets up the six face cameras and loops
+ * the faces for you.
+ *
+ * Extends `RenderTarget`: the inherited 2D color texture carries the face format
+ * for pipeline creation, and the inherited 2D depth texture is reused across all
+ * six faces. Each pass names the face and level it writes.
+ */
+class CubeRenderTarget extends RenderTarget {
+    isCubeRenderTarget = true;
+    /** Face size in pixels (width = height). */
+    size;
+    /** The cube texture rendered into and sampled by materials. */
+    _texture;
+    constructor(size, opts = {}) {
+        const format = opts.colorFormat ?? 'rgba8unorm';
+        super(size, size, {
+            colorFormat: format,
+            depthBuffer: opts.depthBuffer,
+            depthFormat: opts.depthFormat,
+            // Cube faces are sampled directly as an environment map; MSAA (which would
+            // need a per-face resolve) is not supported.
+            samples: 1,
+        });
+        this.size = size;
+        this._texture = new CubeTexture([], {
+            size,
+            format,
+            wrapS: opts.wrapS,
+            wrapT: opts.wrapT,
+            magFilter: opts.magFilter,
+            minFilter: opts.minFilter,
+            mipmapFilter: opts.mipmapFilter,
+            flipY: opts.flipY,
+            generateMipmaps: opts.generateMipmaps ?? false,
+        });
+        this._texture.name = 'output';
+        this._texture._gpuTexture.renderTarget = this;
+        // Allocation must not depend on `generateMipmaps`, which `CubeCamera` flips off mid-render to
+        // regenerate once rather than per face: storage is immutable, so a chain suppressed at the
+        // first face can never be added back.
+        if (opts.generateMipmaps)
+            this._texture._gpuTexture.mipLevelCount = fullMipChainLength(size, size);
+        this.textures[0] = this._texture;
+    }
+    get texture() {
+        return this._texture;
+    }
+    /** Resize all six faces (and the shared depth). */
+    setSize(size) {
+        if (this.size === size)
+            return;
+        super.setSize(size, size);
+        this.size = size;
+    }
+}
+/** A cube render target: six square faces, drawn one pass each with `PassDesc.layer`. */
+function createCubeRenderTarget(size, opts = {}) {
+    return new CubeRenderTarget(size, opts);
+}
 
 /**
  * Whether structs and array elements round their stride up to 16 bytes. True only for GLSL `std140`
@@ -6815,8469 +7621,6 @@ function createOctahedronGeometry(radius = 1, detail = 0) {
     return geom;
 }
 
-class Material {
-    /** Material name, for debugging. */
-    name;
-    /** Vertex node. Use `positionClip` for standard MVP transform. */
-    vertex;
-    /** Fragment output. Can be vec4f, OutputStructNode for MRT, or undefined for depth-only. */
-    fragment;
-    /** f32 depth override, written to @builtin(frag_depth) */
-    depth;
-    /** Controls draw sort order (opaque vs transparent) AND the default for depthWrite. */
-    transparent;
-    /** Optional blend state. Only meaningful when transparent=true or custom blending. */
-    blend;
-    /** Whether the fragment shader writes color. When false, the color target's write mask is 0. */
-    colorWrite;
-    /** Whether depth testing is active. When false, depthCompare is forced to 'always'. */
-    depthTest;
-    /** Whether to write to the depth buffer. Default: true for opaque, false for transparent. */
-    depthWrite;
-    /** Depth comparison function. Default 'less'. Forced to 'always' when depthTest=false. */
-    depthCompare;
-    /** Back-face culling mode. Default 'back'. */
-    cullMode;
-    /** Alpha-to-coverage. Meaningful only when renderer.samples > 1. Default false. */
-    alphaToCoverage;
-    /** Constant depth bias in depth buffer precision steps. Default 0. */
-    depthBias;
-    /** Depth bias scaled by the fragment's slope (dz/dx, dz/dy). Default 0. */
-    depthBiasSlopeScale;
-    /** Maximum absolute depth bias value. Default 0 (no clamp). */
-    depthBiasClamp;
-    /** Whether the stencil test is active. When false, the pipeline uses a no-op stencil state. */
-    stencilTest;
-    /** Stencil comparison function. Only used when stencilTest=true. */
-    stencilFunc;
-    /** Reference value the stencil test compares against; applied via setStencilReference. */
-    stencilRef;
-    /** Bitmask AND-ed with the reference and stored value before comparing. */
-    stencilReadMask;
-    /** Bitmask selecting which stencil bits may be written. */
-    stencilWriteMask;
-    /** Op applied when the stencil test fails. */
-    stencilFail;
-    /** Op applied when the stencil test passes but the depth test fails. */
-    stencilZFail;
-    /** Op applied when both the stencil and depth tests pass. */
-    stencilZPass;
-    /** Per-face override for back-face stencil ops, or null to use the front-face ops on both faces. */
-    stencilBack;
-    /**
-     * Named uniforms for this material.
-     * Used for name-based uniform resolution: uniform('roughness', d.f32) resolves
-     * to material.uniforms.get('roughness') at render time.
-     */
-    uniforms = new Map();
-    constructor(opts) {
-        this.name = opts.name ?? '';
-        this.vertex = opts.vertex;
-        this.fragment = opts.fragment;
-        this.depth = opts.depth;
-        this.transparent = opts.transparent ?? false;
-        this.blend = opts.blend;
-        this.colorWrite = opts.colorWrite ?? true;
-        this.depthTest = opts.depthTest ?? true;
-        this.depthWrite = opts.depthWrite ?? !this.transparent;
-        this.depthCompare = opts.depthCompare ?? 'less';
-        this.cullMode = opts.cullMode ?? 'back';
-        this.alphaToCoverage = opts.alphaToCoverage ?? false;
-        this.depthBias = opts.depthBias ?? 0;
-        this.depthBiasSlopeScale = opts.depthBiasSlopeScale ?? 0;
-        this.depthBiasClamp = opts.depthBiasClamp ?? 0;
-        this.stencilTest = opts.stencilTest ?? false;
-        this.stencilFunc = opts.stencilFunc ?? 'always';
-        this.stencilRef = opts.stencilRef ?? 0;
-        this.stencilReadMask = opts.stencilReadMask ?? 0xff;
-        this.stencilWriteMask = opts.stencilWriteMask ?? 0xff;
-        this.stencilFail = opts.stencilFail ?? 'keep';
-        this.stencilZFail = opts.stencilZFail ?? 'keep';
-        this.stencilZPass = opts.stencilZPass ?? 'keep';
-        this.stencilBack = opts.stencilBack ?? null;
-    }
-    /**
-     * Incremented whenever the material's node graph configuration changes in a
-     * way that requires a shader recompile.  The renderer includes this in the
-     * RenderObject cache key so that bumping it triggers recompilation on the
-     * next frame.
-     */
-    version = 0;
-    /**
-     * Setting needsUpdate = true increments version, which causes the renderer
-     * to recompile the material's shader on the next frame.
-     */
-    set needsUpdate(value) {
-        if (value === true)
-            this.version++;
-    }
-    /**
-     * Set to true after dispose() is called.
-     * The renderer checks this flag to skip rendering and clean up GPU resources.
-     */
-    disposed = false;
-    /**
-     * Internal callback set by the renderer to clean up GPU resources (e.g., pipelines).
-     * @internal
-     */
-    _onDispose = null;
-    /**
-     * Frees GPU-related resources allocated for this material.
-     * Call this method when the material is no longer used.
-     */
-    dispose() {
-        if (this.disposed)
-            return;
-        this.disposed = true;
-        this._onDispose?.();
-    }
-}
-/** The factory form, matching `createBoxGeometry` and the other resource constructors. */
-function createMaterial(opts) {
-    return new Material(opts);
-}
-
-/**
- * Möller-Trumbore ray-triangle intersection.
- * Returns raw t (distance along ray direction) or null if no hit.
- */
-function rayTriangleIntersection(origin, direction, a, b, c, backfaceCulling) {
-    // edge1 = b - a, edge2 = c - a
-    const e1x = b[0] - a[0], e1y = b[1] - a[1], e1z = b[2] - a[2];
-    const e2x = c[0] - a[0], e2y = c[1] - a[1], e2z = c[2] - a[2];
-    // normal = edge1 × edge2
-    const nx = e1y * e2z - e1z * e2y;
-    const ny = e1z * e2x - e1x * e2z;
-    const nz = e1x * e2y - e1y * e2x;
-    let DdN = direction[0] * nx + direction[1] * ny + direction[2] * nz;
-    let sign;
-    if (DdN > 0) {
-        sign = 1;
-    }
-    else if (DdN < 0) {
-        sign = -1;
-        DdN = -DdN;
-    }
-    else {
-        return null;
-    }
-    const diffx = origin[0] - a[0];
-    const diffy = origin[1] - a[1];
-    const diffz = origin[2] - a[2];
-    // barycentric coord b1
-    const DdQxE2 = sign *
-        (direction[0] * (diffy * e2z - diffz * e2y) +
-            direction[1] * (diffz * e2x - diffx * e2z) +
-            direction[2] * (diffx * e2y - diffy * e2x));
-    if (DdQxE2 < 0)
-        return null;
-    // barycentric coord b2
-    const DdE1xQ = sign *
-        (direction[0] * (e1y * diffz - e1z * diffy) +
-            direction[1] * (e1z * diffx - e1x * diffz) +
-            direction[2] * (e1x * diffy - e1y * diffx));
-    if (DdE1xQ < 0)
-        return null;
-    if (DdQxE2 + DdE1xQ > DdN)
-        return null;
-    // t = raw distance along ray direction
-    const QdN = -sign * (diffx * nx + diffy * ny + diffz * nz);
-    if (QdN < 0)
-        return null;
-    return QdN / DdN;
-}
-/**
- * Slab-based ray-AABB intersection test.
- * Tests intersection within [0, maxT] along the ray.
- */
-function rayIntersectsBox3(origin, direction, aabb, maxT) {
-    let tmin = 0;
-    let tmax = maxT;
-    for (let i = 0; i < 3; i++) {
-        // Pad degenerate slabs to avoid near-miss rejections on thin/flat geometry
-        let lo = aabb[i];
-        let hi = aabb[i + 3];
-        if (hi - lo < 1e-4) {
-            const mid = (lo + hi) * 0.5;
-            lo = mid - 5e-5;
-            hi = mid + 5e-5;
-        }
-        const d = direction[i];
-        if (Math.abs(d) < 1e-10) {
-            if (origin[i] < lo || origin[i] > hi) {
-                return false;
-            }
-        }
-        else {
-            const invD = 1 / d;
-            let t0 = (lo - origin[i]) * invD;
-            let t1 = (hi - origin[i]) * invD;
-            if (invD < 0) {
-                const tmp = t0;
-                t0 = t1;
-                t1 = tmp;
-            }
-            tmin = Math.max(tmin, t0);
-            tmax = Math.min(tmax, t1);
-            if (tmax < tmin)
-                return false;
-        }
-    }
-    return true;
-}
-const _target = [0, 0, 0];
-const _direction = [0, 0, 0];
-class Raycaster {
-    ray;
-    near;
-    far;
-    camera = null;
-    constructor(origin, direction, near = 0, far = Infinity) {
-        this.ray = { origin: [0, 0, 0], direction: [0, 0, 0] };
-        if (origin)
-            copy$5(this.ray.origin, origin);
-        if (direction)
-            copy$5(this.ray.direction, direction);
-        this.near = near;
-        this.far = far;
-    }
-    set(origin, direction) {
-        copy$5(this.ray.origin, origin);
-        copy$5(this.ray.direction, direction);
-    }
-    setFromCamera(coords, camera) {
-        const isOrthographic = camera.isOrthographicCamera === true;
-        if (isOrthographic) {
-            unproject(this.ray.origin, [coords[0], coords[1], 0], camera);
-            const e = camera.matrixWorld;
-            set$1(_direction, -e[8], -e[9], -e[10]);
-            normalize$4(this.ray.direction, _direction);
-        }
-        else {
-            getTranslation(this.ray.origin, camera.matrixWorld);
-            unproject(_target, [coords[0], coords[1], 1], camera);
-            subtract$1(_direction, _target, this.ray.origin);
-            normalize$4(this.ray.direction, _direction);
-        }
-        this.near = camera.near;
-        this.far = camera.far;
-    }
-    intersectObject(object, recursive = true, intersects = []) {
-        intersect(object, this, intersects, recursive);
-        intersects.sort(ascSort);
-        return intersects;
-    }
-    intersectObjects(objects, recursive = true, intersects = []) {
-        for (const object of objects) {
-            intersect(object, this, intersects, recursive);
-        }
-        intersects.sort(ascSort);
-        return intersects;
-    }
-}
-function ascSort(a, b) {
-    return a.distance - b.distance;
-}
-function intersect(object, raycaster, intersects, recursive) {
-    object.raycast(raycaster, intersects);
-    if (recursive) {
-        for (const child of object.children) {
-            intersect(child, raycaster, intersects, true);
-        }
-    }
-}
-// Helpers for Mesh.raycast() - exported for use by Mesh
-const _inverseMatrix = create$3();
-const _localRay = { origin: [0, 0, 0], direction: [0, 0, 0] };
-const _intersectionPoint = [0, 0, 0];
-const _intersectionPointWorld = [0, 0, 0];
-const _vA = [0, 0, 0];
-const _vB = [0, 0, 0];
-const _vC = [0, 0, 0];
-const _edge1 = [0, 0, 0];
-const _edge2 = [0, 0, 0];
-const _faceNormal = [0, 0, 0];
-/**
- * Transform a ray into the local space of an object.
- * Returns the local ray for intersection testing.
- */
-function transformRayToLocalSpace(raycaster, matrixWorld) {
-    invert(_inverseMatrix, matrixWorld);
-    transformMat4$1(_localRay.origin, raycaster.ray.origin, _inverseMatrix);
-    // Transform direction by upper 3x3 of inverse matrix
-    const m = _inverseMatrix;
-    const dx = raycaster.ray.direction[0];
-    const dy = raycaster.ray.direction[1];
-    const dz = raycaster.ray.direction[2];
-    _localRay.direction[0] = m[0] * dx + m[4] * dy + m[8] * dz;
-    _localRay.direction[1] = m[1] * dx + m[5] * dy + m[9] * dz;
-    _localRay.direction[2] = m[2] * dx + m[6] * dy + m[10] * dz;
-    normalize$4(_localRay.direction, _localRay.direction);
-    return _localRay;
-}
-/**
- * Test ray-triangle intersection and add to intersects if hit.
- * Positions are in local space, ray should be in local space.
- */
-function checkTriangleIntersection(object, raycaster, localRay, matrixWorld, a, b, c, positions, indices, uvs, intersects, faceIndex) {
-    const ia = indices ? indices[a] : a;
-    const ib = indices ? indices[b] : b;
-    const ic = indices ? indices[c] : c;
-    fromBuffer(_vA, positions, ia * 3);
-    fromBuffer(_vB, positions, ib * 3);
-    fromBuffer(_vC, positions, ic * 3);
-    const t = rayTriangleIntersection(localRay.origin, localRay.direction, _vA, _vB, _vC);
-    if (t === null)
-        return;
-    // Compute intersection point in local space: origin + direction * t
-    scaleAndAdd(_intersectionPoint, localRay.origin, localRay.direction, t);
-    // Transform to world space
-    transformMat4$1(_intersectionPointWorld, _intersectionPoint, matrixWorld);
-    // Check distance against near/far
-    const distance$1 = distance(raycaster.ray.origin, _intersectionPointWorld);
-    if (distance$1 < raycaster.near || distance$1 > raycaster.far)
-        return;
-    // Compute face normal
-    subtract$1(_edge1, _vB, _vA);
-    subtract$1(_edge2, _vC, _vA);
-    cross$1(_faceNormal, _edge1, _edge2);
-    normalize$4(_faceNormal, _faceNormal);
-    const intersection = {
-        distance: distance$1,
-        point: clone$2(_intersectionPointWorld),
-        object,
-        faceIndex,
-        face: {
-            a: ia,
-            b: ib,
-            c: ic,
-            normal: clone$2(_faceNormal),
-        },
-    };
-    if (uvs) {
-        const uv = computeBarycentricUV(_intersectionPoint, _vA, _vB, _vC, ia, ib, ic, uvs);
-        if (uv)
-            intersection.uv = uv;
-    }
-    intersects.push(intersection);
-}
-/**
- * Compute UV coordinates at intersection point using barycentric interpolation.
- */
-function computeBarycentricUV(point, vA, vB, vC, ia, ib, ic, uvs) {
-    // Compute barycentric coordinates
-    const v0 = [0, 0, 0];
-    const v1 = [0, 0, 0];
-    const v2 = [0, 0, 0];
-    subtract$1(v0, vC, vA);
-    subtract$1(v1, vB, vA);
-    subtract$1(v2, point, vA);
-    const dot00 = dot$1(v0, v0);
-    const dot01 = dot$1(v0, v1);
-    const dot02 = dot$1(v0, v2);
-    const dot11 = dot$1(v1, v1);
-    const dot12 = dot$1(v1, v2);
-    const denom = dot00 * dot11 - dot01 * dot01;
-    if (Math.abs(denom) < 1e-10)
-        return null;
-    const invDenom = 1 / denom;
-    const u = (dot11 * dot02 - dot01 * dot12) * invDenom;
-    const v = (dot00 * dot12 - dot01 * dot02) * invDenom;
-    const w = 1 - u - v;
-    // Interpolate UVs
-    const uvA_u = uvs[ia * 2];
-    const uvA_v = uvs[ia * 2 + 1];
-    const uvB_u = uvs[ib * 2];
-    const uvB_v = uvs[ib * 2 + 1];
-    const uvC_u = uvs[ic * 2];
-    const uvC_v = uvs[ic * 2 + 1];
-    return [w * uvA_u + v * uvB_u + u * uvC_u, w * uvA_v + v * uvB_v + u * uvC_v];
-}
-/** The factory form; set the ray later with `set` or `setFromCamera`. */
-function createRaycaster(origin, direction, near, far) {
-    return new Raycaster(origin, direction, near, far);
-}
-
-// ─── Node id utilities ────────────────────────────────────────────────────────
-let _nodeId = 0;
-// ─── Runtime type lookup tables ───────────────────────────────────────────────
-const VEC_ELEMENT = {
-    vec2f: 'f32',
-    vec3f: 'f32',
-    vec4f: 'f32',
-    vec2i: 'i32',
-    vec3i: 'i32',
-    vec4i: 'i32',
-    vec2u: 'u32',
-    vec3u: 'u32',
-    vec4u: 'u32',
-    vec2h: 'f16',
-    vec3h: 'f16',
-    vec4h: 'f16',
-};
-new Set(Object.keys(VEC_ELEMENT));
-// ─── Stack context ────────────────────────────────────────────────────────────
-let currentStack = null;
-function pushStack(stack) {
-    const prev = currentStack;
-    currentStack = stack;
-    return prev;
-}
-function popStack(prev) {
-    currentStack = prev;
-}
-function addToStack(node) {
-    if (currentStack === null)
-        throw new Error(`[gpucat] Control flow (toVar, If, For, Return, Discard) must be called inside a Fn body. ` +
-            `You are calling it outside of any Fn, wrap your code in Fn([...], () => { ... }).`);
-    currentStack.push(node);
-}
-// ─── Node base class ──────────────────────────────────────────────────────────
-const NodeUpdateType = {
-    NONE: 'none',
-    FRAME: 'frame',
-    RENDER: 'render',
-    OBJECT: 'object',
-};
-/**
- * Numeric discriminant identifying a Node subclass.
- *
- * Used by the builder for fast, tree-shakeable dispatch: checking `node.kind`
- * instead of `node instanceof XNode` avoids referencing the subclass constructor,
- * so unused node types can be dropped by a bundler. Auto-incremented `enum` (not
- * `const enum`, which is unsafe across the package boundary / under isolatedModules)
- * for numeric-compare speed without hand-maintaining member values.
- */
-var NodeKind;
-(function (NodeKind) {
-    // expression / core
-    NodeKind[NodeKind["Literal"] = 0] = "Literal";
-    NodeKind[NodeKind["BinaryOp"] = 1] = "BinaryOp";
-    NodeKind[NodeKind["Call"] = 2] = "Call";
-    NodeKind[NodeKind["Construct"] = 3] = "Construct";
-    NodeKind[NodeKind["Field"] = 4] = "Field";
-    NodeKind[NodeKind["Index"] = 5] = "Index";
-    NodeKind[NodeKind["Array"] = 6] = "Array";
-    NodeKind[NodeKind["Conditional"] = 7] = "Conditional";
-    NodeKind[NodeKind["Builtin"] = 8] = "Builtin";
-    NodeKind[NodeKind["ComputeIndex"] = 9] = "ComputeIndex";
-    NodeKind[NodeKind["Parameter"] = 10] = "Parameter";
-    NodeKind[NodeKind["Struct"] = 11] = "Struct";
-    // variables / statements
-    NodeKind[NodeKind["Let"] = 12] = "Let";
-    NodeKind[NodeKind["Var"] = 13] = "Var";
-    NodeKind[NodeKind["PrivateVar"] = 14] = "PrivateVar";
-    NodeKind[NodeKind["WorkgroupVar"] = 15] = "WorkgroupVar";
-    NodeKind[NodeKind["Assign"] = 16] = "Assign";
-    NodeKind[NodeKind["Return"] = 17] = "Return";
-    NodeKind[NodeKind["Break"] = 18] = "Break";
-    NodeKind[NodeKind["Continue"] = 19] = "Continue";
-    NodeKind[NodeKind["Discard"] = 20] = "Discard";
-    NodeKind[NodeKind["Loop"] = 21] = "Loop";
-    NodeKind[NodeKind["If"] = 22] = "If";
-    NodeKind[NodeKind["Stack"] = 23] = "Stack";
-    // functions
-    NodeKind[NodeKind["Fn"] = 24] = "Fn";
-    NodeKind[NodeKind["WgslFunction"] = 25] = "WgslFunction";
-    NodeKind[NodeKind["Wgsl"] = 26] = "Wgsl";
-    // IO / binding
-    NodeKind[NodeKind["Uniform"] = 27] = "Uniform";
-    NodeKind[NodeKind["Attribute"] = 28] = "Attribute";
-    NodeKind[NodeKind["Varying"] = 29] = "Varying";
-    NodeKind[NodeKind["Storage"] = 30] = "Storage";
-    NodeKind[NodeKind["OutputStruct"] = 31] = "OutputStruct";
-    NodeKind[NodeKind["MRT"] = 32] = "MRT";
-    // textures
-    NodeKind[NodeKind["TextureBinding"] = 33] = "TextureBinding";
-    NodeKind[NodeKind["StorageTextureBinding"] = 34] = "StorageTextureBinding";
-    NodeKind[NodeKind["Sampler"] = 35] = "Sampler";
-    NodeKind[NodeKind["Texture"] = 36] = "Texture";
-    NodeKind[NodeKind["CubeTexture"] = 37] = "CubeTexture";
-    NodeKind[NodeKind["DepthTexture"] = 38] = "DepthTexture";
-    NodeKind[NodeKind["ArrayTexture"] = 39] = "ArrayTexture";
-    // display
-    NodeKind[NodeKind["RenderTexture"] = 40] = "RenderTexture";
-    // misc
-    NodeKind[NodeKind["Inspector"] = 41] = "Inspector";
-    NodeKind[NodeKind["SubBuild"] = 42] = "SubBuild";
-    // base sentinel (the bare `Node` void placeholder; subclasses always override)
-    NodeKind[NodeKind["Node"] = 43] = "Node";
-})(NodeKind || (NodeKind = {}));
-class Node {
-    id;
-    type;
-    /** Numeric discriminant for fast, tree-shakeable dispatch. Subclasses override. */
-    kind = NodeKind.Node;
-    _beforeNodes = null;
-    updateType = NodeUpdateType.NONE;
-    updateBeforeType = NodeUpdateType.NONE;
-    updateAfterType = NodeUpdateType.NONE;
-    global = false;
-    parents = false;
-    isNode = true;
-    constructor(type) {
-        this.id = _nodeId++;
-        this.type = type;
-    }
-    onUpdate(callback, updateType) {
-        this.updateType = updateType;
-        this.update = callback;
-        return this;
-    }
-    onRenderUpdate(callback) {
-        return this.onUpdate(callback, NodeUpdateType.RENDER);
-    }
-    onObjectUpdate(callback) {
-        return this.onUpdate(callback, NodeUpdateType.OBJECT);
-    }
-    onFrameUpdate(callback) {
-        return this.onUpdate(callback, NodeUpdateType.FRAME);
-    }
-    onBeforeUpdate(callback, updateType) {
-        this.updateBeforeType = updateType;
-        this.updateBefore = callback;
-        return this;
-    }
-    onBeforeRender(callback) {
-        return this.onBeforeUpdate(callback, NodeUpdateType.RENDER);
-    }
-    onBeforeObject(callback) {
-        return this.onBeforeUpdate(callback, NodeUpdateType.OBJECT);
-    }
-    onBeforeFrame(callback) {
-        return this.onBeforeUpdate(callback, NodeUpdateType.FRAME);
-    }
-    onAfterUpdate(callback, updateType) {
-        this.updateAfterType = updateType;
-        this.updateAfter = callback;
-        return this;
-    }
-    onAfterRender(callback) {
-        return this.onAfterUpdate(callback, NodeUpdateType.RENDER);
-    }
-    onAfterObject(callback) {
-        return this.onAfterUpdate(callback, NodeUpdateType.OBJECT);
-    }
-    onAfterFrame(callback) {
-        return this.onAfterUpdate(callback, NodeUpdateType.FRAME);
-    }
-    before(node) {
-        if (this._beforeNodes === null)
-            this._beforeNodes = [];
-        this._beforeNodes.push(node);
-        return this;
-    }
-    // ── Type conversions ──────────────────────────────────────────────────────
-    // Length-preserving: converting a vecN keeps N (a vec3i → vec3f via `vec3f(...)`), so we never emit
-    // the illegal scalar cast `f32(vec3i)`. Scalars convert with the scalar constructor as before.
-    toF32() {
-        const t = numericDescOf(this.type, 'f32');
-        return new CallNode(t, t.wgslType, [this]);
-    }
-    toF16() {
-        const t = numericDescOf(this.type, 'f16');
-        return new CallNode(t, t.wgslType, [this]);
-    }
-    toU32() {
-        const t = numericDescOf(this.type, 'u32');
-        return new CallNode(t, t.wgslType, [this]);
-    }
-    toI32() {
-        const t = numericDescOf(this.type, 'i32');
-        return new CallNode(t, t.wgslType, [this]);
-    }
-    // ── Field access ──────────────────────────────────────────────────────────
-    field(name) {
-        return field(this, name);
-    }
-    fields() {
-        return fields(this);
-    }
-    // ── Comparisons ───────────────────────────────────────────────────────────
-    greaterThan(b) {
-        return greaterThan(this, b);
-    }
-    lessThan(b) {
-        return lessThan(this, b);
-    }
-    greaterThanEqual(b) {
-        return greaterThanEqual(this, b);
-    }
-    lessThanEqual(b) {
-        return lessThanEqual(this, b);
-    }
-    equal(b) {
-        return equal(this, b);
-    }
-    notEqual(b) {
-        return notEqual(this, b);
-    }
-    /** `select(falseVal, trueVal, this)`, use `this` node as the condition. */
-    select(ifTrue, ifFalse) {
-        return new ConditionalNode(this, ifTrue, ifFalse);
-    }
-    any() {
-        return any(this);
-    }
-    all() {
-        return all(this);
-    }
-    // ── Math ──────────────────────────────────────────────────────────────────
-    add(b) {
-        return add$1(this, b);
-    }
-    sub(b) {
-        return sub(this, b);
-    }
-    div(b) {
-        return div(this, b);
-    }
-    mul(b) {
-        return mul(this, b);
-    }
-    abs() {
-        return abs(this);
-    }
-    floor() {
-        return floor(this);
-    }
-    ceil() {
-        return ceil(this);
-    }
-    fract() {
-        return fract(this);
-    }
-    sqrt() {
-        return sqrt(this);
-    }
-    sin() {
-        return sin(this);
-    }
-    cos() {
-        return cos(this);
-    }
-    negate() {
-        return negate(this);
-    }
-    normalize() {
-        return normalize$1(this);
-    }
-    length() {
-        return length(this);
-    }
-    dot(b) {
-        return dot(this, b);
-    }
-    cross(b) {
-        return cross(this, b);
-    }
-    pow(b) {
-        return pow(this, b);
-    }
-    max(b) {
-        return max(this, b);
-    }
-    min(b) {
-        return min(this, b);
-    }
-    clamp(lo, hi) {
-        return clamp$1(this, lo, hi);
-    }
-    mix(b, t) {
-        return mix(this, b, t);
-    }
-    step(x) {
-        return step(this, x);
-    }
-    smoothstep(hi, x) {
-        return smoothstep(this, hi, x);
-    }
-    dpdx() {
-        return dpdx(this);
-    }
-    dpdy() {
-        return dpdy(this);
-    }
-    fwidth() {
-        return fwidth(this);
-    }
-    dpdxCoarse() {
-        return dpdxCoarse(this);
-    }
-    dpdyCoarse() {
-        return dpdyCoarse(this);
-    }
-    fwidthCoarse() {
-        return fwidthCoarse(this);
-    }
-    dpdxFine() {
-        return dpdxFine(this);
-    }
-    dpdyFine() {
-        return dpdyFine(this);
-    }
-    fwidthFine() {
-        return fwidthFine(this);
-    }
-    // ── Element access ────────────────────────────────────────────────────────
-    element(idx) {
-        const t = this.type;
-        if (t.type === 'array' || t.type === 'sized-array') {
-            return new IndexNode(t.element, this, idx);
-        }
-        if (isMatDesc(t)) {
-            return new IndexNode(matColumnDesc(t), this, idx);
-        }
-        if (isVecDesc(t)) {
-            return new IndexNode(vecElementDescOrSelf(t), this, idx);
-        }
-        throw new Error(`[gpucat] Cannot index into type '${t.wgslType}', only array, matrix, and vector types support .element().`);
-    }
-    // ── Lang ──────────────────────────────────────────────────────────────────
-    assign(value) {
-        addToStack(new AssignNode(this, value));
-    }
-    toVar(label) {
-        return makeVar(this, label);
-    }
-    toConst(label) {
-        return makeLet(this, label);
-    }
-    addAssign(v) {
-        addToStack(new AssignNode(this, add$1(this, v)));
-    }
-    subAssign(v) {
-        addToStack(new AssignNode(this, sub(this, v)));
-    }
-    mulAssign(v) {
-        addToStack(new AssignNode(this, mul(this, v)));
-    }
-    divAssign(v) {
-        addToStack(new AssignNode(this, div(this, v)));
-    }
-    sign() {
-        return sign(this);
-    }
-    mod(b) {
-        return mod(this, b);
-    }
-    oneMinus() {
-        return sub(f32(1), this);
-    }
-    or(b) {
-        return or(this, b);
-    }
-    and(b) {
-        return and(this, b);
-    }
-    not() {
-        return not(this);
-    }
-    bitwiseAnd(b) {
-        return bitwiseAnd(this, b);
-    }
-    bitwiseOr(b) {
-        return bitwiseOr(this, b);
-    }
-    bitwiseXor(b) {
-        return bitwiseXor(this, b);
-    }
-    shiftLeft(b) {
-        return shiftLeft(this, b);
-    }
-    shiftRight(b) {
-        return shiftRight(this, b);
-    }
-    transpose() {
-        return new CallNode(this.type, 'transpose', [this]);
-    }
-    // ── Swizzles ──────────────────────────────────────────────────────────────
-    get x() {
-        return new FieldNode(vecElementDescOrSelf(this.type), this, 'x');
-    }
-    get y() {
-        return new FieldNode(vecElementDescOrSelf(this.type), this, 'y');
-    }
-    get z() {
-        return new FieldNode(vecElementDescOrSelf(this.type), this, 'z');
-    }
-    get w() {
-        return new FieldNode(vecElementDescOrSelf(this.type), this, 'w');
-    }
-    get r() {
-        return new FieldNode(vecElementDescOrSelf(this.type), this, 'x');
-    }
-    get g() {
-        return new FieldNode(vecElementDescOrSelf(this.type), this, 'y');
-    }
-    get b() {
-        return new FieldNode(vecElementDescOrSelf(this.type), this, 'z');
-    }
-    get a() {
-        return new FieldNode(vecElementDescOrSelf(this.type), this, 'w');
-    }
-    get xx() {
-        return new FieldNode(vec2DescOf(this.type), this, 'xx');
-    }
-    get xy() {
-        return new FieldNode(vec2DescOf(this.type), this, 'xy');
-    }
-    get xz() {
-        return new FieldNode(vec2DescOf(this.type), this, 'xz');
-    }
-    get xw() {
-        return new FieldNode(vec2DescOf(this.type), this, 'xw');
-    }
-    get yx() {
-        return new FieldNode(vec2DescOf(this.type), this, 'yx');
-    }
-    get yy() {
-        return new FieldNode(vec2DescOf(this.type), this, 'yy');
-    }
-    get yz() {
-        return new FieldNode(vec2DescOf(this.type), this, 'yz');
-    }
-    get yw() {
-        return new FieldNode(vec2DescOf(this.type), this, 'yw');
-    }
-    get zx() {
-        return new FieldNode(vec2DescOf(this.type), this, 'zx');
-    }
-    get zy() {
-        return new FieldNode(vec2DescOf(this.type), this, 'zy');
-    }
-    get zz() {
-        return new FieldNode(vec2DescOf(this.type), this, 'zz');
-    }
-    get zw() {
-        return new FieldNode(vec2DescOf(this.type), this, 'zw');
-    }
-    get wx() {
-        return new FieldNode(vec2DescOf(this.type), this, 'wx');
-    }
-    get wy() {
-        return new FieldNode(vec2DescOf(this.type), this, 'wy');
-    }
-    get wz() {
-        return new FieldNode(vec2DescOf(this.type), this, 'wz');
-    }
-    get ww() {
-        return new FieldNode(vec2DescOf(this.type), this, 'ww');
-    }
-    get rr() {
-        return new FieldNode(vec2DescOf(this.type), this, 'xx');
-    }
-    get rg() {
-        return new FieldNode(vec2DescOf(this.type), this, 'xy');
-    }
-    get rb() {
-        return new FieldNode(vec2DescOf(this.type), this, 'xz');
-    }
-    get ra() {
-        return new FieldNode(vec2DescOf(this.type), this, 'xw');
-    }
-    get gr() {
-        return new FieldNode(vec2DescOf(this.type), this, 'yx');
-    }
-    get gg() {
-        return new FieldNode(vec2DescOf(this.type), this, 'yy');
-    }
-    get gb() {
-        return new FieldNode(vec2DescOf(this.type), this, 'yz');
-    }
-    get ga() {
-        return new FieldNode(vec2DescOf(this.type), this, 'yw');
-    }
-    get br() {
-        return new FieldNode(vec2DescOf(this.type), this, 'zx');
-    }
-    get bg() {
-        return new FieldNode(vec2DescOf(this.type), this, 'zy');
-    }
-    get bb() {
-        return new FieldNode(vec2DescOf(this.type), this, 'zz');
-    }
-    get ba() {
-        return new FieldNode(vec2DescOf(this.type), this, 'zw');
-    }
-    get ar() {
-        return new FieldNode(vec2DescOf(this.type), this, 'wx');
-    }
-    get ag() {
-        return new FieldNode(vec2DescOf(this.type), this, 'wy');
-    }
-    get ab() {
-        return new FieldNode(vec2DescOf(this.type), this, 'wz');
-    }
-    get aa() {
-        return new FieldNode(vec2DescOf(this.type), this, 'ww');
-    }
-    get xxx() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xxx');
-    }
-    get xxy() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xxy');
-    }
-    get xxz() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xxz');
-    }
-    get xxw() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xxw');
-    }
-    get xyx() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xyx');
-    }
-    get xyy() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xyy');
-    }
-    get xyz() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xyz');
-    }
-    get xyw() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xyw');
-    }
-    get xzx() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xzx');
-    }
-    get xzy() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xzy');
-    }
-    get xzz() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xzz');
-    }
-    get xzw() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xzw');
-    }
-    get xwx() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xwx');
-    }
-    get xwy() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xwy');
-    }
-    get xwz() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xwz');
-    }
-    get xww() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xww');
-    }
-    get yxx() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yxx');
-    }
-    get yxy() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yxy');
-    }
-    get yxz() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yxz');
-    }
-    get yxw() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yxw');
-    }
-    get yyx() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yyx');
-    }
-    get yyy() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yyy');
-    }
-    get yyz() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yyz');
-    }
-    get yyw() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yyw');
-    }
-    get yzx() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yzx');
-    }
-    get yzy() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yzy');
-    }
-    get yzz() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yzz');
-    }
-    get yzw() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yzw');
-    }
-    get ywx() {
-        return new FieldNode(vec3DescOf(this.type), this, 'ywx');
-    }
-    get ywy() {
-        return new FieldNode(vec3DescOf(this.type), this, 'ywy');
-    }
-    get ywz() {
-        return new FieldNode(vec3DescOf(this.type), this, 'ywz');
-    }
-    get yww() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yww');
-    }
-    get zxx() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zxx');
-    }
-    get zxy() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zxy');
-    }
-    get zxz() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zxz');
-    }
-    get zxw() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zxw');
-    }
-    get zyx() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zyx');
-    }
-    get zyy() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zyy');
-    }
-    get zyz() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zyz');
-    }
-    get zyw() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zyw');
-    }
-    get zzx() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zzx');
-    }
-    get zzy() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zzy');
-    }
-    get zzz() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zzz');
-    }
-    get zzw() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zzw');
-    }
-    get zwx() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zwx');
-    }
-    get zwy() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zwy');
-    }
-    get zwz() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zwz');
-    }
-    get zww() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zww');
-    }
-    get wxx() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wxx');
-    }
-    get wxy() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wxy');
-    }
-    get wxz() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wxz');
-    }
-    get wxw() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wxw');
-    }
-    get wyx() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wyx');
-    }
-    get wyy() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wyy');
-    }
-    get wyz() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wyz');
-    }
-    get wyw() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wyw');
-    }
-    get wzx() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wzx');
-    }
-    get wzy() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wzy');
-    }
-    get wzz() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wzz');
-    }
-    get wzw() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wzw');
-    }
-    get wwx() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wwx');
-    }
-    get wwy() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wwy');
-    }
-    get wwz() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wwz');
-    }
-    get www() {
-        return new FieldNode(vec3DescOf(this.type), this, 'www');
-    }
-    get rrr() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xxx');
-    }
-    get rrg() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xxy');
-    }
-    get rrb() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xxz');
-    }
-    get rra() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xxw');
-    }
-    get rgr() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xyx');
-    }
-    get rgg() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xyy');
-    }
-    get rgb() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xyz');
-    }
-    get rga() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xyw');
-    }
-    get rbr() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xzx');
-    }
-    get rbg() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xzy');
-    }
-    get rbb() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xzz');
-    }
-    get rba() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xzw');
-    }
-    get rar() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xwx');
-    }
-    get rag() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xwy');
-    }
-    get rab() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xwz');
-    }
-    get raa() {
-        return new FieldNode(vec3DescOf(this.type), this, 'xww');
-    }
-    get grr() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yxx');
-    }
-    get grg() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yxy');
-    }
-    get grb() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yxz');
-    }
-    get gra() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yxw');
-    }
-    get ggr() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yyx');
-    }
-    get ggg() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yyy');
-    }
-    get ggb() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yyz');
-    }
-    get gga() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yyw');
-    }
-    get gbr() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yzx');
-    }
-    get gbg() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yzy');
-    }
-    get gbb() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yzz');
-    }
-    get gba() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yzw');
-    }
-    get gar() {
-        return new FieldNode(vec3DescOf(this.type), this, 'ywx');
-    }
-    get gag() {
-        return new FieldNode(vec3DescOf(this.type), this, 'ywy');
-    }
-    get gab() {
-        return new FieldNode(vec3DescOf(this.type), this, 'ywz');
-    }
-    get gaa() {
-        return new FieldNode(vec3DescOf(this.type), this, 'yww');
-    }
-    get brr() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zxx');
-    }
-    get brg() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zxy');
-    }
-    get brb() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zxz');
-    }
-    get bra() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zxw');
-    }
-    get bgr() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zyx');
-    }
-    get bgg() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zyy');
-    }
-    get bgb() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zyz');
-    }
-    get bga() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zyw');
-    }
-    get bbr() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zzx');
-    }
-    get bbg() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zzy');
-    }
-    get bbb() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zzz');
-    }
-    get bba() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zzw');
-    }
-    get bar() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zwx');
-    }
-    get bag() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zwy');
-    }
-    get bab() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zwz');
-    }
-    get baa() {
-        return new FieldNode(vec3DescOf(this.type), this, 'zww');
-    }
-    get arr() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wxx');
-    }
-    get arg() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wxy');
-    }
-    get arb() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wxz');
-    }
-    get ara() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wxw');
-    }
-    get agr() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wyx');
-    }
-    get agg() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wyy');
-    }
-    get agb() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wyz');
-    }
-    get aga() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wyw');
-    }
-    get abr() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wzx');
-    }
-    get abg() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wzy');
-    }
-    get abb() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wzz');
-    }
-    get aba() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wzw');
-    }
-    get aar() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wwx');
-    }
-    get aag() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wwy');
-    }
-    get aab() {
-        return new FieldNode(vec3DescOf(this.type), this, 'wwz');
-    }
-    get aaa() {
-        return new FieldNode(vec3DescOf(this.type), this, 'www');
-    }
-    get xyzw() {
-        return new FieldNode(vec4DescOf(this.type), this, 'xyzw');
-    }
-    get xywz() {
-        return new FieldNode(vec4DescOf(this.type), this, 'xywz');
-    }
-    get xzyw() {
-        return new FieldNode(vec4DescOf(this.type), this, 'xzyw');
-    }
-    get xzwy() {
-        return new FieldNode(vec4DescOf(this.type), this, 'xzwy');
-    }
-    get xwyz() {
-        return new FieldNode(vec4DescOf(this.type), this, 'xwyz');
-    }
-    get xwzy() {
-        return new FieldNode(vec4DescOf(this.type), this, 'xwzy');
-    }
-    get yxzw() {
-        return new FieldNode(vec4DescOf(this.type), this, 'yxzw');
-    }
-    get yxwz() {
-        return new FieldNode(vec4DescOf(this.type), this, 'yxwz');
-    }
-    get yzxw() {
-        return new FieldNode(vec4DescOf(this.type), this, 'yzxw');
-    }
-    get yzwx() {
-        return new FieldNode(vec4DescOf(this.type), this, 'yzwx');
-    }
-    get ywxz() {
-        return new FieldNode(vec4DescOf(this.type), this, 'ywxz');
-    }
-    get ywzx() {
-        return new FieldNode(vec4DescOf(this.type), this, 'ywzx');
-    }
-    get zxyw() {
-        return new FieldNode(vec4DescOf(this.type), this, 'zxyw');
-    }
-    get zxwy() {
-        return new FieldNode(vec4DescOf(this.type), this, 'zxwy');
-    }
-    get zyxw() {
-        return new FieldNode(vec4DescOf(this.type), this, 'zyxw');
-    }
-    get zywx() {
-        return new FieldNode(vec4DescOf(this.type), this, 'zywx');
-    }
-    get zwxy() {
-        return new FieldNode(vec4DescOf(this.type), this, 'zwxy');
-    }
-    get zwyx() {
-        return new FieldNode(vec4DescOf(this.type), this, 'zwyx');
-    }
-    get wxyz() {
-        return new FieldNode(vec4DescOf(this.type), this, 'wxyz');
-    }
-    get wxzy() {
-        return new FieldNode(vec4DescOf(this.type), this, 'wxzy');
-    }
-    get wyxz() {
-        return new FieldNode(vec4DescOf(this.type), this, 'wyxz');
-    }
-    get wyzx() {
-        return new FieldNode(vec4DescOf(this.type), this, 'wyzx');
-    }
-    get wzxy() {
-        return new FieldNode(vec4DescOf(this.type), this, 'wzxy');
-    }
-    get wzyx() {
-        return new FieldNode(vec4DescOf(this.type), this, 'wzyx');
-    }
-    get rgba() {
-        return new FieldNode(vec4DescOf(this.type), this, 'xyzw');
-    }
-    get rgab() {
-        return new FieldNode(vec4DescOf(this.type), this, 'xywz');
-    }
-    get rbga() {
-        return new FieldNode(vec4DescOf(this.type), this, 'xzyw');
-    }
-    get rbag() {
-        return new FieldNode(vec4DescOf(this.type), this, 'xzwy');
-    }
-    get ragb() {
-        return new FieldNode(vec4DescOf(this.type), this, 'xwyz');
-    }
-    get rabg() {
-        return new FieldNode(vec4DescOf(this.type), this, 'xwzy');
-    }
-    get grba() {
-        return new FieldNode(vec4DescOf(this.type), this, 'yxzw');
-    }
-    get grab() {
-        return new FieldNode(vec4DescOf(this.type), this, 'yxwz');
-    }
-    get gbra() {
-        return new FieldNode(vec4DescOf(this.type), this, 'yzxw');
-    }
-    get gbar() {
-        return new FieldNode(vec4DescOf(this.type), this, 'yzwx');
-    }
-    get garb() {
-        return new FieldNode(vec4DescOf(this.type), this, 'ywxz');
-    }
-    get gabr() {
-        return new FieldNode(vec4DescOf(this.type), this, 'ywzx');
-    }
-    get brga() {
-        return new FieldNode(vec4DescOf(this.type), this, 'zxyw');
-    }
-    get brag() {
-        return new FieldNode(vec4DescOf(this.type), this, 'zxwy');
-    }
-    get bgra() {
-        return new FieldNode(vec4DescOf(this.type), this, 'zyxw');
-    }
-    get bgar() {
-        return new FieldNode(vec4DescOf(this.type), this, 'zywx');
-    }
-    get barg() {
-        return new FieldNode(vec4DescOf(this.type), this, 'zwxy');
-    }
-    get bagr() {
-        return new FieldNode(vec4DescOf(this.type), this, 'zwyx');
-    }
-    get argb() {
-        return new FieldNode(vec4DescOf(this.type), this, 'wxyz');
-    }
-    get arbg() {
-        return new FieldNode(vec4DescOf(this.type), this, 'wxzy');
-    }
-    get agrb() {
-        return new FieldNode(vec4DescOf(this.type), this, 'wyxz');
-    }
-    get agbr() {
-        return new FieldNode(vec4DescOf(this.type), this, 'wyzx');
-    }
-    get abrg() {
-        return new FieldNode(vec4DescOf(this.type), this, 'wzxy');
-    }
-    get abgr() {
-        return new FieldNode(vec4DescOf(this.type), this, 'wzyx');
-    }
-    // ── Inspector ─────────────────────────────────────────────────────────────
-    inspect(name) {
-        const inspector = new InspectorNode(this, name);
-        this.before(inspector);
-        return this;
-    }
-}
-function isNode(v) {
-    return v instanceof Node;
-}
-/**
- * Creates an empty lifecycle node.
- * Useful for attaching update callbacks via .onFrameUpdate(), .onRenderUpdate(), etc.
- * Attach to other nodes via .before() to ensure the lifecycle runs.
- *
- * @example
- * const updater = node().onFrameUpdate(() => {
- *     myUniform.value = computeValue();
- * });
- * return myOutputNode.before(updater);
- */
-function node() {
-    return new Node(Void);
-}
-// ─── InspectorNode ────────────────────────────────────────────────────────────
-/**
- * InspectorNode wraps a node and registers it with the inspector every frame.
- *
- * Instead of flagging nodes with _isInspectable and manually iterating in the renderer,
- * InspectorNode leverages the existing node update system (updateType = FRAME) to
- * automatically call inspector.inspect() every frame.
- *
- * Key properties:
- * - `wrappedNode`: The original node being inspected
- * - `inspectorName`: Display name for the inspector UI
- * - `updateType = FRAME`: Ensures update() is called once per frame
- *
- * Usage:
- *   const albedo = texture('texture_2d<f32>', 'albedo').inspect('Albedo');
- *
- * The .inspect() method on Node creates an InspectorNode wrapper and attaches it
- * via node.before(), so it gets built and updated alongside the original node.
- */
-class InspectorNode extends Node {
-    kind = NodeKind.Inspector;
-    /** The original node being inspected. */
-    wrappedNode;
-    /** Display name for the inspector UI. */
-    inspectorName;
-    constructor(node, name) {
-        super(node.type);
-        this.wrappedNode = node;
-        this.inspectorName = name ?? String(node.id);
-        // Key: use the FRAME update type so update() is called every frame
-        this.updateType = NodeUpdateType.FRAME;
-    }
-    /**
-     * Called by the node update system every frame.
-     * Registers this node with the renderer's inspector.
-     */
-    update = (frame) => {
-        const inspector = frame.renderer.inspector;
-        if (inspector)
-            inspector.inspect(this);
-    };
-    /**
-     * Returns the display name for the inspector.
-     */
-    getName() {
-        return this.inspectorName;
-    }
-}
-// ─── Expr nodes ───────────────────────────────────────────────────────────────
-class LiteralNode extends Node {
-    value;
-    kind = NodeKind.Literal;
-    constructor(type, value) {
-        super(type);
-        this.value = value;
-    }
-}
-class LetNode extends Node {
-    varName;
-    init;
-    kind = NodeKind.Let;
-    constructor(type, varName, init) {
-        super(type);
-        this.varName = varName;
-        this.init = init;
-    }
-}
-class VarNode extends Node {
-    varName;
-    init;
-    kind = NodeKind.Var;
-    constructor(type, varName, init) {
-        super(type);
-        this.varName = varName;
-        this.init = init;
-    }
-}
-// ─── Module-scope variables ───────────────────────────────────────────────────
-/**
- * Module-scope private variable: `var<private> name: T [= init];`
- *
- * Private variables are per-invocation storage at module scope.
- * Unlike function-scope variables, they persist across function calls
- * within the same shader invocation.
- *
- * @example
- * const counter = PrivateVar('counter', d.u32);
- * // → var<private> counter: u32;
- *
- * const gravity = PrivateVar('gravity', vec3f(0, -9.8, 0));
- * // → var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);
- */
-class PrivateVarNode extends Node {
-    varName;
-    init;
-    kind = NodeKind.PrivateVar;
-    constructor(type, varName, init) {
-        super(type);
-        this.varName = varName;
-        this.init = init;
-    }
-}
-/**
- * Module-scope workgroup variable: `var<workgroup> name: T;`
- *
- * Workgroup variables are shared across all invocations in a workgroup.
- * Only valid in compute shaders. Cannot have an initializer.
- *
- * @example
- * const shared = WorkgroupVar('sharedData', d.array(d.f32, 256));
- * // → var<workgroup> sharedData: array<f32, 256>;
- */
-class WorkgroupVarNode extends Node {
-    varName;
-    kind = NodeKind.WorkgroupVar;
-    constructor(type, varName) {
-        super(type);
-        this.varName = varName;
-    }
-}
-class AssignNode extends Node {
-    target;
-    value;
-    kind = NodeKind.Assign;
-    constructor(target, value) {
-        super(Void);
-        this.target = target;
-        this.value = value;
-    }
-}
-class BinaryOpNode extends Node {
-    op;
-    left;
-    right;
-    kind = NodeKind.BinaryOp;
-    constructor(op, type, left, right) {
-        super(type);
-        this.op = op;
-        this.left = left;
-        this.right = right;
-    }
-}
-class CallNode extends Node {
-    fn;
-    args;
-    kind = NodeKind.Call;
-    fnNode; // eslint-disable-line @typescript-eslint/no-explicit-any
-    wgslFnNode;
-    constructor(type, fn, args, fnNode, wgslFnNode) {
-        super(type);
-        this.fn = fn;
-        this.args = args;
-        this.fnNode = fnNode;
-        this.wgslFnNode = wgslFnNode;
-    }
-}
-class ConstructNode extends Node {
-    args;
-    kind = NodeKind.Construct;
-    constructor(type, args) {
-        super(type);
-        this.args = args;
-    }
-}
-class FieldNode extends Node {
-    object;
-    fieldName;
-    kind = NodeKind.Field;
-    constructor(type, object, fieldName) {
-        super(type);
-        this.object = object;
-        this.fieldName = fieldName;
-    }
-}
-/**
- * Represents an inline fixed-size array expression in WGSL.
- *
- * Use `array([e0, e1, e2])` to construct, then `.element(idx)` to index into it.
- * This corresponds to WGSL's array value constructor expression.
- */
-class ArrayNode extends Node {
-    kind = NodeKind.Array;
-    elements;
-    constructor(elementType, elements) {
-        const sizedArrayDesc = {
-            type: 'sized-array',
-            wgslType: `array<${elementType.wgslType}, ${elements.length}>`,
-            element: elementType,
-            length: elements.length,
-        };
-        super(sizedArrayDesc);
-        this.elements = elements;
-    }
-}
-class IndexNode extends Node {
-    array;
-    index;
-    kind = NodeKind.Index;
-    constructor(type, array, index) {
-        super(type);
-        this.array = array;
-        this.index = index;
-    }
-}
-// ── Standalone expr functions ─────────────────────────────────────────────────
-/** Type-safe field access for structs - infers the field type from the struct descriptor */
-const field = (node, name) => {
-    const structDesc = node.type;
-    const fieldType = structDesc.fields[name];
-    return new FieldNode(fieldType, node, name);
-};
-const index = (array, idx) => {
-    const t = array.type;
-    let elementDesc;
-    if (t.type === 'array' || t.type === 'sized-array') {
-        elementDesc = t.element;
-    }
-    else if (isMatDesc(t)) {
-        elementDesc = matColumnDesc(t);
-    }
-    else if (isVecDesc(t)) {
-        elementDesc = vecElementDescOrSelf(t);
-    }
-    else {
-        throw new Error(`[gpucat] Cannot index into type '${t.wgslType}', only array, matrix, and vector types support indexing.`);
-    }
-    return new IndexNode(elementDesc, array, idx);
-};
-function fields(node) {
-    const desc = node.type;
-    if (!desc || typeof desc !== 'object' || !('fields' in desc)) {
-        throw new Error('[gpucat] fields() requires a struct-typed node');
-    }
-    const structFields = desc.fields;
-    const result = { $node: node };
-    for (const [fieldName, fieldDesc] of Object.entries(structFields)) {
-        result[fieldName] = new FieldNode(fieldDesc, node, fieldName);
-    }
-    return result;
-}
-/** Reinterpret a u32 or i32 bit pattern as f32. WGSL: `bitcast<f32>(x)`. */
-const bitcastF32 = (node) => new CallNode(f32$1, 'bitcast<f32>', [node]);
-/** Reinterpret an f32 or i32 bit pattern as u32. WGSL: `bitcast<u32>(x)`. */
-const bitcastU32 = (node) => new CallNode(u32$1, 'bitcast<u32>', [node]);
-/** Reinterpret an f32 or u32 bit pattern as i32. WGSL: `bitcast<i32>(x)`. */
-const bitcastI32 = (node) => new CallNode(i32$1, 'bitcast<i32>', [node]);
-const greaterThan = (a, b) => new BinaryOpNode('>', compareResultDesc(a.type), a, b);
-const lessThan = (a, b) => new BinaryOpNode('<', compareResultDesc(a.type), a, b);
-const greaterThanEqual = (a, b) => new BinaryOpNode('>=', compareResultDesc(a.type), a, b);
-const lessThanEqual = (a, b) => new BinaryOpNode('<=', compareResultDesc(a.type), a, b);
-const equal = (a, b) => new BinaryOpNode('==', compareResultDesc(a.type), a, b);
-const notEqual = (a, b) => new BinaryOpNode('!=', compareResultDesc(a.type), a, b);
-const any = (a) => new CallNode(bool$1, 'any', [a]);
-const all = (a) => new CallNode(bool$1, 'all', [a]);
-/**
- * Create an inline fixed-size array of nodes, emitted as `array<E, N>(e0, e1, ..., eN-1)`.
- * All elements must share the same WGSL type.
- * Use `.element(idx)` to index into the result.
- *
- * @example
- * const weights = array([w0, w1, w2]);
- * const w = weights.element(gx);
- */
-function array(elements) {
-    return new ArrayNode(elements[0].type, elements);
-}
-function f32(v = 0) {
-    if (isNode(v))
-        return new CallNode(f32$1, 'f32', [v]);
-    return new LiteralNode(f32$1, v);
-}
-function f16(v = 0) {
-    if (isNode(v))
-        return new CallNode(f16$1, 'f16', [v]);
-    return new LiteralNode(f16$1, v);
-}
-function i32(v = 0) {
-    if (isNode(v))
-        return new CallNode(i32$1, 'i32', [v]);
-    return new LiteralNode(i32$1, Math.trunc(v));
-}
-function u32(v = 0) {
-    if (isNode(v))
-        return new CallNode(u32$1, 'u32', [v]);
-    return new LiteralNode(u32$1, Math.trunc(v));
-}
-const bool = (v) => new LiteralNode(bool$1, v ? 1 : 0);
-function wrapScalar(v, elemType) {
-    if (isNode(v))
-        return v;
-    if (elemType === 'bool')
-        return new LiteralNode(bool$1, v ? 1 : 0);
-    if (elemType === 'i32')
-        return new LiteralNode(i32$1, Math.trunc(v));
-    if (elemType === 'u32')
-        return new LiteralNode(u32$1, Math.trunc(v));
-    if (elemType === 'f16')
-        return new LiteralNode(f16$1, v);
-    return new LiteralNode(f32$1, v);
-}
-function elemOf(type) {
-    if (type.endsWith('h'))
-        return 'f16';
-    if (type.endsWith('f'))
-        return 'f32';
-    if (type.endsWith('i'))
-        return 'i32';
-    if (type.endsWith('u'))
-        return 'u32';
-    return 'bool';
-}
-function makeVec2(desc) {
-    const e = elemOf(desc.wgslType);
-    function ctor(a, b) {
-        if (b === undefined)
-            return new ConstructNode(desc, [wrapScalar(a, e)]);
-        return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e)]);
-    }
-    return ctor;
-}
-function makeVec3(desc) {
-    const e = elemOf(desc.wgslType);
-    function ctor(a, b, c) {
-        if (b === undefined)
-            return new ConstructNode(desc, [wrapScalar(a, e)]);
-        if (c === undefined)
-            return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e)]);
-        return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e)]);
-    }
-    return ctor;
-}
-function makeVec4(desc) {
-    const e = elemOf(desc.wgslType);
-    function ctor(a, b, c, dVal) {
-        if (b === undefined)
-            return new ConstructNode(desc, [wrapScalar(a, e)]);
-        if (c === undefined)
-            return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e)]);
-        if (dVal === undefined)
-            return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e)]);
-        return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e), wrapScalar(dVal, e)]);
-    }
-    return ctor;
-}
-const vec2 = makeVec2(vec2f$1);
-const vec3 = makeVec3(vec3f$1);
-const vec4 = makeVec4(vec4f$1);
-const vec2f = makeVec2(vec2f$1);
-const vec3f = makeVec3(vec3f$1);
-const vec4f = makeVec4(vec4f$1);
-const vec2i = makeVec2(vec2i$1);
-const vec3i = makeVec3(vec3i$1);
-const vec4i = makeVec4(vec4i$1);
-const vec2u = makeVec2(vec2u$1);
-const vec3u = makeVec3(vec3u$1);
-const vec4u = makeVec4(vec4u$1);
-const vec2h = makeVec2(vec2h$1);
-const vec3h = makeVec3(vec3h$1);
-const vec4h = makeVec4(vec4h$1);
-const vec2b = makeVec2(vec2bool);
-const vec3b = makeVec3(vec3bool);
-const vec4b = makeVec4(vec4bool);
-const mat2x2f = (...v) => new LiteralNode(mat2x2f$1, v.length ? v : []);
-const mat2x3f = (...v) => new LiteralNode(mat2x3f$1, v.length ? v : []);
-const mat2x4f = (...v) => new LiteralNode(mat2x4f$1, v.length ? v : []);
-const mat3x2f = (...v) => new LiteralNode(mat3x2f$1, v.length ? v : []);
-const mat3x3f = (...v) => new LiteralNode(mat3x3f$1, v.length ? v : []);
-const mat3x4f = (...v) => new LiteralNode(mat3x4f$1, v.length ? v : []);
-const mat4x2f = (...v) => new LiteralNode(mat4x2f$1, v.length ? v : []);
-const mat4x3f = (...v) => new LiteralNode(mat4x3f$1, v.length ? v : []);
-const mat4x4f = (...v) => new LiteralNode(mat4x4f$1, v.length ? v : []);
-const mat2x2h = (...v) => new LiteralNode(mat2x2h$1, v.length ? v : []);
-const mat2x3h = (...v) => new LiteralNode(mat2x3h$1, v.length ? v : []);
-const mat2x4h = (...v) => new LiteralNode(mat2x4h$1, v.length ? v : []);
-const mat3x2h = (...v) => new LiteralNode(mat3x2h$1, v.length ? v : []);
-const mat3x3h = (...v) => new LiteralNode(mat3x3h$1, v.length ? v : []);
-const mat3x4h = (...v) => new LiteralNode(mat3x4h$1, v.length ? v : []);
-const mat4x2h = (...v) => new LiteralNode(mat4x2h$1, v.length ? v : []);
-const mat4x3h = (...v) => new LiteralNode(mat4x3h$1, v.length ? v : []);
-const mat4x4h = (...v) => new LiteralNode(mat4x4h$1, v.length ? v : []);
-const mat4 = (c0, c1, c2, c3) => new ConstructNode(mat4x4f$1, [c0, c1, c2, c3]);
-function mat3(c0, c1, c2, s10, s11, s12, s20, s21, s22) {
-    // 9-scalar overload: mat3x3f(s00..s22), column-major scalars
-    if (s10 !== undefined) {
-        return new ConstructNode(mat3x3f$1, [c0, c1, c2, s10, s11, s12, s20, s21, s22]);
-    }
-    // 3-column overload
-    if (c1 !== undefined && c2 !== undefined) {
-        return new ConstructNode(mat3x3f$1, [c0, c1, c2]);
-    }
-    // scalar diagonal: expand to 9 scalars (WGSL has no single-scalar matrix constructor)
-    const z = new LiteralNode(f32$1, 0);
-    return new ConstructNode(mat3x3f$1, [c0, z, z, z, c0, z, z, z, c0]);
-}
-// ── Standalone math functions ─────────────────────────────────────────────────
-const add$1 = (a, b) => new BinaryOpNode('+', arithResultDesc(a.type, b.type), a, b);
-const sub = (a, b) => new BinaryOpNode('-', arithResultDesc(a.type, b.type), a, b);
-const div = (a, b) => new BinaryOpNode('/', arithResultDesc(a.type, b.type), a, b);
-const mul = (a, b) => new BinaryOpNode('*', mulResultDesc(a.type, b.type), a, b);
-const dot = (a, b) => new CallNode(f32$1, 'dot', [a, b]);
-const cross = (a, b) => new CallNode(a.type, 'cross', [a, b]);
-const normalize$1 = (a) => new CallNode(a.type, 'normalize', [a]);
-const length = (a) => new CallNode(f32$1, 'length', [a]);
-/** Pack two f32s as halves into a u32. Lower 16 bits = v.x, upper = v.y. WGSL: `pack2x16float`. */
-const pack2x16float = (v) => new CallNode(u32$1, 'pack2x16float', [v]);
-/** Unpack a u32 into two f32s from half-precision. WGSL: `unpack2x16float`. */
-const unpack2x16float = (v) => new CallNode(vec2f$1, 'unpack2x16float', [v]);
-/** Pack two f32s in [-1, 1] into a u32 as 16-bit snorm. WGSL: `pack2x16snorm`. */
-const pack2x16snorm = (v) => new CallNode(u32$1, 'pack2x16snorm', [v]);
-/** Unpack a u32 into two f32s as 16-bit snorm. WGSL: `unpack2x16snorm`. */
-const unpack2x16snorm = (v) => new CallNode(vec2f$1, 'unpack2x16snorm', [v]);
-/** Pack two f32s in [0, 1] into a u32 as 16-bit unorm. WGSL: `pack2x16unorm`. */
-const pack2x16unorm = (v) => new CallNode(u32$1, 'pack2x16unorm', [v]);
-/** Unpack a u32 into two f32s as 16-bit unorm. WGSL: `unpack2x16unorm`. */
-const unpack2x16unorm = (v) => new CallNode(vec2f$1, 'unpack2x16unorm', [v]);
-/** Pack four f32s in [-1, 1] into a u32 as 8-bit snorm. WGSL: `pack4x8snorm`. */
-const pack4x8snorm = (v) => new CallNode(u32$1, 'pack4x8snorm', [v]);
-/** Unpack a u32 into four f32s as 8-bit snorm. WGSL: `unpack4x8snorm`. */
-const unpack4x8snorm = (v) => new CallNode(vec4f$1, 'unpack4x8snorm', [v]);
-/** Pack four f32s in [0, 1] into a u32 as 8-bit unorm. WGSL: `pack4x8unorm`. */
-const pack4x8unorm = (v) => new CallNode(u32$1, 'pack4x8unorm', [v]);
-/** Unpack a u32 into four f32s as 8-bit unorm. WGSL: `unpack4x8unorm`. */
-const unpack4x8unorm = (v) => new CallNode(vec4f$1, 'unpack4x8unorm', [v]);
-const abs = (a) => new CallNode(a.type, 'abs', [a]);
-const floor = (a) => new CallNode(a.type, 'floor', [a]);
-const ceil = (a) => new CallNode(a.type, 'ceil', [a]);
-const fract = (a) => new CallNode(a.type, 'fract', [a]);
-const sqrt = (a) => new CallNode(a.type, 'sqrt', [a]);
-const sin = (a) => new CallNode(a.type, 'sin', [a]);
-const cos = (a) => new CallNode(a.type, 'cos', [a]);
-const negate = (a) => new CallNode(a.type, 'negate', [a]);
-const pow = (a, b) => new CallNode(a.type, 'pow', [a, b]);
-const exp = (a) => new CallNode(a.type, 'exp', [a]);
-const log = (a) => new CallNode(a.type, 'log', [a]);
-const exp2 = (a) => new CallNode(a.type, 'exp2', [a]);
-const log2 = (a) => new CallNode(a.type, 'log2', [a]);
-const tan = (a) => new CallNode(a.type, 'tan', [a]);
-const atan = (a) => new CallNode(a.type, 'atan', [a]);
-const atan2 = (y, x) => new CallNode(y.type, 'atan2', [y, x]);
-const asin = (a) => new CallNode(a.type, 'asin', [a]);
-const acos = (a) => new CallNode(a.type, 'acos', [a]);
-const inverseSqrt = (a) => new CallNode(a.type, 'inverseSqrt', [a]);
-function max(a, b, ...rest) {
-    let result = new CallNode(a.type, 'max', [a, b]);
-    for (const n of rest) {
-        result = new CallNode(a.type, 'max', [result, n]);
-    }
-    return result;
-}
-function min(a, b, ...rest) {
-    let result = new CallNode(a.type, 'min', [a, b]);
-    for (const n of rest) {
-        result = new CallNode(a.type, 'min', [result, n]);
-    }
-    return result;
-}
-const clamp$1 = (a, lo, hi) => new CallNode(a.type, 'clamp', [a, lo, hi]);
-const mix = (a, b, t) => new CallNode(a.type, 'mix', [a, b, t]);
-const step = (edge, x) => new CallNode(x.type, 'step', [edge, x]);
-const smoothstep = (lo, hi, x) => new CallNode(x.type, 'smoothstep', [lo, hi, x]);
-const sign = (a) => new CallNode(a.type, 'sign', [a]);
-const mod = (a, b) => new BinaryOpNode('%', a.type, a, b);
-const or = (a, b) => new BinaryOpNode('||', bool$1, a, b);
-const and = (a, b) => new BinaryOpNode('&&', bool$1, a, b);
-const not = (a) => new CallNode(bool$1, 'not', [a]);
-const transpose = (m) => new CallNode(m.type, 'transpose', [m]);
-// ── Bit-count builtins (integer-only) ────────────────────────────────────────
-const countOneBits = (a) => new CallNode(a.type, 'countOneBits', [a]);
-const countTrailingZeros = (a) => new CallNode(a.type, 'countTrailingZeros', [a]);
-const countLeadingZeros = (a) => new CallNode(a.type, 'countLeadingZeros', [a]);
-const reverseBits = (a) => new CallNode(a.type, 'reverseBits', [a]);
-const firstLeadingBit = (a) => new CallNode(a.type, 'firstLeadingBit', [a]);
-const firstTrailingBit = (a) => new CallNode(a.type, 'firstTrailingBit', [a]);
-// ── Derivative builtins (fragment-only) ───────────────────────────────────────
-const dpdx = (a) => new CallNode(a.type, 'dpdx', [a]);
-const dpdy = (a) => new CallNode(a.type, 'dpdy', [a]);
-const fwidth = (a) => new CallNode(a.type, 'fwidth', [a]);
-const dpdxCoarse = (a) => new CallNode(a.type, 'dpdxCoarse', [a]);
-const dpdyCoarse = (a) => new CallNode(a.type, 'dpdyCoarse', [a]);
-const fwidthCoarse = (a) => new CallNode(a.type, 'fwidthCoarse', [a]);
-const dpdxFine = (a) => new CallNode(a.type, 'dpdxFine', [a]);
-const dpdyFine = (a) => new CallNode(a.type, 'dpdyFine', [a]);
-const fwidthFine = (a) => new CallNode(a.type, 'fwidthFine', [a]);
-const bitwiseAnd = (a, b) => new BinaryOpNode('&', a.type, a, b);
-const bitwiseOr = (a, b) => new BinaryOpNode('|', a.type, a, b);
-const bitwiseXor = (a, b) => new BinaryOpNode('^', a.type, a, b);
-const shiftLeft = (a, b) => new BinaryOpNode('<<', a.type, a, b);
-const shiftRight = (a, b) => new BinaryOpNode('>>', a.type, a, b);
-// ── Lang ──────────────────────────────────────────────────────────────────────
-class StackNode extends Node {
-    kind = NodeKind.Stack;
-    body;
-    constructor(initial) {
-        super(Void);
-        this.body = initial ? [...initial] : [];
-    }
-    push(node) {
-        this.body.push(node);
-    }
-}
-class FnNode extends Node {
-    kind = NodeKind.Fn;
-    fnName;
-    paramDescs;
-    jsFunc;
-    constructor(returnType, paramDescs, jsFunc, fnName) {
-        super(returnType);
-        this.fnName = fnName ?? `fn_${this.id}`;
-        this.paramDescs = paramDescs;
-        this.jsFunc = jsFunc;
-    }
-    compute(opts) {
-        // Delegate to the free `compute()` factory so there is one construction path.
-        return compute(this, opts);
-    }
-    trace() {
-        const params = this.paramDescs.map((pd, i) => {
-            const paramName = 'name' in pd ? pd.name : undefined;
-            const desc = 'name' in pd ? pd.type : pd;
-            return new ParameterNode(desc, i, paramName);
-        });
-        const stack = new StackNode();
-        const prev = pushStack(stack);
-        let output;
-        try {
-            output = this.jsFunc(...params);
-        }
-        finally {
-            popStack(prev);
-        }
-        return { params, body: stack, output };
-    }
-}
-class ParameterNode extends Node {
-    paramIndex;
-    paramName;
-    kind = NodeKind.Parameter;
-    constructor(type, paramIndex, paramName) {
-        super(type);
-        this.paramIndex = paramIndex;
-        this.paramName = paramName;
-    }
-}
-class ReturnNode extends Node {
-    value;
-    kind = NodeKind.Return;
-    constructor(value) {
-        super(value.type);
-        this.value = value;
-    }
-}
-class ConditionalNode extends Node {
-    condition;
-    ifTrue;
-    kind = NodeKind.Conditional;
-    ifFalse;
-    constructor(condition, ifTrue, ifFalse) {
-        super(ifTrue.type);
-        this.condition = condition;
-        this.ifTrue = ifTrue;
-        this.ifFalse = ifFalse;
-    }
-}
-class IfNode extends Node {
-    condition;
-    thenBody;
-    kind = NodeKind.If;
-    elseIfBranches = [];
-    elseBody = null;
-    constructor(condition, thenBody) {
-        super(Void);
-        this.condition = condition;
-        this.thenBody = thenBody;
-    }
-}
-let _loopVarCounter = 0;
-class LoopNode extends Node {
-    config;
-    loopVar;
-    callbackKey;
-    body;
-    kind = NodeKind.Loop;
-    constructor(config, loopVar, callbackKey, body) {
-        super(Void);
-        this.config = config;
-        this.loopVar = loopVar;
-        this.callbackKey = callbackKey;
-        this.body = body;
-    }
-}
-class BreakNode extends Node {
-    kind = NodeKind.Break;
-    constructor() {
-        super(Void);
-    }
-}
-class ContinueNode extends Node {
-    kind = NodeKind.Continue;
-    constructor() {
-        super(Void);
-    }
-}
-class DiscardNode extends Node {
-    kind = NodeKind.Discard;
-    constructor() {
-        super(Void);
-    }
-}
-function If(condition, thenBody) {
-    const thenStack = new StackNode();
-    const prev = pushStack(thenStack);
-    try {
-        thenBody();
-    }
-    finally {
-        popStack(prev);
-    }
-    const ifNode = new IfNode(condition, thenStack);
-    addToStack(ifNode);
-    const chain = {
-        ElseIf(c, body) {
-            const s = new StackNode();
-            const f = pushStack(s);
-            try {
-                body();
-            }
-            finally {
-                popStack(f);
-            }
-            ifNode.elseIfBranches.push({ condition: c, body: s });
-            return chain;
-        },
-        Else(body) {
-            const s = new StackNode();
-            const f = pushStack(s);
-            try {
-                body();
-            }
-            finally {
-                popStack(f);
-            }
-            ifNode.elseBody = s;
-            return chain;
-        },
-    };
-    return chain;
-}
-function Loop(o, callback) {
-    // Determine loop variable type and name from config
-    let loopVarType = i32$1;
-    let callbackKey = 'i';
-    const varName = `_loop_${_loopVarCounter++}`;
-    if (typeof o === 'object' && o !== null && !(o instanceof Node)) {
-        const cfg = o;
-        if (cfg.type)
-            loopVarType = cfg.type;
-        if (cfg.name)
-            callbackKey = cfg.name;
-    }
-    // Create the loop variable ParameterNode
-    const loopVar = new ParameterNode(loopVarType, 0, varName);
-    // Eagerly capture the body (like If does)
-    const bodyStack = new StackNode();
-    const prev = pushStack(bodyStack);
-    try {
-        callback({ [callbackKey]: loopVar });
-    }
-    finally {
-        popStack(prev);
-    }
-    const node = new LoopNode(o, loopVar, callbackKey, bodyStack);
-    addToStack(node);
-    return node;
-}
-const For = Loop;
-function While(condition, body) {
-    Loop(condition, body);
-}
-function Return(value) {
-    if (value !== undefined)
-        addToStack(new ReturnNode(value));
-    else
-        addToStack(new ReturnNode(new LiteralNode(Void, 0)));
-}
-function Break() {
-    addToStack(new BreakNode());
-}
-function Continue() {
-    addToStack(new ContinueNode());
-}
-function Discard() {
-    addToStack(new DiscardNode());
-}
-/** Workgroup synchronization barrier. WGSL: `workgroupBarrier()`. */
-function workgroupBarrier() {
-    addToStack(new CallNode(Void, 'workgroupBarrier', []));
-}
-/** Storage-buffer write/read sync within a workgroup. WGSL: `storageBarrier()`. */
-function storageBarrier() {
-    addToStack(new CallNode(Void, 'storageBarrier', []));
-}
-/** Texture write/read sync within a workgroup. WGSL: `textureBarrier()`. */
-function textureBarrier() {
-    addToStack(new CallNode(Void, 'textureBarrier', []));
-}
-// Implementation
-function Fn(jsFunc, layout) {
-    const paramDescs = layout?.params ?? [];
-    const dummyParams = paramDescs.map((pd, i) => {
-        const paramName = 'name' in pd ? pd.name : undefined;
-        const desc = 'name' in pd ? pd.type : pd;
-        return new ParameterNode(desc, i, paramName);
-    });
-    const traceStack = new StackNode();
-    const prev = pushStack(traceStack);
-    let inferred;
-    try {
-        const output = jsFunc(...dummyParams);
-        inferred = output != null ? output.type : Void;
-    }
-    finally {
-        popStack(prev);
-    }
-    let returnType = inferred;
-    if (layout?.return) {
-        // Verify the declared return matches what the body actually returns.
-        if (inferred.wgslType !== layout.return.wgslType) {
-            throw new Error(`[gpucat] Fn '${layout.name}' declares return '${layout.return.wgslType}' but the body returns '${inferred.wgslType}'.`);
-        }
-        returnType = layout.return;
-    }
-    if (returnType === Void && paramDescs.length === 0 && !layout) {
-        return new FnNode(Void, [], jsFunc, undefined);
-    }
-    const fnNode = new FnNode(returnType, paramDescs, jsFunc, layout?.name);
-    return (...args) => new CallNode(returnType, fnNode.fnName, args, fnNode);
-}
-const cond = (condition, ifTrue, ifFalse) => new ConditionalNode(condition, ifTrue, ifFalse);
-/**
- * WGSL `select(falseVal, trueVal, condition)`.
- * Returns `trueVal` when `condition` is true, `falseVal` otherwise.
- */
-const select = (falseVal, trueVal, condition) => new ConditionalNode(condition, trueVal, falseVal);
-function makeVar(init, label) {
-    const varName = label ? `var_${_nodeId}_${label}` : `var_${_nodeId}`;
-    const v = new VarNode(init.type, varName, init);
-    // Add to current stack if building inside Fn, otherwise return standalone node.
-    // The standalone VarNode still participates in the graph via its `init` reference.
-    if (currentStack !== null)
-        currentStack.push(v);
-    return v;
-}
-function makeLet(init, label) {
-    const varName = label ? `let_${_nodeId}_${label}` : `let_${_nodeId}`;
-    const v = new LetNode(init.type, varName, init);
-    if (currentStack !== null)
-        currentStack.push(v);
-    return v;
-}
-/**
- * Function-scope mutable variable: `var name = init;`
- *
- * @example
- * const velocity = Var('velocity', vec3f(0));
- * // → var velocity = vec3f(0.0);
- */
-function Var(name, init) {
-    return makeVar(init, name);
-}
-/**
- * Function-scope immutable binding: `let name = init;`
- *
- * @example
- * const half = Let('half', value.mul(0.5));
- * // → let half = (value * 0.5);
- */
-function Let(name, init) {
-    return makeLet(init, name);
-}
-/** @deprecated Use Let() instead */
-function Const(name, init) {
-    return makeLet(init, name);
-}
-function PrivateVar(name, typeOrInit) {
-    if (typeOrInit instanceof Node)
-        return new PrivateVarNode(typeOrInit.type, name, typeOrInit);
-    return new PrivateVarNode(typeOrInit, name);
-}
-/**
- * Create a module-scope workgroup variable: `var<workgroup> name: T;`
- *
- * Workgroup variables are shared across all invocations in a workgroup.
- * Only valid in compute shaders. Cannot have an initializer.
- *
- * @example
- * const shared = WorkgroupVar('sharedData', d.array(d.f32, 256));
- * // → var<workgroup> sharedData: array<f32, 256>;
- */
-function WorkgroupVar(name, type) {
-    return new WorkgroupVarNode(type, name);
-}
-let _computeCounter = 0;
-class ComputeNode {
-    id;
-    fn;
-    workgroupSize;
-    name;
-    /**
-     * Set to true after dispose() is called.
-     * The renderer checks this flag to skip dispatch and clean up GPU resources.
-     */
-    disposed = false;
-    /**
-     * Internal callback set by the renderer to clean up GPU resources (pipelines, caches).
-     * @internal
-     */
-    _onDispose = null;
-    constructor(opts) {
-        this.id = `_compute_${_computeCounter++}`;
-        this.fn = opts.fn;
-        this.workgroupSize = opts.workgroupSize;
-        this.name = opts.name;
-    }
-    /**
-     * Frees GPU-related resources allocated for this compute node.
-     * Call this method when the compute node is no longer used.
-     */
-    dispose() {
-        if (this.disposed)
-            return;
-        this.disposed = true;
-        this._onDispose?.();
-    }
-}
-function compute(fn, opts) {
-    return new ComputeNode({ fn, ...opts });
-}
-function struct(name, fields) {
-    const members = Object.entries(fields).map(([n, desc]) => ({ name: n, type: desc }));
-    const structDesc = { type: 'struct', wgslType: name, glslType: name, name, fields };
-    const node = new StructNode(structDesc, members);
-    const nestedDefs = new Map();
-    for (const desc of Object.values(fields)) {
-        if (isStructDef(desc))
-            nestedDefs.set(desc.wgslType, desc);
-    }
-    function construct(fieldNodes) {
-        const args = members.map((m) => fieldNodes[m.name]);
-        return new ConstructNode(def, args);
-    }
-    const def = {
-        type: 'struct',
-        wgslType: name,
-        glslType: name,
-        name,
-        fields,
-        members,
-        node,
-        nestedDefs,
-        construct,
-    };
-    return def;
-}
-class StructNode extends Node {
-    members;
-    kind = NodeKind.Struct;
-    constructor(desc, members) {
-        super(desc);
-        this.members = members;
-    }
-}
-
-/** Strip `atomic<…>` wrapper to get the underlying scalar type descriptor at runtime. */
-function scalarDescOf(desc) {
-    if (desc.wgslType === 'atomic<i32>' || desc.wgslType === 'i32')
-        return i32$1;
-    return u32$1;
-}
-/**
- * Atomically adds `value` to the atomic value at `ptr` and returns the old value.
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicAdd(&ptr, value) -> i32/u32`
- */
-function atomicAdd(ptr, value) {
-    const node = new CallNode(scalarDescOf(ptr.type), 'atomicAdd', [ptr, value]);
-    addToStack(node);
-    return node;
-}
-/**
- * Atomically stores `value` to the atomic location at `ptr`.
- *
- * In WGSL: `atomicStore(&ptr, value)`
- */
-function atomicStore(ptr, value) {
-    addToStack(new CallNode(Void, 'atomicStore', [ptr, value]));
-}
-/**
- * Atomically loads the value from the atomic location at `ptr`.
- *
- * In WGSL: `atomicLoad(&ptr) -> i32/u32`
- */
-function atomicLoad(ptr) {
-    return new CallNode(scalarDescOf(ptr.type), 'atomicLoad', [ptr]);
-}
-/**
- * Atomically subtracts `value` from the atomic value at `ptr` and returns the old value.
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicSub(&ptr, value) -> i32/u32`
- */
-function atomicSub(ptr, value) {
-    const node = new CallNode(scalarDescOf(ptr.type), 'atomicSub', [ptr, value]);
-    addToStack(node);
-    return node;
-}
-/**
- * Atomically computes the maximum of the atomic value and `value`, stores it, and returns the old value.
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicMax(&ptr, value) -> i32/u32`
- */
-function atomicMax(ptr, value) {
-    const node = new CallNode(scalarDescOf(ptr.type), 'atomicMax', [ptr, value]);
-    addToStack(node);
-    return node;
-}
-/**
- * Atomically computes the minimum of the atomic value and `value`, stores it, and returns the old value.
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicMin(&ptr, value) -> i32/u32`
- */
-function atomicMin(ptr, value) {
-    const node = new CallNode(scalarDescOf(ptr.type), 'atomicMin', [ptr, value]);
-    addToStack(node);
-    return node;
-}
-/**
- * Atomically computes the bitwise AND of the atomic value and `value`, stores it, and returns the old value.
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicAnd(&ptr, value) -> i32/u32`
- */
-function atomicAnd(ptr, value) {
-    const node = new CallNode(scalarDescOf(ptr.type), 'atomicAnd', [ptr, value]);
-    addToStack(node);
-    return node;
-}
-/**
- * Atomically computes the bitwise OR of the atomic value and `value`, stores it, and returns the old value.
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicOr(&ptr, value) -> i32/u32`
- */
-function atomicOr(ptr, value) {
-    const node = new CallNode(scalarDescOf(ptr.type), 'atomicOr', [ptr, value]);
-    addToStack(node);
-    return node;
-}
-/**
- * Atomically computes the bitwise XOR of the atomic value and `value`, stores it, and returns the old value.
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicXor(&ptr, value) -> i32/u32`
- */
-function atomicXor(ptr, value) {
-    const node = new CallNode(scalarDescOf(ptr.type), 'atomicXor', [ptr, value]);
-    addToStack(node);
-    return node;
-}
-/**
- * Atomically exchanges the value at `ptr` with `value` and returns the old value.
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicExchange(&ptr, value) -> i32/u32`
- */
-function atomicExchange(ptr, value) {
-    const node = new CallNode(scalarDescOf(ptr.type), 'atomicExchange', [ptr, value]);
-    addToStack(node);
-    return node;
-}
-/**
- * Atomically compares the value at `ptr` with `comparator` and if equal, stores `value`.
- * Returns the old value (regardless of whether the exchange happened).
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicCompareExchangeWeak(&ptr, comparator, value) -> __atomic_compare_exchange_result<T>`
- *
- * Note: WGSL returns a struct { old_value: T, exchanged: bool }. This function returns the struct type
- * which you need to access via .old_value and .exchanged fields.
- */
-function atomicCompareExchangeWeak(ptr, comparator, value) {
-    const node = new CallNode(Void, 'atomicCompareExchangeWeak', [ptr, comparator, value]);
-    addToStack(node);
-    return node;
-}
-
-/**
- * AttributeNode, a vertex attribute that reads from either:
- * 1. A named geometry buffer (looked up at render time by name)
- * 2. A direct GpuBuffer reference
- *
- * View info (stride, offset, instanced) lives on the node, not the buffer.
- * This follows the WebGPU pattern where GPUBuffer is bound separately from
- * the GPUVertexBufferLayout which specifies stride/offset.
- *
- * @example
- * // By-name (geometry lookup)
- * const pos = attribute('position', d.vec3f);
- * const uv = attribute('uv', d.vec2f);
- *
- * // By-name with view options
- * const pos = attribute('position', d.vec3f, { stride: 32, offset: 0 });
- *
- * // Direct GpuBuffer (schema from buffer)
- * const colors = attribute(colorBuffer);
- *
- * // Direct GpuBuffer with view options (interleaved)
- * const position = attribute(interleavedBuffer, { stride: 32, offset: 0 });
- * const normal = attribute(interleavedBuffer, { stride: 32, offset: 12 });
- *
- * // Raw TypedArray (auto-wrapped in GpuBuffer)
- * const offsets = attribute(offsetData, d.vec3f);
- *
- * // Instanced
- * const instanceMatrix = attribute(matricesBuffer, { stride: 64, offset: 0, instanced: true });
- */
-class AttributeNode extends Node {
-    kind = NodeKind.Attribute;
-    /** Either a name (geometry lookup) or direct GpuBuffer reference */
-    source;
-    /** Byte stride between elements. 0 = tightly packed. */
-    stride;
-    /** Byte offset within each stride. */
-    offset;
-    /** Whether this is per-instance data (stepMode: 'instance'). */
-    instanced;
-    constructor(desc, source, options = {}) {
-        super(desc);
-        this.source = source;
-        this.stride = options.stride ?? 0;
-        this.offset = options.offset ?? 0;
-        this.instanced = options.instanced ?? false;
-    }
-    /** Whether this is a name-based lookup. */
-    get isNamedReference() {
-        return typeof this.source === 'string';
-    }
-    /** Get the name, or null if buffer-based. */
-    get name() {
-        return typeof this.source === 'string' ? this.source : null;
-    }
-    /** Get the buffer, or null if name-based. */
-    get buffer() {
-        return typeof this.source === 'string' ? null : this.source;
-    }
-}
-// Implementation
-function attribute(nameOrBufferOrData, schemaOrOptions, maybeOptions) {
-    // Overload 1: attribute(name, schema, options?)
-    if (typeof nameOrBufferOrData === 'string') {
-        const name = nameOrBufferOrData;
-        const schema = schemaOrOptions;
-        const options = maybeOptions ?? {};
-        return new AttributeNode(schema, name, options);
-    }
-    // Overload 2: attribute(buffer, options?)
-    if ('isGpuBuffer' in nameOrBufferOrData) {
-        const buffer = nameOrBufferOrData;
-        const options = schemaOrOptions ?? {};
-        return new AttributeNode(buffer.schema, buffer, options);
-    }
-    // Overload 3: attribute(data, schema, options?)
-    // data is a TypedArray - wrap in GpuBuffer
-    const data = nameOrBufferOrData;
-    const schema = schemaOrOptions;
-    const options = maybeOptions ?? {};
-    const buffer = new GpuBuffer(schema, {
-        data: data,
-        usage: 'vertex',
-        label: options.label,
-    });
-    return new AttributeNode(schema, buffer, options);
-}
-/**
- * UV attribute node for texture coordinate access.
- *
- * Returns an AttributeNode that reads the 'uv' vertex attribute (or 'uv1', 'uv2', etc.
- * for additional UV channels).
- *
- * @param index - The UV channel index. Defaults to 0 (reads 'uv').
- *                Index 1 reads 'uv1', index 2 reads 'uv2', etc.
- * @returns An AttributeNode<Vec2fDesc> representing the UV coordinates.
- *
- * @example
- * // Default UV channel
- * const texCoord = uv();
- *
- * // Second UV channel (e.g., for lightmaps)
- * const lightmapUV = uv(1);
- *
- * // Sample a texture with UVs
- * const color = myTexture.sample(uv());
- */
-const uv = (index = 0) => new AttributeNode(vec2f$1, 'uv' + (index > 0 ? index : ''));
-
-class BuiltinNode extends Node {
-    builtinKind;
-    kind = NodeKind.Builtin;
-    constructor(builtinKind, desc) {
-        super(desc);
-        this.builtinKind = builtinKind;
-    }
-}
-const builtin = (builtinKind, desc) => new BuiltinNode(builtinKind, desc);
-/** @builtin(instance_index), the instance index for instanced draw calls. */
-const instanceIndex = /*@__PURE__*/ builtin('instance_index', u32$1);
-/** @builtin(vertex_index), the vertex index in the current draw call. */
-const vertexIndex = /*@__PURE__*/ builtin('vertex_index', u32$1);
-/** @builtin(global_invocation_id), unique thread ID across the entire dispatch. */
-const globalId = /*@__PURE__*/ builtin('global_invocation_id', vec3u$1);
-/** @builtin(local_invocation_id), thread ID within its workgroup. */
-const localId = /*@__PURE__*/ builtin('local_invocation_id', vec3u$1);
-/** @builtin(local_invocation_index), flat 1-D index within the workgroup. */
-const localIndex = /*@__PURE__*/ builtin('local_invocation_index', u32$1);
-/** @builtin(workgroup_id), workgroup coordinate in the dispatch grid. */
-const workgroupId = /*@__PURE__*/ builtin('workgroup_id', vec3u$1);
-/** @builtin(num_workgroups), total number of workgroups dispatched. */
-const numWorkgroups = /*@__PURE__*/ builtin('num_workgroups', vec3u$1);
-/**
- * Fragment position in window/pixel coordinates.
- * @builtin(position) in the fragment shader, vec4f where xy are pixel coordinates.
- *
- * This is the raw fragment coordinate from the rasterizer.
- * Use screenCoordinate.xy for 2D pixel position.
- */
-const fragCoord = /*@__PURE__*/ builtin('position', vec4f$1);
-/**
- * Linearized compute invocation index across the entire dispatch grid.
- *
- * For a dispatch of size (Dx, Dy, Dz) workgroups with workgroup size (Wx, Wy, Wz),
- * this computes:
- *   globalId.x + globalId.y * (Wx * Dx) + globalId.z * (Wx * Dx) * (Wy * Dy)
- *
- * This gives each thread a unique u32 index from 0 to (Dx*Wx * Dy*Wy * Dz*Wz - 1).
- *
- * Use this in compute shaders where you need a linear index into a buffer,
- * similar to how instanceIndex works in vertex shaders.
- */
-class ComputeIndexNode extends Node {
-    kind = NodeKind.ComputeIndex;
-    constructor() {
-        super(u32$1);
-    }
-}
-const computeIndex = /*@__PURE__*/ new ComputeIndexNode();
-
-class UniformNode extends Node {
-    kind = NodeKind.Uniform;
-    /** uniform name */
-    name;
-    /** The underlying Uniform data container */
-    uniform;
-    /**
-     * The uniform group, determines the WGSL @group index, update cadence, and
-     * struct packing. Defaults to `objectGroup`; reassign (e.g. `u.group = renderGroup`)
-     * before the node is first rendered to move it to a shared group.
-     */
-    get group() {
-        return this.uniform.group;
-    }
-    set group(g) {
-        this.uniform.group = g;
-    }
-    /** Get the current value */
-    get value() {
-        return this.uniform.value;
-    }
-    /** Set value directly */
-    set value(v) {
-        this.uniform.value = v;
-    }
-    constructor(uniform, name) {
-        super(uniform.schema);
-        this.uniform = uniform;
-        this.name = name;
-    }
-    /**
-     * Register an update callback that runs per frame/render/object.
-     * The callback returns a value which is assigned to the uniform's value.
-     */
-    onUpdate(callback, updateType) {
-        this.updateType = updateType;
-        this.update = (frame) => {
-            const value = callback(frame);
-            if (value !== undefined) {
-                this.uniform.value = value;
-            }
-        };
-        return this;
-    }
-    /** Register an update callback for FRAME update type. */
-    onFrameUpdate(callback) {
-        return this.onUpdate(callback, UniformUpdateType.FRAME);
-    }
-    /** Register an update callback for RENDER update type. */
-    onRenderUpdate(callback) {
-        return this.onUpdate(callback, UniformUpdateType.RENDER);
-    }
-    /** Register an update callback for OBJECT update type. */
-    onObjectUpdate(callback) {
-        return this.onUpdate(callback, UniformUpdateType.OBJECT);
-    }
-}
-// Implementation
-function uniform(init, nameOrSchema) {
-    // Value-based: uniform(Uniform)
-    if (typeof init === 'object' && init !== null && 'isUniform' in init) {
-        const u = init;
-        return new UniformNode(u, `uniform_${_nodeId}`);
-    }
-    // Name-based: uniform('name', schema) or uniform('name', StructDef)
-    if (typeof init === 'string') {
-        const name = init;
-        const schema = nameOrSchema;
-        // Check if it's a StructDef
-        if (schema && 'fields' in schema && 'construct' in schema) {
-            const def = schema;
-            const u = new Uniform(def);
-            const node = new UniformNode(u, name);
-            return fields(node);
-        }
-        // Regular schema, create Uniform for name-based resolution
-        const u = new Uniform(schema);
-        return new UniformNode(u, name);
-    }
-    // Inline scalar/vector/matrix form: uniform(f32(0.5), 'name')
-    const initNode = init;
-    const name = nameOrSchema;
-    const uniformId = name ?? `${initNode.type.wgslType}_${_nodeId}`;
-    // Extract initial value from the node
-    const initialValue = extractValue(initNode);
-    const u = new Uniform(initNode.type, initialValue);
-    return new UniformNode(u, uniformId);
-}
-/**
- * Extract a concrete value from a LiteralNode or ConstructNode.
- * For ConstructNode, recursively extracts from child LiteralNodes.
- * Returns undefined if any child is not a LiteralNode (dynamic value).
- */
-function extractValue(node) {
-    // LiteralNode has a direct value
-    if (node.kind === NodeKind.Literal) {
-        return node.value;
-    }
-    // ConstructNode: extract values from args (must all be LiteralNodes)
-    if (node.kind === NodeKind.Construct) {
-        const values = [];
-        for (const arg of node.args) {
-            const lit = arg.kind === NodeKind.Literal ? arg : null;
-            if (lit && typeof lit.value === 'number') {
-                values.push(lit.value);
-            }
-            else {
-                // Dynamic child - can't extract static value
-                return undefined;
-            }
-        }
-        return values;
-    }
-    return undefined;
-}
-
-/** Projection matrix of the scene camera. In renderGroup. */
-const cameraProjectionMatrix = /*@__PURE__*/ new UniformNode(new Uniform(mat4x4f$1, undefined, renderGroup), 'cameraProjectionMatrix').onRenderUpdate((frame) => frame.camera.projectionMatrix);
-/** View (world-to-camera) matrix. In renderGroup. */
-const cameraViewMatrix = /*@__PURE__*/ new UniformNode(new Uniform(mat4x4f$1, undefined, renderGroup), 'cameraViewMatrix').onRenderUpdate((frame) => frame.camera.matrixWorldInverse);
-/**
- * Camera world-space position. In renderGroup.
- *
- * Read out of `matrixWorld` rather than off the camera's `position` property.
- * Those are the same value only while the camera is unparented; the moment it is
- * a child of anything — a rig, a vehicle, a player node — `position` is relative
- * to that parent and this uniform would report the wrong place, silently, while
- * `cameraViewMatrix` (built from `matrixWorldInverse`) kept working. A shader
- * mixing the two would then disagree with itself.
- *
- * This is also what three.js does for its equivalent uniform:
- * `self.value.setFromMatrixPosition( camera.matrixWorld )`.
- *
- * Written into a module scratch, so a per-frame read allocates nothing.
- */
-const _cameraWorldPosition = /*@__PURE__*/ create$6();
-const cameraPosition = /*@__PURE__*/ new UniformNode(new Uniform(vec3f$1, undefined, renderGroup), 'cameraPosition').onRenderUpdate((frame) => getTranslation(_cameraWorldPosition, frame.camera.matrixWorld));
-/** Camera near plane distance. In renderGroup. */
-const cameraNear = /*@__PURE__*/ new UniformNode(new Uniform(f32$1, undefined, renderGroup), 'cameraNear').onRenderUpdate((frame) => frame.camera.near);
-/** Camera far plane distance. In renderGroup. */
-const cameraFar = /*@__PURE__*/ new UniformNode(new Uniform(f32$1, undefined, renderGroup), 'cameraFar').onRenderUpdate((frame) => frame.camera.far);
-/**
- * Remap an NDC depth value (typically `clipPos.z / clipPos.w`) into the [0,1] range a depth texture
- * stores, so shadow-map / depth-buffer comparisons are written ONCE and work on both backends. It is
- * lowered per emitter — the node graph stays identical:
- *   - WebGPU: NDC z is already [0,1] (ZO projection) → passthrough.
- *   - WebGL:  NDC z is [-1,1] (NO projection)        → `z * 0.5 + 0.5`.
- *
- * This keeps the per-backend depth-range convention out of user graphs (the analog of three.js baking
- * the remap into its shadow bias matrix rather than exposing it).
- */
-function ndcDepthToStorage(ndcZ) {
-    return new CallNode(f32$1, 'ndcDepthToStorage', [ndcZ]);
-}
-
-/**
- * Convert any color input to a `vec3f` linear RGB node.
- *
- * This is the primary way to introduce a color into the node graph.
- * The resulting node has type `vec3f` so it can be used anywhere a `vec3f`
- * is expected, including as the first argument to `vec4(xyz, w)`.
- *
- * @example
- * import { rgb, vec4, f32 } from 'gpucat';
- *
- * const fragColor = vec4(rgb('#f00'), f32(1));
- *
- * // Other accepted forms:
- * rgb('hsl(200, 80%, 50%)');
- * rgb('deepskyblue');
- * rgb(0xff8800);
- * rgb([1, 0.5, 0]);
- */
-function rgb(input) {
-    const c = fromColorInput(input);
-    if (c === null)
-        return vec3f(0, 0, 0);
-    return vec3f(c[0], c[1], c[2]);
-}
-
-let _samplerId = 0;
-/**
- * Declarative sampler settings.
- *
- * Does NOT hold the GPU resource - that's managed by the renderer's cache.
- * The settingsKey is used for deduplication (multiple GpuSampler instances
- * with the same settings share one GPUSampler).
- */
-class GpuSampler {
-    isGpuSampler = true;
-    id = _samplerId++;
-    minFilter;
-    magFilter;
-    mipmapFilter;
-    addressModeU;
-    addressModeV;
-    addressModeW;
-    maxAnisotropy;
-    lodMinClamp;
-    lodMaxClamp;
-    /** For comparison samplers (shadow mapping) */
-    compare;
-    /** Renderer-set callback to clean up cache entry */
-    _onDispose = null;
-    disposed = false;
-    constructor(options = {}) {
-        this.minFilter = options.minFilter ?? 'linear';
-        this.magFilter = options.magFilter ?? 'linear';
-        this.mipmapFilter = options.mipmapFilter ?? 'linear';
-        this.addressModeU = options.addressModeU ?? 'clamp-to-edge';
-        this.addressModeV = options.addressModeV ?? 'clamp-to-edge';
-        this.addressModeW = options.addressModeW ?? 'clamp-to-edge';
-        this.maxAnisotropy = options.maxAnisotropy ?? 1;
-        this.lodMinClamp = options.lodMinClamp ?? 0;
-        this.lodMaxClamp = options.lodMaxClamp ?? 32;
-        this.compare = options.compare;
-    }
-    /** Is this a comparison sampler? */
-    get isComparison() {
-        return this.compare !== undefined;
-    }
-    /** Settings key for deduplication */
-    get settingsKey() {
-        const base = `${this.minFilter}-${this.magFilter}-${this.mipmapFilter}-` +
-            `${this.addressModeU}-${this.addressModeV}-${this.addressModeW}-` +
-            `${this.maxAnisotropy}-${this.lodMinClamp}-${this.lodMaxClamp}`;
-        return this.compare ? `${base}-cmp-${this.compare}` : base;
-    }
-    dispose() {
-        if (this.disposed)
-            return;
-        this.disposed = true;
-        this._onDispose?.();
-        this._onDispose = null;
-    }
-}
-/** The factory form; the sampler is settings only, the device resource is the renderer's. */
-function createSampler(options = {}) {
-    return new GpuSampler(options);
-}
-
-let _sourceId = 0;
-/**
- * Represents the data source of a texture.
- *
- * The main purpose of this class is to decouple the data definition from the texture
- * definition so the same data can be used with multiple texture instances.
- */
-class Source {
-    /** unique numeric ID */
-    id;
-    /** the data definition of a texture, can be an ImageBitmap, HTMLImageElement, canvas, video, or null */
-    data;
-    /** when set to `false`, the engine performs memory allocation but does not transfer data to GPU memory, useful for deferred loading */
-    dataReady = true;
-    /** version number, incremented when `needsUpdate` is set to true, used for dirty checking by the renderer */
-    version = 0;
-    /**
-     * Constructs a new Source
-     * @param data the data definition (ImageBitmap, HTMLImageElement, etc.)
-     */
-    constructor(data) {
-        this.id = _sourceId++;
-        this.data = data;
-    }
-    /** when set to `true`, increments the version counter to trigger a GPU upload on the next render */
-    set needsUpdate(value) {
-        if (value === true)
-            this.version++;
-    }
-    /** returns the width of the source data, or 0 if no data */
-    get width() {
-        const data = this.data;
-        if (!data || typeof data !== 'object')
-            return 0;
-        if (typeof HTMLVideoElement !== 'undefined' && data instanceof HTMLVideoElement) {
-            return data.videoWidth;
-        }
-        if (typeof VideoFrame !== 'undefined' && data instanceof VideoFrame) {
-            return data.displayWidth;
-        }
-        if ('width' in data && typeof data.width === 'number') {
-            return data.width;
-        }
-        return 0;
-    }
-    /** returns the height of the source data, or 0 if no data */
-    get height() {
-        const data = this.data;
-        if (!data || typeof data !== 'object')
-            return 0;
-        if (typeof HTMLVideoElement !== 'undefined' && data instanceof HTMLVideoElement) {
-            return data.videoHeight;
-        }
-        if (typeof VideoFrame !== 'undefined' && data instanceof VideoFrame) {
-            return data.displayHeight;
-        }
-        if ('height' in data && typeof data.height === 'number') {
-            return data.height;
-        }
-        return 0;
-    }
-    /** returns the depth of the source data (for 3D textures), or 0 */
-    get depth() {
-        const data = this.data;
-        if (!data || typeof data !== 'object')
-            return 0;
-        if ('depth' in data && typeof data.depth === 'number') {
-            return data.depth;
-        }
-        return 0;
-    }
-}
-/** The factory form; a `Source` is the uploadable image data a texture points at. */
-function createSource(data) {
-    return new Source(data);
-}
-
-/*
- *the one dirty-region representation for textures, plus the exact
- * merge rules the renderer relies on.
- *
- * A *range* is 1D and belongs to buffers (see GpuBuffer); a *region* is a box and belongs to
- * textures. Keeping the two words distinct is deliberate: modelling 2D/3D dirty state as a linear
- * run is what forced every earlier partial-upload path to round out to whole rows.
- *
- * `z` addresses array layers, cube faces and 3D slices - one axis, the same meaning on both
- * backends, matching `writeTexture`'s `origin.z` and `texSubImage3D`'s `zoffset`.
- */
-/**
- * Pending regions past this point stop being tracked exactly: the list is coalesced to one bounding
- * box per `(level, z, depth)` plane. Bounds both memory and per-add merge cost regardless of access
- * pattern.
- */
-const REGION_CAP = 16;
-/** Fill omitted fields from `extent`, clamp to it, and return a whole region. */
-function normalizeRegion(init, extent) {
-    const x = Math.max(0, init.x ?? 0);
-    const y = Math.max(0, init.y ?? 0);
-    const z = Math.max(0, init.z ?? 0);
-    return {
-        x,
-        y,
-        z,
-        width: Math.max(0, Math.min(init.width ?? extent.width, extent.width - x)),
-        height: Math.max(0, Math.min(init.height ?? extent.height, extent.height - y)),
-        depth: Math.max(0, Math.min(init.depth ?? extent.depth, extent.depth - z)),
-        level: Math.max(0, init.level ?? 0),
-    };
-}
-/** Texels covered by `r`. */
-function regionTexelCount(r) {
-    return r.width * r.height * r.depth;
-}
-function isEmpty(r) {
-    return r.width <= 0 || r.height <= 0 || r.depth <= 0;
-}
-function contains(a, b) {
-    return (a.x <= b.x &&
-        a.x + a.width >= b.x + b.width &&
-        a.y <= b.y &&
-        a.y + a.height >= b.y + b.height &&
-        a.z <= b.z &&
-        a.z + a.depth >= b.z + b.depth);
-}
-/** Merge along one axis, or null when the two are disjoint with a gap on it. */
-function mergeAxis(a, b, origin, size) {
-    const a0 = a[origin];
-    const a1 = a0 + a[size];
-    const b0 = b[origin];
-    const b1 = b0 + b[size];
-    // Touching counts as mergeable (b0 === a1); only a real gap blocks the merge.
-    if (b0 > a1 || a0 > b1)
-        return null;
-    const lo = Math.min(a0, b0);
-    const hi = Math.max(a1, b1);
-    return { ...a, [origin]: lo, [size]: hi - lo };
-}
-/**
- * Merge two regions iff their union is ITSELF a box: same level, and either one contains the other,
- * or they agree exactly on two of the three axis intervals and touch/overlap on the third. Returns
- * null otherwise. Never returns a bounding box - a merge must not pick up a texel that was clean.
- */
-function tryMergeRegions(a, b) {
-    if (a.level !== b.level)
-        return null;
-    if (contains(a, b))
-        return a;
-    if (contains(b, a))
-        return b;
-    const xEq = a.x === b.x && a.width === b.width;
-    const yEq = a.y === b.y && a.height === b.height;
-    const zEq = a.z === b.z && a.depth === b.depth;
-    if ((xEq ? 1 : 0) + (yEq ? 1 : 0) + (zEq ? 1 : 0) < 2)
-        return null;
-    if (!xEq)
-        return mergeAxis(a, b, 'x', 'width');
-    if (!yEq)
-        return mergeAxis(a, b, 'y', 'height');
-    if (!zEq)
-        return mergeAxis(a, b, 'z', 'depth');
-    return a; // all three equal - identical regions
-}
-/** After `list[i]` grew, absorb any other entries it can now merge with. */
-function cascade(list, i) {
-    for (let j = list.length - 1; j >= 0; j--) {
-        if (j === i)
-            continue;
-        const merged = tryMergeRegions(list[i], list[j]);
-        if (!merged)
-            continue;
-        list[i] = merged;
-        list.splice(j, 1);
-        if (j < i)
-            i--;
-    }
-}
-/** Coalesce to one bounding box per `(level, z, depth)` plane. The cap's escape hatch. */
-function coalesceToPlanes(list) {
-    const byPlane = new Map();
-    for (const r of list) {
-        const key = `${r.level}:${r.z}:${r.depth}`;
-        const seen = byPlane.get(key);
-        if (!seen) {
-            byPlane.set(key, { ...r });
-            continue;
-        }
-        const x1 = Math.max(seen.x + seen.width, r.x + r.width);
-        const y1 = Math.max(seen.y + seen.height, r.y + r.height);
-        seen.x = Math.min(seen.x, r.x);
-        seen.y = Math.min(seen.y, r.y);
-        seen.width = x1 - seen.x;
-        seen.height = y1 - seen.y;
-    }
-    list.length = 0;
-    for (const r of byPlane.values())
-        list.push(r);
-}
-/**
- * Queue `region` into `list`, merging exactly where possible.
- *
- * Insertion is cheap by construction: the most recently added region is tried first, so a sequential
- * write loop (`for (i...) packAtIndex(i)`) merges in O(1) and never scans. Past `cap` pending regions
- * the list is coalesced per plane, bounding both memory and per-add cost.
- */
-function addRegion(list, region, cap = REGION_CAP) {
-    if (isEmpty(region))
-        return;
-    const n = list.length;
-    if (n > 0) {
-        const merged = tryMergeRegions(list[n - 1], region);
-        if (merged) {
-            list[n - 1] = merged;
-            cascade(list, n - 1);
-            return;
-        }
-    }
-    for (let i = 0; i < n - 1; i++) {
-        const merged = tryMergeRegions(list[i], region);
-        if (merged) {
-            list[i] = merged;
-            cascade(list, i);
-            return;
-        }
-    }
-    list.push(region);
-    if (list.length > cap)
-        coalesceToPlanes(list);
-}
-/**
- * Convert a linear run of `count` texels from `start` into regions, exactly. A run inside one row is
- * a single 1-row box; a run that crosses a row boundary becomes at most three (head partial row,
- * full-row middle, tail partial row). This is what keeps a small record in a wide texture from
- * dirtying the whole row.
- */
-function regionsFromLinearRun(start, count, width) {
-    if (count <= 0 || width <= 0)
-        return [];
-    const out = [];
-    const push = (x, y, w, h) => {
-        out.push({ x, y, z: 0, width: w, height: h, depth: 1, level: 0 });
-    };
-    const end = start + count;
-    const y0 = Math.floor(start / width);
-    const x0 = start % width;
-    const yLast = Math.floor((end - 1) / width);
-    if (y0 === yLast) {
-        push(x0, y0, count, 1);
-        return out;
-    }
-    let midStart = y0;
-    let midEnd = yLast + 1;
-    if (x0 > 0) {
-        push(x0, y0, width - x0, 1);
-        midStart = y0 + 1;
-    }
-    const xEnd = ((end - 1) % width) + 1;
-    if (xEnd < width) {
-        push(0, yLast, xEnd, 1);
-        midEnd = yLast;
-    }
-    if (midEnd > midStart)
-        push(0, midStart, width, midEnd - midStart);
-    return out;
-}
-/**
- * Derive the region covering the same texels at mip `level`, halving per level. Origins floor and
- * extents ceil so the derived box always covers the footprint of the original rather than shaving a
- * texel off its edge, then clamp to the level's own size.
- *
- * This is what lets a write to level 0 patch an explicit mip chain automatically. Without it a partial
- * upload leaves every other level stale, which is silent corruption rather than a visible failure.
- */
-function deriveMipRegion(r, level, levelWidth, levelHeight) {
-    const s = 1 << level;
-    const x0 = Math.min(Math.floor(r.x / s), Math.max(0, levelWidth - 1));
-    const y0 = Math.min(Math.floor(r.y / s), Math.max(0, levelHeight - 1));
-    const x1 = Math.min(levelWidth, Math.max(x0 + 1, Math.ceil((r.x + r.width) / s)));
-    const y1 = Math.min(levelHeight, Math.max(y0 + 1, Math.ceil((r.y + r.height) / s)));
-    return { x: x0, y: y0, z: r.z, width: x1 - x0, height: y1 - y0, depth: r.depth, level };
-}
-
-/**
- * GPUTextureUsage flag bits, spec-fixed numeric values. Used instead of the global
- * `GPUTextureUsage` so texture construction works in headless/Node (no WebGPU global).
- */
-const TEXTURE_USAGE = {
-    COPY_SRC: 0x01,
-    COPY_DST: 0x02,
-    TEXTURE_BINDING: 0x04,
-    STORAGE_BINDING: 0x08,
-    RENDER_ATTACHMENT: 0x10,
-};
-let _textureId = 0;
-class GpuTexture {
-    isGpuTexture = true;
-    /** Unique ID */
-    id = _textureId++;
-    /** Schema type descriptor, source of truth for WGSL type */
-    type;
-    /** GPU texture dimension ('1d', '2d', '3d') */
-    dimension;
-    /** View dimension for createView() */
-    viewDimension;
-    // ─────────────────────────────────────────────────────────────────────────
-    // GPUTextureDescriptor fields
-    // ─────────────────────────────────────────────────────────────────────────
-    width;
-    height;
-    depthOrArrayLayers;
-    format;
-    usage;
-    mipLevelCount;
-    sampleCount;
-    // ─────────────────────────────────────────────────────────────────────────
-    // Source data
-    // ─────────────────────────────────────────────────────────────────────────
-    /** Primary source (for 2D/3D) */
-    source = null;
-    /** Per-layer/face sources (for array/cube textures) */
-    sources = [];
-    /**
-     * User-supplied mip levels (index 0 = level 1; level 0 lives in `source`/`sources`).
-     * When non-empty the renderer uploads these and skips render-pass mip generation.
-     */
-    mipmaps = [];
-    /** Generate mipmaps on upload */
-    generateMipmaps = false;
-    /** Storage textures: regenerate mips after a compute pass writes this texture (if it has mips). */
-    mipmapsAutoUpdate = true;
-    /** Flip Y on upload (for image sources) */
-    flipY = false;
-    /** Premultiply alpha on upload */
-    premultiplyAlpha = false;
-    // ─────────────────────────────────────────────────────────────────────────
-    // Dirty tracking (same pattern as GpuBuffer)
-    // ─────────────────────────────────────────────────────────────────────────
-    /** Version number, incremented when needsUpdate is set */
-    version = 0;
-    /** Mark texture as needing a FULL re-upload. Takes priority over {@link updateRegions}. */
-    set needsUpdate(_) {
-        this.version++;
-        this.needsFullUpload = true;
-    }
-    /**
-     * Pending partial-upload regions: boxes of texels into `source.data`. When non-empty at upload and
-     * {@link needsFullUpload} is not set, the renderer uploads only these instead of the whole texture
-     * (`texSubImage2D` / `writeTexture`). Populated via {@link addUpdateRegion}; cleared by the renderer
-     * after upload. Overridden by a full upload (needsUpdate / resize).
-     *
-     * Regions are merged exactly on insert, never bounding-boxed, so a merge can never pick up a texel
-     * that was clean. Currently only 2D source-backed textures take the partial path; array, cube and 3D
-     * textures always take the full-upload path.
-     */
-    updateRegions = [];
-    /**
-     * When true, the next upload re-specifies the whole texture (set by `needsUpdate`, a resize, or the
-     * first upload) and takes priority over {@link updateRegions}. The renderer resets it after uploading.
-     */
-    needsFullUpload = false;
-    /**
-     * Queue a partial update of one box of texels and trigger a re-upload, WITHOUT forcing a full one.
-     * Omitted fields default to the full extent at the origin, so `{ z: 7, depth: 1 }` is "layer 7" and
-     * `{ x, y, width, height }` is a sub-rect. `z` addresses array layers, cube faces and 3D slices
-     * alike.
-     */
-    addUpdateRegion(region) {
-        const base = normalizeRegion(region, {
-            width: this.width,
-            height: this.height,
-            depth: this.depthOrArrayLayers,
-        });
-        addRegion(this.updateRegions, base);
-        // A write to level 0 leaves an explicit mip chain stale. Derive the matching box at every
-        // supplied level so callers cannot forget, since forgetting is silent corruption rather than a
-        // visible failure. Auto-generated mips need no derivation, the renderer regenerates them.
-        if (base.level === 0 && this.mipmaps.length > 0) {
-            for (let level = 1; level <= this.mipmaps.length; level++) {
-                const levelWidth = Math.max(1, this.width >> level);
-                const levelHeight = Math.max(1, this.height >> level);
-                addRegion(this.updateRegions, deriveMipRegion(base, level, levelWidth, levelHeight));
-            }
-        }
-        this.version++;
-    }
-    // ─────────────────────────────────────────────────────────────────────────
-    // Render target flag
-    // ─────────────────────────────────────────────────────────────────────────
-    /**
-     * Whether this texture is a render target (managed by RenderTarget system).
-     * When true, the renderer skips source data upload - the GPU texture is
-     * created and managed by RenderTarget.
-     */
-    isRenderTargetTexture = false;
-    /**
-     * Render target this texture belongs to (color or depth attachment), or null.
-     * Lets the bind path lazily (re)allocate a sampled render target whose own
-     * render pass hasn't run this frame, e.g. it was resized between renders.
-     */
-    renderTarget = null;
-    // ─────────────────────────────────────────────────────────────────────────
-    // Lifecycle
-    // ─────────────────────────────────────────────────────────────────────────
-    /** Renderer-set callback to destroy GPU resources */
-    _onDispose = null;
-    /** Set to true after dispose() */
-    disposed = false;
-    // ─────────────────────────────────────────────────────────────────────────
-    // Constructor
-    // ─────────────────────────────────────────────────────────────────────────
-    constructor(type, options) {
-        this.type = type;
-        // Derive dimension and viewDimension from schema type
-        this.dimension = textureDimension(type);
-        this.viewDimension = textureViewDimension(type);
-        // Extract size from options (type-safe per schema)
-        const { width, height, depthOrArrayLayers } = extractTextureSize(type, options);
-        this.width = width;
-        this.height = height;
-        this.depthOrArrayLayers = depthOrArrayLayers;
-        // Format defaults: storage → descriptor's format, depth → depth32float, else rgba8unorm.
-        this.format =
-            options.format ??
-                (isStorageTextureDesc(type) ? type.format : isDepthTextureDesc(type) ? 'depth32float' : 'rgba8unorm');
-        // Usage defaults. Storage textures get STORAGE_BINDING and keep TEXTURE_BINDING (so the same
-        // texture can be sampled in a later render pass) plus COPY_SRC for readback.
-        this.usage =
-            options.usage ??
-                (isStorageTextureDesc(type)
-                    ? TEXTURE_USAGE.STORAGE_BINDING | TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST | TEXTURE_USAGE.COPY_SRC
-                    : TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST);
-        this.mipmapsAutoUpdate = options.mipmapsAutoUpdate ?? true;
-        // Mip levels
-        this.mipLevelCount = options.mipLevelCount ?? 1;
-        this.sampleCount = options.sampleCount ?? 1;
-        // Source handling
-        this.generateMipmaps = options.generateMipmaps ?? false;
-        this.flipY = options.flipY ?? false;
-        this.premultiplyAlpha = options.premultiplyAlpha ?? false;
-        // Handle source(s) based on texture type
-        const opts = options;
-        if (opts.mipmaps) {
-            this.mipmaps = opts.mipmaps.map((s) => (s instanceof Source ? s : new Source(s)));
-        }
-        if (opts.source) {
-            this.source = opts.source instanceof Source ? opts.source : new Source(opts.source);
-        }
-        if (opts.sources) {
-            this.sources = opts.sources.map((s) => (s instanceof Source ? s : new Source(s)));
-        }
-        if (opts.faces) {
-            this.sources = opts.faces.map((s) => (s instanceof Source ? s : new Source(s)));
-        }
-    }
-    // Convenience getters
-    /** For cube textures: the size (width = height) */
-    get size() {
-        return this.width;
-    }
-    /** For 2D array: number of layers */
-    get layers() {
-        return this.depthOrArrayLayers;
-    }
-    /** For 3D: depth */
-    get depth() {
-        return this.depthOrArrayLayers;
-    }
-    /** For cube array: number of cubes */
-    get cubeCount() {
-        return this.depthOrArrayLayers / 6;
-    }
-    /** Is this a depth texture? */
-    get isDepth() {
-        return isDepthTextureDesc(this.type);
-    }
-    /** Is all source data ready for upload? */
-    get isComplete() {
-        if (this.source && !this.source.dataReady)
-            return false;
-        for (const s of this.sources) {
-            if (!s.dataReady)
-                return false;
-        }
-        // Cube textures need exactly 6 faces
-        if (isCubeTextureDesc(this.type) && this.sources.length !== 6)
-            return false;
-        return true;
-    }
-    dispose() {
-        if (this.disposed)
-            return;
-        this.disposed = true;
-        this._onDispose?.();
-        this._onDispose = null;
-        this.source = null;
-        this.sources = [];
-        this.mipmaps = [];
-    }
-}
-function extractTextureSize(type, options) {
-    const viewDim = textureViewDimension(type);
-    const opts = options;
-    switch (viewDim) {
-        case 'cube':
-            return { width: opts.size, height: opts.size, depthOrArrayLayers: 6 };
-        case 'cube-array':
-            return {
-                width: opts.size,
-                height: opts.size,
-                depthOrArrayLayers: opts.cubeCount * 6,
-            };
-        case '2d-array':
-            return { width: opts.width, height: opts.height, depthOrArrayLayers: opts.layers };
-        case '3d':
-            return { width: opts.width, height: opts.height, depthOrArrayLayers: opts.depth };
-        case '1d':
-            return { width: opts.width, height: 1, depthOrArrayLayers: 1 };
-        default:
-            return { width: opts.width, height: opts.height, depthOrArrayLayers: 1 };
-    }
-}
-// ─────────────────────────────────────────────────────────────────────────────
-// Storage texture creation helpers
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// Storage textures are written from compute shaders via `textureStore` and read via
-// `textureLoad`. They default to STORAGE_BINDING | TEXTURE_BINDING usage, so the same
-// texture can be written in compute and then sampled in a later render pass.
-// `access` is a per-binding property set on the node (see `storageTexture(...)`), not
-// the texture — the descriptor's default `'write'` is just the node's default.
-/** Create a 2D storage texture (`texture_storage_2d<format, _>`). */
-function createStorageTexture(width, height, format) {
-    return new GpuTexture(textureStorage2d(format), { width, height });
-}
-/** Create a 3D storage texture (`texture_storage_3d<format, _>`). */
-function createStorageTexture3d(width, height, depth, format) {
-    return new GpuTexture(textureStorage3d(format), { width, height, depth });
-}
-/** Create a 2D-array storage texture (`texture_storage_2d_array<format, _>`). */
-function createStorageTextureArray(width, height, layers, format) {
-    return new GpuTexture(textureStorage2dArray(format), { width, height, layers });
-}
-/** Create a 1D storage texture (`texture_storage_1d<format, _>`). */
-function createStorageTexture1d(width, format) {
-    return new GpuTexture(textureStorage1d(format), { width });
-}
-
-/**
- * A texture for storing depth information.
- * Used as the depth attachment in RenderTarget, or for shadow mapping.
- *
- * Defaults to comparison sampler for shadow mapping convenience.
- *
- * No region API, deliberately: this is a render-target attachment whose contents are written by the
- * GPU, so there is no CPU-side source for a partial upload to read from.
- */
-class DepthTexture {
-    isDepthTexture = true;
-    /** The underlying GPU texture resource */
-    _gpuTexture;
-    /** The underlying sampler */
-    _gpuSampler;
-    /** Optional name for debugging */
-    name = '';
-    /**
-     * Constructs a new DepthTexture.
-     *
-     * @param width - The width of the texture
-     * @param height - The height of the texture
-     * @param format - The depth format (default: 'depth24plus')
-     */
-    constructor(width, height, format = 'depth24plus') {
-        this._gpuTexture = new GpuTexture(textureDepth2d, {
-            width,
-            height,
-            format,
-            // Spec-fixed numeric flags (not the WebGPU `GPUTextureUsage` global), so a DepthTexture can be
-            // constructed under a WebGL2 context / headless where that global is undefined.
-            usage: TEXTURE_USAGE.RENDER_ATTACHMENT | TEXTURE_USAGE.TEXTURE_BINDING,
-        });
-        // Default to comparison sampler for shadow mapping
-        this._gpuSampler = new GpuSampler({
-            compare: 'less',
-            magFilter: 'linear',
-            minFilter: 'linear',
-        });
-    }
-    get id() {
-        return this._gpuTexture.id;
-    }
-    get width() {
-        return this._gpuTexture.width;
-    }
-    get height() {
-        return this._gpuTexture.height;
-    }
-    get format() {
-        return this._gpuTexture.format;
-    }
-    get compareFunction() {
-        return this._gpuSampler.compare;
-    }
-    set compareFunction(v) {
-        this._gpuSampler.compare = v;
-    }
-    /** Version for dirty tracking. */
-    get version() {
-        return this._gpuTexture.version;
-    }
-    /** Mark as needing re-upload. */
-    set needsUpdate(v) {
-        if (v)
-            this._gpuTexture.needsUpdate = true;
-    }
-    /** Set the size of the depth texture. */
-    setSize(width, height) {
-        if (this._gpuTexture.width !== width || this._gpuTexture.height !== height) {
-            this._gpuTexture.width = width;
-            this._gpuTexture.height = height;
-            this._gpuTexture.needsUpdate = true;
-        }
-    }
-    clone() {
-        const tex = new DepthTexture(this.width, this.height, this.format);
-        tex.name = this.name;
-        tex.compareFunction = this.compareFunction;
-        return tex;
-    }
-    dispose() {
-        this._gpuTexture.dispose();
-        this._gpuSampler.dispose();
-    }
-}
-/** The factory form; the contents are written by the GPU, so there is no data argument. */
-function createDepthTexture(width, height, format) {
-    return new DepthTexture(width, height, format);
-}
-
-/**
- * High-level 2D texture class.
- *
- * Holds sampling parameters and references a Source for image data.
- */
-class Texture {
-    /** Type flag for runtime type checking */
-    isTexture = true;
-    /** The underlying GPU texture resource */
-    _gpuTexture;
-    /** The underlying sampler */
-    _gpuSampler;
-    /** Optional name for debugging */
-    name = '';
-    /**
-     * Callback fired when the texture is updated.
-     */
-    onUpdate = null;
-    /**
-     * Whether this texture belongs to a render target. Forwards to the underlying `GpuTexture` (the
-     * single source of truth the backends read), so setting it on the wrapper always takes effect;
-     * a plain field here would silently not reach the `GpuTexture`, making the backend treat the
-     * texture as a source upload (0-sized storage) instead of a render-target allocation.
-     * @default false
-     */
-    get isRenderTargetTexture() {
-        return this._gpuTexture.isRenderTargetTexture;
-    }
-    set isRenderTargetTexture(value) {
-        this._gpuTexture.isRenderTargetTexture = value;
-    }
-    /**
-     * Constructs a new Texture.
-     *
-     * @param image - The image source (ImageBitmap, HTMLImageElement, Source, etc.)
-     * @param options - Texture options
-     */
-    constructor(image, options = {}) {
-        // Create the source
-        const src = image instanceof Source ? image : image !== null ? new Source(image) : null;
-        // Create the underlying GpuTexture
-        this._gpuTexture = new GpuTexture(texture2d(), {
-            width: src?.width || 1,
-            height: src?.height || 1,
-            source: src ?? undefined,
-            format: options.format,
-            generateMipmaps: options.generateMipmaps ?? true,
-            flipY: options.flipY ?? false,
-            premultiplyAlpha: options.premultiplyAlpha ?? false,
-        });
-        // Create the underlying sampler
-        this._gpuSampler = new GpuSampler({
-            addressModeU: options.wrapS ?? 'clamp-to-edge',
-            addressModeV: options.wrapT ?? 'clamp-to-edge',
-            magFilter: options.magFilter ?? 'linear',
-            minFilter: options.minFilter ?? 'linear',
-            mipmapFilter: options.mipmapFilter ?? 'linear',
-            maxAnisotropy: options.anisotropy ?? 1,
-        });
-    }
-    // ─── Convenience getters/setters that forward to internals ───
-    /** Unique numeric ID */
-    get id() {
-        return this._gpuTexture.id;
-    }
-    /** Returns the width of the source, or 1 if no data. */
-    get width() {
-        return this._gpuTexture.width;
-    }
-    /** Returns the height of the source, or 1 if no data. */
-    get height() {
-        return this._gpuTexture.height;
-    }
-    /** The data source for this texture. */
-    get source() {
-        return this._gpuTexture.source;
-    }
-    set source(s) {
-        this._gpuTexture.source = s;
-        if (s) {
-            this._gpuTexture.width = s.width || 1;
-            this._gpuTexture.height = s.height || 1;
-        }
-    }
-    /** Convenience getter for the source data. */
-    get image() {
-        return this._gpuTexture.source?.data;
-    }
-    /** Convenience setter for the source data. */
-    set image(value) {
-        if (this._gpuTexture.source) {
-            this._gpuTexture.source.data = value;
-        }
-        else if (value !== null) {
-            this._gpuTexture.source = new Source(value);
-        }
-    }
-    /** Horizontal wrap mode (U direction). */
-    get wrapS() {
-        return this._gpuSampler.addressModeU;
-    }
-    set wrapS(v) {
-        this._gpuSampler.addressModeU = v;
-    }
-    /** Vertical wrap mode (V direction). */
-    get wrapT() {
-        return this._gpuSampler.addressModeV;
-    }
-    set wrapT(v) {
-        this._gpuSampler.addressModeV = v;
-    }
-    /** Magnification filter. */
-    get magFilter() {
-        return this._gpuSampler.magFilter;
-    }
-    set magFilter(v) {
-        this._gpuSampler.magFilter = v;
-    }
-    /** Minification filter. */
-    get minFilter() {
-        return this._gpuSampler.minFilter;
-    }
-    set minFilter(v) {
-        this._gpuSampler.minFilter = v;
-    }
-    /** Mipmap filter mode. */
-    get mipmapFilter() {
-        return this._gpuSampler.mipmapFilter;
-    }
-    set mipmapFilter(v) {
-        this._gpuSampler.mipmapFilter = v;
-    }
-    /** Anisotropic filtering level. */
-    get anisotropy() {
-        return this._gpuSampler.maxAnisotropy;
-    }
-    set anisotropy(v) {
-        this._gpuSampler.maxAnisotropy = v;
-    }
-    /** WebGPU texture format. */
-    get format() {
-        return this._gpuTexture.format;
-    }
-    set format(v) {
-        this._gpuTexture.format = v;
-    }
-    /** Whether to auto-generate mipmaps. */
-    get generateMipmaps() {
-        return this._gpuTexture.generateMipmaps;
-    }
-    set generateMipmaps(v) {
-        this._gpuTexture.generateMipmaps = v;
-    }
-    /**
-     * User-provided mip levels (index 0 = level 1). When non-empty the renderer
-     * uploads these and skips auto-generation. Empty by default.
-     */
-    get mipmaps() {
-        return this._gpuTexture.mipmaps;
-    }
-    set mipmaps(v) {
-        this._gpuTexture.mipmaps = v;
-    }
-    /** Whether to flip the image vertically when uploading. */
-    get flipY() {
-        return this._gpuTexture.flipY;
-    }
-    set flipY(v) {
-        this._gpuTexture.flipY = v;
-    }
-    /** Whether to premultiply alpha. */
-    get premultiplyAlpha() {
-        return this._gpuTexture.premultiplyAlpha;
-    }
-    set premultiplyAlpha(v) {
-        this._gpuTexture.premultiplyAlpha = v;
-    }
-    /** Version for dirty tracking. */
-    get version() {
-        return this._gpuTexture.version;
-    }
-    /** Set to `true` to trigger a GPU upload on the next render. */
-    set needsUpdate(value) {
-        if (value) {
-            this._gpuTexture.needsUpdate = true;
-            if (this._gpuTexture.source) {
-                this._gpuTexture.source.needsUpdate = true;
-            }
-            this.onUpdate?.(this);
-        }
-    }
-    /**
-     * Queue a partial upload of one box of texels, without forcing a full re-upload. Omitted fields
-     * default to the full extent at the origin.
-     *
-     * NOTE: a texture backed by a DOM source (image, canvas, video) has no addressable rows in a packed
-     * buffer, so the renderer serves the region with a full upload rather than a partial one. The write
-     * still lands, it just is not cheaper. Sub-rect upload from a DOM source needs a separate
-     * `copyExternalImageToTexture` / `TexImageSource` path in both backends.
-     */
-    addUpdateRegion(region) {
-        this._gpuTexture.addUpdateRegion(region);
-        if (this._gpuTexture.source)
-            this._gpuTexture.source.needsUpdate = true;
-        return this;
-    }
-    /** Renderer-set callback to destroy GPU resources. */
-    // TODO: did we ever need it?
-    // get _onDispose(): (() => void) | null { return this._gpuTexture._onDispose; }
-    // set _onDispose(v: (() => void) | null) { this._gpuTexture._onDispose = v; }
-    /**
-     * Creates a clone of this texture.
-     * Note: The clone shares the same Source by default.
-     */
-    clone() {
-        const tex = new Texture(this.source, {
-            wrapS: this.wrapS,
-            wrapT: this.wrapT,
-            magFilter: this.magFilter,
-            minFilter: this.minFilter,
-            mipmapFilter: this.mipmapFilter,
-            anisotropy: this.anisotropy,
-            format: this.format,
-            generateMipmaps: this.generateMipmaps,
-            flipY: this.flipY,
-            premultiplyAlpha: this.premultiplyAlpha,
-        });
-        tex.name = this.name;
-        tex.mipmaps = [...this.mipmaps];
-        return tex;
-    }
-    /**
-     * Disposes of the texture and its GPU resources.
-     */
-    dispose() {
-        this._gpuTexture.dispose();
-        this._gpuSampler.dispose();
-    }
-}
-/** The factory form, matching `createDataTexture` and the other texture constructors. */
-function createTexture(image, options = {}) {
-    return new Texture(image, options);
-}
-
-/**
- * A render target is a buffer where the video card draws pixels for a scene
- * that is being rendered in the background. It is used in different effects,
- * such as applying postprocessing to a rendered image before displaying it
- * on the screen.
- */
-class RenderTarget {
-    isRenderTarget = true;
-    clearColor;
-    /** Brand set true on CubeRenderTarget; declared here so `rt.isCubeRenderTarget` types on a RenderTarget ref. */
-    isCubeRenderTarget;
-    /** The width of the render target */
-    width;
-    /** The height of the render target */
-    height;
-    /** The MSAA sample count of the render target */
-    samples;
-    /**
-     * Array of color attachment textures.
-     * Each has its own mutable `.format` (per-attachment formats supported by mutating `textures[i].format`).
-     * Each has a `.name` for MRT mapping; the first texture is also accessible via the `texture` getter.
-     */
-    textures;
-    /**
-     * The depth ATTACHMENT texture — always present when the target has a depth buffer, and what the
-     * backends read to build/attach depth (so depth testing always works). Internal: it is NOT the
-     * sampling surface. Consumers sample via the public {@link depthTexture} getter, which only exposes
-     * this when the depth is declared sampled.
-     */
-    _depthAttachment = null;
-    /**
-     * The depth attachment exposed for SAMPLING, or null when the depth isn't declared sampled.
-     * three.js-aligned: a render target's depth is readable as a texture only when you opt in
-     * (`depthSampled: true`, an explicit `depthTexture`, or `RenderTextureNode.getDepthTextureNode()`), mirroring
-     * three.js where the *presence* of `renderTarget.depthTexture` is the signal. The actual depth
-     * attachment for depth testing always exists (see {@link _depthAttachment}); returning null here
-     * makes sampling an undeclared depth fail loud (a null at wiring time) instead of silently reading
-     * an unwritten texture — which on the WebGL backend reads as ~1.0 everywhere, e.g. no shadows.
-     */
-    get depthTexture() {
-        return this.depthSampled ? this._depthAttachment : null;
-    }
-    /**
-     * Whether the depth attachment is sampled. When false and the target owns an
-     * auto-allocated depth, the WebGL backend attaches a depth RENDERBUFFER instead
-     * of a texture (three.js parity, more broadly FBO-complete; depth-testing still
-     * works). Set true by `RenderTextureNode.getDepthTextureNode()` or the `depthSampled` option.
-     * WebGPU always allocates the attachment as a texture, so it is unaffected.
-     */
-    depthSampled = false;
-    /** Constructs a new render target */
-    constructor(width, height, opts = {}) {
-        this.width = width;
-        this.height = height;
-        this.samples = opts.samples ?? 1;
-        this.clearColor = opts.clearColor ?? [0, 0, 0, 1];
-        const defaultFormat = opts.colorFormat ?? 'rgba16float';
-        const count = opts.count ?? 1;
-        this.textures = [];
-        for (let i = 0; i < count; i++) {
-            const texture = createRenderTargetTexture(this, width, height, defaultFormat);
-            texture.name = i === 0 ? 'output' : `output${i}`;
-            texture._gpuTexture.renderTarget = this;
-            this.textures.push(texture);
-        }
-        if (opts.depthTexture) {
-            this._depthAttachment = opts.depthTexture;
-            this._depthAttachment._gpuTexture.isRenderTargetTexture = true;
-            // A caller-provided depth texture exists to be read/shared.
-            this.depthSampled = true;
-        }
-        else if (opts.depthBuffer !== false) {
-            const depthFormat = opts.depthFormat ?? (opts.stencilBuffer ? 'depth24plus-stencil8' : 'depth24plus');
-            const depthTexture = new DepthTexture(width, height, depthFormat);
-            depthTexture.name = 'depth';
-            depthTexture._gpuTexture.isRenderTargetTexture = true;
-            this._depthAttachment = depthTexture;
-            // The attachment always exists (depth testing); whether it's sampleable (a texture vs a WebGL
-            // renderbuffer, and exposed via `depthTexture`) is opt-in. `getDepthTextureNode()` also flips this.
-            this.depthSampled = opts.depthSampled ?? false;
-        }
-        if (this._depthAttachment) {
-            this._depthAttachment._gpuTexture.renderTarget = this;
-        }
-    }
-    /** The first color attachment texture, or undefined when count=0 (depth-only target). */
-    get texture() {
-        return this.textures[0];
-    }
-    set texture(value) {
-        if (value === undefined) {
-            this.textures.length = 0;
-            return;
-        }
-        if (this.textures.length === 0) {
-            this.textures.push(value);
-        }
-        else {
-            this.textures[0] = value;
-        }
-    }
-    /**
-     * Resize the render target. Old GPU resources are NOT destroyed here: the
-     * renderer reallocates lazily on next use in `ensureRenderTargetTexturesAllocated`,
-     * where `setRenderTargetTexture` destroys the old texture and creates the new
-     * one atomically. Marking `needsUpdate` (+ the size mismatch) is enough to
-     * trigger that: a version-driven reallocation rather than eager destruction.
-     *
-     * Eagerly disposing here would destroy a GPU texture synchronously, opening a
-     * window where another pass that already recorded a draw against it (e.g. a
-     * shared depth attachment) submits with a destroyed texture. The lazy path has
-     * no such window.
-     */
-    setSize(width, height) {
-        if (this.width === width && this.height === height)
-            return;
-        this.width = width;
-        this.height = height;
-        // update texture dimensions on the GpuTexture
-        for (const tex of this.textures) {
-            tex._gpuTexture.width = width;
-            tex._gpuTexture.height = height;
-            tex._gpuTexture.needsUpdate = true;
-        }
-        if (this._depthAttachment) {
-            this._depthAttachment.setSize(width, height);
-        }
-    }
-    /**
-     * Dispose of the render target's GPU resources.
-     * This triggers the _onDispose callbacks set by the renderer cache.
-     */
-    dispose() {
-        for (const tex of this.textures) {
-            tex._gpuTexture.dispose();
-        }
-        if (this._depthAttachment) {
-            this._depthAttachment._gpuTexture.dispose();
-        }
-    }
-    /** Returns the texture index for the given name, or -1 if not found. */
-    getTextureIndex(name) {
-        for (let i = 0; i < this.textures.length; i++) {
-            if (this.textures[i].name === name)
-                return i;
-        }
-        return -1;
-    }
-}
-/** creates a Texture configured for use as a render target color attachment */
-function createRenderTargetTexture(_renderTarget, width, height, format) {
-    // create placeholder image object with dimensions
-    const image = { width, height };
-    const texture = new Texture(image);
-    texture.format = format;
-    texture.isRenderTargetTexture = true;
-    texture.generateMipmaps = false;
-    texture.flipY = false;
-    // Mark the underlying GpuTexture as a render target texture too
-    texture._gpuTexture.isRenderTargetTexture = true;
-    return texture;
-}
-/** Holds no device: the backend allocates the textures on first use. */
-function createRenderTarget(width, height, opts = {}) {
-    return new RenderTarget(width, height, opts);
-}
-/** The name of the first attachment whose texture is disposed, or null. Depth counts: a submit dies on either. */
-function deadAttachment(rt) {
-    for (const tex of rt.textures) {
-        if (tex._gpuTexture.disposed)
-            return tex.name;
-    }
-    return rt._depthAttachment?._gpuTexture.disposed === true ? 'depth' : null;
-}
-
-/**
- * Transform a bounding box by a 4x4 matrix.
- * Uses Arvo's trick — transform the center, build new half-extents from
- * |M| · extents — which is ~4× fewer ops than transforming all 8 corners.
- * Reference: Jim Arvo, "Transforming Axis-Aligned Bounding Boxes",
- * Graphics Gems I (1990).
- * https://github.com/erich666/GraphicsGems/blob/master/gems/TransBox.c
- * Assumes mat is affine (no perspective), which is always true for AABB
- * transforms in practice.
- * Safe under aliasing (out and box may be the same array): all six box
- * components are read into locals before out is written.
- * @param out - The output Box3
- * @param box - The input Box3
- * @param mat - The 4x4 transformation matrix
- * @returns The transformed Box3
- */
-function transformMat4(out, box, mat) {
-    const bMinX = box[0];
-    const bMinY = box[1];
-    const bMinZ = box[2];
-    const bMaxX = box[3];
-    const bMaxY = box[4];
-    const bMaxZ = box[5];
-    // empty input → empty output (preserve sentinel rather than producing
-    // a bogus transformed box from negative extents)
-    if (bMinX > bMaxX || bMinY > bMaxY || bMinZ > bMaxZ) {
-        out[0] = Number.POSITIVE_INFINITY;
-        out[1] = Number.POSITIVE_INFINITY;
-        out[2] = Number.POSITIVE_INFINITY;
-        out[3] = Number.NEGATIVE_INFINITY;
-        out[4] = Number.NEGATIVE_INFINITY;
-        out[5] = Number.NEGATIVE_INFINITY;
-        return out;
-    }
-    const cx = (bMinX + bMaxX) * 0.5;
-    const cy = (bMinY + bMaxY) * 0.5;
-    const cz = (bMinZ + bMaxZ) * 0.5;
-    const ex = (bMaxX - bMinX) * 0.5;
-    const ey = (bMaxY - bMinY) * 0.5;
-    const ez = (bMaxZ - bMinZ) * 0.5;
-    const m0 = mat[0], m1 = mat[1], m2 = mat[2];
-    const m4 = mat[4], m5 = mat[5], m6 = mat[6];
-    const m8 = mat[8], m9 = mat[9], m10 = mat[10];
-    const tcx = m0 * cx + m4 * cy + m8 * cz + mat[12];
-    const tcy = m1 * cx + m5 * cy + m9 * cz + mat[13];
-    const tcz = m2 * cx + m6 * cy + m10 * cz + mat[14];
-    const tex = Math.abs(m0) * ex + Math.abs(m4) * ey + Math.abs(m8) * ez;
-    const tey = Math.abs(m1) * ex + Math.abs(m5) * ey + Math.abs(m9) * ez;
-    const tez = Math.abs(m2) * ex + Math.abs(m6) * ey + Math.abs(m10) * ez;
-    out[0] = tcx - tex;
-    out[1] = tcy - tey;
-    out[2] = tcz - tez;
-    out[3] = tcx + tex;
-    out[4] = tcy + tey;
-    out[5] = tcz + tez;
-    return out;
-}
-
-/**
- * Creates a new plane with normal (0, 1, 0) and constant 0
- * @returns A new plane
- */
-function create$1() {
-    return { normal: [0, 1, 0], constant: 0 };
-}
-/**
- * Clones a plane
- * @param plane - The plane to clone
- * @returns A new plane
- */
-function clone$1(plane) {
-    return {
-        normal: clone$2(plane.normal),
-        constant: plane.constant,
-    };
-}
-/**
- * Copies one plane to another
- * @param out - The output plane
- * @param plane - The source plane
- * @returns The output plane
- */
-function copy$1(out, plane) {
-    copy$5(out.normal, plane.normal);
-    out.constant = plane.constant;
-    return out;
-}
-/**
- * Normalizes a plane (ensures the normal vector is unit length)
- * @param out - The output plane
- * @param plane - The input plane
- * @returns The normalized plane
- */
-function normalize(out, plane) {
-    const invMagnitude = 1.0 / length$1(plane.normal);
-    scale(out.normal, plane.normal, invMagnitude);
-    out.constant = plane.constant * invMagnitude;
-    return out;
-}
-/**
- * Calculates the signed distance from a point to the plane
- * @param plane - The plane
- * @param point - The point
- * @returns The signed distance (positive = in direction of normal)
- */
-function distanceToPoint(plane, point) {
-    return dot$1(plane.normal, point) + plane.constant;
-}
-
-function create() {
-    return [create$1(), create$1(), create$1(), create$1(), create$1(), create$1()];
-}
-function clone(f) {
-    return [
-        clone$1(f[0]),
-        clone$1(f[1]),
-        clone$1(f[2]),
-        clone$1(f[3]),
-        clone$1(f[4]),
-        clone$1(f[5]),
-    ];
-}
-function copy(out, f) {
-    copy$1(out[0], f[0]);
-    copy$1(out[1], f[1]);
-    copy$1(out[2], f[2]);
-    copy$1(out[3], f[3]);
-    copy$1(out[4], f[4]);
-    copy$1(out[5], f[5]);
-    return out;
-}
-function setFromViewProjectionMatrix(out, proj, view, coordinateSystem = CoordinateSystem.WEBGPU) {
-    const vp = create$3();
-    multiply(vp, proj, view);
-    const m = vp;
-    setPlane(out[0], m[0] + m[3], m[4] + m[7], m[8] + m[11], m[12] + m[15]);
-    setPlane(out[1], -m[0] + m[3], -m[4] + m[7], -m[8] + m[11], -m[12] + m[15]);
-    setPlane(out[2], m[1] + m[3], m[5] + m[7], m[9] + m[11], m[13] + m[15]);
-    setPlane(out[3], -m[1] + m[3], -m[5] + m[7], -m[9] + m[11], -m[13] + m[15]);
-    // Near plane depends on the clip-space depth convention: WebGPU (z=0 at near) uses row2 alone;
-    // WebGL (z=-1 at near) uses row2 + row3. Far plane (row3 - row2) is identical for both.
-    if (coordinateSystem === CoordinateSystem.WEBGL) {
-        setPlane(out[4], m[2] + m[3], m[6] + m[7], m[10] + m[11], m[14] + m[15]);
-    }
-    else {
-        setPlane(out[4], m[2], m[6], m[10], m[14]);
-    }
-    setPlane(out[5], -m[2] + m[3], -m[6] + m[7], -m[10] + m[11], -m[14] + m[15]);
-    for (let i = 0; i < 6; i++) {
-        normalize(out[i], out[i]);
-    }
-    return out;
-}
-function intersectsSphere(f, s) {
-    const { center, radius } = s;
-    for (let i = 0; i < 6; i++) {
-        if (distanceToPoint(f[i], center) < -radius) {
-            return false;
-        }
-    }
-    return true;
-}
-function intersectsBox3(f, box) {
-    const [minX, minY, minZ, maxX, maxY, maxZ] = box;
-    for (let i = 0; i < 6; i++) {
-        const p = f[i];
-        const nx = p.normal[0];
-        const ny = p.normal[1];
-        const nz = p.normal[2];
-        const px = nx >= 0 ? maxX : minX;
-        const py = ny >= 0 ? maxY : minY;
-        const pz = nz >= 0 ? maxZ : minZ;
-        if (nx * px + ny * py + nz * pz + p.constant < 0) {
-            return false;
-        }
-    }
-    return true;
-}
-function setPlane(out, nx, ny, nz, d) {
-    out.normal[0] = nx;
-    out.normal[1] = ny;
-    out.normal[2] = nz;
-    out.constant = d;
-}
-
-var frustum = /*#__PURE__*/Object.freeze({
-    __proto__: null,
-    clone: clone,
-    copy: copy,
-    create: create,
-    intersectsBox3: intersectsBox3,
-    intersectsSphere: intersectsSphere,
-    setFromViewProjectionMatrix: setFromViewProjectionMatrix
-});
-
-/**
- * render-list.ts - Sorted render item list with object pooling and scene collection.
- *
- * - Object pooling for RenderItems (avoids GC pressure)
- * - Sorted opaque and transparent lists
- * - Cached per scene/camera using nested WeakMaps
- * - Frustum culling integration
- * - Scene graph traversal
- *
- * RenderList collects meshes from a scene graph and sorts them for rendering:
- * - Opaque: sorted by material/pipeline key to minimize state changes
- * - Transparent: sorted back-to-front by view-space Z
- */
-// Factories
-/** ID counter for RenderItems. */
-let renderItemIdCounter = 0;
-/**
- * Create a new RenderList.
- */
-function createRenderList() {
-    return {
-        object: null,
-        camera: null,
-        renderItems: [],
-        renderItemsIndex: 0,
-        opaque: [],
-        transparent: [],
-    };
-}
-/**
- * Create a new RenderLists state.
- */
-function createRenderListsState() {
-    return {
-        lists: new WeakMap(),
-    };
-}
-// RenderList Access
-/**
- * Get or create a RenderList for the given object and camera.
- *
- * @param state - The RenderLists state
- * @param object - The object to render (Scene, Mesh, or any Object3D)
- * @param camera - The camera to render from
- */
-function getRenderList(state, object, camera) {
-    let cameraMap = state.lists.get(object);
-    if (!cameraMap) {
-        cameraMap = new WeakMap();
-        state.lists.set(object, cameraMap);
-    }
-    let list = cameraMap.get(camera);
-    if (!list) {
-        list = createRenderList();
-        cameraMap.set(camera, list);
-    }
-    return list;
-}
-// List Management
-/**
- * Begin building a render list for a new frame.
- *
- * This resets the pool index but keeps pooled items for reuse.
- */
-function beginRenderList(list, object, camera) {
-    list.object = object;
-    list.camera = camera;
-    list.renderItemsIndex = 0;
-    list.opaque.length = 0;
-    list.transparent.length = 0;
-}
-/**
- * Get a RenderItem from the pool (or create a new one).
- */
-function getNextRenderItem(list) {
-    const index = list.renderItemsIndex;
-    let item = list.renderItems[index];
-    if (item === undefined) {
-        item = {
-            id: renderItemIdCounter++,
-            mesh: null,
-            geometry: null,
-            material: null,
-            groupOrder: 0,
-            renderOrder: 0,
-            z: 0,
-        };
-        list.renderItems.push(item);
-    }
-    list.renderItemsIndex++;
-    return item;
-}
-/**
- * Push a mesh into the render list.
- *
- * @param list - The RenderList
- * @param mesh - The mesh to add
- * @param geometry - The mesh's geometry
- * @param material - The mesh's material
- * @param groupOrder - Group order for layer-based sorting
- * @param z - View-space Z for transparent sorting
- */
-function pushRenderItem(list, mesh, geometry, material, groupOrder, z) {
-    const item = getNextRenderItem(list);
-    item.mesh = mesh;
-    item.geometry = geometry;
-    item.material = material;
-    item.groupOrder = groupOrder;
-    item.renderOrder = mesh.renderOrder;
-    item.z = z;
-    if (material.transparent) {
-        list.transparent.push(item);
-    }
-    else {
-        list.opaque.push(item);
-    }
-}
-// Sorting
-/**
- * Sort the render list.
- *
- * @param list - The RenderList to sort
- * @param customOpaqueSort - Optional custom sort for opaque items
- * @param customTransparentSort - Optional custom sort for transparent items
- */
-function sortRenderList(list, customOpaqueSort, customTransparentSort) {
-    if (list.opaque.length > 1) {
-        list.opaque.sort(painterSortStable);
-    }
-    if (list.transparent.length > 1) {
-        list.transparent.sort(reversePainterSortStable);
-    }
-}
-/**
- * Default sort for opaque items.
- *
- * Sort priority:
- * 1. groupOrder (render layers)
- * 2. renderOrder (manual ordering)
- * 3. Z (front-to-back for early-z rejection)
- * 4. ID (stability)
- *
- * Note: we do NOT sort by material/pipeline. Pipeline switching is
- * minimized at draw time by tracking the active pipeline in setPipeline().
- */
-function painterSortStable(a, b) {
-    if (a.groupOrder !== b.groupOrder) {
-        return a.groupOrder - b.groupOrder;
-    }
-    if (a.renderOrder !== b.renderOrder) {
-        return a.renderOrder - b.renderOrder;
-    }
-    if (a.z !== b.z) {
-        return a.z - b.z;
-    }
-    return a.id - b.id;
-}
-/**
- * Default sort for transparent items (back-to-front).
- *
- * "Reverse painter sort stable" - sorts back-to-front for proper alpha blending.
- */
-function reversePainterSortStable(a, b) {
-    // Sort by groupOrder first (render layers)
-    if (a.groupOrder !== b.groupOrder) {
-        return a.groupOrder - b.groupOrder;
-    }
-    // Then by renderOrder
-    if (a.renderOrder !== b.renderOrder) {
-        return a.renderOrder - b.renderOrder;
-    }
-    // Then by Z (back-to-front for transparent = larger Z first)
-    if (a.z !== b.z) {
-        return b.z - a.z;
-    }
-    // Finally by ID for stability
-    return a.id - b.id;
-}
-// Scene Collection
-/** Frustum used for culling; rebuilt from VP every frame. */
-const _frustum = create();
-/** World-space AABB used when transforming a local bounding box. */
-const _worldBox = [0, 0, 0, 0, 0, 0];
-/** World-space sphere used when transforming a local bounding sphere. */
-const _worldSphere = { center: [0, 0, 0], radius: 0 };
-/**
- * Collect all visible meshes from a scene into a RenderList.
- *
- * This walks the object graph, performs frustum culling, and populates
- * the RenderList with opaque and transparent items.
- *
- * @param state - The RenderLists state
- * @param object - The object to collect from (Scene, Mesh, or any Object3D)
- * @param camera - The camera for frustum culling and Z sorting
- * @returns The populated and sorted RenderList
- */
-function collectRenderList(state, object, camera) {
-    const list = getRenderList(state, object, camera);
-    // Begin new frame
-    beginRenderList(list, object, camera);
-    // Build frustum from camera matrices
-    setFromViewProjectionMatrix(_frustum, camera.projectionMatrix, camera.matrixWorldInverse, camera.coordinateSystem);
-    // Walk object and collect visible meshes
-    walkObject(list, object, camera);
-    sortRenderList(list);
-    return list;
-}
-/**
- * Walk the scene graph and collect visible meshes.
- */
-function walkObject(list, obj, camera) {
-    if (!obj.visible)
-        return;
-    if (obj.isMesh) {
-        const mesh = obj;
-        if (isMeshVisible(mesh)) {
-            const material = mesh.material;
-            const z = computeViewZ(mesh, camera);
-            pushRenderItem(list, mesh, mesh.geometry, material, 0, // groupOrder - could be mesh.renderOrder or layer
-            z);
-        }
-    }
-    // Recurse into children
-    for (const child of obj.children) {
-        walkObject(list, child, camera);
-    }
-}
-/**
- * Test whether a mesh should be included in the draw list.
- *
- * Uses frustum culling with bounding volumes:
- * 1. boundingSphere, cheapest test (6 dot-products)
- * 2. boundingBox, more precise but slightly more work
- * 3. no bounds, always visible (safe fallback)
- */
-function isMeshVisible(mesh) {
-    const geom = mesh.geometry;
-    const wm = mesh.matrixWorld;
-    // Skip disposed geometries
-    if (geom.disposed)
-        return false;
-    if (!mesh.frustumCulled)
-        return true;
-    // sphere test (preferred)
-    if (geom.boundingSphere !== undefined) {
-        const ls = geom.boundingSphere;
-        // Transform centre: ws_centre = wm * [cx, cy, cz, 1]
-        const cx = ls.center[0];
-        const cy = ls.center[1];
-        const cz = ls.center[2];
-        _worldSphere.center[0] = wm[0] * cx + wm[4] * cy + wm[8] * cz + wm[12];
-        _worldSphere.center[1] = wm[1] * cx + wm[5] * cy + wm[9] * cz + wm[13];
-        _worldSphere.center[2] = wm[2] * cx + wm[6] * cy + wm[10] * cz + wm[14];
-        // Scale the radius by the largest axis scale extracted from the world matrix.
-        const sx = Math.sqrt(wm[0] * wm[0] + wm[1] * wm[1] + wm[2] * wm[2]);
-        const sy = Math.sqrt(wm[4] * wm[4] + wm[5] * wm[5] + wm[6] * wm[6]);
-        const sz = Math.sqrt(wm[8] * wm[8] + wm[9] * wm[9] + wm[10] * wm[10]);
-        _worldSphere.radius = ls.radius * Math.max(sx, sy, sz);
-        return intersectsSphere(_frustum, _worldSphere);
-    }
-    // AABB test (fallback)
-    if (geom.boundingBox !== undefined) {
-        // Transform the local AABB by the world matrix to a world-space AABB.
-        transformMat4(_worldBox, geom.boundingBox, wm);
-        return intersectsBox3(_frustum, _worldBox);
-    }
-    // no bounds, always draw
-    return true;
-}
-/**
- * Compute the view-space Z of a mesh for transparent sorting.
- *
- * Uses the mesh world-position (column 12, 13, 14 of matrixWorld)
- * and the camera view matrix.
- *
- * Returns the view-space Z coordinate (negative = in front of camera in a
- * right-handed system; we sort from largest (furthest) to smallest).
- */
-function computeViewZ(mesh, camera) {
-    const wm = mesh.matrixWorld;
-    const vm = camera.matrixWorldInverse;
-    // World position of mesh origin
-    const wx = wm[12];
-    const wy = wm[13];
-    const wz = wm[14];
-    // Transform world position by view matrix (only z row needed)
-    return vm[2] * wx + vm[6] * wy + vm[10] * wz + vm[14];
-}
-
-function isRenderTarget(target) {
-    return target.isRenderTarget === true;
-}
-/** A `CanvasTarget` renders to the swapchain, which every backend addresses as a null render target. */
-function renderTargetOf(target) {
-    return isRenderTarget(target) ? target : null;
-}
-
-/** Frustum culled, in render order, opaque before transparent, drawn through the public `pass.draw`. */
-function drawScene(renderer, pass, scene, camera) {
-    // The scene tab's input, reported here so a pass recorded by hand correctly has no tree.
-    if (renderer.inspector !== null) {
-        const target = pass.desc.target;
-        const colorFormat = isRenderTarget(target) ? (target.textures[0]?.format ?? '') : target.colorFormat;
-        renderer.inspector.beginRenderScene(pass.desc.label ?? 'render', scene, target.samples, colorFormat);
-    }
-    const list = collectRenderList(renderer._renderLists, scene, camera);
-    drawItems(pass, list.opaque);
-    drawItems(pass, list.transparent);
-}
-function drawItems(pass, items) {
-    for (const item of items) {
-        if (item.mesh === null || item.material === null || item.geometry === null)
-            continue;
-        pass.draw(item.mesh);
-    }
-}
-
-/**
- * SubBuildNode - wraps a node to build it in a specific sub-build context.
- * Used by VaryingNode to ensure source nodes are built in VERTEX stage.
- */
-class SubBuildNode extends Node {
-    node;
-    subBuildName;
-    kind = NodeKind.SubBuild;
-    constructor(node, subBuildName, nodeType = null) {
-        super(nodeType ?? node.type);
-        this.node = node;
-        this.subBuildName = subBuildName;
-    }
-}
-/**
- * Creates a SubBuildNode wrapper.
- */
-function subBuild(node, name, type = null) {
-    return new SubBuildNode(node, name, type);
-}
-
-/**
- * VaryingNode - represents shader varyings that pass data from vertex to fragment stage.
- */
-class VaryingNode extends Node {
-    kind = NodeKind.Varying;
-    /** The source node wrapped with subBuild('VERTEX') */
-    node;
-    /** The name of the varying in the shader (auto-generated if null) */
-    name;
-    /** Interpolation type */
-    interpolationType = null;
-    /** Interpolation sampling */
-    interpolationSampling = null;
-    constructor(source, name = null) {
-        super(source.type);
-        // wrap source in SubBuildNode for VERTEX stage
-        this.node = subBuild(source, 'VERTEX');
-        this.name = name;
-        // use global cache for varyings
-        this.global = true;
-    }
-    /**
-     * Set the WGSL @interpolate qualifier for this varying.
-     */
-    setInterpolation(type, sampling) {
-        // Enforce the WGSL vocabulary (perspective/linear/flat) — the canonical grammar that the GLSL
-        // emitter maps FROM. A GLSL term like 'smooth' would pass straight through to invalid WGSL.
-        if (type !== 'perspective' && type !== 'linear' && type !== 'flat') {
-            throw new Error(`[gpucat] setInterpolation type must be 'perspective' | 'linear' | 'flat' (WGSL), got '${type}'`);
-        }
-        this.interpolationType = type;
-        this.interpolationSampling = sampling ?? null;
-        return this;
-    }
-}
-const varying = (source, name) => new VaryingNode(source, name ?? null);
-
-/**
- * SamplerNode - represents a sampler binding.
- *
- * Samplers are first-class nodes with their own bindings, mirroring WGSL's
- * separate texture/sampler model.
- *
- * Holds a reference to a GpuSampler which contains the actual settings.
- */
-class SamplerNode extends Node {
-    kind = NodeKind.Sampler;
-    /** The GpuSampler - always has a valid default */
-    value = new GpuSampler();
-    /** Unique ID for this sampler instance */
-    samplerId;
-    /** Uniform group, determines @group index. */
-    group;
-    constructor(desc, samplerId, group = objectGroup) {
-        super(desc);
-        this.samplerId = samplerId;
-        this.group = group;
-    }
-    /** Settings key from the GpuSampler (for deduplication) */
-    get settingsKey() {
-        return this.value.settingsKey;
-    }
-    /** Sampling parameters (forwarded from GpuSampler) */
-    get minFilter() {
-        return this.value.minFilter;
-    }
-    get magFilter() {
-        return this.value.magFilter;
-    }
-    get mipmapFilter() {
-        return this.value.mipmapFilter;
-    }
-    get addressModeU() {
-        return this.value.addressModeU;
-    }
-    get addressModeV() {
-        return this.value.addressModeV;
-    }
-    get addressModeW() {
-        return this.value.addressModeW;
-    }
-    get maxAnisotropy() {
-        return this.value.maxAnisotropy;
-    }
-    get compare() {
-        return this.value.compare;
-    }
-    /** Clone this sampler (shares same GpuSampler reference) */
-    clone() {
-        const cloned = new SamplerNode(this.type, this.samplerId, this.group);
-        cloned.value = this.value;
-        return cloned;
-    }
-}
-/**
- * Bytes per mirror texel for a read-only `storage()` element on WebGL: the element's std430 array stride,
- * capped at one rgba32uint texel. `4 → r32uint`, `8 → rg32uint`, and any multiple of 16 → `rgba32uint`
- * (spanning `stride/16` texels per element). This packs one element (or a whole number of texels) per
- * texel, so a scalar `array<u32>` reads element `i` from texel `i` — NOT `4·i` — and needs no padding
- * (its byte length is always a multiple of 4). We never use a 3-component (`rgb`) texel: std430 pads a
- * `vec3` to 16 bytes, so the only sub-16 strides are 4 and 8. Throws for an exotic stride (e.g. a 12- or
- * 20-byte all-scalar struct) that has no whole-texel home — pad the struct to a multiple of 16 to read it.
- */
-function storageMirrorBytesPerTexel(element) {
-    const stride = layoutStrideOf(element, 'std430');
-    if (stride === 4)
-        return 4;
-    if (stride === 8)
-        return 8;
-    if (stride % 16 === 0)
-        return 16;
-    throw new Error(`[gpucat] storage() read-lowering: element stride ${stride} bytes has no whole-texel WebGL layout ` +
-        `(supported: 4 → r32uint, 8 → rg32uint, multiples of 16 → rgba32uint). Pad the element to a ` +
-        `multiple of 16 bytes to read it on WebGL2.`);
-}
-class TextureBindingNode extends Node {
-    kind = NodeKind.TextureBinding;
-    /** The GpuTexture */
-    value = null;
-    /**
-     * When set, this binding is NOT a GpuTexture but a read-only storage `GpuBuffer` reinterpreted as an
-     * `rgba32uint` texture — the WebGL `storage()` read-lowering (WebGL2 has no SSBO). `value` stays null;
-     * the renderer reads the buffer's bytes directly as `width × height` u32 texels and caches one GL
-     * texture per `GpuBuffer`. WebGPU never sets this (storage stays a native `array<Struct>` there).
-     */
-    storageBufferSource = null;
-    /**
-     * When set, this binding's texture is the OUTPUT of a render pass, refreshed each frame by that pass.
-     * Carrying the source on the binding (not on a bespoke node subclass) is what lets any sampling node —
-     * color or depth — share one lifecycle: `getChildren` reaches `passNode` through here so discovery
-     * renders the source pass and orders it before consumers, and because `.sample()`/`.load()` clones
-     * SHARE this binding, that wiring survives cloning automatically. `previous` selects the ping-pong
-     * (last-frame) texture. `value` is (re)written from the pass each frame; the pass owns the texture.
-     */
-    passSource = null;
-    /** Unique ID for this texture binding (e.g. 'tAlbedo', 'tShadowMap'). */
-    textureId;
-    /** Uniform group, determines @group index. */
-    group;
-    constructor(desc, textureId, group = objectGroup) {
-        super(desc);
-        this.textureId = textureId;
-        this.group = group;
-    }
-}
-/**
- * StorageTextureBindingNode - a module-scope storage texture binding, i.e.
- * `var t : texture_storage_2d<rgba8unorm, write>`. Written via `textureStore`
- * and read via `textureLoad` (no sampler).
- *
- * Format + dimension come from the GpuTexture's descriptor; `access` is a
- * per-binding property (default `'write'`), so the same GpuTexture can be bound
- * `write` in one shader and `read` in another (ping-pong). `mipLevel` selects the
- * mip the binding view targets (for manual mip-pyramid writes).
- */
-class StorageTextureBindingNode extends Node {
-    kind = NodeKind.StorageTextureBinding;
-    /** The GpuTexture */
-    value = null;
-    /** Unique ID for this texture binding (e.g. 'st3'). */
-    textureId;
-    /** Uniform group, determines @group index. */
-    group;
-    /** WGSL access mode for THIS binding (overrides the descriptor default). */
-    access;
-    /** Mip level the binding view targets. */
-    mipLevel = 0;
-    constructor(desc, textureId, access, group = objectGroup) {
-        super(desc);
-        this.textureId = textureId;
-        this.access = access;
-        this.group = group;
-    }
-    /** The storage texel format (from the descriptor). */
-    get format() {
-        return this.type.format;
-    }
-    /** The WGSL storage dimension tag ('1d' | '2d' | '2d_array' | '3d'). */
-    get dim() {
-        return this.type.dim;
-    }
-    /** The composed WGSL binding type, e.g. `texture_storage_2d<rgba8unorm, write>`. */
-    get wgslBindingType() {
-        return `texture_storage_${this.type.dim}<${this.type.format}, ${this.access}>`;
-    }
-    /** Set the mip level this binding view targets (for manual mip writes). */
-    setMipLevel(level) {
-        this.mipLevel = level;
-        return this;
-    }
-}
-/**
- * storageTexture - bind a GpuTexture as a storage texture for compute writes/reads.
- *
- * @param gpuTex - a storage GpuTexture (e.g. from `createStorageTexture(...)`)
- * @param access - 'write' (default), 'read', or 'read_write'
- */
-function storageTexture(gpuTex, access = 'write') {
-    if (access === 'read_write' && !STORAGE_FORMATS[gpuTex.type.format].readWrite) {
-        throw new Error(`[gpucat] storage format '${gpuTex.type.format}' does not support 'read_write' access. ` +
-            `Use 'write' or 'read', or pick a read_write-capable format.`);
-    }
-    const node = new StorageTextureBindingNode(gpuTex.type, `st${gpuTex.id}`, access);
-    node.value = gpuTex;
-    return node;
-}
-/**
- * TextureNode - represents a texture sample operation.
- *
- * When used as a value, it samples the texture at the given UV coordinates.
- * The node type is 'vec4f' (the sampled color), not the texture type.
- *
- * Owns a TextureBindingNode that handles the module-scope binding.
- *
- * Supports chainable methods for ergonomic sampling control:
- * - .sample(uv) - set UV coordinates
- * - .level(level) - use textureSampleLevel
- * - .bias(bias) - use textureSampleBias
- * - .grad(ddx, ddy) - use textureSampleGrad
- * - .offset(offset) - add offset parameter (2D only)
- * - .load(coords, level?) - use textureLoad (no sampler)
- */
-/**
- * The vec4 result type for sampling/loading a texture: `vec4u`/`vec4i` for integer-sample textures
- * (`texture_2d<u32>`/`<i32>` → usampler2D/isampler2D, whose texelFetch yields uvec4/ivec4), else
- * `vec4f`. Set as the node's *runtime* type so both emitters declare the right texel type; the class
- * keeps its static `vec4f` type (the common float case) to avoid widening every sampler's result.
- */
-function textureResultVec4(desc) {
-    const sampleType = desc.sampleType?.type;
-    return sampleType === 'u32' ? vec4u$1 : sampleType === 'i32' ? vec4i$1 : vec4f$1;
-}
-class TextureNode extends Node {
-    kind = NodeKind.Texture;
-    /** The texture binding, holds GPU resource, textureId, group. */
-    bindingNode;
-    /**
-     * The texture coordinate node, derived from the texture's dimensionality:
-     * `vec2f` for 2D, `vec3f` for 3D (e.g. raymarching a volume or a 3D LUT),
-     * `f32` for 1D. Defaults to varying(uv()) (2D).
-     */
-    uvNode;
-    /**
-     * The reference node
-     * When sampling with different UVs, this points to the base texture node.
-     */
-    referenceNode = null;
-    /**
-     * The sampler node for this texture.
-     * Auto-created by texture() factory from texture settings.
-     * Can be set explicitly for custom sampler sharing.
-     */
-    samplerNode = null;
-    /** Current sampling mode */
-    samplingMode = 'sample';
-    /** Level node for textureSampleLevel (f32 for regular textures) */
-    levelNode = null;
-    /** Bias node for textureSampleBias */
-    biasNode = null;
-    /** Gradient nodes for textureSampleGrad [ddx, ddy] */
-    gradNode = null;
-    /** Offset node for sampling with offset (2D and 2D-array only, must be const) */
-    offsetNode = null;
-    /** Integer coordinates for textureLoad */
-    loadCoords = null;
-    /** Level for textureLoad (i32) */
-    loadLevel = null;
-    constructor(bindingNode, uvNode = null) {
-        // Node type is the sampled vec4 — vec4u/vec4i for integer-sample textures, else vec4f. Runtime
-        // type carries the truth (drives the emitter's texel type + swizzle element type); the static
-        // class type stays vec4f so existing float-texture usage isn't widened to a union.
-        super(textureResultVec4(bindingNode.type));
-        this.bindingNode = bindingNode;
-        // Default uv() (vec2f) only applies to 2D; 3D/1D always pass coords via sample().
-        this.uvNode = uvNode ?? varying(uv());
-    }
-    /** Get the base texture node (follows referenceNode chain) */
-    getBase() {
-        return this.referenceNode ? this.referenceNode.getBase() : this;
-    }
-    /** Convert this texture node to a sampler type */
-    convert(type) {
-        const desc = type === 'sampler' ? sampler$1 : samplerComparison;
-        return new CallNode(desc, type, [this]);
-    }
-    /** Clone this texture node with all sampling properties */
-    clone() {
-        const cloned = new TextureNode(this.bindingNode, this.uvNode);
-        // copy nodes
-        cloned.referenceNode = this.referenceNode;
-        cloned.samplerNode = this.samplerNode;
-        // copy sampling mode properties
-        cloned.samplingMode = this.samplingMode;
-        cloned.levelNode = this.levelNode;
-        cloned.biasNode = this.biasNode;
-        cloned.gradNode = this.gradNode;
-        cloned.offsetNode = this.offsetNode;
-        cloned.loadCoords = this.loadCoords;
-        cloned.loadLevel = this.loadLevel;
-        return cloned;
-    }
-    /** Sample the texture at the given coordinates (vec2 for 2D, vec3 for 3D, f32 for 1D). */
-    sample(uvNode) {
-        const textureNode = this.clone();
-        textureNode.uvNode = uvNode;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Use textureSampleLevel with explicit mip level */
-    level(levelNode) {
-        const textureNode = this.clone();
-        textureNode.samplingMode = 'level';
-        textureNode.levelNode = levelNode;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Use textureSampleBias with mip level bias */
-    bias(biasNode) {
-        const textureNode = this.clone();
-        textureNode.samplingMode = 'bias';
-        textureNode.biasNode = biasNode;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Use textureSampleGrad with explicit gradients */
-    grad(ddx, ddy) {
-        const textureNode = this.clone();
-        textureNode.samplingMode = 'grad';
-        textureNode.gradNode = [ddx, ddy];
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Add offset to sampling (2D and 2D-array only, must be const expression) */
-    offset(offsetNode) {
-        const textureNode = this.clone();
-        textureNode.offsetNode = offsetNode;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    load(a, b) {
-        // Struct read: first arg is a struct def (its `.type` is the literal 'struct'; a coord Node's
-        // `.type` is a schema descriptor object, never that string).
-        if (a.type === 'struct') {
-            const schema = a;
-            const layout = structFieldLayout(schema);
-            const idx = ensureU32(b);
-            const texelBase = layout.texelStride === 1 ? idx : idx.mul(u32(layout.texelStride));
-            return buildRecordAccessor(this.getBase(), schema, texelBase, storageRowWidth(this.getBase()));
-        }
-        const textureNode = this.clone();
-        textureNode.samplingMode = 'load';
-        textureNode.loadCoords = a;
-        textureNode.loadLevel = b ?? null;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Read a struct record starting at an explicit TEXEL index (the primitive under {@link load}). */
-    loadAt(schema, texel) {
-        return buildRecordAccessor(this.getBase(), schema, ensureU32(texel), storageRowWidth(this.getBase()));
-    }
-}
-function ensureU32(n) {
-    return n.type.wgslType === 'u32' ? n : u32(n);
-}
-/** Read one rgba32uint texel at a linear texel index → a `vec4u` node. `width` (texels per row) is always
- *  the runtime `textureSize()` node from {@link storageRowWidth} — the SAME addressing for both a real
- *  `texture(t).load(schema, i)` and the WebGL `storage()` mirror lowering, mirroring three.js's PBO
- *  indexing. Reading the width at runtime (never baking it) keeps the shader size- and binding-independent
- *  and correct when the underlying texture is resized under a cached program. */
-function readTexel(base, texelIndex, width) {
-    const x = i32(texelIndex.mod(width));
-    const y = i32(texelIndex.div(width));
-    return base.load(vec2i(x, y), i32(0));
-}
-/**
- * Runtime texel-row width of a storage mirror texture: `uint(textureSize(tex, 0).x)`. The WebGL
- * `storage()` read-lowering addresses texels with this instead of a baked width constant, mirroring
- * three.js's PBO addressing (`index % textureSize(...).x`). The emitted GLSL is then identical whether
- * the buffer is value- or name-based and whatever its size, and the renderer sizes the mirror texture
- * tight. Build ONE per mirror (cached on the `StorageMirror`) so CSE hoists the `textureSize` call.
- */
-function storageRowWidth(base) {
-    return textureDimensions(base.bindingNode).x;
-}
-/**
- * Decode one field at `byteOffset` from the record beginning at texel `texelBase` of an `rgba32uint`
- * texture. Exported so the `storage()` WebGL lowering (the GLSL emitter's `matchStorageRead`) can decode
- * a mirror-texture read through the same path as `texture(t).load(schema, i)`.
- */
-function decodeField(base, texelBase, width, byteOffset, type) {
-    const texelWithin = Math.floor(byteOffset / 16);
-    const comp = (byteOffset % 16) / 4; // 0..3
-    const t = type.wgslType;
-    const texAt = (tw) => readTexel(base, tw === 0 ? texelBase : texelBase.add(u32(tw)), width);
-    // Swizzle a texel's component (0..3) → its u32 lane.
-    const lane = (texel, i) => [texel.x, texel.y, texel.z, texel.w][i];
-    const texel = texAt(texelWithin);
-    // Packed types occupy one u32 lane → decode via the WGSL unpack builtin (the GLSL emitter
-    // translates `unpack*` to native builtins / shift-mask). CSE-friendly: just wraps the lane.
-    if (isPackedDesc(type)) {
-        const spec = PACKED_SPECS[type.type];
-        const logical = spec.lanes === 4 ? vec4f$1 : vec2f$1;
-        return new CallNode(logical, spec.unpackFn, [lane(texel, comp)]);
-    }
-    // Bitfields: one u32 lane split into named fields via shift/mask (no builtins, both backends).
-    // Returns a sub-accessor whose `.<name>` lazily emits `(lane >> shift) & mask`.
-    if (isBitsDesc(type)) {
-        const laneNode = lane(texel, comp);
-        const sub = {};
-        for (const bf of type.fields) {
-            Object.defineProperty(sub, bf.name, {
-                enumerable: true,
-                get: () => {
-                    const shifted = bf.shift === 0 ? laneNode : shiftRight(laneNode, u32(bf.shift));
-                    if (bf.width >= 32)
-                        return shifted;
-                    const mask = ((1 << bf.width) - 1) >>> 0;
-                    return bitwiseAnd(shifted, u32(mask));
-                },
-            });
-        }
-        return sub;
-    }
-    // Scalars and float/int/uint vectors, driven by the descriptor's `scalar` kind + `len`. Read `len`
-    // lanes starting at `comp` (a vec2 aligns to 8 bytes so it may sit at comp 0 or 2; vec3/vec4 align to
-    // 16 so comp is 0), reinterpreting each lane per the component kind: u32 raw, i32/f32 via bitcast.
-    if ('scalar' in type && 'len' in type) {
-        const len = type.len;
-        const lanes = (reinterpret) => Array.from({ length: len }, (_, k) => reinterpret(lane(texel, comp + k)));
-        if (type.scalar === 'u32') {
-            // A whole u32 vec4 IS the texel — return it directly, no per-lane reconstruction.
-            if (len === 4)
-                return texel;
-            const c = lanes((l) => l);
-            if (len === 1)
-                return c[0];
-            return (len === 2 ? vec2u(c[0], c[1]) : vec3u(c[0], c[1], c[2]));
-        }
-        if (type.scalar === 'i32') {
-            const c = lanes(bitcastI32);
-            if (len === 1)
-                return c[0];
-            return (len === 2 ? vec2i(c[0], c[1]) : len === 3 ? vec3i(c[0], c[1], c[2]) : vec4i(c[0], c[1], c[2], c[3]));
-        }
-        if (type.scalar === 'f32') {
-            const c = lanes(bitcastF32);
-            if (len === 1)
-                return c[0];
-            return (len === 2 ? vec2f(c[0], c[1]) : len === 3 ? vec3(c[0], c[1], c[2]) : vec4(c[0], c[1], c[2], c[3]));
-        }
-        // bool / f16 components have no structured-texture decode form; fall through to the error below.
-    }
-    // f32 matrices: each column has stride 16 (one texel) for 3- and 4-row matrices. Shape read from the
-    // descriptor's cols/rows (present only on the matNxMf descriptors).
-    if ('cols' in type && 'rows' in type) {
-        const cols = type.cols;
-        const rows = type.rows;
-        if (rows !== 3 && rows !== 4) {
-            throw new Error(`[gpucat] structured-texture load: matrix '${t}' (2-row column packing) not yet supported`);
-        }
-        const columns = Array.from({ length: cols }, (_, c) => {
-            const ct = texAt(texelWithin + c);
-            return rows === 4
-                ? vec4(bitcastF32(lane(ct, 0)), bitcastF32(lane(ct, 1)), bitcastF32(lane(ct, 2)), bitcastF32(lane(ct, 3)))
-                : vec3(bitcastF32(lane(ct, 0)), bitcastF32(lane(ct, 1)), bitcastF32(lane(ct, 2)));
-        });
-        if (cols === 4 && rows === 4) {
-            const c = columns;
-            return mat4(c[0], c[1], c[2], c[3]);
-        }
-        if (cols === 3 && rows === 3) {
-            const c = columns;
-            return mat3(c[0], c[1], c[2]);
-        }
-        throw new Error(`[gpucat] structured-texture load: matrix '${t}' not yet supported`);
-    }
-    // Nested / whole struct: a structured-texture decode form like the scalar/vec/matrix branches above,
-    // decoding each member at its own byte offset and assembling a struct constructor (recursing for
-    // nested structs). Shared texel reads across members dedupe via CSE, so the record costs one fetch
-    // per distinct texel. Serves any struct-typed `texture(t).load(schema, i)` read; the storage() WebGL
-    // lowering reuses it like the other branches (a whole `storage.element(i)`, or a nested
-    // `.field('params').field('tint')`, resolves here). Members that are themselves arrays / bool / f16
-    // fall through to the per-member error below.
-    if (isStructDesc(type)) {
-        const layout = structFieldLayout(type);
-        const members = layout.fields.map((f) => decodeField(base, texelBase, width, byteOffset + f.byteOffset, f.type));
-        return new ConstructNode(type, members);
-    }
-    throw new Error(`[gpucat] structured-texture load: field type '${t}' not supported`);
-}
-function buildRecordAccessor(base, schema, texelBase, width) {
-    const layout = structFieldLayout(schema);
-    const acc = {};
-    for (const f of layout.fields) {
-        Object.defineProperty(acc, f.name, {
-            enumerable: true,
-            get: () => decodeField(base, texelBase, width, f.byteOffset, f.type),
-        });
-    }
-    return acc;
-}
-/** Counter for generating unique sampler IDs when using GpuSampler directly */
-let _samplerIdCounter = 0;
-function sampler(source, group = objectGroup) {
-    if ('isGpuSampler' in source) {
-        const node = new SamplerNode(sampler$1, `s${_samplerIdCounter++}`, group);
-        node.value = source;
-        return node;
-    }
-    else {
-        const node = new SamplerNode(sampler$1, `s${source.id}`, group);
-        node.value = source._gpuSampler;
-        return node;
-    }
-}
-function comparisonSampler(source, compare = 'less', group = objectGroup) {
-    const baseSampler = 'isGpuSampler' in source ? source : source._gpuSampler;
-    const samplerId = 'isGpuSampler' in source ? `s${_samplerIdCounter++}_cmp` : `s${source.id}_cmp`;
-    const node = new SamplerNode(samplerComparison, samplerId, group);
-    // Create a new GpuSampler with comparison function
-    const cmpSampler = new GpuSampler({
-        minFilter: baseSampler.minFilter,
-        magFilter: baseSampler.magFilter,
-        mipmapFilter: baseSampler.mipmapFilter,
-        addressModeU: baseSampler.addressModeU,
-        addressModeV: baseSampler.addressModeV,
-        addressModeW: baseSampler.addressModeW,
-        maxAnisotropy: baseSampler.maxAnisotropy,
-        compare,
-    });
-    node.value = cmpSampler;
-    return node;
-}
-/** Counter for generating unique texture IDs when using GpuTexture directly */
-let _textureIdCounter = 0;
-/** Build the sampled texture descriptor for sampling a storage texture (dual-usage). */
-function sampledDescForStorage(desc) {
-    const channel = STORAGE_FORMATS[desc.format].channel;
-    const sampleType = channel === 'u32' ? u32$1 : channel === 'i32' ? i32$1 : f32$1;
-    switch (desc.dim) {
-        case '1d':
-            return texture1d(sampleType);
-        case '2d_array':
-            return texture2dArray(sampleType);
-        case '3d':
-            return texture3d(sampleType);
-        default:
-            return texture2d(sampleType);
-    }
-}
-function texture(source, gpuSampler) {
-    if ('isGpuTexture' in source) {
-        if (!gpuSampler) {
-            throw new Error('texture(): GpuSampler required when passing GpuTexture directly');
-        }
-        // Storage textures are dual-usage (STORAGE_BINDING | TEXTURE_BINDING): the same GPU
-        // texture written in compute can be sampled here. Bind it as a sampled texture whose
-        // sample type matches the storage format's channel.
-        if (isStorageTextureDesc(source.type)) {
-            const sampledDesc = sampledDescForStorage(source.type);
-            const binding = new TextureBindingNode(sampledDesc, `t${_textureIdCounter++}`);
-            binding.value = source;
-            const node = new TextureNode(binding);
-            node.samplerNode = sampler(gpuSampler, binding.group);
-            return node;
-        }
-        // Widen the type for the binding to FlatSampledTexture
-        const sampledSource = source;
-        const desc = sampledSource.type;
-        const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
-        binding.value = sampledSource;
-        const node = new TextureNode(binding);
-        node.samplerNode = sampler(gpuSampler, binding.group);
-        return node;
-    }
-    else {
-        // A high-level Texture, DataTexture or Data3DTexture — all expose `_gpuTexture` / `_gpuSampler` /
-        // `id`. The GpuTexture's descriptor carries the sampled type (a DataTexture backed by an integer
-        // format reports `texture2d<u32>`/`texture2d<i32>`, so the emitter declares usampler2D/isampler2D
-        // and `.load()` returns uvec4/ivec4; a Data3DTexture reports `texture3d<f32>`) — so all three ride
-        // this same branch, no cast needed.
-        const gpuTex = source._gpuTexture;
-        const desc = gpuTex.type;
-        const binding = new TextureBindingNode(desc, `t${source.id}`);
-        binding.value = gpuTex;
-        const node = new TextureNode(binding);
-        node.samplerNode = sampler(source._gpuSampler, binding.group);
-        return node;
-    }
-}
-/**
- * Create a standalone texture binding node.
- *
- * Use this when you want to work with WGSL-level free functions directly
- * (textureSample, textureLoad, etc.) instead of the high-level TextureNode
- * sampling API.
- */
-const textureBinding = (tex, textureDesc) => {
-    const binding = new TextureBindingNode(textureDesc, `t${tex.id}`);
-    binding.value = tex._gpuTexture;
-    return binding;
-};
-/**
- * CubeTextureNode - represents a cube texture sample operation.
- *
- * Cube textures use a 3D direction vector for sampling (vec3f).
- * WGSL cube texture constraints:
- * - NO offset support (cube textures don't support offset parameter)
- * - NO textureLoad support (cube textures don't support direct texel access)
- * - Uses vec3f for both coordinates and gradients
- *
- * Supports chainable methods:
- * - .sample(direction) - set sampling direction
- * - .level(level) - use textureSampleLevel
- * - .bias(bias) - use textureSampleBias
- * - .grad(ddx, ddy) - use textureSampleGrad
- */
-class CubeTextureNode extends Node {
-    kind = NodeKind.CubeTexture;
-    /** The texture binding, holds GPU resource, textureId, group. */
-    bindingNode;
-    /**
-     * The direction node for cube texture sampling (vec3f).
-     * This is a 3D direction vector pointing into the cube.
-     */
-    directionNode = null;
-    /**
-     * The reference node.
-     * When sampling with different directions, this points to the base texture node.
-     */
-    referenceNode = null;
-    /**
-     * The sampler node for this texture.
-     * Auto-created by cubeTexture() factory from texture settings.
-     */
-    samplerNode = null;
-    /** Current sampling mode */
-    samplingMode = 'sample';
-    /** Level node for textureSampleLevel (f32) */
-    levelNode = null;
-    /** Bias node for textureSampleBias */
-    biasNode = null;
-    /** Gradient nodes for textureSampleGrad [ddx, ddy] - vec3f for cube textures */
-    gradNode = null;
-    constructor(bindingNode, directionNode = null) {
-        // Node type is vec4f (the sampled color)
-        super(vec4f$1);
-        this.bindingNode = bindingNode;
-        this.directionNode = directionNode;
-    }
-    /** Get the base texture node (follows referenceNode chain) */
-    getBase() {
-        return this.referenceNode ? this.referenceNode.getBase() : this;
-    }
-    /** Clone this texture node with all sampling properties */
-    clone() {
-        const cloned = new CubeTextureNode(this.bindingNode, this.directionNode);
-        cloned.referenceNode = this.referenceNode;
-        cloned.samplerNode = this.samplerNode;
-        // Copy sampling mode properties
-        cloned.samplingMode = this.samplingMode;
-        cloned.levelNode = this.levelNode;
-        cloned.biasNode = this.biasNode;
-        cloned.gradNode = this.gradNode;
-        return cloned;
-    }
-    /** Sample the cube texture in the given direction */
-    sample(directionNode) {
-        const textureNode = this.clone();
-        textureNode.directionNode = directionNode;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Use textureSampleLevel with explicit mip level */
-    level(levelNode) {
-        const textureNode = this.clone();
-        textureNode.samplingMode = 'level';
-        textureNode.levelNode = levelNode;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Use textureSampleBias with mip level bias */
-    bias(biasNode) {
-        const textureNode = this.clone();
-        textureNode.samplingMode = 'bias';
-        textureNode.biasNode = biasNode;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Use textureSampleGrad with explicit gradients (vec3f for cube textures) */
-    grad(ddx, ddy) {
-        const textureNode = this.clone();
-        textureNode.samplingMode = 'grad';
-        textureNode.gradNode = [ddx, ddy];
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-}
-function cubeTexture(source, gpuSampler) {
-    if ('isGpuTexture' in source) {
-        if (!gpuSampler) {
-            throw new Error('cubeTexture(): GpuSampler required when passing GpuTexture directly');
-        }
-        const desc = source.type;
-        const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
-        binding.value = source;
-        const node = new CubeTextureNode(binding);
-        node.samplerNode = sampler(gpuSampler, binding.group);
-        return node;
-    }
-    else {
-        const gpuTex = source._gpuTexture;
-        const desc = gpuTex.type;
-        const binding = new TextureBindingNode(desc, `t${source.id}`);
-        binding.value = gpuTex;
-        const node = new CubeTextureNode(binding);
-        node.samplerNode = sampler(source._gpuSampler, binding.group);
-        return node;
-    }
-}
-/**
- * DepthTextureNode - represents a depth texture sample operation.
- *
- * Maps to WGSL `texture_depth_2d`. Returns f32 (not vec4f).
- *
- * Key differences from regular TextureNode:
- * - Returns f32 (single depth value)
- * - Level is i32 (not f32) for textureSampleLevel
- * - NO textureSampleBias support
- * - NO textureSampleGrad support
- * - Supports offset (2D depth textures)
- * - Comparison sampling via free functions (textureSampleCompare/textureSampleCompareLevel)
- *   which require a sampler_comparison, use comparisonSampler() to create one
- *
- * Supports chainable methods:
- * - .sample(uv) - set UV coordinates
- * - .level(level) - use textureSampleLevel (i32 level)
- * - .offset(offset) - add offset parameter
- * - .load(coords, level?) - use textureLoad
- */
-class DepthTextureNode extends Node {
-    kind = NodeKind.DepthTexture;
-    /** The texture binding, holds GPU resource, textureId, group. */
-    bindingNode;
-    /**
-     * The UV node for texture coordinates (vec2f).
-     * Defaults to varying(uv()) if not specified.
-     */
-    uvNode;
-    /**
-     * The reference node.
-     * When sampling with different UVs, this points to the base texture node.
-     */
-    referenceNode = null;
-    /**
-     * The sampler node for this texture.
-     * Auto-created by depthTexture() factory from texture settings.
-     * This is a regular sampler for textureSample/textureSampleLevel.
-     * For comparison sampling, use comparisonSampler() and the free functions.
-     */
-    samplerNode = null;
-    /** Current sampling mode */
-    samplingMode = 'sample';
-    /** Level node for textureSampleLevel (i32 for depth textures) */
-    levelNode = null;
-    /** Offset node for sampling with offset (must be const expression) */
-    offsetNode = null;
-    /** Integer coordinates for textureLoad */
-    loadCoords = null;
-    /** Level for textureLoad (i32) */
-    loadLevel = null;
-    constructor(bindingNode, uvNode = null) {
-        // Node type is f32 (depth value)
-        super(f32$1);
-        this.bindingNode = bindingNode;
-        this.uvNode = uvNode ?? varying(uv());
-    }
-    /** Get the base texture node (follows referenceNode chain) */
-    getBase() {
-        return this.referenceNode ? this.referenceNode.getBase() : this;
-    }
-    /** Clone this texture node */
-    clone() {
-        const cloned = new DepthTextureNode(this.bindingNode, this.uvNode);
-        cloned.referenceNode = this.referenceNode;
-        cloned.samplerNode = this.samplerNode;
-        cloned.samplingMode = this.samplingMode;
-        cloned.levelNode = this.levelNode;
-        cloned.offsetNode = this.offsetNode;
-        cloned.loadCoords = this.loadCoords;
-        cloned.loadLevel = this.loadLevel;
-        return cloned;
-    }
-    /** Sample the depth texture at the given UV coordinates */
-    sample(uvNode) {
-        const textureNode = this.clone();
-        textureNode.uvNode = uvNode;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Use textureSampleLevel with explicit mip level (i32 for depth textures) */
-    level(levelNode) {
-        const textureNode = this.clone();
-        textureNode.samplingMode = 'level';
-        textureNode.levelNode = levelNode;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Add offset to sampling (must be const expression) */
-    offset(offsetNode) {
-        const textureNode = this.clone();
-        textureNode.offsetNode = offsetNode;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Use textureLoad for direct texel fetch (no filtering) */
-    load(coords, level) {
-        const textureNode = this.clone();
-        textureNode.samplingMode = 'load';
-        textureNode.loadCoords = coords;
-        textureNode.loadLevel = level ?? null;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-}
-/**
- * A DepthTexture's default GpuSampler is a COMPARISON sampler (`compare` set) for shadow mapping, but a
- * DepthTextureNode's `.sample()`/`.level()` surface is a PLAIN depth read whose WGSL declares a plain
- * `sampler`. WebGPU derives the sampler binding type from `compare`, so binding a comparison sampler
- * where the shader declares a plain one is a layout/shader mismatch (pipeline-creation error). Strip
- * `compare` for the plain read; shadow compares build their own `comparisonSampler()` explicitly.
- * Returns the source untouched when it already carries no compare (the common non-depth-texture case).
- */
-function plainDepthSampler(src) {
-    if (src.compare === undefined)
-        return src;
-    return new GpuSampler({
-        minFilter: src.minFilter,
-        magFilter: src.magFilter,
-        mipmapFilter: src.mipmapFilter,
-        addressModeU: src.addressModeU,
-        addressModeV: src.addressModeV,
-        addressModeW: src.addressModeW,
-        maxAnisotropy: src.maxAnisotropy,
-        lodMinClamp: src.lodMinClamp,
-        lodMaxClamp: src.lodMaxClamp,
-    });
-}
-function depthTexture(source, gpuSampler) {
-    if ('isGpuTexture' in source) {
-        if (!gpuSampler) {
-            throw new Error('depthTexture(): GpuSampler required when passing GpuTexture directly');
-        }
-        const desc = source.type;
-        const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
-        binding.value = source;
-        const node = new DepthTextureNode(binding);
-        node.samplerNode = sampler(plainDepthSampler(gpuSampler), binding.group);
-        return node;
-    }
-    else {
-        const gpuTex = source._gpuTexture;
-        const desc = gpuTex.type;
-        const binding = new TextureBindingNode(desc, `t${source.id}`);
-        binding.value = gpuTex;
-        const node = new DepthTextureNode(binding);
-        node.samplerNode = sampler(plainDepthSampler(source._gpuSampler), binding.group);
-        return node;
-    }
-}
-/**
- * ArrayTextureNode - represents a 2D array texture sample operation.
- *
- * Maps to WGSL `texture_2d_array<f32>`. Returns vec4f.
- *
- * Key differences from regular TextureNode:
- * - Has a `layerNode` (i32) for the array layer index
- * - WGSL inserts the array_index after coords in all sampling calls
- * - Uses vec2f coords + i32 array_index (not vec3f)
- *
- * Supports chainable methods:
- * - .layer(index) - set the array layer index
- * - .sample(uv) - set UV coordinates
- * - .level(level) - use textureSampleLevel
- * - .bias(bias) - use textureSampleBias
- * - .grad(ddx, ddy) - use textureSampleGrad
- * - .offset(offset) - add offset parameter
- * - .load(coords, level?) - use textureLoad
- */
-class ArrayTextureNode extends Node {
-    kind = NodeKind.ArrayTexture;
-    /** The texture binding, holds GPU resource, textureId, group. */
-    bindingNode;
-    /**
-     * The UV node for texture coordinates (vec2f).
-     * Defaults to varying(uv()) if not specified.
-     */
-    uvNode;
-    /** The array layer index (i32). */
-    layerNode;
-    /**
-     * The reference node.
-     * When sampling with different UVs/layers, this points to the base texture node.
-     */
-    referenceNode = null;
-    /**
-     * The sampler node for this texture.
-     * Auto-created by arrayTexture() factory from texture settings.
-     */
-    samplerNode = null;
-    /** Current sampling mode */
-    samplingMode = 'sample';
-    /** Level node for textureSampleLevel (f32) */
-    levelNode = null;
-    /** Bias node for textureSampleBias */
-    biasNode = null;
-    /** Gradient nodes for textureSampleGrad [ddx, ddy] (vec2f) */
-    gradNode = null;
-    /** Offset node for sampling with offset (must be const expression) */
-    offsetNode = null;
-    /** Integer coordinates for textureLoad */
-    loadCoords = null;
-    /** Level for textureLoad (i32) */
-    loadLevel = null;
-    constructor(bindingNode, layerNode, uvNode = null) {
-        // Node type is vec4f (the sampled color)
-        super(vec4f$1);
-        this.bindingNode = bindingNode;
-        this.layerNode = layerNode;
-        this.uvNode = uvNode ?? varying(uv());
-    }
-    /** Get the base texture node (follows referenceNode chain) */
-    getBase() {
-        return this.referenceNode ? this.referenceNode.getBase() : this;
-    }
-    /** Clone this texture node with all sampling properties */
-    clone() {
-        const cloned = new ArrayTextureNode(this.bindingNode, this.layerNode, this.uvNode);
-        cloned.referenceNode = this.referenceNode;
-        cloned.samplerNode = this.samplerNode;
-        cloned.samplingMode = this.samplingMode;
-        cloned.levelNode = this.levelNode;
-        cloned.biasNode = this.biasNode;
-        cloned.gradNode = this.gradNode;
-        cloned.offsetNode = this.offsetNode;
-        cloned.loadCoords = this.loadCoords;
-        cloned.loadLevel = this.loadLevel;
-        return cloned;
-    }
-    /** Set the array layer index */
-    layer(layerNode) {
-        const textureNode = this.clone();
-        textureNode.layerNode = layerNode;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Sample the texture at the given UV coordinates */
-    sample(uvNode) {
-        const textureNode = this.clone();
-        textureNode.uvNode = uvNode;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Use textureSampleLevel with explicit mip level */
-    level(levelNode) {
-        const textureNode = this.clone();
-        textureNode.samplingMode = 'level';
-        textureNode.levelNode = levelNode;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Use textureSampleBias with mip level bias */
-    bias(biasNode) {
-        const textureNode = this.clone();
-        textureNode.samplingMode = 'bias';
-        textureNode.biasNode = biasNode;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Use textureSampleGrad with explicit gradients */
-    grad(ddx, ddy) {
-        const textureNode = this.clone();
-        textureNode.samplingMode = 'grad';
-        textureNode.gradNode = [ddx, ddy];
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Add offset to sampling (must be const expression) */
-    offset(offsetNode) {
-        const textureNode = this.clone();
-        textureNode.offsetNode = offsetNode;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-    /** Use textureLoad for direct texel fetch (no filtering) */
-    load(coords, level) {
-        const textureNode = this.clone();
-        textureNode.samplingMode = 'load';
-        textureNode.loadCoords = coords;
-        textureNode.loadLevel = level ?? null;
-        textureNode.referenceNode = this.getBase();
-        return textureNode;
-    }
-}
-function arrayTexture(source, samplerOrLayer, maybeLayerNode) {
-    if ('isGpuTexture' in source) {
-        const gpuSampler = samplerOrLayer;
-        const layerNode = maybeLayerNode;
-        const binding = new TextureBindingNode(source.type, `t${_textureIdCounter++}`);
-        binding.value = source;
-        const node = new ArrayTextureNode(binding, layerNode);
-        node.samplerNode = sampler(gpuSampler, binding.group);
-        return node;
-    }
-    else {
-        const layerNode = samplerOrLayer;
-        const gpuTex = source._gpuTexture;
-        const binding = new TextureBindingNode(gpuTex.type, `t${source.id}`);
-        binding.value = gpuTex;
-        const node = new ArrayTextureNode(binding, layerNode);
-        node.samplerNode = sampler(source._gpuSampler, binding.group);
-        return node;
-    }
-}
-/**
- * textureSample - Sample a texture at UV coordinates.
- * Fragment shader only.
- */
-function textureSample(t, s, coords, offset) {
-    const args = offset ? [t, s, coords, offset] : [t, s, coords];
-    return new CallNode(textureSampleResultOf(t.type), 'textureSample', args);
-}
-/**
- * textureSampleLevel - Sample a texture at a specific mip level.
- * Works in any shader stage.
- */
-function textureSampleLevel(t, s, coords, level, offset) {
-    const args = offset ? [t, s, coords, level, offset] : [t, s, coords, level];
-    return new CallNode(textureSampleResultOf(t.type), 'textureSampleLevel', args);
-}
-/**
- * textureSampleBias - Sample a texture with mip level bias.
- * Fragment shader only. Not supported for depth textures.
- */
-function textureSampleBias(t, s, coords, bias, offset) {
-    const args = offset ? [t, s, coords, bias, offset] : [t, s, coords, bias];
-    return new CallNode(textureSampleResultOf(t.type), 'textureSampleBias', args);
-}
-/**
- * textureSampleGrad - Sample a texture with explicit gradients.
- * Works in any shader stage. Not supported for depth textures.
- */
-function textureSampleGrad(t, s, coords, ddx, ddy, offset) {
-    const args = offset ? [t, s, coords, ddx, ddy, offset] : [t, s, coords, ddx, ddy];
-    return new CallNode(textureSampleResultOf(t.type), 'textureSampleGrad', args);
-}
-/**
- * textureSampleCompare - Compare-sample a depth texture.
- * Fragment shader only. Requires sampler_comparison.
- */
-function textureSampleCompare(t, s, coords, depthRef, offset) {
-    const args = offset ? [t, s, coords, depthRef, offset] : [t, s, coords, depthRef];
-    return new CallNode(f32$1, 'textureSampleCompare', args);
-}
-/**
- * textureSampleCompareLevel - Compare-sample a depth texture at mip level 0.
- * Works in any shader stage (unlike textureSampleCompare, which is fragment-only). Requires
- * sampler_comparison. WGSL's textureSampleCompareLevel always samples at the base level and takes NO
- * level argument — arbitrary-LOD comparison sampling is not expressible in WGSL — so this takes only an
- * optional const `offset`.
- */
-function textureSampleCompareLevel(t, s, coords, depthRef, offset) {
-    const args = offset ? [t, s, coords, depthRef, offset] : [t, s, coords, depthRef];
-    return new CallNode(f32$1, 'textureSampleCompareLevel', args);
-}
-function textureLoad(t, coords, levelOrLayer) {
-    if (t.kind === NodeKind.StorageTextureBinding) {
-        if (t.access === 'write') {
-            throw new Error(`[gpucat] textureLoad on a 'write' storage texture; bind it with access 'read' or 'read_write'.`);
-        }
-        const args = levelOrLayer !== undefined ? [t, coords, levelOrLayer] : [t, coords];
-        return new CallNode(storageValueOf(t.type.format), 'textureLoad', args);
-    }
-    return new CallNode(textureSampleResultOf(t.type), 'textureLoad', [t, coords, levelOrLayer]);
-}
-/**
- * textureStore - Store a value into a storage texture (a statement / side effect).
- *
- * 2D/3D: `textureStore(tex, coords, value)`. 2D-array: pass the array `layer` between
- * coords and value. The binding must have access 'write' or 'read_write'.
- */
-function textureStore(t, coords, value, layer) {
-    if (t.access === 'read') {
-        throw new Error(`[gpucat] textureStore on a 'read' storage texture; bind it with access 'write' or 'read_write'.`);
-    }
-    const args = layer !== undefined ? [t, coords, layer, value] : [t, coords, value];
-    addToStack(new CallNode(Void, 'textureStore', args));
-}
-/**
- * textureDimensions - Get texture dimensions.
- */
-function textureDimensions(t, level) {
-    const args = level ? [t, level] : [t];
-    return new CallNode(vec2u$1, 'textureDimensions', args);
-}
-/**
- * textureNumLevels - Get number of mip levels.
- */
-function textureNumLevels(t) {
-    return new CallNode(u32$1, 'textureNumLevels', [t]);
-}
-/**
- * textureNumLayers - Get number of array layers.
- */
-function textureNumLayers(t) {
-    return new CallNode(u32$1, 'textureNumLayers', [t]);
-}
-/**
- * textureGather - Gather a single component from 4 texels.
- */
-function textureGather(component, t, s, coords, offset) {
-    const args = offset ? [component, t, s, coords, offset] : [component, t, s, coords];
-    return new CallNode(textureSampleResultOf(t.type), 'textureGather', args);
-}
-/**
- * textureGatherCompare - Gather compare results from 4 texels.
- * Requires sampler_comparison.
- */
-function textureGatherCompare(t, s, coords, depthRef, offset) {
-    const args = offset ? [t, s, coords, depthRef, offset] : [t, s, coords, depthRef];
-    return new CallNode(vec4f$1, 'textureGatherCompare', args);
-}
-/**
- * What a render target's colour attachment holds, as a node to sample. The counterpart of drawing
- * into it with `f.pass({ target })`, and the plain alternative to `RenderTextureNode`, which samples
- * the same thing but also schedules a pass to fill it.
- */
-function targetColor(target) {
-    const tex = target.texture;
-    if (tex === undefined) {
-        throw new Error('[targetColor] this render target has no colour attachment (count: 0).');
-    }
-    return texture(tex);
-}
-/** A render target's depth, as a node to sample. The target must be created with `depthSampled: true`. */
-function targetDepth(target) {
-    const tex = target.depthTexture;
-    if (tex === null || tex === undefined) {
-        throw new Error('[targetDepth] this render target has no sampled depth; create it with `depthSampled: true`.');
-    }
-    return depthTexture(tex);
-}
-
-/**
- * Screen coordinate, the current fragment's xy position in pixels.
- * Equivalent to @builtin(position).xy in WGSL.
- *
- * @example
- * // Get pixel position
- * const pixelPos = screenCoordinate;
- */
-const screenCoordinate = fragCoord.xy;
-/**
- * Screen/viewport size in pixels. Updated per render by the renderer.
- * In renderGroup so it's shared across all objects in a frame.
- *
- * @example
- * // Get screen dimensions
- * const size = screenSize; // vec2f(width, height)
- */
-const screenSize = /*@__PURE__*/ new UniformNode(new Uniform(vec2f$1, undefined, renderGroup), 'screenSize').onRenderUpdate(({ width, height }) => [width, height]);
-/**
- * Normalized screen UV coordinates in [0, 1] range.
- * Computed as screenCoordinate / screenSize.
- *
- * (0, 0) is top-left, (1, 1) is bottom-right (following WebGPU conventions).
- *
- * @example
- * // Sample a texture using screen UV
- * const color = texture.sample(screenUV);
- *
- * // Use x component for horizontal effects
- * const x = screenUV.x;
- */
-const screenUV = /*@__PURE__*/ (() => {
-    return div(screenCoordinate, screenSize);
-})();
-
-let _passCount = 0;
-class RenderTextureNode extends Node {
-    kind = NodeKind.RenderTexture;
-    /** Which aspect this node yields when read as an expression; the getters reach the rest. */
-    read;
-    /** What this draws: a scene to walk, or a recorder that calls `draw` itself. Read afresh every
-     *  frame, so reassigning it swaps what is rendered without rebuilding the node. */
-    contents;
-    /** A reference to the camera. */
-    camera;
-    /** Options for the internal render target. */
-    options;
-    /** Stable unique string used to namespace texture/sampler IDs. */
-    passId;
-    clearColor;
-    renderTarget;
-    updateBeforeType = 'frame';
-    deps = [];
-    wgsl = '';
-    _pixelRatio = 1;
-    _width = 1;
-    _height = 1;
-    _resolutionScale = 1;
-    _mrt = null;
-    _textures = {};
-    _textureNodes = {};
-    _previousTextures = {};
-    _previousTextureNodes = {};
-    _depthTextureNodes = {};
-    _viewZNodes = {};
-    _linearDepthNodes = {};
-    constructor(contents, camera, options = {}) {
-        // `label` (when given) names the pass in the inspector + GPU tooling.
-        // still burn a counter slot so auto ids never collide with a label.
-        const autoId = `_pass${_passCount++}`;
-        const pid = options.label ?? autoId;
-        super(vec4f$1);
-        this.read = options.read ?? 'color';
-        this.contents = contents;
-        this.camera = camera;
-        this.options = options;
-        this.passId = pid;
-        this.clearColor = options.clearColor ?? [0, 0, 0, 1];
-        const target = createRenderTarget(this._width * this._pixelRatio, this._height * this._pixelRatio, {
-            colorFormat: options.colorFormat ?? 'rgba16float',
-            // forwarded rather than resolved here: RenderTarget already owns the
-            // depthFormat-beats-stencilBuffer precedence, and duplicating it is how
-            // the two drift apart.
-            depthFormat: options.depthFormat,
-            stencilBuffer: options.stencilBuffer,
-            samples: options.samples ?? 1,
-            count: 1,
-        });
-        target.texture.name = 'output';
-        this.renderTarget = target;
-        this._textures['output'] = target.texture;
-        // The depth ATTACHMENT, not the sampling-gated `depthTexture` getter, which is null until
-        // getDepthTextureNode() declares sampling.
-        if (target._depthAttachment) {
-            this._textures['depth'] = target._depthAttachment;
-        }
-    }
-    /**
-     * Sets the resolution scale for the pass.
-     * The resolution scale is a factor that is multiplied with the renderer's width and height.
-     */
-    setResolutionScale(resolutionScale) {
-        this._resolutionScale = resolutionScale;
-        return this;
-    }
-    /** Gets the current resolution scale of the pass. */
-    getResolutionScale() {
-        return this._resolutionScale;
-    }
-    /**
-     * Sets the size of the pass's render target. Honors the pixel ratio.
-     */
-    setSize(width, height) {
-        this._width = width;
-        this._height = height;
-        const effectiveWidth = Math.floor(this._width * this._pixelRatio * this._resolutionScale);
-        const effectiveHeight = Math.floor(this._height * this._pixelRatio * this._resolutionScale);
-        this.renderTarget.setSize(effectiveWidth, effectiveHeight);
-    }
-    /** Sets the pixel ratio for the pass's render target and updates the size. */
-    setPixelRatio(pixelRatio) {
-        this._pixelRatio = pixelRatio;
-        this.setSize(this._width, this._height);
-    }
-    /** Sets the given MRT node to setup MRT for this pass. */
-    setMRT(mrt) {
-        this._mrt = mrt;
-        return this;
-    }
-    /** Returns the current MRT node. */
-    getMRT() {
-        return this._mrt;
-    }
-    /**
-     * Returns the texture for the given output name.
-     * Creates a new texture slot if it doesn't exist.
-     */
-    getTexture(name) {
-        let texture = this._textures[name];
-        if (texture === undefined) {
-            // Clone the reference texture format and create new render target texture
-            const refTexture = this.renderTarget.texture;
-            const image = { width: this.renderTarget.width, height: this.renderTarget.height };
-            texture = new Texture(image);
-            texture.format = refTexture.format;
-            texture.isRenderTargetTexture = true;
-            texture.generateMipmaps = false;
-            texture.flipY = false;
-            texture.name = name;
-            this._textures[name] = texture;
-            this.renderTarget.textures.push(texture);
-        }
-        return texture;
-    }
-    /**
-     * Returns the texture holding the data of the previous frame for the given output name.
-     */
-    getPreviousTexture(name) {
-        let texture = this._previousTextures[name];
-        if (texture === undefined) {
-            // Create a clone of the current texture for previous frame storage
-            const currentTexture = this.getTexture(name);
-            const image = { width: this.renderTarget.width, height: this.renderTarget.height };
-            texture = new Texture(image);
-            texture.format = currentTexture.format;
-            texture.isRenderTargetTexture = true;
-            texture.generateMipmaps = false;
-            texture.flipY = false;
-            texture.name = name;
-            this._previousTextures[name] = texture;
-        }
-        return texture;
-    }
-    /**
-     * Switches current and previous textures for the given output name.
-     */
-    toggleTexture(name) {
-        const prevTexture = this._previousTextures[name];
-        if (prevTexture !== undefined) {
-            const texture = this._textures[name];
-            // Swap in renderTarget.textures array (only for color textures, not depth)
-            if (texture && !('isDepthTexture' in texture)) {
-                const index = this.renderTarget.textures.indexOf(texture);
-                if (index !== -1 && !('isDepthTexture' in prevTexture)) {
-                    this.renderTarget.textures[index] = prevTexture;
-                }
-            }
-            this._textures[name] = prevTexture;
-            this._previousTextures[name] = texture;
-            // Binding values are refreshed post-render by _updateTextureResources().
-        }
-    }
-    /**
-     * Returns the underlying DepthTexture for the given attachment (typically
-     * `'depth'`). Null if the pass has no depth attachment.
-     */
-    getDepthTexture(name = 'depth') {
-        const tex = this._textures[name];
-        return tex && 'isDepthTexture' in tex ? tex : null;
-    }
-    /**
-     * Returns a depth-typed texture node for the given attachment.
-     * Use this instead of `getTextureNode('depth')`, depth-format render
-     * targets must be bound as `texture_depth_2d` (sampleType 'depth')
-     * because WebGPU rejects them as filterable Float.
-     *
-     * The pass's depth attachment is a stable reference (RenderTarget.setSize
-     * mutates in place), so the binding's `value` is set once at construction
-     * and never needs to be refreshed.
-     */
-    getDepthTextureNode(name = 'depth') {
-        let node = this._depthTextureNodes[name];
-        if (node === undefined) {
-            // Sampling the depth: it must be a texture attachment, not a renderbuffer
-            // (the WebGL backend reads this to attach the depth texture, not an RBO).
-            this.renderTarget.depthSampled = true;
-            const depthTex = this.getDepthTexture(name);
-            if (!depthTex)
-                throw new Error(`RenderTextureNode: no '${name}' depth attachment to bind`);
-            node = depthTexture(depthTex);
-            node.uvNode = screenUV;
-            // Tie the binding to this pass so discovery renders + orders the pass before any
-            // consumer of the depth — carried through .load()/.sample() clones via the shared binding.
-            node.bindingNode.passSource = { passNode: this, textureName: name, previous: false };
-            this._depthTextureNodes[name] = node;
-        }
-        return node;
-    }
-    /**
-     * Returns the texture node for the given output name.
-     */
-    getTextureNode(name = 'output') {
-        let textureNode = this._textureNodes[name];
-        if (textureNode === undefined) {
-            textureNode = texture(this.getTexture(name));
-            // A pass fills its whole target, so it reads by screen position. The `varying(uv())` a
-            // TextureNode defaults to would make every consuming mesh owe a `uv` attribute instead.
-            textureNode.uvNode = screenUV;
-            textureNode.bindingNode.passSource = { passNode: this, textureName: name, previous: false };
-            this._textureNodes[name] = textureNode;
-        }
-        return textureNode;
-    }
-    /**
-     * Returns the previous texture node for the given output name.
-     */
-    getPreviousTextureNode(name = 'output') {
-        let textureNode = this._previousTextureNodes[name];
-        if (textureNode === undefined) {
-            // Ensure current texture node exists first
-            if (this._textureNodes[name] === undefined) {
-                this.getTextureNode(name);
-            }
-            textureNode = texture(this.getPreviousTexture(name));
-            textureNode.uvNode = screenUV;
-            textureNode.bindingNode.passSource = { passNode: this, textureName: name, previous: true };
-            this._previousTextureNodes[name] = textureNode;
-        }
-        return textureNode;
-    }
-    /**
-     * Returns a viewZ node of this pass.
-     * Uses cameraNear/cameraFar builtin nodes for correct depth reconstruction.
-     */
-    getViewZNode(name = 'depth') {
-        let viewZNode = this._viewZNodes[name];
-        if (viewZNode === undefined) {
-            // Depth-format attachments must be sampled via `texture_depth_2d`
-            // + `textureLoad` (no sampler, pixel-coord fetch). Sampling
-            // through `textureSample` would require a 'float' sample type,
-            // which WebGPU rejects for depth24plus / depth32float.
-            const depthNode = this.getDepthTextureNode(name);
-            const depth = depthNode.load(vec2i(screenCoordinate));
-            // perspectiveDepthToViewZ formula (non-reversed depth buffer):
-            // viewZ = near.mul(far).div(far.sub(near).mul(depth).sub(far))
-            viewZNode = cameraNear.mul(cameraFar).div(cameraFar.sub(cameraNear).mul(depth).sub(cameraFar));
-            this._viewZNodes[name] = viewZNode;
-        }
-        return viewZNode;
-    }
-    /**
-     * Returns a linear depth node of this pass.
-     * Uses cameraNear/cameraFar builtin nodes for correct depth reconstruction.
-     */
-    getLinearDepthNode(name = 'depth') {
-        let linearDepthNode = this._linearDepthNodes[name];
-        if (linearDepthNode === undefined) {
-            const viewZNode = this.getViewZNode(name);
-            // viewZToOrthographicDepth formula:
-            // linearDepth = viewZ.add(near).div(near.sub(far))
-            linearDepthNode = viewZNode.add(cameraNear).div(cameraNear.sub(cameraFar));
-            this._linearDepthNodes[name] = linearDepthNode;
-        }
-        return linearDepthNode;
-    }
-    /** Records this pass on the open frame, so it encodes before the pass that samples its texture. */
-    updateBefore(frame) {
-        const renderer = frame.renderer;
-        const { contents, camera } = this;
-        this._pixelRatio = 1;
-        this.setSize(frame.width, frame.height);
-        cameraNear.value = camera.near;
-        cameraFar.value = camera.far;
-        // Motion vectors and TAA read last frame's colour, so swap before this frame overwrites it.
-        for (const name in this._previousTextures) {
-            this.toggleTexture(name);
-        }
-        const pass = renderer._frameState.pass({
-            target: this.renderTarget,
-            camera,
-            clear: this.clearColor,
-            mrt: this._mrt ?? undefined,
-            label: this.passId,
-        });
-        if (typeof contents === 'function')
-            contents(pass);
-        else
-            drawScene(renderer, pass, contents, camera);
-        pass.end();
-        this._updateTextureResources();
-    }
-    _updateTextureResources() {
-        // Refresh every pass-sourced binding with its current GPU texture. setSize / toggleTexture
-        // can swap the underlying texture object between frames, so each binding is re-pointed here.
-        for (const name in this._textureNodes) {
-            this._textureNodes[name].bindingNode.value = this.getTexture(name)._gpuTexture;
-        }
-        for (const name in this._previousTextureNodes) {
-            this._previousTextureNodes[name].bindingNode.value = this.getPreviousTexture(name)._gpuTexture;
-        }
-        for (const name in this._depthTextureNodes) {
-            const depthTex = this.getDepthTexture(name);
-            if (depthTex)
-                this._depthTextureNodes[name].bindingNode.value = depthTex._gpuTexture;
-        }
-    }
-    /**
-     * Frees internal resources. Should be called when the node is no longer in use.
-     */
-    dispose() {
-        this.renderTarget.dispose();
-    }
-}
-/**
- * Schedules a render of `contents` from `camera` into its own target, and hands back a node you can
- * sample. `read` picks which aspect the node yields when used as a value; every aspect stays
- * reachable through the getters whatever it is set to.
- */
-const renderTexture = (contents, camera, options) => {
-    return new RenderTextureNode(contents, camera, options);
-};
-
-/**
- * ACES filmic tone mapping (Narkowicz 2015).
- * f(x) = clamp((x * (2.51x + 0.03)) / (x * (2.43x + 0.59) + 0.14), 0, 1)
- */
-const acesToneMapping = Fn((color) => {
-    const c = color.toConst('c');
-    const a = c.mul(c.mul(f32(2.51)).add(vec3f(0.03))).toVar('a');
-    const b = c
-        .mul(c.mul(f32(2.43)).add(vec3f(0.59)))
-        .add(vec3f(0.14))
-        .toVar('b');
-    const result = a.div(b).clamp(vec3f(0), vec3f(1)).toVar('result');
-    return result;
-}, { name: 'acesToneMapping', params: [{ name: 'color', type: vec3f$1 }] });
-/**
- * Reinhard tone mapping.
- * f(x) = x / (1 + x)
- */
-const reinhardToneMapping = Fn((color) => {
-    const result = color.div(vec3f(1).add(color)).toVar('result');
-    return result;
-}, { name: 'reinhardToneMapping', params: [{ name: 'color', type: vec3f$1 }] });
-/**
- * sRGB EOTF (electro-optical transfer function).
- * Converts sRGB gamma-encoded values to linear-sRGB.
- */
-const sRGBTransferEOTF = Fn((color) => {
-    const a = color.mul(f32(0.9478672986)).add(f32(0.0521327014)).pow(vec3f(2.4)).toVar('a');
-    const b = color.mul(f32(0.0773993808)).toVar('b');
-    const factor = color.lessThanEqual(vec3f(0.04045)).toVar('factor');
-    const result = factor.select(b, a).toVar('result');
-    return result;
-}, { name: 'sRGBTransferEOTF', params: [{ name: 'color', type: vec3f$1 }] });
-/**
- * sRGB OETF (opto-electronic transfer function).
- * Converts linear-sRGB values to sRGB gamma-encoded.
- */
-const sRGBTransferOETF = Fn((color) => {
-    const a = color.pow(vec3f(0.41666)).mul(f32(1.055)).sub(f32(0.055)).toVar('a');
-    const b = color.mul(f32(12.92)).toVar('b');
-    const factor = color.lessThanEqual(vec3f(0.0031308)).toVar('factor');
-    const result = factor.select(b, a).toVar('result');
-    return result;
-}, { name: 'sRGBTransferOETF', params: [{ name: 'color', type: vec3f$1 }] });
-
-/**
- * Wrap `inputNode` in tone-mapping and color-space conversion.
- *
- * Returns a `Node<d.vec4f>` suitable for final output:
- * `fullscreen(renderOutput(scenePass.getTextureNode()))`, drawn in a pass to the canvas.
- */
-function renderOutput(inputNode, options = {}) {
-    const toneMapping = options.toneMapping ?? 'aces';
-    const colorSpace = options.colorSpace ?? 'srgb';
-    const exposure = options.exposure ?? f32(1.0);
-    const input = inputNode.toConst('input');
-    const rgb = input.xyz.mul(exposure);
-    const alpha = input.w;
-    const tonemapped = applyToneMapping(rgb, toneMapping);
-    const finalRgb = colorSpace === 'srgb' ? sRGBTransferOETF(tonemapped) : tonemapped;
-    return vec4f(finalRgb, alpha);
-}
-function applyToneMapping(rgb, mode) {
-    switch (mode) {
-        case 'aces':
-            return acesToneMapping(rgb);
-        case 'reinhard':
-            return reinhardToneMapping(rgb);
-        case 'linear':
-            return rgb;
-        case 'none':
-            return rgb;
-    }
-}
-
-const EDGE_STEP_COUNT = 6;
-const EDGE_GUESS = 8.0;
-const CONTRAST_THRESHOLD = 0.0312;
-const RELATIVE_THRESHOLD = 0.063;
-const SUBPIXEL_BLENDING = 1.0;
-/**
- * FXAA (Fast Approximate Anti-Aliasing) post-processing effect.
- *
- * Uses the standard FXAA 3.11 algorithm:
- * 1. Samples luminance of neighboring pixels
- * 2. Detects edges based on contrast
- * 3. Blends pixels along detected edges to smooth jaggies
- *
- * The inverse texture size uniform is automatically updated each frame.
- *
- * @param textureNode - The texture to apply FXAA to (typically from pass.getTextureNode())
- * @returns A vec4f node containing the anti-aliased color
- *
- * @example
- * const scenePass = renderTexture(scene, camera);
- * const fxaaOutput = fxaa(scenePass.getTextureNode());
- *
- * const postMaterial = createMaterial({
- *     vertex: fullscreenQuadVertex,
- *     fragment: fxaaOutput,
- * });
- */
-function fxaa(textureNode) {
-    // Uniform for inverse texture size, auto-updated each frame
-    const invSize = uniform(vec2(0, 0), 'fxaaInvSize');
-    // Lifecycle node to update invSize before rendering
-    const invSizeUpdater = node().onFrameUpdate(() => {
-        const tex = textureNode.bindingNode.value;
-        if (tex) {
-            invSize.value = [1 / tex.width, 1 / tex.height];
-        }
-    });
-    // Edge steps array for the edge search loop
-    const EDGE_STEPS = array([f32(1.0), f32(1.5), f32(2.0), f32(2.0), f32(2.0), f32(4.0)]);
-    // ── Helper Functions ──────────────────────────────────────────────────────
-    // Sample texture at explicit UV with level(0) to force base mip level
-    // We chain .sample(uv).level() to avoid holding a TextureNode with the
-    // default uvNode (which would pull in varying(uv()) as a dependency)
-    const Sample = Fn((uv) => {
-        return textureNode.sample(uv).level(f32(0));
-    }, { name: 'FxaaSample', params: [{ name: 'uv', type: vec2f$1 }] });
-    const SampleLuminance = Fn((uv) => {
-        return Sample(uv).rgb.dot(vec3(0.3, 0.59, 0.11));
-    }, { name: 'FxaaSampleLuminance', params: [{ name: 'uv', type: vec2f$1 }] });
-    const SampleLuminanceOffset = Fn((texSize, uv, uOffset, vOffset) => {
-        const shiftedUv = uv.add(texSize.mul(vec2(uOffset, vOffset)));
-        return SampleLuminance(shiftedUv);
-    }, {
-        name: 'FxaaSampleLuminanceOffset',
-        params: [
-            { name: 'texSize', type: vec2f$1 },
-            { name: 'uv', type: vec2f$1 },
-            { name: 'uOffset', type: f32$1 },
-            { name: 'vOffset', type: f32$1 },
-        ],
-    });
-    // ── Main FXAA Function ────────────────────────────────────────────────────
-    const ApplyFXAA = Fn((uv, texSize) => {
-        // Sample luminance neighborhood
-        const m = SampleLuminance(uv);
-        const n = SampleLuminanceOffset(texSize, uv, f32(0.0), f32(-1.0));
-        const e = SampleLuminanceOffset(texSize, uv, f32(1.0), f32(0.0));
-        const s = SampleLuminanceOffset(texSize, uv, f32(0.0), f32(1.0));
-        const w = SampleLuminanceOffset(texSize, uv, f32(-1.0), f32(0.0));
-        const ne = SampleLuminanceOffset(texSize, uv, f32(1.0), f32(-1.0));
-        const nw = SampleLuminanceOffset(texSize, uv, f32(-1.0), f32(-1.0));
-        const se = SampleLuminanceOffset(texSize, uv, f32(1.0), f32(1.0));
-        const sw = SampleLuminanceOffset(texSize, uv, f32(-1.0), f32(1.0));
-        const highest = max(s, e, n, w, m);
-        const lowest = min(s, e, n, w, m);
-        const contrast = highest.sub(lowest).toVar('contrast');
-        // Should skip pixel? (low contrast = no edge)
-        const threshold = max(f32(CONTRAST_THRESHOLD), f32(RELATIVE_THRESHOLD).mul(highest));
-        If(contrast.lessThan(threshold), () => {
-            Return(Sample(uv));
-        });
-        // Determine pixel blend factor (subpixel anti-aliasing)
-        const filterSum = f32(2.0)
-            .mul(s.add(e).add(n).add(w))
-            .add(se.add(sw).add(ne).add(nw))
-            .mul(f32(1.0 / 12.0));
-        const filterDiff = abs(filterSum.sub(m));
-        const filterClamped = clamp$1(filterDiff.div(max(contrast, f32(0.0001))), f32(0.0), f32(1.0));
-        const pixelBlendFactor = smoothstep(f32(0.0), f32(1.0), filterClamped).toVar('pixelBlendFactor');
-        const pixelBlend = pixelBlendFactor.mul(pixelBlendFactor).mul(f32(SUBPIXEL_BLENDING)).toVar('pixelBlend');
-        // Determine edge direction (horizontal vs vertical)
-        const horizontal = abs(s.add(n).sub(m.mul(f32(2.0))))
-            .mul(f32(2.0))
-            .add(abs(se.add(ne).sub(e.mul(f32(2.0)))))
-            .add(abs(sw.add(nw).sub(w.mul(f32(2.0)))));
-        const vertical = abs(e.add(w).sub(m.mul(f32(2.0))))
-            .mul(f32(2.0))
-            .add(abs(se.add(sw).sub(s.mul(f32(2.0)))))
-            .add(abs(ne.add(nw).sub(n.mul(f32(2.0)))));
-        const isHorizontal = horizontal.greaterThanEqual(vertical);
-        const pLuminance = isHorizontal.select(s, e);
-        const nLuminance = isHorizontal.select(n, w);
-        const pGradient = abs(pLuminance.sub(m));
-        const nGradient = abs(nLuminance.sub(m));
-        const pixelStep = isHorizontal.select(texSize.y, texSize.x).toVar('pixelStep');
-        const oppositeLuminance = f32(0).toVar('oppositeLum');
-        const gradient = f32(0).toVar('gradient');
-        If(pGradient.lessThan(nGradient), () => {
-            pixelStep.assign(pixelStep.negate());
-            oppositeLuminance.assign(nLuminance);
-            gradient.assign(nGradient);
-        }).Else(() => {
-            oppositeLuminance.assign(pLuminance);
-            gradient.assign(pGradient);
-        });
-        // Determine edge blend factor (edge-aware anti-aliasing)
-        const uvEdge = uv.toVar('uvEdge');
-        const edgeStep = vec2(0, 0).toVar('edgeStep');
-        If(isHorizontal, () => {
-            uvEdge.y.addAssign(pixelStep.mul(f32(0.5)));
-            edgeStep.assign(vec2(texSize.x, f32(0.0)));
-        }).Else(() => {
-            uvEdge.x.addAssign(pixelStep.mul(f32(0.5)));
-            edgeStep.assign(vec2(f32(0.0), texSize.y));
-        });
-        const edgeLuminance = m.add(oppositeLuminance).mul(f32(0.5));
-        const gradientThreshold = gradient.mul(f32(0.25));
-        // Search in positive direction
-        const puv = uvEdge.add(edgeStep.mul(EDGE_STEPS.element(f32(0).toU32()))).toVar('puv');
-        const pLuminanceDelta = SampleLuminance(puv).sub(edgeLuminance).toVar('pLumDelta');
-        const pAtEnd = abs(pLuminanceDelta).greaterThanEqual(gradientThreshold).toVar('pAtEnd');
-        Loop({ start: 1, end: EDGE_STEP_COUNT }, ({ i }) => {
-            If(pAtEnd, () => {
-                Break();
-            });
-            puv.addAssign(edgeStep.mul(EDGE_STEPS.element(i)));
-            pLuminanceDelta.assign(SampleLuminance(puv).sub(edgeLuminance));
-            pAtEnd.assign(abs(pLuminanceDelta).greaterThanEqual(gradientThreshold));
-        });
-        If(pAtEnd.not(), () => {
-            puv.addAssign(edgeStep.mul(f32(EDGE_GUESS)));
-        });
-        // Search in negative direction
-        const nuv = uvEdge.sub(edgeStep.mul(EDGE_STEPS.element(f32(0).toU32()))).toVar('nuv');
-        const nLuminanceDelta = SampleLuminance(nuv).sub(edgeLuminance).toVar('nLumDelta');
-        const nAtEnd = abs(nLuminanceDelta).greaterThanEqual(gradientThreshold).toVar('nAtEnd');
-        Loop({ start: 1, end: EDGE_STEP_COUNT }, ({ i }) => {
-            If(nAtEnd, () => {
-                Break();
-            });
-            nuv.subAssign(edgeStep.mul(EDGE_STEPS.element(i)));
-            nLuminanceDelta.assign(SampleLuminance(nuv).sub(edgeLuminance));
-            nAtEnd.assign(abs(nLuminanceDelta).greaterThanEqual(gradientThreshold));
-        });
-        If(nAtEnd.not(), () => {
-            nuv.subAssign(edgeStep.mul(f32(EDGE_GUESS)));
-        });
-        // Calculate distances
-        const pDistance = f32(0).toVar('pDist');
-        const nDistance = f32(0).toVar('nDist');
-        If(isHorizontal, () => {
-            pDistance.assign(puv.x.sub(uv.x));
-            nDistance.assign(uv.x.sub(nuv.x));
-        }).Else(() => {
-            pDistance.assign(puv.y.sub(uv.y));
-            nDistance.assign(uv.y.sub(nuv.y));
-        });
-        const shortestDistance = f32(0).toVar('shortestDist');
-        const deltaSign = bool(false).toVar('deltaSign');
-        If(pDistance.lessThanEqual(nDistance), () => {
-            shortestDistance.assign(pDistance);
-            deltaSign.assign(pLuminanceDelta.greaterThanEqual(f32(0.0)));
-        }).Else(() => {
-            shortestDistance.assign(nDistance);
-            deltaSign.assign(nLuminanceDelta.greaterThanEqual(f32(0.0)));
-        });
-        // Calculate edge blend factor
-        const edgeBlend = f32(0).toVar('edgeBlend');
-        const mDeltaSign = m.sub(edgeLuminance).greaterThanEqual(f32(0.0));
-        If(deltaSign.equal(mDeltaSign), () => {
-            edgeBlend.assign(f32(0.0));
-        }).Else(() => {
-            edgeBlend.assign(f32(0.5).sub(shortestDistance.div(pDistance.add(nDistance))));
-        });
-        // Final blend
-        const finalBlend = max(pixelBlend, edgeBlend).toVar('finalBlend');
-        const finalUv = uv.toVar('finalUv');
-        If(isHorizontal, () => {
-            finalUv.y.addAssign(pixelStep.mul(finalBlend));
-        }).Else(() => {
-            finalUv.x.addAssign(pixelStep.mul(finalBlend));
-        });
-        return Sample(finalUv);
-    }, {
-        name: 'ApplyFXAA',
-        params: [
-            { name: 'uv', type: vec2f$1 },
-            { name: 'texSize', type: vec2f$1 },
-        ],
-    });
-    // Return result with lifecycle updater attached
-    return ApplyFXAA(screenUV, invSize).before(invSizeUpdater);
-}
-
-/**
- * Basic struct descriptor for a non-indexed indirect draw call (`drawIndirect`) with no additional fields.
- * Memory layout (4 × u32, 16 bytes):
- *   vertexCount, instanceCount, firstVertex, firstInstance
- */
-const DrawIndirect = struct('DrawIndirect', {
-    vertexCount: u32$1,
-    instanceCount: u32$1,
-    firstVertex: u32$1,
-    firstInstance: u32$1,
-});
-/**
- * Basic struct descriptor for an indexed indirect draw call (`drawIndexedIndirect`) with no additional fields.
- * Memory layout (5 × u32, 20 bytes):
- *   indexCount, instanceCount, firstIndex, baseVertex, firstInstance
- */
-const DrawIndexedIndirect = struct('DrawIndexedIndirect', {
-    indexCount: u32$1,
-    instanceCount: u32$1,
-    firstIndex: u32$1,
-    baseVertex: u32$1,
-    firstInstance: u32$1,
-});
-
-/** Model-to-world transform matrix. */
-const modelWorldMatrix = /*@__PURE__*/ new UniformNode(new Uniform(mat4x4f$1, undefined, objectGroup), 'modelWorldMatrix').onObjectUpdate((frame) => frame.object.matrixWorld);
-/** Normal matrix (inverse-transpose of upper-left 3x3 of model matrix). In objectGroup. */
-const modelNormalMatrix = /*@__PURE__*/ new UniformNode(new Uniform(mat3x3f$1, undefined, objectGroup), 'modelNormalMatrix').onObjectUpdate((frame) => frame.object.normalMatrix);
-/** helper for vertex shader: compute clip-space position from vertex position attribute and camera matrices. */
-const positionClip = (() => {
-    const pos = attribute('position', vec3f$1);
-    const localPos = vec4f(pos, f32(1.0));
-    const worldPos = mul(modelWorldMatrix, localPos);
-    const viewPos = mul(cameraViewMatrix, worldPos);
-    const clipPos = mul(cameraProjectionMatrix, viewPos);
-    return clipPos;
-})();
-
-class BlendMode {
-    blending;
-    blendSrc;
-    blendDst;
-    blendEquation;
-    blendSrcAlpha;
-    blendDstAlpha;
-    blendEquationAlpha;
-    premultiplyAlpha;
-    constructor(blending = 'normal') {
-        this.blending = blending;
-        this.blendSrc = 'src-alpha';
-        this.blendDst = 'one-minus-src-alpha';
-        this.blendEquation = 'add';
-        this.blendSrcAlpha = null;
-        this.blendDstAlpha = null;
-        this.blendEquationAlpha = null;
-        this.premultiplyAlpha = false;
-    }
-    copy(source) {
-        this.blending = source.blending;
-        this.blendSrc = source.blendSrc;
-        this.blendDst = source.blendDst;
-        this.blendEquation = source.blendEquation;
-        this.blendSrcAlpha = source.blendSrcAlpha;
-        this.blendDstAlpha = source.blendDstAlpha;
-        this.blendEquationAlpha = source.blendEquationAlpha;
-        this.premultiplyAlpha = source.premultiplyAlpha;
-        return this;
-    }
-    clone() {
-        return new BlendMode().copy(this);
-    }
-}
-
-const _noBlending = /*#__PURE__*/ new BlendMode('no');
-const _materialBlending = /*#__PURE__*/ new BlendMode('material');
-/**
- * Represents a fragment shader output struct with multiple @location outputs.
- * Used for MRT (Multiple Render Targets).
- *
- * Each member in the `members` array corresponds to a @location(N) output.
- * The index in the array determines the @location index.
- *
- * @example
- * // Direct usage (rare):
- * const outputs = new OutputStructNode([colorNode, normalNode, velocityNode]);
- *
- * // Typically created via mrt() helper instead.
- */
-class OutputStructNode extends Node {
-    // 2-literal union (not bare NodeKind) so MRTNode can override to MRT while
-    // keeping `kind === OutputStruct` narrowing clean for every other branch.
-    kind = NodeKind.OutputStruct;
-    /**
-     * Array of output nodes. Each node maps to @location(index).
-     * All nodes should produce vec4f values.
-     */
-    members;
-    constructor(members = []) {
-        super(vec4f$1);
-        this.members = members;
-    }
-}
-class MRTNode extends OutputStructNode {
-    kind = NodeKind.MRT;
-    /**
-     * Dictionary of named outputs. Keys are texture names,
-     * values are nodes producing vec4f values.
-     */
-    outputNodes;
-    /**
-     * Per-output blend modes. Default `output` uses the material's blend;
-     * any name without an entry falls back to no-blend.
-     */
-    blendModes = { output: _materialBlending };
-    /**
-     * Resolved output names in order. Populated during setup() when
-     * render target is known. Used by the compiler to emit correct
-     * @location indices.
-     */
-    _resolvedNames = [];
-    constructor(outputNodes) {
-        super([]);
-        this.outputNodes = outputNodes;
-    }
-    setBlendMode(name, blend) {
-        this.blendModes[name] = blend;
-        return this;
-    }
-    getBlendMode(name) {
-        return this.blendModes[name] || _noBlending;
-    }
-    /**
-     * Returns true if this MRT node has an output with the given name.
-     */
-    has(name) {
-        return this.outputNodes[name] !== undefined;
-    }
-    /**
-     * Returns the output node for the given name.
-     */
-    get(name) {
-        return this.outputNodes[name];
-    }
-    /**
-     * Merge another MRTNode's outputs into this one.
-     * Returns a new MRTNode with combined outputs (other's outputs override this's).
-     */
-    merge(other) {
-        const merged = new MRTNode({ ...this.outputNodes, ...other.outputNodes });
-        merged.blendModes = { ...this.blendModes, ...other.blendModes };
-        return merged;
-    }
-    /**
-     * Resolve output names to @location indices against the target's attachment names. Throws on a
-     * name the target does not have: skipping it emits a shader with fewer locations than the pass
-     * binds, which the backend then draws with an attachment left at its clear colour.
-     *
-     * @param getTextureIndex - Maps an attachment name to its index, or -1.
-     * @param attachmentNames - Only read to name the alternatives when a lookup fails.
-     */
-    resolveOutputs(getTextureIndex, attachmentNames) {
-        const members = [];
-        const names = [];
-        for (const name in this.outputNodes) {
-            const index = getTextureIndex(name);
-            if (index === -1) {
-                const has = attachmentNames?.length ? attachmentNames.join(', ') : '(none)';
-                throw new Error(`[mrt] output '${name}' names no attachment on this target. It has: ${has}.`);
-            }
-            // Ensure the node outputs vec4f (wrap if needed)
-            let node = this.outputNodes[name];
-            if (node.type.wgslType !== 'vec4f') {
-                node = vec4f(node, new LiteralNode(f32$1, 1));
-            }
-            members[index] = node;
-            names[index] = name;
-        }
-        this.members = members;
-        this._resolvedNames = names;
-    }
-}
-/**
- * Create an MRT (Multiple Render Targets) node from a dictionary of outputs.
- *
- * Output names must match the `.name` property of textures in the render target.
- * The compiler maps each output to the corresponding @location(N) based on
- * texture array indices.
- *
- * @example
- * const mrtOutput = mrt({
- *     color: finalColor,
- *     normal: viewSpaceNormal,
- *     velocity: motionVector,
- * });
- *
- * const material = createMaterial({
- *     vertex: clipPosition,
- *     fragment: mrtOutput,
- * });
- */
-function mrt(outputNodes) {
-    return new MRTNode(outputNodes);
-}
-
-/**
- * StorageNode, declares a storage buffer binding in a shader.
- *
- * Two forms:
- * 1. **Named reference**: Resolved from `geometry.buffers` at render time
- * 2. **Value reference**: Buffer provided directly, can be swapped via `.value`
- *
- * Both are first-class features for different use cases:
- * - Named references enable buffer reuse across materials (same shader, different buffers per mesh)
- * - Value references enable compute-only workloads (no geometry) and explicit buffer swapping
- *
- * @example Named reference (resolved from geometry.buffers)
- * const particles = storage('particles', d.array(Particle), 'read_write');
- * // Later: geometry.setBuffer('particles', myParticleBuffer);
- *
- * @example Value reference (buffer provided directly, swappable)
- * const particles = storage(myBuffer, 'read_write');
- * particles.value = otherBuffer;  // swap buffers for double-buffering
- */
-class StorageNode extends Node {
-    kind = NodeKind.Storage;
-    /** Buffer name (for geometry.buffers lookup), null if value-based */
-    bufferName;
-    /** Direct buffer reference, null if name-based */
-    value;
-    /** The WGSL type string, e.g. 'array<mat4x4f>'. Emitted verbatim. */
-    storageType;
-    /** Access mode for the storage buffer. */
-    access;
-    /** Whether the node is atomic or not. */
-    isAtomic = false;
-    /** Uniform group, determines @group index. Defaults to objectGroup. */
-    group;
-    constructor(schema, nameOrBuffer, access = 'read', group = objectGroup) {
-        super(schema);
-        if (typeof nameOrBuffer === 'string') {
-            this.bufferName = nameOrBuffer;
-            this.value = null;
-        }
-        else {
-            this.bufferName = null;
-            this.value = nameOrBuffer;
-        }
-        this.storageType = schema.wgslType;
-        this.access = access;
-        this.group = group;
-    }
-    /** Whether this is a named reference (resolved from geometry.buffers) */
-    get isNamedReference() {
-        return this.bufferName !== null;
-    }
-    /** Whether this is an indirect storage buffer (has 'indirect' usage) */
-    get isIndirectStorageBuffer() {
-        return this.value?.usage.has('indirect') ?? false;
-    }
-    /** Defines whether the node is atomic or not */
-    setAtomic(value) {
-        this.isAtomic = value;
-        return this;
-    }
-    /** Convenience method for making this node atomic */
-    toAtomic() {
-        return this.setAtomic(true);
-    }
-    /** Convenience method for configuring read-only access */
-    toReadOnly() {
-        if (this.access === 'read')
-            return this;
-        if (this.bufferName !== null) {
-            return new StorageNode(this.type, this.bufferName, 'read', this.group);
-        }
-        else {
-            return new StorageNode(this.type, this.value, 'read', this.group);
-        }
-    }
-}
-function storage(nameOrBuffer, schemaOrAccess, accessArg) {
-    if (typeof nameOrBuffer === 'string') {
-        // Name-based: storage(name, schema, access?)
-        const schema = schemaOrAccess;
-        const access = accessArg ?? 'read';
-        return new StorageNode(schema, nameOrBuffer, access, objectGroup);
-    }
-    else {
-        // Value-based: storage(buffer, access?)
-        const buffer = nameOrBuffer;
-        const access = schemaOrAccess ?? 'read';
-        return new StorageNode(buffer.schema, buffer, access, objectGroup);
-    }
-}
-
-/**
- * A transform-feedback kernel: named per-element attribute inputs → named captured-varying outputs,
- * authored with the ordinary gpucat DSL body. This is the honest WebGL2 transform-feedback primitive
- * (attribute-in / return-out), NOT a faked `storage()` compute — see
- * llm/webgl-transform-feedback-plan.md. It has no WebGPU analogue; portability is via a shared body
- * `Fn` wrapped in a WebGPU `compute()`, not by this node pretending to span backends.
- *
- * The body runs as the vertex `main()`. The element index is `vertexIndex` (= gl_VertexID); the
- * instanced variant uses `instanceIndex` (= gl_InstanceID).
- */
-class TransformFeedbackNode {
-    id;
-    /** Per-element input attribute schemas, keyed by name (declared `in a_<name>`). */
-    inputs;
-    /** Captured-varying output schemas, keyed by name (declared `out v_<name>`). */
-    outputs;
-    /** Input attribute nodes handed to the callback, keyed by input name (emitted as `a_<name>`). */
-    inputNodes;
-    /** The traced kernel body (statements pushed during the callback). */
-    body;
-    /** The per-output value expressions returned by the callback, keyed by output name. */
-    outputExprs;
-    name;
-    /** Set to true after dispose(). */
-    disposed = false;
-    /** @internal renderer cleanup hook (Phase 2). */
-    _onDispose = null;
-    constructor(opts) {
-        this.id = `_transformFeedback_${_tfCounter++}`;
-        this.inputs = opts.inputs;
-        this.outputs = opts.outputs;
-        this.inputNodes = opts.inputNodes;
-        this.body = opts.body;
-        this.outputExprs = opts.outputExprs;
-        this.name = opts.name;
-    }
-    dispose() {
-        if (this.disposed)
-            return;
-        this.disposed = true;
-        this._onDispose?.();
-    }
-}
-let _tfCounter = 0;
-/**
- * Free factory for a transform-feedback kernel (the canonical authoring form).
- *
- * @example
- * const kernel = transformFeedback(
- *   (io) => ({ pos: io.pos.add(io.vel) }),
- *   { inputs: { pos: d.vec4f, vel: d.vec4f }, outputs: { pos: d.vec4f } },
- * );
- */
-function transformFeedback(callback, layout) {
-    // Build one attribute node per input, sourced by name `a_<name>` (buffers bind at the run site in
-    // Phase 2, not baked into the node — see the plan's Runtime API section).
-    // Source each attribute by its bare input name; the GLSL emitter adds the `a_` prefix (→ `a_<name>`).
-    const inputNodes = {};
-    for (const name of Object.keys(layout.inputs)) {
-        inputNodes[name] = new AttributeNode(layout.inputs[name], String(name));
-    }
-    // Trace the callback exactly like FnNode.trace(): push a stack, run the body (which appends its
-    // statements to the stack), then capture the returned per-output expressions.
-    const body = new StackNode();
-    const prev = pushStack(body);
-    let outputs;
-    try {
-        outputs = callback(inputNodes);
-    }
-    finally {
-        popStack(prev);
-    }
-    const outputExprs = {};
-    for (const name of Object.keys(layout.outputs)) {
-        const expr = outputs[name];
-        if (expr == null) {
-            throw new Error(`[transformFeedback] kernel did not return an output for '${name}' declared in outputs.`);
-        }
-        outputExprs[name] = expr;
-    }
-    return new TransformFeedbackNode({
-        inputs: layout.inputs,
-        outputs: layout.outputs,
-        inputNodes: inputNodes,
-        body,
-        outputExprs,
-        name: layout.name,
-    });
-}
-
-/**
- * Inline raw-shader expression node.
- *
- * Used for embedding raw WGSL and/or GLSL expressions with node dependencies.
- * Each source string uses $0, $1, etc. as placeholders for `deps` (same deps,
- * same ordering, for both backends). The active backend picks its own source;
- * the emitter throws if the source for that backend is absent.
- *
- * @example
- * const expr = new WgslNode(d.f32, 'dot($0, $1)', [a, b]);
- * // WGSL: dot(a_expr, b_expr)
- */
-class WgslNode extends Node {
-    wgsl;
-    deps;
-    glsl;
-    kind = NodeKind.Wgsl;
-    constructor(type, 
-    /** Raw WGSL source with $0/$1 placeholders. Undefined for GLSL-only nodes. */
-    wgsl, deps, 
-    /** Raw GLSL source with $0/$1 placeholders (companion). Undefined for WGSL-only nodes. */
-    glsl) {
-        super(type);
-        this.wgsl = wgsl;
-        this.deps = deps;
-        this.glsl = glsl;
-    }
-    /**
-     * Returns a new WgslNode with additional unreferenced deps appended.
-     * Useful for pulling nodes into the graph (e.g. varyings) without
-     * emitting them in the expression string.
-     */
-    with(...extra) {
-        return new WgslNode(this.type, this.wgsl, [...this.deps, ...extra], this.glsl);
-    }
-    /**
-     * Attach a GLSL companion expression so this node also compiles on the WebGL
-     * backend. The companion is a tagged template whose interpolations MUST be the
-     * same dep nodes (any order); they are appended to `deps` and reindexed so the
-     * `$N` placeholders in the GLSL string line up with the merged dep list.
-     *
-     * @example
-     * const luma = wgsl(d.f32)`dot(${c}, vec3f(0.299, 0.587, 0.114))`
-     *     .glslSource`dot(${c}, vec3(0.299, 0.587, 0.114))`;
-     */
-    glslSource(strings, ...deps) {
-        // Merge the companion's deps into this node's dep list, deduping by identity so a dep shared
-        // between the WGSL and GLSL sources keeps a single slot. Build the GLSL string against the
-        // merged indices.
-        const merged = [...this.deps];
-        const indexOf = (n) => {
-            const existing = merged.indexOf(n);
-            if (existing !== -1)
-                return existing;
-            merged.push(n);
-            return merged.length - 1;
-        };
-        const glslStr = String.raw({ raw: strings }, ...deps.map((dep) => `$${indexOf(dep)}`));
-        return new WgslNode(this.type, this.wgsl, merged, glslStr);
-    }
-}
-/**
- * Create an inline WGSL expression node using a tagged template literal.
- *
- * @param desc - A descriptor specifying the result type
- *
- * @example
- * // With desc:
- * const expr = wgsl(d.f32)`dot(${a}, ${b})`;
- * const rgbaNode = wgsl(d.vec4f)`vec4f(${rgb}, 1.0)`;
- *
- * // Preserving input type:
- * const sinNode = <D extends d.WgslDesc>(a: Node<D>) => wgsl(a.type)`sin(${a})`;
- *
- * // Cross-backend (WGSL + GLSL companion) so one node runs on both backends:
- * const luma = wgsl(d.f32)`dot(${c}, vec3f(0.299, 0.587, 0.114))`
- *     .glslSource`dot(${c}, vec3(0.299, 0.587, 0.114))`;
- */
-function wgsl(desc) {
-    return (strings, ...deps) => {
-        const wgslStr = String.raw({ raw: strings }, ...deps.map((_, i) => `$${i}`));
-        return new WgslNode(desc, wgslStr, deps);
-    };
-}
-/**
- * Create an inline GLSL expression node using a tagged template literal.
- *
- * Mirrors `wgsl` but produces a GLSL-only node; it emits on the WebGL backend
- * and throws on the WebGPU (WGSL) backend. For a node that runs on BOTH backends,
- * use `wgsl(desc)\`...\`.glslSource\`...\`` instead.
- *
- * @param desc - A descriptor specifying the result type
- *
- * @example
- * const luma = glsl(d.f32)`dot(${c}, vec3(0.299, 0.587, 0.114))`;
- */
-function glsl(desc) {
-    return (strings, ...deps) => {
-        const glslStr = String.raw({ raw: strings }, ...deps.map((_, i) => `$${i}`));
-        return new WgslNode(desc, undefined, deps, glslStr);
-    };
-}
-
-/**
- * Parse WGSL function source into a NodeFunction.
- */
-function parseWgslFunction(source) {
-    source = source.trim();
-    const declarationRegexp = /^[fn]*\s*([a-z_0-9]+)?\s*\(([\s\S]*?)\)\s*[-]*[>]*\s*([a-z_0-9]+(?:<[\s\S]+?>)?)?/i;
-    const propertiesRegexp = /([a-z_0-9]+)\s*:\s*([a-z_0-9]+(?:<[\s\S]+?>)?)/gi;
-    const declaration = source.match(declarationRegexp);
-    if (declaration === null || declaration.length < 2) {
-        throw new Error(`[gpucat] FunctionNode: Could not parse WGSL function.\n${source.slice(0, 100)}...`);
-    }
-    const inputsCode = declaration[2] || '';
-    const propsMatches = [];
-    let match = null;
-    while ((match = propertiesRegexp.exec(inputsCode)) !== null) {
-        propsMatches.push({ name: match[1], type: match[2] });
-    }
-    const inputs = [];
-    for (const { name, type } of propsMatches) {
-        let resolvedType = type;
-        let pointer = false;
-        if (resolvedType.startsWith('ptr')) {
-            resolvedType = 'pointer';
-            pointer = true;
-        }
-        inputs.push({ name, type: resolvedType, pointer });
-    }
-    // find where function body starts (after the signature)
-    const bodyStart = source.indexOf('{');
-    const blockCode = bodyStart >= 0 ? source.substring(bodyStart) : '{}';
-    const outputType = declaration[3] || 'void';
-    const name = declaration[1] !== undefined ? declaration[1] : '';
-    const type = outputType; // keep WGSL type as-is
-    return {
-        type,
-        inputs,
-        name,
-        inputsCode,
-        blockCode,
-        outputType,
-        getCode(fnName = name) {
-            const outputPart = outputType !== 'void' ? `-> ${outputType}` : '';
-            return `fn ${fnName}(${inputsCode.trim()}) ${outputPart}${blockCode}`;
-        },
-    };
-}
-class WgslFunctionNode extends Node {
-    kind = NodeKind.WgslFunction;
-    /** Global nodes use globalCache for deduplication */
-    global = true;
-    /** The native WGSL shader code. Empty for GLSL-only functions. */
-    code;
-    /**
-     * The GLSL companion source (a complete GLSL function definition with the same name + signature
-     * as the WGSL one). Undefined for WGSL-only functions. When present the GLSL emitter emits this
-     * instead of throwing.
-     */
-    glslCode;
-    /** Array of included CodeNodes/FunctionNodes */
-    includes;
-    constructor(code = '', includes = [], glslCode) {
-        super(WgslFn);
-        this.code = code;
-        this.includes = includes;
-        this.glslCode = glslCode;
-    }
-    setIncludes(includes) {
-        this.includes = includes;
-        return this;
-    }
-    getIncludes() {
-        return this.includes;
-    }
-    /**
-     * Get the node function (parsed WGSL) for this function node.
-     */
-    getNodeFunction() {
-        return parseWgslFunction(this.code);
-    }
-    /**
-     * Returns the inputs (parameters) of this function.
-     */
-    getInputs() {
-        return this.getNodeFunction().inputs;
-    }
-    /**
-     * Create a CallNode that calls this function.
-     * @param args - Arguments to pass (positional or named object)
-     */
-    call(...args) {
-        const nodeFunc = this.getNodeFunction();
-        const fnName = nodeFunc.name;
-        const returnType = descFromWgslType(nodeFunc.outputType);
-        return new CallNode(returnType, fnName, args, undefined, this);
-    }
-}
-// Implementation
-function wgslFn(source, layoutOrIncludes, includesArg) {
-    // Determine layout and includes from arguments
-    let layout;
-    let includes = [];
-    if (layoutOrIncludes) {
-        if (Array.isArray(layoutOrIncludes)) {
-            // Legacy: wgslFn(source, includes)
-            includes = layoutOrIncludes;
-        }
-        else if ('output' in layoutOrIncludes) {
-            // New: wgslFn(source, layout, includes?)
-            layout = layoutOrIncludes;
-            includes = includesArg ?? [];
-        }
-    }
-    // Extract FunctionNode from callable includes
-    const includeNodes = [];
-    for (let i = 0; i < includes.length; i++) {
-        const include = includes[i];
-        // If it's a callable from wgslFn, extract the functionNode
-        if (typeof include === 'function') {
-            const fn = include.functionNode;
-            if (fn) {
-                includeNodes.push(fn);
-            }
-        }
-        else if (include.kind === NodeKind.WgslFunction) {
-            includeNodes.push(include);
-        }
-    }
-    const functionNode = new WgslFunctionNode(source.trim(), includeNodes, layout?.glsl?.trim());
-    const nodeFunc = functionNode.getNodeFunction();
-    const fnName = nodeFunc.name;
-    // Use layout output type if provided, otherwise parse from WGSL
-    const returnType = layout?.output ?? descFromWgslType(nodeFunc.outputType);
-    // Return a callable that creates CallNodes
-    const fn = (...args) => {
-        return new CallNode(returnType, fnName, args, undefined, functionNode);
-    };
-    // Attach functionNode for include resolution
-    fn.functionNode = functionNode;
-    return fn;
-}
-// Implementation
-function glslFn(source, layout, includes = []) {
-    // Extract FunctionNode from callable includes (same handling as wgslFn).
-    const includeNodes = [];
-    for (let i = 0; i < includes.length; i++) {
-        const include = includes[i];
-        if (typeof include === 'function') {
-            const inc = include.functionNode;
-            if (inc)
-                includeNodes.push(inc);
-        }
-        else if (include.kind === NodeKind.WgslFunction) {
-            includeNodes.push(include);
-        }
-    }
-    // GLSL-only: no WGSL source (code = ''), glslCode carries the GLSL definition.
-    const functionNode = new WgslFunctionNode('', includeNodes, source.trim());
-    const fnName = layout.name;
-    const returnType = layout.output;
-    const fn = (...args) => {
-        return new CallNode(returnType, fnName, args, undefined, functionNode);
-    };
-    fn.functionNode = functionNode;
-    return fn;
-}
-
-const _worldSphereCenter = [0, 0, 0];
-class Mesh extends Object3D {
-    isMesh = true;
-    geometry;
-    material;
-    count = 1;
-    /**
-     * Optional batched draw list. When set, the renderer issues one instanced draw per entry
-     * (a CPU loop) instead of the single `drawRange` + `count` draw, and `count`/`drawRange`
-     * are ignored. All entries share this mesh's `geometry` + `material` (one pipeline). An
-     * empty array draws nothing. Entries must match the mesh's geometry (indexed vs non-indexed).
-     */
-    draws;
-    frustumCulled = true;
-    constructor(geometry, material) {
-        super();
-        this.geometry = geometry;
-        this.material = material;
-    }
-    raycast(raycaster, intersects) {
-        const geometry = this.geometry;
-        const matrixWorld = this.matrixWorld;
-        // get position buffer - required for raycasting
-        const positionBuffer = geometry.getBuffer('position');
-        if (!positionBuffer?.array)
-            return;
-        const positions = positionBuffer.array;
-        // early-out: bounding sphere test in world space
-        if (geometry.boundingSphere) {
-            const sphere = geometry.boundingSphere;
-            // transform sphere center to world space
-            transformMat4$1(_worldSphereCenter, sphere.center, matrixWorld);
-            // get world scale to transform radius (approximate for non-uniform scale)
-            const sx = Math.hypot(matrixWorld[0], matrixWorld[1], matrixWorld[2]);
-            const sy = Math.hypot(matrixWorld[4], matrixWorld[5], matrixWorld[6]);
-            const sz = Math.hypot(matrixWorld[8], matrixWorld[9], matrixWorld[10]);
-            const worldRadius = sphere.radius * Math.max(sx, sy, sz);
-            // quick sphere-ray distance test
-            const rayToCenter = [0, 0, 0];
-            subtract$1(rayToCenter, _worldSphereCenter, raycaster.ray.origin);
-            const tca = dot$1(rayToCenter, raycaster.ray.direction);
-            const d2 = dot$1(rayToCenter, rayToCenter) - tca * tca;
-            if (d2 > worldRadius * worldRadius)
-                return;
-        }
-        // transform ray to local space
-        const localRay = transformRayToLocalSpace(raycaster, matrixWorld);
-        // early-out: bounding box test in local space
-        if (geometry.boundingBox) {
-            if (!rayIntersectsBox3(localRay.origin, localRay.direction, geometry.boundingBox, raycaster.far))
-                return;
-        }
-        // get optional index buffer and UV buffer
-        const indexBuffer = geometry.index;
-        const indices = indexBuffer?.array ?? null;
-        const uvBuffer = geometry.getBuffer('uv');
-        const uvs = uvBuffer?.array ?? null;
-        // triangle intersection tests
-        if (indices) {
-            // indexed geometry
-            const count = Math.min(indices.length, geometry.drawRange.start + (geometry.drawRange.count === Infinity ? indices.length : geometry.drawRange.count));
-            for (let i = geometry.drawRange.start; i < count; i += 3) {
-                checkTriangleIntersection(this, raycaster, localRay, matrixWorld, i, i + 1, i + 2, positions, indices, uvs, intersects, Math.floor(i / 3));
-            }
-        }
-        else {
-            // non-indexed geometry
-            const vertexCount = positions.length / 3;
-            const count = Math.min(vertexCount, geometry.drawRange.start + (geometry.drawRange.count === Infinity ? vertexCount : geometry.drawRange.count));
-            for (let i = geometry.drawRange.start; i < count; i += 3) {
-                checkTriangleIntersection(this, raycaster, localRay, matrixWorld, i, i + 1, i + 2, positions, null, uvs, intersects, Math.floor(i / 3));
-            }
-        }
-    }
-}
-/** The factory form, matching `createGeometry` and `createMaterial`. */
-function createMesh(geometry, material) {
-    return new Mesh(geometry, material);
-}
-
-// Gizmo Material Factory
-function createGizmoMaterial(options) {
-    const opacity = options.opacity ?? 1;
-    const colorUniform = uniform('color', vec4f$1);
-    const fragment = colorUniform;
-    const mat = createMaterial({
-        vertex: positionClip,
-        fragment,
-        transparent: true,
-        depthTest: options.depthTest ?? false,
-        depthWrite: options.depthWrite ?? false,
-        cullMode: options.cullMode ?? 'none',
-        blend: {
-            color: {
-                srcFactor: 'src-alpha',
-                dstFactor: 'one-minus-src-alpha',
-                operation: 'add',
-            },
-            alpha: {
-                srcFactor: 'one',
-                dstFactor: 'one-minus-src-alpha',
-                operation: 'add',
-            },
-        },
-    });
-    mat.uniforms.set('color', new Uniform(vec4f$1, [options.color[0], options.color[1], options.color[2], opacity]));
-    return mat;
-}
-// Geometry Utilities
-/**
- * Bakes a transform matrix into geometry vertex positions and normals.
- * This modifies the underlying buffer data in-place.
- */
-function applyMatrix4ToGeometry(geometry, matrix) {
-    const posBuf = geometry.getBuffer('position');
-    if (!posBuf?.array)
-        return;
-    const positions = posBuf.array;
-    const normalBuf = geometry.getBuffer('normal');
-    const normals = normalBuf?.array;
-    // normal matrix for transforming normals
-    const normalMat = create$3();
-    invert(normalMat, matrix);
-    transpose$1(normalMat, normalMat);
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    const v = [0, 0, 0];
-    for (let i = 0; i < positions.length; i += 3) {
-        v[0] = positions[i];
-        v[1] = positions[i + 1];
-        v[2] = positions[i + 2];
-        transformMat4$1(v, v, matrix);
-        positions[i] = v[0];
-        positions[i + 1] = v[1];
-        positions[i + 2] = v[2];
-        if (v[0] < minX)
-            minX = v[0];
-        if (v[0] > maxX)
-            maxX = v[0];
-        if (v[1] < minY)
-            minY = v[1];
-        if (v[1] > maxY)
-            maxY = v[1];
-        if (v[2] < minZ)
-            minZ = v[2];
-        if (v[2] > maxZ)
-            maxZ = v[2];
-    }
-    if (normals) {
-        for (let i = 0; i < normals.length; i += 3) {
-            v[0] = normals[i];
-            v[1] = normals[i + 1];
-            v[2] = normals[i + 2];
-            // transform by normal matrix (upper 3x3 of inverse-transpose)
-            const x = normalMat[0] * v[0] + normalMat[4] * v[1] + normalMat[8] * v[2];
-            const y = normalMat[1] * v[0] + normalMat[5] * v[1] + normalMat[9] * v[2];
-            const z = normalMat[2] * v[0] + normalMat[6] * v[1] + normalMat[10] * v[2];
-            const len = Math.sqrt(x * x + y * y + z * z) || 1;
-            normals[i] = x / len;
-            normals[i + 1] = y / len;
-            normals[i + 2] = z / len;
-        }
-    }
-    // Recompute bounding box and sphere from transformed positions
-    if (positions.length >= 3) {
-        geometry.boundingBox = [minX, minY, minZ, maxX, maxY, maxZ];
-        const cx = (minX + maxX) * 0.5;
-        const cy = (minY + maxY) * 0.5;
-        const cz = (minZ + maxZ) * 0.5;
-        let maxDistSq = 0;
-        for (let i = 0; i < positions.length; i += 3) {
-            const dx = positions[i] - cx;
-            const dy = positions[i + 1] - cy;
-            const dz = positions[i + 2] - cz;
-            const distSq = dx * dx + dy * dy + dz * dz;
-            if (distSq > maxDistSq)
-                maxDistSq = distSq;
-        }
-        geometry.boundingSphere = { center: [cx, cy, cz], radius: Math.sqrt(maxDistSq) };
-    }
-}
-// Raycaster helper, intersect including invisible objects
-function intersectObjectWithRay(object, raycaster, includeInvisible = false) {
-    const allIntersections = intersectObjectRecursive(object, raycaster, [], true, includeInvisible);
-    allIntersections.sort((a, b) => a.distance - b.distance);
-    for (let i = 0; i < allIntersections.length; i++) {
-        if (allIntersections[i].object.visible || includeInvisible) {
-            return allIntersections[i];
-        }
-    }
-    return null;
-}
-function intersectObjectRecursive(object, raycaster, intersects, recursive, includeInvisible) {
-    if (!object.visible && !includeInvisible)
-        return intersects;
-    object.raycast(raycaster, intersects);
-    {
-        for (const child of object.children) {
-            intersectObjectRecursive(child, raycaster, intersects, true, includeInvisible);
-        }
-    }
-    return intersects;
-}
-// Reusable temp objects
-const _raycaster = new Raycaster();
-const _tempVec = create$6();
-const _tempVec2 = create$6();
-const _tempQuat = create$4();
-const _tempQuat2 = create$4();
-const _identityQuat = [0, 0, 0, 1];
-const _tempMat = create$3();
-const _unitX = [1, 0, 0];
-const _unitY = [0, 1, 0];
-const _unitZ = [0, 0, 1];
-const _zeroVec = [0, 0, 0];
-const _alignVector = [0, 1, 0];
-const _dirVector = [0, 0, 0];
-const _v1 = [0, 0, 0];
-const _v2 = [0, 0, 0];
-const _v3 = [0, 0, 0];
-// TransformControlsPlane
-class TransformControlsPlane extends Mesh {
-    // synced from controls via defineProperty
-    mode = 'translate';
-    axis = null;
-    space = 'world';
-    worldPosition = [0, 0, 0];
-    worldQuaternion = [0, 0, 0, 1];
-    eye = [0, 0, 1];
-    cameraQuaternion = [0, 0, 0, 1];
-    constructor() {
-        const planeGeom = createPlaneGeometry(100000, 100000, 2, 2);
-        const planeMat = createGizmoMaterial({
-            color: [1, 1, 1],
-            opacity: 0.1,
-            depthTest: false,
-            depthWrite: false,
-        });
-        // make it invisible for rendering but still raycast-able
-        super(planeGeom, planeMat);
-        this.visible = false;
-    }
-    updateWorldMatrix() {
-        let space = this.space;
-        copy$5(this.position, this.worldPosition);
-        if (this.mode === 'scale')
-            space = 'local';
-        const q = space === 'local' ? this.worldQuaternion : _identityQuat;
-        transformQuat(_v1, _unitX, q);
-        transformQuat(_v2, _unitY, q);
-        transformQuat(_v3, _unitZ, q);
-        // align the plane for current transform mode, axis and space
-        copy$5(_alignVector, _v2);
-        switch (this.mode) {
-            case 'translate':
-            case 'scale':
-                switch (this.axis) {
-                    case 'X':
-                        cross$1(_alignVector, this.eye, _v1);
-                        cross$1(_dirVector, _v1, _alignVector);
-                        break;
-                    case 'Y':
-                        cross$1(_alignVector, this.eye, _v2);
-                        cross$1(_dirVector, _v2, _alignVector);
-                        break;
-                    case 'Z':
-                        cross$1(_alignVector, this.eye, _v3);
-                        cross$1(_dirVector, _v3, _alignVector);
-                        break;
-                    case 'XY':
-                        copy$5(_dirVector, _v3);
-                        break;
-                    case 'YZ':
-                        copy$5(_dirVector, _v1);
-                        break;
-                    case 'XZ':
-                        copy$5(_alignVector, _v3);
-                        copy$5(_dirVector, _v2);
-                        break;
-                    case 'XYZ':
-                    case 'E':
-                        set$1(_dirVector, 0, 0, 0);
-                        break;
-                }
-                break;
-            case 'rotate':
-            default:
-                set$1(_dirVector, 0, 0, 0);
-        }
-        if (length$1(_dirVector) === 0) {
-            // in rotate mode, make the plane parallel to camera
-            copy$3(this.quaternion, this.cameraQuaternion);
-        }
-        else {
-            targetTo(_tempMat, _zeroVec, _dirVector, _alignVector);
-            fromMat4(this.quaternion, _tempMat);
-        }
-        super.updateWorldMatrix();
-    }
-}
-// GizmoMesh, Mesh with extra tag/name fields for gizmo logic
-class GizmoMesh extends Mesh {
-    tag;
-    // store original color/opacity for highlight restore
-    _color = null;
-    _opacity = null;
-    constructor(geometry, material) {
-        super(geometry, material);
-    }
-    setColor(r, g, b, a) {
-        const u = this.material.uniforms.get('color');
-        if (u)
-            u.value = [r, g, b, a];
-    }
-    getColor() {
-        const u = this.material.uniforms.get('color');
-        const v = u?.value;
-        return v ? [v[0], v[1], v[2], v[3]] : [1, 1, 1, 1];
-    }
-}
-// TransformControlsGizmo
-class TransformControlsGizmo extends Object3D {
-    gizmo = {};
-    picker = {};
-    helper = {};
-    // synced from controls via defineProperty
-    mode = 'translate';
-    space = 'world';
-    axis = null;
-    worldPosition = [0, 0, 0];
-    worldQuaternion = [0, 0, 0, 1];
-    worldPositionStart = [0, 0, 0];
-    worldQuaternionStart = [0, 0, 0, 1];
-    cameraPosition = [0, 0, 0];
-    eye = [0, 0, 1];
-    rotationAxis = [0, 0, 0];
-    camera = null;
-    enabled = true;
-    dragging = false;
-    showX = true;
-    showY = true;
-    showZ = true;
-    size = 1;
-    rotationAngle = 0;
-    // highlight color
-    _activeColor = [1, 1, 0];
-    constructor() {
-        super();
-        // materials
-        const matRed = createGizmoMaterial({ color: [1, 0, 0] });
-        const matGreen = createGizmoMaterial({ color: [0, 1, 0] });
-        const matBlue = createGizmoMaterial({ color: [0, 0, 1] });
-        const matRedTransparent = createGizmoMaterial({ color: [1, 0, 0], opacity: 0.5 });
-        const matGreenTransparent = createGizmoMaterial({ color: [0, 1, 0], opacity: 0.5 });
-        const matBlueTransparent = createGizmoMaterial({ color: [0, 0, 1], opacity: 0.5 });
-        const matWhiteTransparent = createGizmoMaterial({ color: [1, 1, 1], opacity: 0.25 });
-        const matYellowTransparent = createGizmoMaterial({ color: [1, 1, 0], opacity: 0.25 });
-        const matGray = createGizmoMaterial({ color: [0.47, 0.47, 0.47] });
-        const matInvisible = createGizmoMaterial({ color: [1, 1, 1], opacity: 0.15 });
-        // reusable geometries
-        const arrowGeometry = createCylinderGeometry(0, 0.04, 0.1, 12);
-        applyMatrix4ToGeometry(arrowGeometry, fromTranslation(create$3(), [0, 0.05, 0]));
-        const scaleHandleGeometry = createBoxGeometry(0.08, 0.08, 0.08);
-        applyMatrix4ToGeometry(scaleHandleGeometry, fromTranslation(create$3(), [0, 0.04, 0]));
-        const lineGeometry2 = createCylinderGeometry(0.0075, 0.0075, 0.5, 3);
-        applyMatrix4ToGeometry(lineGeometry2, fromTranslation(create$3(), [0, 0.25, 0]));
-        function CircleGeometry(radius, arc) {
-            const geom = createTorusGeometry(radius, 0.0075, 3, 64, arc * Math.PI * 2);
-            // Sequential application: v' = Rx * Ry * v
-            const m = create$3();
-            rotateX(m, m, Math.PI / 2);
-            rotateY(m, m, Math.PI / 2);
-            applyMatrix4ToGeometry(geom, m);
-            return geom;
-        }
-        // Gizmo definitions
-        const gizmoTranslate = {
-            X: [
-                [new Mesh(arrowGeometry, matRed), [0.5, 0, 0], [0, 0, -Math.PI / 2], null],
-                [new Mesh(arrowGeometry, matRed), [-0.5, 0, 0], [0, 0, Math.PI / 2], null],
-                [new Mesh(lineGeometry2, matRed), [0, 0, 0], [0, 0, -Math.PI / 2], null],
-            ],
-            Y: [
-                [new Mesh(arrowGeometry, matGreen), [0, 0.5, 0], null, null],
-                [new Mesh(arrowGeometry, matGreen), [0, -0.5, 0], [Math.PI, 0, 0], null],
-                [new Mesh(lineGeometry2, matGreen), null, null, null],
-            ],
-            Z: [
-                [new Mesh(arrowGeometry, matBlue), [0, 0, 0.5], [Math.PI / 2, 0, 0], null],
-                [new Mesh(arrowGeometry, matBlue), [0, 0, -0.5], [-Math.PI / 2, 0, 0], null],
-                [new Mesh(lineGeometry2, matBlue), null, [Math.PI / 2, 0, 0], null],
-            ],
-            XYZ: [[new Mesh(createOctahedronGeometry(0.1, 0), matWhiteTransparent), [0, 0, 0], null, null]],
-            XY: [[new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matBlueTransparent), [0.15, 0.15, 0], null, null]],
-            YZ: [[new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matRedTransparent), [0, 0.15, 0.15], [0, Math.PI / 2, 0], null]],
-            XZ: [
-                [new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matGreenTransparent), [0.15, 0, 0.15], [-Math.PI / 2, 0, 0], null],
-            ],
-        };
-        const pickerTranslate = {
-            X: [
-                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0.3, 0, 0], [0, 0, -Math.PI / 2], null],
-                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [-0.3, 0, 0], [0, 0, Math.PI / 2], null],
-            ],
-            Y: [
-                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, 0.3, 0], null, null],
-                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, -0.3, 0], [0, 0, Math.PI], null],
-            ],
-            Z: [
-                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, 0, 0.3], [Math.PI / 2, 0, 0], null],
-                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, 0, -0.3], [-Math.PI / 2, 0, 0], null],
-            ],
-            XYZ: [[new Mesh(createOctahedronGeometry(0.2, 0), matInvisible), null, null, null]],
-            XY: [[new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0.15, 0.15, 0], null, null]],
-            YZ: [[new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0, 0.15, 0.15], [0, Math.PI / 2, 0], null]],
-            XZ: [[new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0.15, 0, 0.15], [-Math.PI / 2, 0, 0], null]],
-        };
-        const gizmoRotate = {
-            XYZE: [[new Mesh(CircleGeometry(0.5, 1), matGray), null, [0, Math.PI / 2, 0], null]],
-            X: [[new Mesh(CircleGeometry(0.5, 0.5), matRed), null, null, null]],
-            Y: [[new Mesh(CircleGeometry(0.5, 0.5), matGreen), null, [0, 0, -Math.PI / 2], null]],
-            Z: [[new Mesh(CircleGeometry(0.5, 0.5), matBlue), null, [0, Math.PI / 2, 0], null]],
-            E: [[new Mesh(CircleGeometry(0.75, 1), matYellowTransparent), null, [0, Math.PI / 2, 0], null]],
-        };
-        const pickerRotate = {
-            XYZE: [[new Mesh(createSphereGeometry(0.25, 10, 8), matInvisible), null, null, null]],
-            X: [[new Mesh(createTorusGeometry(0.5, 0.1, 4, 24), matInvisible), [0, 0, 0], [0, -Math.PI / 2, -Math.PI / 2], null]],
-            Y: [[new Mesh(createTorusGeometry(0.5, 0.1, 4, 24), matInvisible), [0, 0, 0], [Math.PI / 2, 0, 0], null]],
-            Z: [[new Mesh(createTorusGeometry(0.5, 0.1, 4, 24), matInvisible), [0, 0, 0], [0, 0, -Math.PI / 2], null]],
-            E: [[new Mesh(createTorusGeometry(0.75, 0.1, 2, 24), matInvisible), null, null, null]],
-        };
-        const gizmoScale = {
-            X: [
-                [new Mesh(scaleHandleGeometry, matRed), [0.5, 0, 0], [0, 0, -Math.PI / 2], null],
-                [new Mesh(lineGeometry2, matRed), [0, 0, 0], [0, 0, -Math.PI / 2], null],
-                [new Mesh(scaleHandleGeometry, matRed), [-0.5, 0, 0], [0, 0, Math.PI / 2], null],
-            ],
-            Y: [
-                [new Mesh(scaleHandleGeometry, matGreen), [0, 0.5, 0], null, null],
-                [new Mesh(lineGeometry2, matGreen), null, null, null],
-                [new Mesh(scaleHandleGeometry, matGreen), [0, -0.5, 0], [0, 0, Math.PI], null],
-            ],
-            Z: [
-                [new Mesh(scaleHandleGeometry, matBlue), [0, 0, 0.5], [Math.PI / 2, 0, 0], null],
-                [new Mesh(lineGeometry2, matBlue), [0, 0, 0], [Math.PI / 2, 0, 0], null],
-                [new Mesh(scaleHandleGeometry, matBlue), [0, 0, -0.5], [-Math.PI / 2, 0, 0], null],
-            ],
-            XY: [[new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matBlueTransparent), [0.15, 0.15, 0], null, null]],
-            YZ: [[new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matRedTransparent), [0, 0.15, 0.15], [0, Math.PI / 2, 0], null]],
-            XZ: [
-                [new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matGreenTransparent), [0.15, 0, 0.15], [-Math.PI / 2, 0, 0], null],
-            ],
-            XYZ: [[new Mesh(createBoxGeometry(0.1, 0.1, 0.1), matWhiteTransparent), null, null, null]],
-        };
-        const pickerScale = {
-            X: [
-                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0.3, 0, 0], [0, 0, -Math.PI / 2], null],
-                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [-0.3, 0, 0], [0, 0, Math.PI / 2], null],
-            ],
-            Y: [
-                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, 0.3, 0], null, null],
-                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, -0.3, 0], [0, 0, Math.PI], null],
-            ],
-            Z: [
-                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, 0, 0.3], [Math.PI / 2, 0, 0], null],
-                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, 0, -0.3], [-Math.PI / 2, 0, 0], null],
-            ],
-            XY: [[new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0.15, 0.15, 0], null, null]],
-            YZ: [[new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0, 0.15, 0.15], [0, Math.PI / 2, 0], null]],
-            XZ: [[new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0.15, 0, 0.15], [-Math.PI / 2, 0, 0], null]],
-            XYZ: [[new Mesh(createBoxGeometry(0.2, 0.2, 0.2), matInvisible), [0, 0, 0], null, null]],
-        };
-        // setupGizmo: bake transforms into geometry
-        function setupGizmo(gizmoMap) {
-            const parent = new Object3D();
-            for (const name in gizmoMap) {
-                const entries = gizmoMap[name];
-                for (let i = entries.length - 1; i >= 0; i--) {
-                    const [sourceMesh, position, rotation, scale, tag] = entries[i];
-                    // Create a new GizmoMesh with its own material clone
-                    const clonedMat = createGizmoMaterial({ color: [1, 1, 1] });
-                    // Copy uniforms from source material
-                    const srcColor = sourceMesh.material.uniforms.get('color');
-                    if (srcColor) {
-                        // Copied, not shared: the clone must not write through to the source's colour.
-                        const source = srcColor.value;
-                        const copied = source instanceof Float32Array ? source.slice() : null;
-                        clonedMat.uniforms.set('color', new Uniform(vec4f$1, copied ?? [1, 1, 1, 1]));
-                    }
-                    // Copy material properties
-                    clonedMat.transparent = sourceMesh.material.transparent;
-                    clonedMat.depthTest = sourceMesh.material.depthTest;
-                    clonedMat.depthWrite = sourceMesh.material.depthWrite;
-                    clonedMat.cullMode = sourceMesh.material.cullMode;
-                    clonedMat.blend = sourceMesh.material.blend;
-                    // Clone geometry data for baking
-                    const srcGeom = sourceMesh.geometry;
-                    const clonedGeom = new Geometry();
-                    // Copy buffers
-                    for (const [bufName, buf] of srcGeom.buffers) {
-                        if (buf.array) {
-                            const newData = new Float32Array(buf.array);
-                            clonedGeom.setBuffer(bufName, createVertexBuffer(buf.schema, newData));
-                        }
-                    }
-                    if (srcGeom.index?.array) {
-                        const newIdx = srcGeom.index.array instanceof Uint32Array
-                            ? new Uint32Array(srcGeom.index.array)
-                            : new Uint16Array(srcGeom.index.array);
-                        clonedGeom.setIndex(createIndexBuffer(newIdx));
-                    }
-                    clonedGeom.drawRange = { ...srcGeom.drawRange };
-                    if (srcGeom.boundingBox)
-                        clonedGeom.boundingBox = [...srcGeom.boundingBox];
-                    if (srcGeom.boundingSphere)
-                        clonedGeom.boundingSphere = {
-                            center: [...srcGeom.boundingSphere.center],
-                            radius: srcGeom.boundingSphere.radius,
-                        };
-                    const obj = new GizmoMesh(clonedGeom, clonedMat);
-                    obj.name = name;
-                    obj.tag = tag;
-                    // Build a bake matrix from position/rotation/scale
-                    if (position || rotation || scale) {
-                        const p = position ? [position[0], position[1], position[2]] : [0, 0, 0];
-                        const r = [0, 0, 0, 1];
-                        if (rotation) {
-                            const e = fromValues(rotation[0], rotation[1], rotation[2], 'xyz');
-                            fromEuler(r, e);
-                        }
-                        const s = scale ? [scale[0], scale[1], scale[2]] : [1, 1, 1];
-                        const bakeMatrix = create$3();
-                        fromRotationTranslationScale(bakeMatrix, r, p, s);
-                        applyMatrix4ToGeometry(obj.geometry, bakeMatrix);
-                    }
-                    obj.renderOrder = Infinity;
-                    parent.add(obj);
-                }
-            }
-            return parent;
-        }
-        // Build gizmo hierarchy
-        this.gizmo['translate'] = setupGizmo(gizmoTranslate);
-        this.gizmo['rotate'] = setupGizmo(gizmoRotate);
-        this.gizmo['scale'] = setupGizmo(gizmoScale);
-        this.picker['translate'] = setupGizmo(pickerTranslate);
-        this.picker['rotate'] = setupGizmo(pickerRotate);
-        this.picker['scale'] = setupGizmo(pickerScale);
-        this.add(this.gizmo['translate']);
-        this.add(this.gizmo['rotate']);
-        this.add(this.gizmo['scale']);
-        this.add(this.picker['translate']);
-        this.add(this.picker['rotate']);
-        this.add(this.picker['scale']);
-        // Pickers should be hidden always (but still raycastable)
-        this.picker['translate'].visible = false;
-        this.picker['rotate'].visible = false;
-        this.picker['scale'].visible = false;
-    }
-    updateWorldMatrix() {
-        const space = this.mode === 'scale' ? 'local' : this.space;
-        const quaternion = space === 'local' ? this.worldQuaternion : _identityQuat;
-        // Show only gizmos for current transform mode
-        this.gizmo['translate'].visible = this.mode === 'translate';
-        this.gizmo['rotate'].visible = this.mode === 'rotate';
-        this.gizmo['scale'].visible = this.mode === 'scale';
-        let handles = [];
-        handles = handles.concat(this.picker[this.mode].children);
-        handles = handles.concat(this.gizmo[this.mode].children);
-        for (let i = 0; i < handles.length; i++) {
-            const handle = handles[i];
-            handle.visible = true;
-            identity$1(handle.quaternion);
-            copy$5(handle.position, this.worldPosition);
-            // constant screen-size factor
-            let factor;
-            if (this.camera?.isOrthographicCamera) {
-                const ortho = this.camera;
-                factor = (ortho.top - ortho.bottom) / ortho.zoom;
-            }
-            else if (this.camera) {
-                const cam = this.camera;
-                const fov = cam.fov ?? Math.PI / 4;
-                factor =
-                    distance(this.worldPosition, this.cameraPosition) *
-                        Math.min((1.9 * Math.tan(fov / 2)) / (cam.zoom ?? 1), 7);
-            }
-            else {
-                factor = 1;
-            }
-            const s = (factor * this.size) / 4;
-            set$1(handle.scale, s, s, s);
-            // skip helper processing (deferred per plan)
-            if (handle.tag === 'helper') {
-                handle.visible = false;
-                continue;
-            }
-            // align handles to current local or world rotation
-            copy$3(handle.quaternion, quaternion);
-            if (this.mode === 'translate' || this.mode === 'scale') {
-                const AXIS_HIDE_THRESHOLD = 0.99;
-                const PLANE_HIDE_THRESHOLD = 0.2;
-                if (handle.name === 'X') {
-                    transformQuat(_alignVector, _unitX, quaternion);
-                    if (Math.abs(dot$1(_alignVector, this.eye)) > AXIS_HIDE_THRESHOLD) {
-                        set$1(handle.scale, 1e-10, 1e-10, 1e-10);
-                        handle.visible = false;
-                    }
-                }
-                if (handle.name === 'Y') {
-                    transformQuat(_alignVector, _unitY, quaternion);
-                    if (Math.abs(dot$1(_alignVector, this.eye)) > AXIS_HIDE_THRESHOLD) {
-                        set$1(handle.scale, 1e-10, 1e-10, 1e-10);
-                        handle.visible = false;
-                    }
-                }
-                if (handle.name === 'Z') {
-                    transformQuat(_alignVector, _unitZ, quaternion);
-                    if (Math.abs(dot$1(_alignVector, this.eye)) > AXIS_HIDE_THRESHOLD) {
-                        set$1(handle.scale, 1e-10, 1e-10, 1e-10);
-                        handle.visible = false;
-                    }
-                }
-                if (handle.name === 'XY') {
-                    transformQuat(_alignVector, _unitZ, quaternion);
-                    if (Math.abs(dot$1(_alignVector, this.eye)) < PLANE_HIDE_THRESHOLD) {
-                        set$1(handle.scale, 1e-10, 1e-10, 1e-10);
-                        handle.visible = false;
-                    }
-                }
-                if (handle.name === 'YZ') {
-                    transformQuat(_alignVector, _unitX, quaternion);
-                    if (Math.abs(dot$1(_alignVector, this.eye)) < PLANE_HIDE_THRESHOLD) {
-                        set$1(handle.scale, 1e-10, 1e-10, 1e-10);
-                        handle.visible = false;
-                    }
-                }
-                if (handle.name === 'XZ') {
-                    transformQuat(_alignVector, _unitY, quaternion);
-                    if (Math.abs(dot$1(_alignVector, this.eye)) < PLANE_HIDE_THRESHOLD) {
-                        set$1(handle.scale, 1e-10, 1e-10, 1e-10);
-                        handle.visible = false;
-                    }
-                }
-            }
-            else if (this.mode === 'rotate') {
-                copy$3(_tempQuat2, quaternion);
-                // alignVector = eye in local space
-                invert$1(_tempQuat, quaternion);
-                transformQuat(_alignVector, this.eye, _tempQuat);
-                if (handle.name.indexOf('E') !== -1) {
-                    // E ring: face camera
-                    targetTo(_tempMat, this.eye, _zeroVec, _unitY);
-                    fromMat4(handle.quaternion, _tempMat);
-                }
-                if (handle.name === 'X') {
-                    setAxisAngle(_tempQuat, _unitX, Math.atan2(-_alignVector[1], _alignVector[2]));
-                    multiply$1(_tempQuat, _tempQuat2, _tempQuat);
-                    copy$3(handle.quaternion, _tempQuat);
-                }
-                if (handle.name === 'Y') {
-                    setAxisAngle(_tempQuat, _unitY, Math.atan2(_alignVector[0], _alignVector[2]));
-                    multiply$1(_tempQuat, _tempQuat2, _tempQuat);
-                    copy$3(handle.quaternion, _tempQuat);
-                }
-                if (handle.name === 'Z') {
-                    setAxisAngle(_tempQuat, _unitZ, Math.atan2(_alignVector[1], _alignVector[0]));
-                    multiply$1(_tempQuat, _tempQuat2, _tempQuat);
-                    copy$3(handle.quaternion, _tempQuat);
-                }
-            }
-            // hide disabled axes
-            handle.visible = handle.visible && (handle.name.indexOf('X') === -1 || this.showX);
-            handle.visible = handle.visible && (handle.name.indexOf('Y') === -1 || this.showY);
-            handle.visible = handle.visible && (handle.name.indexOf('Z') === -1 || this.showZ);
-            handle.visible = handle.visible && (handle.name.indexOf('E') === -1 || (this.showX && this.showY && this.showZ));
-            // highlight selected axis
-            if (!handle._color) {
-                const c = handle.getColor();
-                handle._color = [c[0], c[1], c[2]];
-                handle._opacity = c[3];
-            }
-            // restore original
-            handle.setColor(handle._color[0], handle._color[1], handle._color[2], handle._opacity);
-            if (this.enabled && this.axis) {
-                if (handle.name === this.axis) {
-                    handle.setColor(this._activeColor[0], this._activeColor[1], this._activeColor[2], 1.0);
-                }
-                else if (this.axis.split('').some((a) => handle.name === a)) {
-                    handle.setColor(this._activeColor[0], this._activeColor[1], this._activeColor[2], 1.0);
-                }
-            }
-        }
-        super.updateWorldMatrix();
-    }
-}
-// TransformControlsRoot
-class TransformControlsRoot extends Object3D {
-    controls;
-    constructor(controls) {
-        super();
-        this.controls = controls;
-        this.visible = false;
-    }
-    updateWorldMatrix() {
-        const controls = this.controls;
-        if (controls.object !== undefined) {
-            controls.object.updateWorldMatrix();
-            if (controls.object.parent === null) {
-                console.error('TransformControls: The attached 3D object must be a part of the scene graph.');
-            }
-            else {
-                decompose(controls._parentQuaternion, controls._parentPosition, controls._parentScale, controls.object.parent.matrixWorld);
-            }
-            decompose(controls.worldQuaternion, controls.worldPosition, controls._worldScale, controls.object.matrixWorld);
-            invert$1(controls._parentQuaternionInv, controls._parentQuaternion);
-            invert$1(controls._worldQuaternionInv, controls.worldQuaternion);
-        }
-        controls.camera.updateWorldMatrix();
-        decompose(controls.cameraQuaternion, controls.cameraPosition, controls._cameraScale, controls.camera.matrixWorld);
-        if (controls.camera?.isOrthographicCamera) {
-            controls.camera.getWorldDirection(controls.eye);
-            negate$1(controls.eye, controls.eye);
-        }
-        else {
-            subtract$1(controls.eye, controls.cameraPosition, controls.worldPosition);
-            normalize$4(controls.eye, controls.eye);
-        }
-        super.updateWorldMatrix();
-    }
-    dispose() {
-        this.traverse((child) => {
-            if (child.isMesh) {
-                const mesh = child;
-                mesh.geometry.dispose();
-                mesh.material.dispose();
-            }
-        });
-    }
-}
-// TransformControls
-function getPointer(domElement, event) {
-    if (domElement.ownerDocument.pointerLockElement) {
-        return { x: 0, y: 0, button: event.button };
-    }
-    const rect = domElement.getBoundingClientRect();
-    return {
-        x: ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        y: (-(event.clientY - rect.top) / rect.height) * 2 + 1,
-        button: event.button,
-    };
-}
-class TransformControls {
-    camera;
-    domElement = null;
-    // the 3D object being transformed
-    object;
-    // state
-    enabled = true;
-    mode = 'translate';
-    space = 'world';
-    axis = null;
-    dragging = false;
-    size = 1;
-    showX = true;
-    showY = true;
-    showZ = true;
-    // snapping
-    translationSnap = null;
-    rotationSnap = null;
-    scaleSnap = null;
-    // position clamping
-    minX = -Infinity;
-    maxX = Infinity;
-    minY = -Infinity;
-    maxY = Infinity;
-    minZ = -Infinity;
-    maxZ = Infinity;
-    // derived world-space state
-    worldPosition = [0, 0, 0];
-    worldPositionStart = [0, 0, 0];
-    worldQuaternion = [0, 0, 0, 1];
-    worldQuaternionStart = [0, 0, 0, 1];
-    cameraPosition = [0, 0, 0];
-    cameraQuaternion = [0, 0, 0, 1];
-    pointStart = [0, 0, 0];
-    pointEnd = [0, 0, 0];
-    rotationAxis = [0, 0, 0];
-    rotationAngle = 0;
-    eye = [0, 0, 1];
-    // internal working vectors
-    _offset = [0, 0, 0];
-    _startNorm = [0, 0, 0];
-    _endNorm = [0, 0, 0];
-    _cameraScale = [1, 1, 1];
-    _parentPosition = [0, 0, 0];
-    _parentQuaternion = [0, 0, 0, 1];
-    _parentQuaternionInv = [0, 0, 0, 1];
-    _parentScale = [1, 1, 1];
-    _worldScaleStart = [1, 1, 1];
-    _worldQuaternionInv = [0, 0, 0, 1];
-    _worldScale = [1, 1, 1];
-    _positionStart = [0, 0, 0];
-    _quaternionStart = [0, 0, 0, 1];
-    _scaleStart = [1, 1, 1];
-    // events (topics)
-    onChange = topic();
-    onMouseDown = topic();
-    onMouseUp = topic();
-    onObjectChange = topic();
-    // internal components
-    _root;
-    _gizmo;
-    _plane;
-    // bound event handlers
-    _onPointerDown;
-    _onPointerHover;
-    _onPointerMove;
-    _onPointerUp;
-    constructor(camera, domElement) {
-        this.camera = camera;
-        this._root = new TransformControlsRoot(this);
-        this._gizmo = new TransformControlsGizmo();
-        this._plane = new TransformControlsPlane();
-        this._root.add(this._gizmo);
-        this._root.add(this._plane);
-        this._onPointerDown = (event) => {
-            if (!this.enabled)
-                return;
-            if (!document.pointerLockElement && this.domElement) {
-                this.domElement.setPointerCapture(event.pointerId);
-            }
-            if (this.domElement) {
-                this.domElement.addEventListener('pointermove', this._onPointerMove);
-            }
-            const pointer = getPointer(this.domElement, event);
-            this.pointerHover(pointer);
-            this.pointerDown(pointer);
-        };
-        this._onPointerHover = (event) => {
-            if (!this.enabled)
-                return;
-            if (event.pointerType === 'mouse' || event.pointerType === 'pen') {
-                const pointer = getPointer(this.domElement, event);
-                this.pointerHover(pointer);
-            }
-        };
-        this._onPointerMove = (event) => {
-            if (!this.enabled)
-                return;
-            const pointer = getPointer(this.domElement, event);
-            // During a drag, pointermove events have event.button === 0, but
-            // pointerMove() expects button === -1 to distinguish move-during-drag
-            // from a fresh click
-            pointer.button = -1;
-            this.pointerMove(pointer);
-        };
-        this._onPointerUp = (event) => {
-            if (!this.enabled)
-                return;
-            if (this.domElement) {
-                this.domElement.releasePointerCapture(event.pointerId);
-                this.domElement.removeEventListener('pointermove', this._onPointerMove);
-            }
-            const pointer = getPointer(this.domElement, event);
-            this.pointerUp(pointer);
-        };
-        if (domElement) {
-            this.connect(domElement);
-        }
-    }
-    getHelper() {
-        return this._root;
-    }
-    connect(element) {
-        this.domElement = element;
-        element.addEventListener('pointerdown', this._onPointerDown);
-        element.addEventListener('pointermove', this._onPointerHover);
-        element.addEventListener('pointerup', this._onPointerUp);
-        element.style.touchAction = 'none';
-    }
-    disconnect() {
-        if (!this.domElement)
-            return;
-        this.domElement.removeEventListener('pointerdown', this._onPointerDown);
-        this.domElement.removeEventListener('pointermove', this._onPointerHover);
-        this.domElement.removeEventListener('pointermove', this._onPointerMove);
-        this.domElement.removeEventListener('pointerup', this._onPointerUp);
-        this.domElement.style.touchAction = 'auto';
-    }
-    attach(object) {
-        this.object = object;
-        this._root.visible = true;
-        this._syncState();
-        return this;
-    }
-    detach() {
-        this.object = undefined;
-        this.axis = null;
-        this._root.visible = false;
-        this._syncState();
-        return this;
-    }
-    setMode(mode) {
-        this.mode = mode;
-        this._syncState();
-        this.onChange.emit();
-    }
-    setSpace(space) {
-        this.space = space;
-        this._syncState();
-        this.onChange.emit();
-    }
-    setSize(size) {
-        this.size = size;
-        this._syncState();
-        this.onChange.emit();
-    }
-    setTranslationSnap(snap) {
-        this.translationSnap = snap;
-    }
-    setRotationSnap(snap) {
-        this.rotationSnap = snap;
-    }
-    setScaleSnap(snap) {
-        this.scaleSnap = snap;
-    }
-    getRaycaster() {
-        return _raycaster;
-    }
-    getMode() {
-        return this.mode;
-    }
-    reset() {
-        if (!this.enabled)
-            return;
-        if (this.dragging && this.object) {
-            copy$5(this.object.position, this._positionStart);
-            copy$3(this.object.quaternion, this._quaternionStart);
-            copy$5(this.object.scale, this._scaleStart);
-            this.onChange.emit();
-            this.onObjectChange.emit();
-            copy$5(this.pointStart, this.pointEnd);
-        }
-    }
-    dispose() {
-        this.disconnect();
-        this._root.dispose();
-    }
-    // Pointer logic
-    pointerHover(pointer) {
-        if (this.object === undefined || this.dragging === true)
-            return;
-        _raycaster.setFromCamera([pointer.x, pointer.y], this.camera);
-        const intersect = intersectObjectWithRay(this._gizmo.picker[this.mode], _raycaster, true);
-        if (intersect) {
-            this.axis = intersect.object.name;
-        }
-        else {
-            this.axis = null;
-        }
-        this._syncState();
-        this.onChange.emit();
-    }
-    pointerDown(pointer) {
-        if (this.object === undefined || this.dragging === true || pointer.button !== 0)
-            return;
-        if (this.axis !== null) {
-            _raycaster.setFromCamera([pointer.x, pointer.y], this.camera);
-            const planeIntersect = intersectObjectWithRay(this._plane, _raycaster, true);
-            if (planeIntersect) {
-                this.object.updateWorldMatrix();
-                if (this.object.parent) {
-                    this.object.parent.updateWorldMatrix();
-                }
-                copy$5(this._positionStart, this.object.position);
-                copy$3(this._quaternionStart, this.object.quaternion);
-                copy$5(this._scaleStart, this.object.scale);
-                decompose(this.worldQuaternionStart, this.worldPositionStart, this._worldScaleStart, this.object.matrixWorld);
-                subtract$1(this.pointStart, planeIntersect.point, this.worldPositionStart);
-            }
-            this.dragging = true;
-            this._syncState();
-            this.onMouseDown.emit({ mode: this.mode });
-        }
-    }
-    pointerMove(pointer) {
-        const axis = this.axis;
-        const mode = this.mode;
-        const object = this.object;
-        let space = this.space;
-        if (mode === 'scale') {
-            space = 'local';
-        }
-        else if (axis === 'E' || axis === 'XYZE' || axis === 'XYZ') {
-            space = 'world';
-        }
-        if (object === undefined || axis === null || this.dragging === false || pointer.button !== -1) {
-            return;
-        }
-        _raycaster.setFromCamera([pointer.x, pointer.y], this.camera);
-        const planeIntersect = intersectObjectWithRay(this._plane, _raycaster, true);
-        if (!planeIntersect) {
-            return;
-        }
-        subtract$1(this.pointEnd, planeIntersect.point, this.worldPositionStart);
-        if (mode === 'translate') {
-            subtract$1(this._offset, this.pointEnd, this.pointStart);
-            if (space === 'local' && axis !== 'XYZ') {
-                transformQuat(this._offset, this._offset, this._worldQuaternionInv);
-            }
-            if (axis.indexOf('X') === -1)
-                this._offset[0] = 0;
-            if (axis.indexOf('Y') === -1)
-                this._offset[1] = 0;
-            if (axis.indexOf('Z') === -1)
-                this._offset[2] = 0;
-            if (space === 'local' && axis !== 'XYZ') {
-                transformQuat(this._offset, this._offset, this._quaternionStart);
-                divide(this._offset, this._offset, this._parentScale);
-            }
-            else {
-                transformQuat(this._offset, this._offset, this._parentQuaternionInv);
-                divide(this._offset, this._offset, this._parentScale);
-            }
-            add$2(object.position, this._offset, this._positionStart);
-            // snap
-            if (this.translationSnap) {
-                const snap = this.translationSnap;
-                if (space === 'local') {
-                    invert$1(_tempQuat, this._quaternionStart);
-                    transformQuat(object.position, object.position, _tempQuat);
-                    if (axis.indexOf('X') !== -1)
-                        object.position[0] = Math.round(object.position[0] / snap) * snap;
-                    if (axis.indexOf('Y') !== -1)
-                        object.position[1] = Math.round(object.position[1] / snap) * snap;
-                    if (axis.indexOf('Z') !== -1)
-                        object.position[2] = Math.round(object.position[2] / snap) * snap;
-                    transformQuat(object.position, object.position, this._quaternionStart);
-                }
-                if (space === 'world') {
-                    if (object.parent) {
-                        getTranslation(_tempVec, object.parent.matrixWorld);
-                        add$2(object.position, object.position, _tempVec);
-                    }
-                    if (axis.indexOf('X') !== -1)
-                        object.position[0] = Math.round(object.position[0] / snap) * snap;
-                    if (axis.indexOf('Y') !== -1)
-                        object.position[1] = Math.round(object.position[1] / snap) * snap;
-                    if (axis.indexOf('Z') !== -1)
-                        object.position[2] = Math.round(object.position[2] / snap) * snap;
-                    if (object.parent) {
-                        getTranslation(_tempVec, object.parent.matrixWorld);
-                        subtract$1(object.position, object.position, _tempVec);
-                    }
-                }
-            }
-            // clamp
-            object.position[0] = Math.max(this.minX, Math.min(this.maxX, object.position[0]));
-            object.position[1] = Math.max(this.minY, Math.min(this.maxY, object.position[1]));
-            object.position[2] = Math.max(this.minZ, Math.min(this.maxZ, object.position[2]));
-        }
-        else if (mode === 'scale') {
-            if (axis.indexOf('XYZ') !== -1) {
-                let dd = length$1(this.pointEnd) / length$1(this.pointStart);
-                if (dot$1(this.pointEnd, this.pointStart) < 0)
-                    dd *= -1;
-                set$1(_tempVec2, dd, dd, dd);
-            }
-            else {
-                copy$5(_tempVec, this.pointStart);
-                copy$5(_tempVec2, this.pointEnd);
-                transformQuat(_tempVec, _tempVec, this._worldQuaternionInv);
-                transformQuat(_tempVec2, _tempVec2, this._worldQuaternionInv);
-                divide(_tempVec2, _tempVec2, _tempVec);
-                if (axis.indexOf('X') === -1)
-                    _tempVec2[0] = 1;
-                if (axis.indexOf('Y') === -1)
-                    _tempVec2[1] = 1;
-                if (axis.indexOf('Z') === -1)
-                    _tempVec2[2] = 1;
-            }
-            multiply$2(object.scale, this._scaleStart, _tempVec2);
-            if (this.scaleSnap) {
-                const snap = this.scaleSnap;
-                if (axis.indexOf('X') !== -1)
-                    object.scale[0] = Math.round(object.scale[0] / snap) * snap || snap;
-                if (axis.indexOf('Y') !== -1)
-                    object.scale[1] = Math.round(object.scale[1] / snap) * snap || snap;
-                if (axis.indexOf('Z') !== -1)
-                    object.scale[2] = Math.round(object.scale[2] / snap) * snap || snap;
-            }
-        }
-        else if (mode === 'rotate') {
-            subtract$1(this._offset, this.pointEnd, this.pointStart);
-            getTranslation(_tempVec, this.camera.matrixWorld);
-            const ROTATION_SPEED = 20 / distance(this.worldPosition, _tempVec);
-            let _inPlaneRotation = false;
-            if (axis === 'XYZE') {
-                cross$1(this.rotationAxis, this._offset, this.eye);
-                normalize$4(this.rotationAxis, this.rotationAxis);
-                cross$1(_tempVec, this.rotationAxis, this.eye);
-                this.rotationAngle = dot$1(this._offset, _tempVec) * ROTATION_SPEED;
-            }
-            else if (axis === 'X' || axis === 'Y' || axis === 'Z') {
-                const unit = axis === 'X' ? _unitX : axis === 'Y' ? _unitY : _unitZ;
-                copy$5(this.rotationAxis, unit);
-                copy$5(_tempVec, unit);
-                if (space === 'local') {
-                    transformQuat(_tempVec, _tempVec, this.worldQuaternion);
-                }
-                cross$1(_tempVec, _tempVec, this.eye);
-                if (length$1(_tempVec) === 0) {
-                    _inPlaneRotation = true;
-                }
-                else {
-                    normalize$4(_tempVec, _tempVec);
-                    this.rotationAngle = dot$1(this._offset, _tempVec) * ROTATION_SPEED;
-                }
-            }
-            if (axis === 'E' || _inPlaneRotation) {
-                copy$5(this.rotationAxis, this.eye);
-                this.rotationAngle = angle(this.pointEnd, this.pointStart);
-                normalize$4(this._startNorm, this.pointStart);
-                normalize$4(this._endNorm, this.pointEnd);
-                cross$1(_tempVec, this._endNorm, this._startNorm);
-                this.rotationAngle *= dot$1(_tempVec, this.eye) < 0 ? 1 : -1;
-            }
-            // snap
-            if (this.rotationSnap) {
-                this.rotationAngle = Math.round(this.rotationAngle / this.rotationSnap) * this.rotationSnap;
-            }
-            // apply rotation
-            if (space === 'local' && axis !== 'E' && axis !== 'XYZE') {
-                copy$3(object.quaternion, this._quaternionStart);
-                setAxisAngle(_tempQuat, this.rotationAxis, this.rotationAngle);
-                multiply$1(object.quaternion, object.quaternion, _tempQuat);
-                normalize$2(object.quaternion, object.quaternion);
-            }
-            else {
-                transformQuat(this.rotationAxis, this.rotationAxis, this._parentQuaternionInv);
-                setAxisAngle(_tempQuat, this.rotationAxis, this.rotationAngle);
-                multiply$1(object.quaternion, _tempQuat, this._quaternionStart);
-                normalize$2(object.quaternion, object.quaternion);
-            }
-        }
-        this.onChange.emit();
-        this.onObjectChange.emit();
-    }
-    pointerUp(pointer) {
-        if (pointer.button !== 0)
-            return;
-        if (this.dragging && this.axis !== null) {
-            this.onMouseUp.emit({ mode: this.mode });
-        }
-        this.dragging = false;
-        this.axis = null;
-        this._syncState();
-    }
-    /**
-     * Sync internal state to gizmo and plane.
-     * Call this after any property change that affects the gizmo display.
-     */
-    _syncState() {
-        // sync to gizmo
-        this._gizmo.mode = this.mode;
-        this._gizmo.space = this.space;
-        this._gizmo.axis = this.axis;
-        this._gizmo.worldPosition = this.worldPosition;
-        this._gizmo.worldQuaternion = this.worldQuaternion;
-        this._gizmo.worldPositionStart = this.worldPositionStart;
-        this._gizmo.worldQuaternionStart = this.worldQuaternionStart;
-        this._gizmo.cameraPosition = this.cameraPosition;
-        this._gizmo.eye = this.eye;
-        this._gizmo.camera = this.camera;
-        this._gizmo.enabled = this.enabled;
-        this._gizmo.dragging = this.dragging;
-        this._gizmo.showX = this.showX;
-        this._gizmo.showY = this.showY;
-        this._gizmo.showZ = this.showZ;
-        this._gizmo.size = this.size;
-        this._gizmo.rotationAxis = this.rotationAxis;
-        this._gizmo.rotationAngle = this.rotationAngle;
-        // sync to plane
-        this._plane.mode = this.mode;
-        this._plane.axis = this.axis;
-        this._plane.space = this.space;
-        this._plane.worldPosition = this.worldPosition;
-        this._plane.worldQuaternion = this.worldQuaternion;
-        this._plane.eye = this.eye;
-        this._plane.cameraQuaternion = this.cameraQuaternion;
-    }
-}
-/** The factory form, matching `createOrbitControls` and `createFlyControls`. */
-function createTransformControls(camera, domElement) {
-    return new TransformControls(camera, domElement);
-}
-
-/**
- * texture-size.ts (renderer core) — how many bytes a texture occupies, decided in one place.
- *
- * Both backends call this. The format vocabulary is WebGPU's `GPUTextureFormat` either way (the WebGL
- * backend translates it at bind time, it does not carry a second vocabulary), so the byte size of a
- * format is a fact about gpucat's own descriptor, not about a device. Same reasoning as
- * `update-ranges.ts`, `partial-upload.ts`, `buffer-upload.ts` and `render-state.ts`.
- *
- * Deliberately an ESTIMATE, in the same spirit as three.js `Info._getTextureMemorySize`: it is a
- * budget figure for a debug panel, not an allocator. Drivers pad rows, pick their own internal
- * layouts, and may keep a staging copy, so treat the number as "which textures are the expensive
- * ones" rather than as the exact resident footprint.
- */
-/** The uncompressed formats gpucat uses; anything else, including every compressed and depth format. */
-function knownBytesPerTexel(format) {
-    switch (format) {
-        case 'r8unorm':
-        case 'r8snorm':
-        case 'r8uint':
-        case 'r8sint':
-            return 1;
-        case 'r16uint':
-        case 'r16sint':
-        case 'r16float':
-        case 'rg8unorm':
-        case 'rg8snorm':
-        case 'rg8uint':
-        case 'rg8sint':
-            return 2;
-        case 'r32uint':
-        case 'r32sint':
-        case 'r32float':
-        case 'rg16uint':
-        case 'rg16sint':
-        case 'rg16float':
-        case 'rgba8unorm':
-        case 'rgba8unorm-srgb':
-        case 'rgba8snorm':
-        case 'rgba8uint':
-        case 'rgba8sint':
-        case 'bgra8unorm':
-        case 'bgra8unorm-srgb':
-            return 4;
-        case 'rg32uint':
-        case 'rg32sint':
-        case 'rg32float':
-        case 'rgba16uint':
-        case 'rgba16sint':
-        case 'rgba16float':
-            return 8;
-        case 'rgba32uint':
-        case 'rgba32sint':
-        case 'rgba32float':
-            return 16;
-        default:
-            return undefined;
-    }
-}
-/** A texel stride, for the row and offset arithmetic that has to be exact. */
-function bytesPerTexel(format) {
-    const bytes = knownBytesPerTexel(format);
-    if (bytes === undefined) {
-        throw new Error(`[gpucat] no texel stride known for '${format}'; add it rather than reading at a guessed one.`);
-    }
-    return bytes;
-}
-/** The debug panel's figure, which wants a number more than it wants to be right. */
-function estimatedBytesPerTexel(format) {
-    return knownBytesPerTexel(format) ?? 4;
-}
-/** Levels in a full mip chain down to 1x1, for a texture of this size. */
-function fullMipChainLength(width, height) {
-    return Math.floor(Math.log2(Math.max(width, height))) + 1;
-}
-/**
- * Mip levels a texture actually allocates.
- *
- * Explicit user mip images win (level 0 plus the supplied levels), else the full chain when
- * auto-generating, else the descriptor's own count floored at 1. Shared because the answer decides
- * both how much storage a backend allocates and how many levels the size estimate sums, and those two
- * must not disagree.
- */
-function mipLevelCountFor(texture) {
-    if (texture.mipmaps.length > 0)
-        return texture.mipmaps.length + 1;
-    if (texture.generateMipmaps)
-        return fullMipChainLength(texture.width, texture.height);
-    return Math.max(1, texture.mipLevelCount);
-}
-/**
- * Estimated bytes for a whole texture: every array layer / cube face, summed over the mip chain.
- * Each mip halves both dimensions with a floor of 1, which is the allocation rule both APIs follow.
- *
- * The chain length comes from `mipLevelCountFor`, not the raw `mipLevelCount`: an auto-mipmapped
- * texture allocates a full chain while its descriptor still reads 1, and summing the descriptor would
- * undercount every atlas by a third.
- */
-function gpuTextureBytes(texture) {
-    const perTexel = estimatedBytesPerTexel(texture.format);
-    const layers = Math.max(1, texture.depthOrArrayLayers);
-    const mips = mipLevelCountFor(texture);
-    let bytes = 0;
-    for (let level = 0; level < mips; level++) {
-        const width = Math.max(1, texture.width >> level);
-        const height = Math.max(1, texture.height >> level);
-        bytes += width * height * perTexel;
-    }
-    return bytes * layers;
-}
-
-/**
- * A texture for cubemaps (environment maps, skyboxes, etc).
- *
- * Stores 6 faces: +X, -X, +Y, -Y, +Z, -Z.
- * Sampled using a 3D direction vector.
- */
-class CubeTexture {
-    /** Type flag for runtime checking */
-    isCubeTexture = true;
-    /** The underlying GPU texture resource */
-    _gpuTexture;
-    /** The underlying sampler */
-    _gpuSampler;
-    /** Optional name for debugging */
-    name = '';
-    /**
-     * Mapping mode - determines default UV vector.
-     * - 'reflection': uses reflect(viewDir, normal)
-     * - 'refraction': uses refract(viewDir, normal, ior)
-     */
-    mapping;
-    /**
-     * Constructs a new CubeTexture.
-     *
-     * @param faces - Array of 6 images for cube faces (+X, -X, +Y, -Y, +Z, -Z)
-     * @param options - Texture options
-     */
-    constructor(faces = [], options = {}) {
-        // Determine size from the first face, or from options.size for a
-        // render-only cube (no face images, e.g. a CubeRenderTarget).
-        const firstFace = faces[0];
-        let size = options.size ?? 1;
-        if (firstFace) {
-            if (firstFace instanceof Source) {
-                size = firstFace.width || 1;
-            }
-            else if (typeof firstFace === 'object' && firstFace !== null && 'width' in firstFace) {
-                size = firstFace.width || 1;
-            }
-        }
-        this._gpuTexture = new GpuTexture(textureCube(), {
-            size,
-            faces: faces.map((f) => (f instanceof Source ? f : new Source(f))),
-            format: options.format,
-            generateMipmaps: options.generateMipmaps ?? true,
-            flipY: options.flipY ?? false,
-        });
-        // A render-only cube (no faces) is filled by the renderer, not uploaded.
-        if (faces.length === 0) {
-            this._gpuTexture.isRenderTargetTexture = true;
-        }
-        this._gpuSampler = new GpuSampler({
-            addressModeU: options.wrapS ?? 'clamp-to-edge',
-            addressModeV: options.wrapT ?? 'clamp-to-edge',
-            addressModeW: 'clamp-to-edge',
-            magFilter: options.magFilter ?? 'linear',
-            minFilter: options.minFilter ?? 'linear',
-            mipmapFilter: options.mipmapFilter ?? 'linear',
-        });
-        this.mapping = options.mapping ?? 'reflection';
-    }
-    // ─── Convenience getters/setters ───
-    get id() {
-        return this._gpuTexture.id;
-    }
-    get width() {
-        return this._gpuTexture.width;
-    }
-    get height() {
-        return this._gpuTexture.height;
-    }
-    get size() {
-        return this._gpuTexture.size;
-    }
-    /** Check if all 6 faces are present and ready */
-    get isComplete() {
-        return this._gpuTexture.isComplete;
-    }
-    /** The 6 face images as SourceData */
-    get images() {
-        return this._gpuTexture.sources.map((s) => s.data);
-    }
-    set images(value) {
-        this._gpuTexture.sources = value.map((img) => (img instanceof Source ? img : new Source(img)));
-        // Update size from first face
-        if (value.length > 0) {
-            const first = this._gpuTexture.sources[0];
-            if (first) {
-                this._gpuTexture.width = first.width || 1;
-                this._gpuTexture.height = first.height || 1;
-            }
-        }
-        this._gpuTexture.needsUpdate = true;
-    }
-    /** The 6 face Sources */
-    get imageSources() {
-        return this._gpuTexture.sources;
-    }
-    get wrapS() {
-        return this._gpuSampler.addressModeU;
-    }
-    set wrapS(v) {
-        this._gpuSampler.addressModeU = v;
-    }
-    get wrapT() {
-        return this._gpuSampler.addressModeV;
-    }
-    set wrapT(v) {
-        this._gpuSampler.addressModeV = v;
-    }
-    get magFilter() {
-        return this._gpuSampler.magFilter;
-    }
-    set magFilter(v) {
-        this._gpuSampler.magFilter = v;
-    }
-    get minFilter() {
-        return this._gpuSampler.minFilter;
-    }
-    set minFilter(v) {
-        this._gpuSampler.minFilter = v;
-    }
-    get mipmapFilter() {
-        return this._gpuSampler.mipmapFilter;
-    }
-    set mipmapFilter(v) {
-        this._gpuSampler.mipmapFilter = v;
-    }
-    get anisotropy() {
-        return this._gpuSampler.maxAnisotropy;
-    }
-    set anisotropy(v) {
-        this._gpuSampler.maxAnisotropy = v;
-    }
-    get format() {
-        return this._gpuTexture.format;
-    }
-    set format(v) {
-        this._gpuTexture.format = v;
-    }
-    get generateMipmaps() {
-        return this._gpuTexture.generateMipmaps;
-    }
-    set generateMipmaps(v) {
-        this._gpuTexture.generateMipmaps = v;
-    }
-    get flipY() {
-        return this._gpuTexture.flipY;
-    }
-    set flipY(v) {
-        this._gpuTexture.flipY = v;
-    }
-    get premultiplyAlpha() {
-        return this._gpuTexture.premultiplyAlpha;
-    }
-    set premultiplyAlpha(v) {
-        this._gpuTexture.premultiplyAlpha = v;
-    }
-    get version() {
-        return this._gpuTexture.version;
-    }
-    set needsUpdate(v) {
-        if (v)
-            this._gpuTexture.needsUpdate = true;
-    }
-    /**
-     * Queue a partial upload of one box of texels, without forcing a full re-upload. Omitted fields
-     * default to the full extent at the origin.
-     */
-    addUpdateRegion(region) {
-        this._gpuTexture.addUpdateRegion(region);
-        return this;
-    }
-    /**
-     * Queue a partial upload of a single face, optionally only a sub-rect of it. Face order is
-     * +X, -X, +Y, -Y, +Z, -Z; the index is this texture's vocabulary for the region's `z` axis, and it
-     * means the same face on both backends.
-     */
-    addUpdateFace(face, rect = {}) {
-        return this.addUpdateRegion({ ...rect, z: face, depth: 1 });
-    }
-    clone() {
-        const tex = new CubeTexture(this.images, {
-            wrapS: this.wrapS,
-            wrapT: this.wrapT,
-            magFilter: this.magFilter,
-            minFilter: this.minFilter,
-            mipmapFilter: this.mipmapFilter,
-            format: this.format,
-            generateMipmaps: this.generateMipmaps,
-            flipY: this.flipY,
-            mapping: this.mapping,
-        });
-        tex.name = this.name;
-        return tex;
-    }
-    dispose() {
-        this._gpuTexture.dispose();
-        this._gpuSampler.dispose();
-    }
-}
-/** The factory form; pass no faces (and `options.size`) for a render-only cube. */
-function createCubeTexture(faces = [], options = {}) {
-    return new CubeTexture(faces, options);
-}
-
-/**
- * A render target whose color attachment is a cube texture. Render each of the
- * six faces (a pass per face, naming it with `PassDesc.layer`; see `CubeCamera`),
- * then sample the result as an environment map via `cubeTexture(rt.texture)`.
- *
- * Usually driven by a `CubeCamera`, which sets up the six face cameras and loops
- * the faces for you.
- *
- * Extends `RenderTarget`: the inherited 2D color texture carries the face format
- * for pipeline creation, and the inherited 2D depth texture is reused across all
- * six faces. Each pass names the face and level it writes.
- */
-class CubeRenderTarget extends RenderTarget {
-    isCubeRenderTarget = true;
-    /** Face size in pixels (width = height). */
-    size;
-    /** The cube texture rendered into and sampled by materials. */
-    _texture;
-    constructor(size, opts = {}) {
-        const format = opts.colorFormat ?? 'rgba8unorm';
-        super(size, size, {
-            colorFormat: format,
-            depthBuffer: opts.depthBuffer,
-            depthFormat: opts.depthFormat,
-            // Cube faces are sampled directly as an environment map; MSAA (which would
-            // need a per-face resolve) is not supported.
-            samples: 1,
-        });
-        this.size = size;
-        this._texture = new CubeTexture([], {
-            size,
-            format,
-            wrapS: opts.wrapS,
-            wrapT: opts.wrapT,
-            magFilter: opts.magFilter,
-            minFilter: opts.minFilter,
-            mipmapFilter: opts.mipmapFilter,
-            flipY: opts.flipY,
-            generateMipmaps: opts.generateMipmaps ?? false,
-        });
-        this._texture.name = 'output';
-        this._texture._gpuTexture.renderTarget = this;
-        // Allocation must not depend on `generateMipmaps`, which `CubeCamera` flips off mid-render to
-        // regenerate once rather than per face: storage is immutable, so a chain suppressed at the
-        // first face can never be added back.
-        if (opts.generateMipmaps)
-            this._texture._gpuTexture.mipLevelCount = fullMipChainLength(size, size);
-        this.textures[0] = this._texture;
-    }
-    get texture() {
-        return this._texture;
-    }
-    /** Resize all six faces (and the shared depth). */
-    setSize(size) {
-        if (this.size === size)
-            return;
-        super.setSize(size, size);
-        this.size = size;
-    }
-}
-/** A cube render target: six square faces, drawn one pass each with `PassDesc.layer`. */
-function createCubeRenderTarget(size, opts = {}) {
-    return new CubeRenderTarget(size, opts);
-}
-
 /**
  * InspectorBase.ts, Abstract inspector interface.
  *
@@ -16142,7 +8485,7 @@ class RendererInspector extends InspectorBase {
     }
 }
 
-function clamp(value, [min, max]) {
+function clamp$1(value, [min, max]) {
     return Math.min(Math.max(value, min), max);
 }
 /**
@@ -16186,7 +8529,7 @@ class CanvasTarget {
         const dpr = opts.dpr;
         this._dprRange = dpr === undefined ? null : typeof dpr === 'number' ? [dpr, dpr] : dpr;
         if (this._dprRange !== null)
-            this._pixelRatio = clamp(this._pixelRatio, this._dprRange);
+            this._pixelRatio = clamp$1(this._pixelRatio, this._dprRange);
     }
     /**
      * Subscribe to size changes. Fires immediately with the current size, then after every change.
@@ -16222,7 +8565,7 @@ class CanvasTarget {
      * Set the pixel ratio and resize the canvas to match.
      */
     setPixelRatio(value) {
-        const next = this._dprRange === null ? value : clamp(value, this._dprRange);
+        const next = this._dprRange === null ? value : clamp$1(value, this._dprRange);
         if (this._pixelRatio === next)
             return;
         this._pixelRatio = next;
@@ -19260,6 +11603,5390 @@ function updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, d
                 break;
         }
     }
+}
+
+// ─── Node id utilities ────────────────────────────────────────────────────────
+let _nodeId = 0;
+// ─── Runtime type lookup tables ───────────────────────────────────────────────
+const VEC_ELEMENT = {
+    vec2f: 'f32',
+    vec3f: 'f32',
+    vec4f: 'f32',
+    vec2i: 'i32',
+    vec3i: 'i32',
+    vec4i: 'i32',
+    vec2u: 'u32',
+    vec3u: 'u32',
+    vec4u: 'u32',
+    vec2h: 'f16',
+    vec3h: 'f16',
+    vec4h: 'f16',
+};
+new Set(Object.keys(VEC_ELEMENT));
+// ─── Stack context ────────────────────────────────────────────────────────────
+let currentStack = null;
+function pushStack(stack) {
+    const prev = currentStack;
+    currentStack = stack;
+    return prev;
+}
+function popStack(prev) {
+    currentStack = prev;
+}
+function addToStack(node) {
+    if (currentStack === null)
+        throw new Error(`[gpucat] Control flow (toVar, If, For, Return, Discard) must be called inside a Fn body. ` +
+            `You are calling it outside of any Fn, wrap your code in Fn([...], () => { ... }).`);
+    currentStack.push(node);
+}
+// ─── Node base class ──────────────────────────────────────────────────────────
+const NodeUpdateType = {
+    NONE: 'none',
+    FRAME: 'frame',
+    RENDER: 'render',
+    OBJECT: 'object',
+};
+/**
+ * Numeric discriminant identifying a Node subclass.
+ *
+ * Used by the builder for fast, tree-shakeable dispatch: checking `node.kind`
+ * instead of `node instanceof XNode` avoids referencing the subclass constructor,
+ * so unused node types can be dropped by a bundler. Auto-incremented `enum` (not
+ * `const enum`, which is unsafe across the package boundary / under isolatedModules)
+ * for numeric-compare speed without hand-maintaining member values.
+ */
+var NodeKind;
+(function (NodeKind) {
+    // expression / core
+    NodeKind[NodeKind["Literal"] = 0] = "Literal";
+    NodeKind[NodeKind["BinaryOp"] = 1] = "BinaryOp";
+    NodeKind[NodeKind["Call"] = 2] = "Call";
+    NodeKind[NodeKind["Construct"] = 3] = "Construct";
+    NodeKind[NodeKind["Field"] = 4] = "Field";
+    NodeKind[NodeKind["Index"] = 5] = "Index";
+    NodeKind[NodeKind["Array"] = 6] = "Array";
+    NodeKind[NodeKind["Conditional"] = 7] = "Conditional";
+    NodeKind[NodeKind["Builtin"] = 8] = "Builtin";
+    NodeKind[NodeKind["ComputeIndex"] = 9] = "ComputeIndex";
+    NodeKind[NodeKind["Parameter"] = 10] = "Parameter";
+    NodeKind[NodeKind["Struct"] = 11] = "Struct";
+    // variables / statements
+    NodeKind[NodeKind["Let"] = 12] = "Let";
+    NodeKind[NodeKind["Var"] = 13] = "Var";
+    NodeKind[NodeKind["PrivateVar"] = 14] = "PrivateVar";
+    NodeKind[NodeKind["WorkgroupVar"] = 15] = "WorkgroupVar";
+    NodeKind[NodeKind["Assign"] = 16] = "Assign";
+    NodeKind[NodeKind["Return"] = 17] = "Return";
+    NodeKind[NodeKind["Break"] = 18] = "Break";
+    NodeKind[NodeKind["Continue"] = 19] = "Continue";
+    NodeKind[NodeKind["Discard"] = 20] = "Discard";
+    NodeKind[NodeKind["Loop"] = 21] = "Loop";
+    NodeKind[NodeKind["If"] = 22] = "If";
+    NodeKind[NodeKind["Stack"] = 23] = "Stack";
+    // functions
+    NodeKind[NodeKind["Fn"] = 24] = "Fn";
+    NodeKind[NodeKind["WgslFunction"] = 25] = "WgslFunction";
+    NodeKind[NodeKind["Wgsl"] = 26] = "Wgsl";
+    // IO / binding
+    NodeKind[NodeKind["Uniform"] = 27] = "Uniform";
+    NodeKind[NodeKind["Attribute"] = 28] = "Attribute";
+    NodeKind[NodeKind["Varying"] = 29] = "Varying";
+    NodeKind[NodeKind["Storage"] = 30] = "Storage";
+    NodeKind[NodeKind["OutputStruct"] = 31] = "OutputStruct";
+    NodeKind[NodeKind["MRT"] = 32] = "MRT";
+    // textures
+    NodeKind[NodeKind["TextureBinding"] = 33] = "TextureBinding";
+    NodeKind[NodeKind["StorageTextureBinding"] = 34] = "StorageTextureBinding";
+    NodeKind[NodeKind["Sampler"] = 35] = "Sampler";
+    NodeKind[NodeKind["Texture"] = 36] = "Texture";
+    NodeKind[NodeKind["CubeTexture"] = 37] = "CubeTexture";
+    NodeKind[NodeKind["DepthTexture"] = 38] = "DepthTexture";
+    NodeKind[NodeKind["ArrayTexture"] = 39] = "ArrayTexture";
+    // display
+    NodeKind[NodeKind["RenderTexture"] = 40] = "RenderTexture";
+    // misc
+    NodeKind[NodeKind["Inspector"] = 41] = "Inspector";
+    NodeKind[NodeKind["SubBuild"] = 42] = "SubBuild";
+    // base sentinel (the bare `Node` void placeholder; subclasses always override)
+    NodeKind[NodeKind["Node"] = 43] = "Node";
+})(NodeKind || (NodeKind = {}));
+class Node {
+    id;
+    type;
+    /** Numeric discriminant for fast, tree-shakeable dispatch. Subclasses override. */
+    kind = NodeKind.Node;
+    _beforeNodes = null;
+    updateType = NodeUpdateType.NONE;
+    updateBeforeType = NodeUpdateType.NONE;
+    updateAfterType = NodeUpdateType.NONE;
+    global = false;
+    parents = false;
+    isNode = true;
+    constructor(type) {
+        this.id = _nodeId++;
+        this.type = type;
+    }
+    onUpdate(callback, updateType) {
+        this.updateType = updateType;
+        this.update = callback;
+        return this;
+    }
+    onRenderUpdate(callback) {
+        return this.onUpdate(callback, NodeUpdateType.RENDER);
+    }
+    onObjectUpdate(callback) {
+        return this.onUpdate(callback, NodeUpdateType.OBJECT);
+    }
+    onFrameUpdate(callback) {
+        return this.onUpdate(callback, NodeUpdateType.FRAME);
+    }
+    onBeforeUpdate(callback, updateType) {
+        this.updateBeforeType = updateType;
+        this.updateBefore = callback;
+        return this;
+    }
+    onBeforeRender(callback) {
+        return this.onBeforeUpdate(callback, NodeUpdateType.RENDER);
+    }
+    onBeforeObject(callback) {
+        return this.onBeforeUpdate(callback, NodeUpdateType.OBJECT);
+    }
+    onBeforeFrame(callback) {
+        return this.onBeforeUpdate(callback, NodeUpdateType.FRAME);
+    }
+    onAfterUpdate(callback, updateType) {
+        this.updateAfterType = updateType;
+        this.updateAfter = callback;
+        return this;
+    }
+    onAfterRender(callback) {
+        return this.onAfterUpdate(callback, NodeUpdateType.RENDER);
+    }
+    onAfterObject(callback) {
+        return this.onAfterUpdate(callback, NodeUpdateType.OBJECT);
+    }
+    onAfterFrame(callback) {
+        return this.onAfterUpdate(callback, NodeUpdateType.FRAME);
+    }
+    before(node) {
+        if (this._beforeNodes === null)
+            this._beforeNodes = [];
+        this._beforeNodes.push(node);
+        return this;
+    }
+    // ── Type conversions ──────────────────────────────────────────────────────
+    // Length-preserving: converting a vecN keeps N (a vec3i → vec3f via `vec3f(...)`), so we never emit
+    // the illegal scalar cast `f32(vec3i)`. Scalars convert with the scalar constructor as before.
+    toF32() {
+        const t = numericDescOf(this.type, 'f32');
+        return new CallNode(t, t.wgslType, [this]);
+    }
+    toF16() {
+        const t = numericDescOf(this.type, 'f16');
+        return new CallNode(t, t.wgslType, [this]);
+    }
+    toU32() {
+        const t = numericDescOf(this.type, 'u32');
+        return new CallNode(t, t.wgslType, [this]);
+    }
+    toI32() {
+        const t = numericDescOf(this.type, 'i32');
+        return new CallNode(t, t.wgslType, [this]);
+    }
+    // ── Field access ──────────────────────────────────────────────────────────
+    field(name) {
+        return field(this, name);
+    }
+    fields() {
+        return fields(this);
+    }
+    // ── Comparisons ───────────────────────────────────────────────────────────
+    greaterThan(b) {
+        return greaterThan(this, b);
+    }
+    lessThan(b) {
+        return lessThan(this, b);
+    }
+    greaterThanEqual(b) {
+        return greaterThanEqual(this, b);
+    }
+    lessThanEqual(b) {
+        return lessThanEqual(this, b);
+    }
+    equal(b) {
+        return equal(this, b);
+    }
+    notEqual(b) {
+        return notEqual(this, b);
+    }
+    /** `select(falseVal, trueVal, this)`, use `this` node as the condition. */
+    select(ifTrue, ifFalse) {
+        return new ConditionalNode(this, ifTrue, ifFalse);
+    }
+    any() {
+        return any(this);
+    }
+    all() {
+        return all(this);
+    }
+    // ── Math ──────────────────────────────────────────────────────────────────
+    add(b) {
+        return add$1(this, b);
+    }
+    sub(b) {
+        return sub(this, b);
+    }
+    div(b) {
+        return div(this, b);
+    }
+    mul(b) {
+        return mul(this, b);
+    }
+    abs() {
+        return abs(this);
+    }
+    floor() {
+        return floor(this);
+    }
+    ceil() {
+        return ceil(this);
+    }
+    fract() {
+        return fract(this);
+    }
+    sqrt() {
+        return sqrt(this);
+    }
+    sin() {
+        return sin(this);
+    }
+    cos() {
+        return cos(this);
+    }
+    negate() {
+        return negate(this);
+    }
+    normalize() {
+        return normalize$1(this);
+    }
+    length() {
+        return length(this);
+    }
+    dot(b) {
+        return dot(this, b);
+    }
+    cross(b) {
+        return cross(this, b);
+    }
+    pow(b) {
+        return pow(this, b);
+    }
+    max(b) {
+        return max(this, b);
+    }
+    min(b) {
+        return min(this, b);
+    }
+    clamp(lo, hi) {
+        return clamp(this, lo, hi);
+    }
+    mix(b, t) {
+        return mix(this, b, t);
+    }
+    step(x) {
+        return step(this, x);
+    }
+    smoothstep(hi, x) {
+        return smoothstep(this, hi, x);
+    }
+    dpdx() {
+        return dpdx(this);
+    }
+    dpdy() {
+        return dpdy(this);
+    }
+    fwidth() {
+        return fwidth(this);
+    }
+    dpdxCoarse() {
+        return dpdxCoarse(this);
+    }
+    dpdyCoarse() {
+        return dpdyCoarse(this);
+    }
+    fwidthCoarse() {
+        return fwidthCoarse(this);
+    }
+    dpdxFine() {
+        return dpdxFine(this);
+    }
+    dpdyFine() {
+        return dpdyFine(this);
+    }
+    fwidthFine() {
+        return fwidthFine(this);
+    }
+    // ── Element access ────────────────────────────────────────────────────────
+    element(idx) {
+        const t = this.type;
+        if (t.type === 'array' || t.type === 'sized-array') {
+            return new IndexNode(t.element, this, idx);
+        }
+        if (isMatDesc(t)) {
+            return new IndexNode(matColumnDesc(t), this, idx);
+        }
+        if (isVecDesc(t)) {
+            return new IndexNode(vecElementDescOrSelf(t), this, idx);
+        }
+        throw new Error(`[gpucat] Cannot index into type '${t.wgslType}', only array, matrix, and vector types support .element().`);
+    }
+    // ── Lang ──────────────────────────────────────────────────────────────────
+    assign(value) {
+        addToStack(new AssignNode(this, value));
+    }
+    toVar(label) {
+        return makeVar(this, label);
+    }
+    toConst(label) {
+        return makeLet(this, label);
+    }
+    addAssign(v) {
+        addToStack(new AssignNode(this, add$1(this, v)));
+    }
+    subAssign(v) {
+        addToStack(new AssignNode(this, sub(this, v)));
+    }
+    mulAssign(v) {
+        addToStack(new AssignNode(this, mul(this, v)));
+    }
+    divAssign(v) {
+        addToStack(new AssignNode(this, div(this, v)));
+    }
+    sign() {
+        return sign(this);
+    }
+    mod(b) {
+        return mod(this, b);
+    }
+    oneMinus() {
+        return sub(f32(1), this);
+    }
+    or(b) {
+        return or(this, b);
+    }
+    and(b) {
+        return and(this, b);
+    }
+    not() {
+        return not(this);
+    }
+    bitwiseAnd(b) {
+        return bitwiseAnd(this, b);
+    }
+    bitwiseOr(b) {
+        return bitwiseOr(this, b);
+    }
+    bitwiseXor(b) {
+        return bitwiseXor(this, b);
+    }
+    shiftLeft(b) {
+        return shiftLeft(this, b);
+    }
+    shiftRight(b) {
+        return shiftRight(this, b);
+    }
+    transpose() {
+        return new CallNode(this.type, 'transpose', [this]);
+    }
+    // ── Swizzles ──────────────────────────────────────────────────────────────
+    get x() {
+        return new FieldNode(vecElementDescOrSelf(this.type), this, 'x');
+    }
+    get y() {
+        return new FieldNode(vecElementDescOrSelf(this.type), this, 'y');
+    }
+    get z() {
+        return new FieldNode(vecElementDescOrSelf(this.type), this, 'z');
+    }
+    get w() {
+        return new FieldNode(vecElementDescOrSelf(this.type), this, 'w');
+    }
+    get r() {
+        return new FieldNode(vecElementDescOrSelf(this.type), this, 'x');
+    }
+    get g() {
+        return new FieldNode(vecElementDescOrSelf(this.type), this, 'y');
+    }
+    get b() {
+        return new FieldNode(vecElementDescOrSelf(this.type), this, 'z');
+    }
+    get a() {
+        return new FieldNode(vecElementDescOrSelf(this.type), this, 'w');
+    }
+    get xx() {
+        return new FieldNode(vec2DescOf(this.type), this, 'xx');
+    }
+    get xy() {
+        return new FieldNode(vec2DescOf(this.type), this, 'xy');
+    }
+    get xz() {
+        return new FieldNode(vec2DescOf(this.type), this, 'xz');
+    }
+    get xw() {
+        return new FieldNode(vec2DescOf(this.type), this, 'xw');
+    }
+    get yx() {
+        return new FieldNode(vec2DescOf(this.type), this, 'yx');
+    }
+    get yy() {
+        return new FieldNode(vec2DescOf(this.type), this, 'yy');
+    }
+    get yz() {
+        return new FieldNode(vec2DescOf(this.type), this, 'yz');
+    }
+    get yw() {
+        return new FieldNode(vec2DescOf(this.type), this, 'yw');
+    }
+    get zx() {
+        return new FieldNode(vec2DescOf(this.type), this, 'zx');
+    }
+    get zy() {
+        return new FieldNode(vec2DescOf(this.type), this, 'zy');
+    }
+    get zz() {
+        return new FieldNode(vec2DescOf(this.type), this, 'zz');
+    }
+    get zw() {
+        return new FieldNode(vec2DescOf(this.type), this, 'zw');
+    }
+    get wx() {
+        return new FieldNode(vec2DescOf(this.type), this, 'wx');
+    }
+    get wy() {
+        return new FieldNode(vec2DescOf(this.type), this, 'wy');
+    }
+    get wz() {
+        return new FieldNode(vec2DescOf(this.type), this, 'wz');
+    }
+    get ww() {
+        return new FieldNode(vec2DescOf(this.type), this, 'ww');
+    }
+    get rr() {
+        return new FieldNode(vec2DescOf(this.type), this, 'xx');
+    }
+    get rg() {
+        return new FieldNode(vec2DescOf(this.type), this, 'xy');
+    }
+    get rb() {
+        return new FieldNode(vec2DescOf(this.type), this, 'xz');
+    }
+    get ra() {
+        return new FieldNode(vec2DescOf(this.type), this, 'xw');
+    }
+    get gr() {
+        return new FieldNode(vec2DescOf(this.type), this, 'yx');
+    }
+    get gg() {
+        return new FieldNode(vec2DescOf(this.type), this, 'yy');
+    }
+    get gb() {
+        return new FieldNode(vec2DescOf(this.type), this, 'yz');
+    }
+    get ga() {
+        return new FieldNode(vec2DescOf(this.type), this, 'yw');
+    }
+    get br() {
+        return new FieldNode(vec2DescOf(this.type), this, 'zx');
+    }
+    get bg() {
+        return new FieldNode(vec2DescOf(this.type), this, 'zy');
+    }
+    get bb() {
+        return new FieldNode(vec2DescOf(this.type), this, 'zz');
+    }
+    get ba() {
+        return new FieldNode(vec2DescOf(this.type), this, 'zw');
+    }
+    get ar() {
+        return new FieldNode(vec2DescOf(this.type), this, 'wx');
+    }
+    get ag() {
+        return new FieldNode(vec2DescOf(this.type), this, 'wy');
+    }
+    get ab() {
+        return new FieldNode(vec2DescOf(this.type), this, 'wz');
+    }
+    get aa() {
+        return new FieldNode(vec2DescOf(this.type), this, 'ww');
+    }
+    get xxx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xxx');
+    }
+    get xxy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xxy');
+    }
+    get xxz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xxz');
+    }
+    get xxw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xxw');
+    }
+    get xyx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xyx');
+    }
+    get xyy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xyy');
+    }
+    get xyz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xyz');
+    }
+    get xyw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xyw');
+    }
+    get xzx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xzx');
+    }
+    get xzy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xzy');
+    }
+    get xzz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xzz');
+    }
+    get xzw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xzw');
+    }
+    get xwx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xwx');
+    }
+    get xwy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xwy');
+    }
+    get xwz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xwz');
+    }
+    get xww() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xww');
+    }
+    get yxx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yxx');
+    }
+    get yxy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yxy');
+    }
+    get yxz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yxz');
+    }
+    get yxw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yxw');
+    }
+    get yyx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yyx');
+    }
+    get yyy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yyy');
+    }
+    get yyz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yyz');
+    }
+    get yyw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yyw');
+    }
+    get yzx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yzx');
+    }
+    get yzy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yzy');
+    }
+    get yzz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yzz');
+    }
+    get yzw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yzw');
+    }
+    get ywx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'ywx');
+    }
+    get ywy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'ywy');
+    }
+    get ywz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'ywz');
+    }
+    get yww() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yww');
+    }
+    get zxx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zxx');
+    }
+    get zxy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zxy');
+    }
+    get zxz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zxz');
+    }
+    get zxw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zxw');
+    }
+    get zyx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zyx');
+    }
+    get zyy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zyy');
+    }
+    get zyz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zyz');
+    }
+    get zyw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zyw');
+    }
+    get zzx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zzx');
+    }
+    get zzy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zzy');
+    }
+    get zzz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zzz');
+    }
+    get zzw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zzw');
+    }
+    get zwx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zwx');
+    }
+    get zwy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zwy');
+    }
+    get zwz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zwz');
+    }
+    get zww() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zww');
+    }
+    get wxx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wxx');
+    }
+    get wxy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wxy');
+    }
+    get wxz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wxz');
+    }
+    get wxw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wxw');
+    }
+    get wyx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wyx');
+    }
+    get wyy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wyy');
+    }
+    get wyz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wyz');
+    }
+    get wyw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wyw');
+    }
+    get wzx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wzx');
+    }
+    get wzy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wzy');
+    }
+    get wzz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wzz');
+    }
+    get wzw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wzw');
+    }
+    get wwx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wwx');
+    }
+    get wwy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wwy');
+    }
+    get wwz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wwz');
+    }
+    get www() {
+        return new FieldNode(vec3DescOf(this.type), this, 'www');
+    }
+    get rrr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xxx');
+    }
+    get rrg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xxy');
+    }
+    get rrb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xxz');
+    }
+    get rra() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xxw');
+    }
+    get rgr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xyx');
+    }
+    get rgg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xyy');
+    }
+    get rgb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xyz');
+    }
+    get rga() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xyw');
+    }
+    get rbr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xzx');
+    }
+    get rbg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xzy');
+    }
+    get rbb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xzz');
+    }
+    get rba() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xzw');
+    }
+    get rar() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xwx');
+    }
+    get rag() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xwy');
+    }
+    get rab() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xwz');
+    }
+    get raa() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xww');
+    }
+    get grr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yxx');
+    }
+    get grg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yxy');
+    }
+    get grb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yxz');
+    }
+    get gra() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yxw');
+    }
+    get ggr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yyx');
+    }
+    get ggg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yyy');
+    }
+    get ggb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yyz');
+    }
+    get gga() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yyw');
+    }
+    get gbr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yzx');
+    }
+    get gbg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yzy');
+    }
+    get gbb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yzz');
+    }
+    get gba() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yzw');
+    }
+    get gar() {
+        return new FieldNode(vec3DescOf(this.type), this, 'ywx');
+    }
+    get gag() {
+        return new FieldNode(vec3DescOf(this.type), this, 'ywy');
+    }
+    get gab() {
+        return new FieldNode(vec3DescOf(this.type), this, 'ywz');
+    }
+    get gaa() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yww');
+    }
+    get brr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zxx');
+    }
+    get brg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zxy');
+    }
+    get brb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zxz');
+    }
+    get bra() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zxw');
+    }
+    get bgr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zyx');
+    }
+    get bgg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zyy');
+    }
+    get bgb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zyz');
+    }
+    get bga() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zyw');
+    }
+    get bbr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zzx');
+    }
+    get bbg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zzy');
+    }
+    get bbb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zzz');
+    }
+    get bba() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zzw');
+    }
+    get bar() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zwx');
+    }
+    get bag() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zwy');
+    }
+    get bab() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zwz');
+    }
+    get baa() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zww');
+    }
+    get arr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wxx');
+    }
+    get arg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wxy');
+    }
+    get arb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wxz');
+    }
+    get ara() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wxw');
+    }
+    get agr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wyx');
+    }
+    get agg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wyy');
+    }
+    get agb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wyz');
+    }
+    get aga() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wyw');
+    }
+    get abr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wzx');
+    }
+    get abg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wzy');
+    }
+    get abb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wzz');
+    }
+    get aba() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wzw');
+    }
+    get aar() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wwx');
+    }
+    get aag() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wwy');
+    }
+    get aab() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wwz');
+    }
+    get aaa() {
+        return new FieldNode(vec3DescOf(this.type), this, 'www');
+    }
+    get xyzw() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xyzw');
+    }
+    get xywz() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xywz');
+    }
+    get xzyw() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xzyw');
+    }
+    get xzwy() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xzwy');
+    }
+    get xwyz() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xwyz');
+    }
+    get xwzy() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xwzy');
+    }
+    get yxzw() {
+        return new FieldNode(vec4DescOf(this.type), this, 'yxzw');
+    }
+    get yxwz() {
+        return new FieldNode(vec4DescOf(this.type), this, 'yxwz');
+    }
+    get yzxw() {
+        return new FieldNode(vec4DescOf(this.type), this, 'yzxw');
+    }
+    get yzwx() {
+        return new FieldNode(vec4DescOf(this.type), this, 'yzwx');
+    }
+    get ywxz() {
+        return new FieldNode(vec4DescOf(this.type), this, 'ywxz');
+    }
+    get ywzx() {
+        return new FieldNode(vec4DescOf(this.type), this, 'ywzx');
+    }
+    get zxyw() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zxyw');
+    }
+    get zxwy() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zxwy');
+    }
+    get zyxw() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zyxw');
+    }
+    get zywx() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zywx');
+    }
+    get zwxy() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zwxy');
+    }
+    get zwyx() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zwyx');
+    }
+    get wxyz() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wxyz');
+    }
+    get wxzy() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wxzy');
+    }
+    get wyxz() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wyxz');
+    }
+    get wyzx() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wyzx');
+    }
+    get wzxy() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wzxy');
+    }
+    get wzyx() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wzyx');
+    }
+    get rgba() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xyzw');
+    }
+    get rgab() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xywz');
+    }
+    get rbga() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xzyw');
+    }
+    get rbag() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xzwy');
+    }
+    get ragb() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xwyz');
+    }
+    get rabg() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xwzy');
+    }
+    get grba() {
+        return new FieldNode(vec4DescOf(this.type), this, 'yxzw');
+    }
+    get grab() {
+        return new FieldNode(vec4DescOf(this.type), this, 'yxwz');
+    }
+    get gbra() {
+        return new FieldNode(vec4DescOf(this.type), this, 'yzxw');
+    }
+    get gbar() {
+        return new FieldNode(vec4DescOf(this.type), this, 'yzwx');
+    }
+    get garb() {
+        return new FieldNode(vec4DescOf(this.type), this, 'ywxz');
+    }
+    get gabr() {
+        return new FieldNode(vec4DescOf(this.type), this, 'ywzx');
+    }
+    get brga() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zxyw');
+    }
+    get brag() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zxwy');
+    }
+    get bgra() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zyxw');
+    }
+    get bgar() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zywx');
+    }
+    get barg() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zwxy');
+    }
+    get bagr() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zwyx');
+    }
+    get argb() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wxyz');
+    }
+    get arbg() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wxzy');
+    }
+    get agrb() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wyxz');
+    }
+    get agbr() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wyzx');
+    }
+    get abrg() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wzxy');
+    }
+    get abgr() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wzyx');
+    }
+    // ── Inspector ─────────────────────────────────────────────────────────────
+    inspect(name) {
+        const inspector = new InspectorNode(this, name);
+        this.before(inspector);
+        return this;
+    }
+}
+function isNode(v) {
+    return v instanceof Node;
+}
+/**
+ * Creates an empty lifecycle node.
+ * Useful for attaching update callbacks via .onFrameUpdate(), .onRenderUpdate(), etc.
+ * Attach to other nodes via .before() to ensure the lifecycle runs.
+ *
+ * @example
+ * const updater = node().onFrameUpdate(() => {
+ *     myUniform.value = computeValue();
+ * });
+ * return myOutputNode.before(updater);
+ */
+function node() {
+    return new Node(Void);
+}
+// ─── InspectorNode ────────────────────────────────────────────────────────────
+/**
+ * InspectorNode wraps a node and registers it with the inspector every frame.
+ *
+ * Instead of flagging nodes with _isInspectable and manually iterating in the renderer,
+ * InspectorNode leverages the existing node update system (updateType = FRAME) to
+ * automatically call inspector.inspect() every frame.
+ *
+ * Key properties:
+ * - `wrappedNode`: The original node being inspected
+ * - `inspectorName`: Display name for the inspector UI
+ * - `updateType = FRAME`: Ensures update() is called once per frame
+ *
+ * Usage:
+ *   const albedo = texture('texture_2d<f32>', 'albedo').inspect('Albedo');
+ *
+ * The .inspect() method on Node creates an InspectorNode wrapper and attaches it
+ * via node.before(), so it gets built and updated alongside the original node.
+ */
+class InspectorNode extends Node {
+    kind = NodeKind.Inspector;
+    /** The original node being inspected. */
+    wrappedNode;
+    /** Display name for the inspector UI. */
+    inspectorName;
+    constructor(node, name) {
+        super(node.type);
+        this.wrappedNode = node;
+        this.inspectorName = name ?? String(node.id);
+        // Key: use the FRAME update type so update() is called every frame
+        this.updateType = NodeUpdateType.FRAME;
+    }
+    /**
+     * Called by the node update system every frame.
+     * Registers this node with the renderer's inspector.
+     */
+    update = (frame) => {
+        const inspector = frame.renderer.inspector;
+        if (inspector)
+            inspector.inspect(this);
+    };
+    /**
+     * Returns the display name for the inspector.
+     */
+    getName() {
+        return this.inspectorName;
+    }
+}
+// ─── Expr nodes ───────────────────────────────────────────────────────────────
+class LiteralNode extends Node {
+    value;
+    kind = NodeKind.Literal;
+    constructor(type, value) {
+        super(type);
+        this.value = value;
+    }
+}
+class LetNode extends Node {
+    varName;
+    init;
+    kind = NodeKind.Let;
+    constructor(type, varName, init) {
+        super(type);
+        this.varName = varName;
+        this.init = init;
+    }
+}
+class VarNode extends Node {
+    varName;
+    init;
+    kind = NodeKind.Var;
+    constructor(type, varName, init) {
+        super(type);
+        this.varName = varName;
+        this.init = init;
+    }
+}
+// ─── Module-scope variables ───────────────────────────────────────────────────
+/**
+ * Module-scope private variable: `var<private> name: T [= init];`
+ *
+ * Private variables are per-invocation storage at module scope.
+ * Unlike function-scope variables, they persist across function calls
+ * within the same shader invocation.
+ *
+ * @example
+ * const counter = PrivateVar('counter', d.u32);
+ * // → var<private> counter: u32;
+ *
+ * const gravity = PrivateVar('gravity', vec3f(0, -9.8, 0));
+ * // → var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);
+ */
+class PrivateVarNode extends Node {
+    varName;
+    init;
+    kind = NodeKind.PrivateVar;
+    constructor(type, varName, init) {
+        super(type);
+        this.varName = varName;
+        this.init = init;
+    }
+}
+/**
+ * Module-scope workgroup variable: `var<workgroup> name: T;`
+ *
+ * Workgroup variables are shared across all invocations in a workgroup.
+ * Only valid in compute shaders. Cannot have an initializer.
+ *
+ * @example
+ * const shared = WorkgroupVar('sharedData', d.array(d.f32, 256));
+ * // → var<workgroup> sharedData: array<f32, 256>;
+ */
+class WorkgroupVarNode extends Node {
+    varName;
+    kind = NodeKind.WorkgroupVar;
+    constructor(type, varName) {
+        super(type);
+        this.varName = varName;
+    }
+}
+class AssignNode extends Node {
+    target;
+    value;
+    kind = NodeKind.Assign;
+    constructor(target, value) {
+        super(Void);
+        this.target = target;
+        this.value = value;
+    }
+}
+class BinaryOpNode extends Node {
+    op;
+    left;
+    right;
+    kind = NodeKind.BinaryOp;
+    constructor(op, type, left, right) {
+        super(type);
+        this.op = op;
+        this.left = left;
+        this.right = right;
+    }
+}
+class CallNode extends Node {
+    fn;
+    args;
+    kind = NodeKind.Call;
+    fnNode; // eslint-disable-line @typescript-eslint/no-explicit-any
+    wgslFnNode;
+    constructor(type, fn, args, fnNode, wgslFnNode) {
+        super(type);
+        this.fn = fn;
+        this.args = args;
+        this.fnNode = fnNode;
+        this.wgslFnNode = wgslFnNode;
+    }
+}
+class ConstructNode extends Node {
+    args;
+    kind = NodeKind.Construct;
+    constructor(type, args) {
+        super(type);
+        this.args = args;
+    }
+}
+class FieldNode extends Node {
+    object;
+    fieldName;
+    kind = NodeKind.Field;
+    constructor(type, object, fieldName) {
+        super(type);
+        this.object = object;
+        this.fieldName = fieldName;
+    }
+}
+/**
+ * Represents an inline fixed-size array expression in WGSL.
+ *
+ * Use `array([e0, e1, e2])` to construct, then `.element(idx)` to index into it.
+ * This corresponds to WGSL's array value constructor expression.
+ */
+class ArrayNode extends Node {
+    kind = NodeKind.Array;
+    elements;
+    constructor(elementType, elements) {
+        const sizedArrayDesc = {
+            type: 'sized-array',
+            wgslType: `array<${elementType.wgslType}, ${elements.length}>`,
+            element: elementType,
+            length: elements.length,
+        };
+        super(sizedArrayDesc);
+        this.elements = elements;
+    }
+}
+class IndexNode extends Node {
+    array;
+    index;
+    kind = NodeKind.Index;
+    constructor(type, array, index) {
+        super(type);
+        this.array = array;
+        this.index = index;
+    }
+}
+// ── Standalone expr functions ─────────────────────────────────────────────────
+/** Type-safe field access for structs - infers the field type from the struct descriptor */
+const field = (node, name) => {
+    const structDesc = node.type;
+    const fieldType = structDesc.fields[name];
+    return new FieldNode(fieldType, node, name);
+};
+const index = (array, idx) => {
+    const t = array.type;
+    let elementDesc;
+    if (t.type === 'array' || t.type === 'sized-array') {
+        elementDesc = t.element;
+    }
+    else if (isMatDesc(t)) {
+        elementDesc = matColumnDesc(t);
+    }
+    else if (isVecDesc(t)) {
+        elementDesc = vecElementDescOrSelf(t);
+    }
+    else {
+        throw new Error(`[gpucat] Cannot index into type '${t.wgslType}', only array, matrix, and vector types support indexing.`);
+    }
+    return new IndexNode(elementDesc, array, idx);
+};
+function fields(node) {
+    const desc = node.type;
+    if (!desc || typeof desc !== 'object' || !('fields' in desc)) {
+        throw new Error('[gpucat] fields() requires a struct-typed node');
+    }
+    const structFields = desc.fields;
+    const result = { $node: node };
+    for (const [fieldName, fieldDesc] of Object.entries(structFields)) {
+        result[fieldName] = new FieldNode(fieldDesc, node, fieldName);
+    }
+    return result;
+}
+/** Reinterpret a u32 or i32 bit pattern as f32. WGSL: `bitcast<f32>(x)`. */
+const bitcastF32 = (node) => new CallNode(f32$1, 'bitcast<f32>', [node]);
+/** Reinterpret an f32 or i32 bit pattern as u32. WGSL: `bitcast<u32>(x)`. */
+const bitcastU32 = (node) => new CallNode(u32$1, 'bitcast<u32>', [node]);
+/** Reinterpret an f32 or u32 bit pattern as i32. WGSL: `bitcast<i32>(x)`. */
+const bitcastI32 = (node) => new CallNode(i32$1, 'bitcast<i32>', [node]);
+const greaterThan = (a, b) => new BinaryOpNode('>', compareResultDesc(a.type), a, b);
+const lessThan = (a, b) => new BinaryOpNode('<', compareResultDesc(a.type), a, b);
+const greaterThanEqual = (a, b) => new BinaryOpNode('>=', compareResultDesc(a.type), a, b);
+const lessThanEqual = (a, b) => new BinaryOpNode('<=', compareResultDesc(a.type), a, b);
+const equal = (a, b) => new BinaryOpNode('==', compareResultDesc(a.type), a, b);
+const notEqual = (a, b) => new BinaryOpNode('!=', compareResultDesc(a.type), a, b);
+const any = (a) => new CallNode(bool$1, 'any', [a]);
+const all = (a) => new CallNode(bool$1, 'all', [a]);
+/**
+ * Create an inline fixed-size array of nodes, emitted as `array<E, N>(e0, e1, ..., eN-1)`.
+ * All elements must share the same WGSL type.
+ * Use `.element(idx)` to index into the result.
+ *
+ * @example
+ * const weights = array([w0, w1, w2]);
+ * const w = weights.element(gx);
+ */
+function array(elements) {
+    return new ArrayNode(elements[0].type, elements);
+}
+function f32(v = 0) {
+    if (isNode(v))
+        return new CallNode(f32$1, 'f32', [v]);
+    return new LiteralNode(f32$1, v);
+}
+function f16(v = 0) {
+    if (isNode(v))
+        return new CallNode(f16$1, 'f16', [v]);
+    return new LiteralNode(f16$1, v);
+}
+function i32(v = 0) {
+    if (isNode(v))
+        return new CallNode(i32$1, 'i32', [v]);
+    return new LiteralNode(i32$1, Math.trunc(v));
+}
+function u32(v = 0) {
+    if (isNode(v))
+        return new CallNode(u32$1, 'u32', [v]);
+    return new LiteralNode(u32$1, Math.trunc(v));
+}
+const bool = (v) => new LiteralNode(bool$1, v ? 1 : 0);
+function wrapScalar(v, elemType) {
+    if (isNode(v))
+        return v;
+    if (elemType === 'bool')
+        return new LiteralNode(bool$1, v ? 1 : 0);
+    if (elemType === 'i32')
+        return new LiteralNode(i32$1, Math.trunc(v));
+    if (elemType === 'u32')
+        return new LiteralNode(u32$1, Math.trunc(v));
+    if (elemType === 'f16')
+        return new LiteralNode(f16$1, v);
+    return new LiteralNode(f32$1, v);
+}
+function elemOf(type) {
+    if (type.endsWith('h'))
+        return 'f16';
+    if (type.endsWith('f'))
+        return 'f32';
+    if (type.endsWith('i'))
+        return 'i32';
+    if (type.endsWith('u'))
+        return 'u32';
+    return 'bool';
+}
+function makeVec2(desc) {
+    const e = elemOf(desc.wgslType);
+    function ctor(a, b) {
+        if (b === undefined)
+            return new ConstructNode(desc, [wrapScalar(a, e)]);
+        return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e)]);
+    }
+    return ctor;
+}
+function makeVec3(desc) {
+    const e = elemOf(desc.wgslType);
+    function ctor(a, b, c) {
+        if (b === undefined)
+            return new ConstructNode(desc, [wrapScalar(a, e)]);
+        if (c === undefined)
+            return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e)]);
+        return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e)]);
+    }
+    return ctor;
+}
+function makeVec4(desc) {
+    const e = elemOf(desc.wgslType);
+    function ctor(a, b, c, dVal) {
+        if (b === undefined)
+            return new ConstructNode(desc, [wrapScalar(a, e)]);
+        if (c === undefined)
+            return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e)]);
+        if (dVal === undefined)
+            return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e)]);
+        return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e), wrapScalar(dVal, e)]);
+    }
+    return ctor;
+}
+const vec2 = makeVec2(vec2f$1);
+const vec3 = makeVec3(vec3f$1);
+const vec4 = makeVec4(vec4f$1);
+const vec2f = makeVec2(vec2f$1);
+const vec3f = makeVec3(vec3f$1);
+const vec4f = makeVec4(vec4f$1);
+const vec2i = makeVec2(vec2i$1);
+const vec3i = makeVec3(vec3i$1);
+const vec4i = makeVec4(vec4i$1);
+const vec2u = makeVec2(vec2u$1);
+const vec3u = makeVec3(vec3u$1);
+const vec4u = makeVec4(vec4u$1);
+const vec2h = makeVec2(vec2h$1);
+const vec3h = makeVec3(vec3h$1);
+const vec4h = makeVec4(vec4h$1);
+const vec2b = makeVec2(vec2bool);
+const vec3b = makeVec3(vec3bool);
+const vec4b = makeVec4(vec4bool);
+const mat2x2f = (...v) => new LiteralNode(mat2x2f$1, v.length ? v : []);
+const mat2x3f = (...v) => new LiteralNode(mat2x3f$1, v.length ? v : []);
+const mat2x4f = (...v) => new LiteralNode(mat2x4f$1, v.length ? v : []);
+const mat3x2f = (...v) => new LiteralNode(mat3x2f$1, v.length ? v : []);
+const mat3x3f = (...v) => new LiteralNode(mat3x3f$1, v.length ? v : []);
+const mat3x4f = (...v) => new LiteralNode(mat3x4f$1, v.length ? v : []);
+const mat4x2f = (...v) => new LiteralNode(mat4x2f$1, v.length ? v : []);
+const mat4x3f = (...v) => new LiteralNode(mat4x3f$1, v.length ? v : []);
+const mat4x4f = (...v) => new LiteralNode(mat4x4f$1, v.length ? v : []);
+const mat2x2h = (...v) => new LiteralNode(mat2x2h$1, v.length ? v : []);
+const mat2x3h = (...v) => new LiteralNode(mat2x3h$1, v.length ? v : []);
+const mat2x4h = (...v) => new LiteralNode(mat2x4h$1, v.length ? v : []);
+const mat3x2h = (...v) => new LiteralNode(mat3x2h$1, v.length ? v : []);
+const mat3x3h = (...v) => new LiteralNode(mat3x3h$1, v.length ? v : []);
+const mat3x4h = (...v) => new LiteralNode(mat3x4h$1, v.length ? v : []);
+const mat4x2h = (...v) => new LiteralNode(mat4x2h$1, v.length ? v : []);
+const mat4x3h = (...v) => new LiteralNode(mat4x3h$1, v.length ? v : []);
+const mat4x4h = (...v) => new LiteralNode(mat4x4h$1, v.length ? v : []);
+const mat4 = (c0, c1, c2, c3) => new ConstructNode(mat4x4f$1, [c0, c1, c2, c3]);
+function mat3(c0, c1, c2, s10, s11, s12, s20, s21, s22) {
+    // 9-scalar overload: mat3x3f(s00..s22), column-major scalars
+    if (s10 !== undefined) {
+        return new ConstructNode(mat3x3f$1, [c0, c1, c2, s10, s11, s12, s20, s21, s22]);
+    }
+    // 3-column overload
+    if (c1 !== undefined && c2 !== undefined) {
+        return new ConstructNode(mat3x3f$1, [c0, c1, c2]);
+    }
+    // scalar diagonal: expand to 9 scalars (WGSL has no single-scalar matrix constructor)
+    const z = new LiteralNode(f32$1, 0);
+    return new ConstructNode(mat3x3f$1, [c0, z, z, z, c0, z, z, z, c0]);
+}
+// ── Standalone math functions ─────────────────────────────────────────────────
+const add$1 = (a, b) => new BinaryOpNode('+', arithResultDesc(a.type, b.type), a, b);
+const sub = (a, b) => new BinaryOpNode('-', arithResultDesc(a.type, b.type), a, b);
+const div = (a, b) => new BinaryOpNode('/', arithResultDesc(a.type, b.type), a, b);
+const mul = (a, b) => new BinaryOpNode('*', mulResultDesc(a.type, b.type), a, b);
+const dot = (a, b) => new CallNode(f32$1, 'dot', [a, b]);
+const cross = (a, b) => new CallNode(a.type, 'cross', [a, b]);
+const normalize$1 = (a) => new CallNode(a.type, 'normalize', [a]);
+const length = (a) => new CallNode(f32$1, 'length', [a]);
+/** Pack two f32s as halves into a u32. Lower 16 bits = v.x, upper = v.y. WGSL: `pack2x16float`. */
+const pack2x16float = (v) => new CallNode(u32$1, 'pack2x16float', [v]);
+/** Unpack a u32 into two f32s from half-precision. WGSL: `unpack2x16float`. */
+const unpack2x16float = (v) => new CallNode(vec2f$1, 'unpack2x16float', [v]);
+/** Pack two f32s in [-1, 1] into a u32 as 16-bit snorm. WGSL: `pack2x16snorm`. */
+const pack2x16snorm = (v) => new CallNode(u32$1, 'pack2x16snorm', [v]);
+/** Unpack a u32 into two f32s as 16-bit snorm. WGSL: `unpack2x16snorm`. */
+const unpack2x16snorm = (v) => new CallNode(vec2f$1, 'unpack2x16snorm', [v]);
+/** Pack two f32s in [0, 1] into a u32 as 16-bit unorm. WGSL: `pack2x16unorm`. */
+const pack2x16unorm = (v) => new CallNode(u32$1, 'pack2x16unorm', [v]);
+/** Unpack a u32 into two f32s as 16-bit unorm. WGSL: `unpack2x16unorm`. */
+const unpack2x16unorm = (v) => new CallNode(vec2f$1, 'unpack2x16unorm', [v]);
+/** Pack four f32s in [-1, 1] into a u32 as 8-bit snorm. WGSL: `pack4x8snorm`. */
+const pack4x8snorm = (v) => new CallNode(u32$1, 'pack4x8snorm', [v]);
+/** Unpack a u32 into four f32s as 8-bit snorm. WGSL: `unpack4x8snorm`. */
+const unpack4x8snorm = (v) => new CallNode(vec4f$1, 'unpack4x8snorm', [v]);
+/** Pack four f32s in [0, 1] into a u32 as 8-bit unorm. WGSL: `pack4x8unorm`. */
+const pack4x8unorm = (v) => new CallNode(u32$1, 'pack4x8unorm', [v]);
+/** Unpack a u32 into four f32s as 8-bit unorm. WGSL: `unpack4x8unorm`. */
+const unpack4x8unorm = (v) => new CallNode(vec4f$1, 'unpack4x8unorm', [v]);
+const abs = (a) => new CallNode(a.type, 'abs', [a]);
+const floor = (a) => new CallNode(a.type, 'floor', [a]);
+const ceil = (a) => new CallNode(a.type, 'ceil', [a]);
+const fract = (a) => new CallNode(a.type, 'fract', [a]);
+const sqrt = (a) => new CallNode(a.type, 'sqrt', [a]);
+const sin = (a) => new CallNode(a.type, 'sin', [a]);
+const cos = (a) => new CallNode(a.type, 'cos', [a]);
+const negate = (a) => new CallNode(a.type, 'negate', [a]);
+const pow = (a, b) => new CallNode(a.type, 'pow', [a, b]);
+const exp = (a) => new CallNode(a.type, 'exp', [a]);
+const log = (a) => new CallNode(a.type, 'log', [a]);
+const exp2 = (a) => new CallNode(a.type, 'exp2', [a]);
+const log2 = (a) => new CallNode(a.type, 'log2', [a]);
+const tan = (a) => new CallNode(a.type, 'tan', [a]);
+const atan = (a) => new CallNode(a.type, 'atan', [a]);
+const atan2 = (y, x) => new CallNode(y.type, 'atan2', [y, x]);
+const asin = (a) => new CallNode(a.type, 'asin', [a]);
+const acos = (a) => new CallNode(a.type, 'acos', [a]);
+const inverseSqrt = (a) => new CallNode(a.type, 'inverseSqrt', [a]);
+function max(a, b, ...rest) {
+    let result = new CallNode(a.type, 'max', [a, b]);
+    for (const n of rest) {
+        result = new CallNode(a.type, 'max', [result, n]);
+    }
+    return result;
+}
+function min(a, b, ...rest) {
+    let result = new CallNode(a.type, 'min', [a, b]);
+    for (const n of rest) {
+        result = new CallNode(a.type, 'min', [result, n]);
+    }
+    return result;
+}
+const clamp = (a, lo, hi) => new CallNode(a.type, 'clamp', [a, lo, hi]);
+const mix = (a, b, t) => new CallNode(a.type, 'mix', [a, b, t]);
+const step = (edge, x) => new CallNode(x.type, 'step', [edge, x]);
+const smoothstep = (lo, hi, x) => new CallNode(x.type, 'smoothstep', [lo, hi, x]);
+const sign = (a) => new CallNode(a.type, 'sign', [a]);
+const mod = (a, b) => new BinaryOpNode('%', a.type, a, b);
+const or = (a, b) => new BinaryOpNode('||', bool$1, a, b);
+const and = (a, b) => new BinaryOpNode('&&', bool$1, a, b);
+const not = (a) => new CallNode(bool$1, 'not', [a]);
+const transpose = (m) => new CallNode(m.type, 'transpose', [m]);
+// ── Bit-count builtins (integer-only) ────────────────────────────────────────
+const countOneBits = (a) => new CallNode(a.type, 'countOneBits', [a]);
+const countTrailingZeros = (a) => new CallNode(a.type, 'countTrailingZeros', [a]);
+const countLeadingZeros = (a) => new CallNode(a.type, 'countLeadingZeros', [a]);
+const reverseBits = (a) => new CallNode(a.type, 'reverseBits', [a]);
+const firstLeadingBit = (a) => new CallNode(a.type, 'firstLeadingBit', [a]);
+const firstTrailingBit = (a) => new CallNode(a.type, 'firstTrailingBit', [a]);
+// ── Derivative builtins (fragment-only) ───────────────────────────────────────
+const dpdx = (a) => new CallNode(a.type, 'dpdx', [a]);
+const dpdy = (a) => new CallNode(a.type, 'dpdy', [a]);
+const fwidth = (a) => new CallNode(a.type, 'fwidth', [a]);
+const dpdxCoarse = (a) => new CallNode(a.type, 'dpdxCoarse', [a]);
+const dpdyCoarse = (a) => new CallNode(a.type, 'dpdyCoarse', [a]);
+const fwidthCoarse = (a) => new CallNode(a.type, 'fwidthCoarse', [a]);
+const dpdxFine = (a) => new CallNode(a.type, 'dpdxFine', [a]);
+const dpdyFine = (a) => new CallNode(a.type, 'dpdyFine', [a]);
+const fwidthFine = (a) => new CallNode(a.type, 'fwidthFine', [a]);
+const bitwiseAnd = (a, b) => new BinaryOpNode('&', a.type, a, b);
+const bitwiseOr = (a, b) => new BinaryOpNode('|', a.type, a, b);
+const bitwiseXor = (a, b) => new BinaryOpNode('^', a.type, a, b);
+const shiftLeft = (a, b) => new BinaryOpNode('<<', a.type, a, b);
+const shiftRight = (a, b) => new BinaryOpNode('>>', a.type, a, b);
+// ── Lang ──────────────────────────────────────────────────────────────────────
+class StackNode extends Node {
+    kind = NodeKind.Stack;
+    body;
+    constructor(initial) {
+        super(Void);
+        this.body = initial ? [...initial] : [];
+    }
+    push(node) {
+        this.body.push(node);
+    }
+}
+class FnNode extends Node {
+    kind = NodeKind.Fn;
+    fnName;
+    paramDescs;
+    jsFunc;
+    constructor(returnType, paramDescs, jsFunc, fnName) {
+        super(returnType);
+        this.fnName = fnName ?? `fn_${this.id}`;
+        this.paramDescs = paramDescs;
+        this.jsFunc = jsFunc;
+    }
+    compute(opts) {
+        // Delegate to the free `compute()` factory so there is one construction path.
+        return compute(this, opts);
+    }
+    trace() {
+        const params = this.paramDescs.map((pd, i) => {
+            const paramName = 'name' in pd ? pd.name : undefined;
+            const desc = 'name' in pd ? pd.type : pd;
+            return new ParameterNode(desc, i, paramName);
+        });
+        const stack = new StackNode();
+        const prev = pushStack(stack);
+        let output;
+        try {
+            output = this.jsFunc(...params);
+        }
+        finally {
+            popStack(prev);
+        }
+        return { params, body: stack, output };
+    }
+}
+class ParameterNode extends Node {
+    paramIndex;
+    paramName;
+    kind = NodeKind.Parameter;
+    constructor(type, paramIndex, paramName) {
+        super(type);
+        this.paramIndex = paramIndex;
+        this.paramName = paramName;
+    }
+}
+class ReturnNode extends Node {
+    value;
+    kind = NodeKind.Return;
+    constructor(value) {
+        super(value.type);
+        this.value = value;
+    }
+}
+class ConditionalNode extends Node {
+    condition;
+    ifTrue;
+    kind = NodeKind.Conditional;
+    ifFalse;
+    constructor(condition, ifTrue, ifFalse) {
+        super(ifTrue.type);
+        this.condition = condition;
+        this.ifTrue = ifTrue;
+        this.ifFalse = ifFalse;
+    }
+}
+class IfNode extends Node {
+    condition;
+    thenBody;
+    kind = NodeKind.If;
+    elseIfBranches = [];
+    elseBody = null;
+    constructor(condition, thenBody) {
+        super(Void);
+        this.condition = condition;
+        this.thenBody = thenBody;
+    }
+}
+let _loopVarCounter = 0;
+class LoopNode extends Node {
+    config;
+    loopVar;
+    callbackKey;
+    body;
+    kind = NodeKind.Loop;
+    constructor(config, loopVar, callbackKey, body) {
+        super(Void);
+        this.config = config;
+        this.loopVar = loopVar;
+        this.callbackKey = callbackKey;
+        this.body = body;
+    }
+}
+class BreakNode extends Node {
+    kind = NodeKind.Break;
+    constructor() {
+        super(Void);
+    }
+}
+class ContinueNode extends Node {
+    kind = NodeKind.Continue;
+    constructor() {
+        super(Void);
+    }
+}
+class DiscardNode extends Node {
+    kind = NodeKind.Discard;
+    constructor() {
+        super(Void);
+    }
+}
+function If(condition, thenBody) {
+    const thenStack = new StackNode();
+    const prev = pushStack(thenStack);
+    try {
+        thenBody();
+    }
+    finally {
+        popStack(prev);
+    }
+    const ifNode = new IfNode(condition, thenStack);
+    addToStack(ifNode);
+    const chain = {
+        ElseIf(c, body) {
+            const s = new StackNode();
+            const f = pushStack(s);
+            try {
+                body();
+            }
+            finally {
+                popStack(f);
+            }
+            ifNode.elseIfBranches.push({ condition: c, body: s });
+            return chain;
+        },
+        Else(body) {
+            const s = new StackNode();
+            const f = pushStack(s);
+            try {
+                body();
+            }
+            finally {
+                popStack(f);
+            }
+            ifNode.elseBody = s;
+            return chain;
+        },
+    };
+    return chain;
+}
+function Loop(o, callback) {
+    // Determine loop variable type and name from config
+    let loopVarType = i32$1;
+    let callbackKey = 'i';
+    const varName = `_loop_${_loopVarCounter++}`;
+    if (typeof o === 'object' && o !== null && !(o instanceof Node)) {
+        const cfg = o;
+        if (cfg.type)
+            loopVarType = cfg.type;
+        if (cfg.name)
+            callbackKey = cfg.name;
+    }
+    // Create the loop variable ParameterNode
+    const loopVar = new ParameterNode(loopVarType, 0, varName);
+    // Eagerly capture the body (like If does)
+    const bodyStack = new StackNode();
+    const prev = pushStack(bodyStack);
+    try {
+        callback({ [callbackKey]: loopVar });
+    }
+    finally {
+        popStack(prev);
+    }
+    const node = new LoopNode(o, loopVar, callbackKey, bodyStack);
+    addToStack(node);
+    return node;
+}
+const For = Loop;
+function While(condition, body) {
+    Loop(condition, body);
+}
+function Return(value) {
+    if (value !== undefined)
+        addToStack(new ReturnNode(value));
+    else
+        addToStack(new ReturnNode(new LiteralNode(Void, 0)));
+}
+function Break() {
+    addToStack(new BreakNode());
+}
+function Continue() {
+    addToStack(new ContinueNode());
+}
+function Discard() {
+    addToStack(new DiscardNode());
+}
+/** Workgroup synchronization barrier. WGSL: `workgroupBarrier()`. */
+function workgroupBarrier() {
+    addToStack(new CallNode(Void, 'workgroupBarrier', []));
+}
+/** Storage-buffer write/read sync within a workgroup. WGSL: `storageBarrier()`. */
+function storageBarrier() {
+    addToStack(new CallNode(Void, 'storageBarrier', []));
+}
+/** Texture write/read sync within a workgroup. WGSL: `textureBarrier()`. */
+function textureBarrier() {
+    addToStack(new CallNode(Void, 'textureBarrier', []));
+}
+// Implementation
+function Fn(jsFunc, layout) {
+    const paramDescs = layout?.params ?? [];
+    const dummyParams = paramDescs.map((pd, i) => {
+        const paramName = 'name' in pd ? pd.name : undefined;
+        const desc = 'name' in pd ? pd.type : pd;
+        return new ParameterNode(desc, i, paramName);
+    });
+    const traceStack = new StackNode();
+    const prev = pushStack(traceStack);
+    let inferred;
+    try {
+        const output = jsFunc(...dummyParams);
+        inferred = output != null ? output.type : Void;
+    }
+    finally {
+        popStack(prev);
+    }
+    let returnType = inferred;
+    if (layout?.return) {
+        // Verify the declared return matches what the body actually returns.
+        if (inferred.wgslType !== layout.return.wgslType) {
+            throw new Error(`[gpucat] Fn '${layout.name}' declares return '${layout.return.wgslType}' but the body returns '${inferred.wgslType}'.`);
+        }
+        returnType = layout.return;
+    }
+    if (returnType === Void && paramDescs.length === 0 && !layout) {
+        return new FnNode(Void, [], jsFunc, undefined);
+    }
+    const fnNode = new FnNode(returnType, paramDescs, jsFunc, layout?.name);
+    return (...args) => new CallNode(returnType, fnNode.fnName, args, fnNode);
+}
+const cond = (condition, ifTrue, ifFalse) => new ConditionalNode(condition, ifTrue, ifFalse);
+/**
+ * WGSL `select(falseVal, trueVal, condition)`.
+ * Returns `trueVal` when `condition` is true, `falseVal` otherwise.
+ */
+const select = (falseVal, trueVal, condition) => new ConditionalNode(condition, trueVal, falseVal);
+function makeVar(init, label) {
+    const varName = label ? `var_${_nodeId}_${label}` : `var_${_nodeId}`;
+    const v = new VarNode(init.type, varName, init);
+    // Add to current stack if building inside Fn, otherwise return standalone node.
+    // The standalone VarNode still participates in the graph via its `init` reference.
+    if (currentStack !== null)
+        currentStack.push(v);
+    return v;
+}
+function makeLet(init, label) {
+    const varName = label ? `let_${_nodeId}_${label}` : `let_${_nodeId}`;
+    const v = new LetNode(init.type, varName, init);
+    if (currentStack !== null)
+        currentStack.push(v);
+    return v;
+}
+/**
+ * Function-scope mutable variable: `var name = init;`
+ *
+ * @example
+ * const velocity = Var('velocity', vec3f(0));
+ * // → var velocity = vec3f(0.0);
+ */
+function Var(name, init) {
+    return makeVar(init, name);
+}
+/**
+ * Function-scope immutable binding: `let name = init;`
+ *
+ * @example
+ * const half = Let('half', value.mul(0.5));
+ * // → let half = (value * 0.5);
+ */
+function Let(name, init) {
+    return makeLet(init, name);
+}
+/** @deprecated Use Let() instead */
+function Const(name, init) {
+    return makeLet(init, name);
+}
+function PrivateVar(name, typeOrInit) {
+    if (typeOrInit instanceof Node)
+        return new PrivateVarNode(typeOrInit.type, name, typeOrInit);
+    return new PrivateVarNode(typeOrInit, name);
+}
+/**
+ * Create a module-scope workgroup variable: `var<workgroup> name: T;`
+ *
+ * Workgroup variables are shared across all invocations in a workgroup.
+ * Only valid in compute shaders. Cannot have an initializer.
+ *
+ * @example
+ * const shared = WorkgroupVar('sharedData', d.array(d.f32, 256));
+ * // → var<workgroup> sharedData: array<f32, 256>;
+ */
+function WorkgroupVar(name, type) {
+    return new WorkgroupVarNode(type, name);
+}
+let _computeCounter = 0;
+class ComputeNode {
+    id;
+    fn;
+    workgroupSize;
+    name;
+    /**
+     * Set to true after dispose() is called.
+     * The renderer checks this flag to skip dispatch and clean up GPU resources.
+     */
+    disposed = false;
+    /**
+     * Internal callback set by the renderer to clean up GPU resources (pipelines, caches).
+     * @internal
+     */
+    _onDispose = null;
+    constructor(opts) {
+        this.id = `_compute_${_computeCounter++}`;
+        this.fn = opts.fn;
+        this.workgroupSize = opts.workgroupSize;
+        this.name = opts.name;
+    }
+    /**
+     * Frees GPU-related resources allocated for this compute node.
+     * Call this method when the compute node is no longer used.
+     */
+    dispose() {
+        if (this.disposed)
+            return;
+        this.disposed = true;
+        this._onDispose?.();
+    }
+}
+function compute(fn, opts) {
+    return new ComputeNode({ fn, ...opts });
+}
+function struct(name, fields) {
+    const members = Object.entries(fields).map(([n, desc]) => ({ name: n, type: desc }));
+    const structDesc = { type: 'struct', wgslType: name, glslType: name, name, fields };
+    const node = new StructNode(structDesc, members);
+    const nestedDefs = new Map();
+    for (const desc of Object.values(fields)) {
+        if (isStructDef(desc))
+            nestedDefs.set(desc.wgslType, desc);
+    }
+    function construct(fieldNodes) {
+        const args = members.map((m) => fieldNodes[m.name]);
+        return new ConstructNode(def, args);
+    }
+    const def = {
+        type: 'struct',
+        wgslType: name,
+        glslType: name,
+        name,
+        fields,
+        members,
+        node,
+        nestedDefs,
+        construct,
+    };
+    return def;
+}
+class StructNode extends Node {
+    members;
+    kind = NodeKind.Struct;
+    constructor(desc, members) {
+        super(desc);
+        this.members = members;
+    }
+}
+
+/** Strip `atomic<…>` wrapper to get the underlying scalar type descriptor at runtime. */
+function scalarDescOf(desc) {
+    if (desc.wgslType === 'atomic<i32>' || desc.wgslType === 'i32')
+        return i32$1;
+    return u32$1;
+}
+/**
+ * Atomically adds `value` to the atomic value at `ptr` and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicAdd(&ptr, value) -> i32/u32`
+ */
+function atomicAdd(ptr, value) {
+    const node = new CallNode(scalarDescOf(ptr.type), 'atomicAdd', [ptr, value]);
+    addToStack(node);
+    return node;
+}
+/**
+ * Atomically stores `value` to the atomic location at `ptr`.
+ *
+ * In WGSL: `atomicStore(&ptr, value)`
+ */
+function atomicStore(ptr, value) {
+    addToStack(new CallNode(Void, 'atomicStore', [ptr, value]));
+}
+/**
+ * Atomically loads the value from the atomic location at `ptr`.
+ *
+ * In WGSL: `atomicLoad(&ptr) -> i32/u32`
+ */
+function atomicLoad(ptr) {
+    return new CallNode(scalarDescOf(ptr.type), 'atomicLoad', [ptr]);
+}
+/**
+ * Atomically subtracts `value` from the atomic value at `ptr` and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicSub(&ptr, value) -> i32/u32`
+ */
+function atomicSub(ptr, value) {
+    const node = new CallNode(scalarDescOf(ptr.type), 'atomicSub', [ptr, value]);
+    addToStack(node);
+    return node;
+}
+/**
+ * Atomically computes the maximum of the atomic value and `value`, stores it, and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicMax(&ptr, value) -> i32/u32`
+ */
+function atomicMax(ptr, value) {
+    const node = new CallNode(scalarDescOf(ptr.type), 'atomicMax', [ptr, value]);
+    addToStack(node);
+    return node;
+}
+/**
+ * Atomically computes the minimum of the atomic value and `value`, stores it, and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicMin(&ptr, value) -> i32/u32`
+ */
+function atomicMin(ptr, value) {
+    const node = new CallNode(scalarDescOf(ptr.type), 'atomicMin', [ptr, value]);
+    addToStack(node);
+    return node;
+}
+/**
+ * Atomically computes the bitwise AND of the atomic value and `value`, stores it, and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicAnd(&ptr, value) -> i32/u32`
+ */
+function atomicAnd(ptr, value) {
+    const node = new CallNode(scalarDescOf(ptr.type), 'atomicAnd', [ptr, value]);
+    addToStack(node);
+    return node;
+}
+/**
+ * Atomically computes the bitwise OR of the atomic value and `value`, stores it, and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicOr(&ptr, value) -> i32/u32`
+ */
+function atomicOr(ptr, value) {
+    const node = new CallNode(scalarDescOf(ptr.type), 'atomicOr', [ptr, value]);
+    addToStack(node);
+    return node;
+}
+/**
+ * Atomically computes the bitwise XOR of the atomic value and `value`, stores it, and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicXor(&ptr, value) -> i32/u32`
+ */
+function atomicXor(ptr, value) {
+    const node = new CallNode(scalarDescOf(ptr.type), 'atomicXor', [ptr, value]);
+    addToStack(node);
+    return node;
+}
+/**
+ * Atomically exchanges the value at `ptr` with `value` and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicExchange(&ptr, value) -> i32/u32`
+ */
+function atomicExchange(ptr, value) {
+    const node = new CallNode(scalarDescOf(ptr.type), 'atomicExchange', [ptr, value]);
+    addToStack(node);
+    return node;
+}
+/**
+ * Atomically compares the value at `ptr` with `comparator` and if equal, stores `value`.
+ * Returns the old value (regardless of whether the exchange happened).
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicCompareExchangeWeak(&ptr, comparator, value) -> __atomic_compare_exchange_result<T>`
+ *
+ * Note: WGSL returns a struct { old_value: T, exchanged: bool }. This function returns the struct type
+ * which you need to access via .old_value and .exchanged fields.
+ */
+function atomicCompareExchangeWeak(ptr, comparator, value) {
+    const node = new CallNode(Void, 'atomicCompareExchangeWeak', [ptr, comparator, value]);
+    addToStack(node);
+    return node;
+}
+
+/**
+ * AttributeNode, a vertex attribute that reads from either:
+ * 1. A named geometry buffer (looked up at render time by name)
+ * 2. A direct GpuBuffer reference
+ *
+ * View info (stride, offset, instanced) lives on the node, not the buffer.
+ * This follows the WebGPU pattern where GPUBuffer is bound separately from
+ * the GPUVertexBufferLayout which specifies stride/offset.
+ *
+ * @example
+ * // By-name (geometry lookup)
+ * const pos = attribute('position', d.vec3f);
+ * const uv = attribute('uv', d.vec2f);
+ *
+ * // By-name with view options
+ * const pos = attribute('position', d.vec3f, { stride: 32, offset: 0 });
+ *
+ * // Direct GpuBuffer (schema from buffer)
+ * const colors = attribute(colorBuffer);
+ *
+ * // Direct GpuBuffer with view options (interleaved)
+ * const position = attribute(interleavedBuffer, { stride: 32, offset: 0 });
+ * const normal = attribute(interleavedBuffer, { stride: 32, offset: 12 });
+ *
+ * // Raw TypedArray (auto-wrapped in GpuBuffer)
+ * const offsets = attribute(offsetData, d.vec3f);
+ *
+ * // Instanced
+ * const instanceMatrix = attribute(matricesBuffer, { stride: 64, offset: 0, instanced: true });
+ */
+class AttributeNode extends Node {
+    kind = NodeKind.Attribute;
+    /** Either a name (geometry lookup) or direct GpuBuffer reference */
+    source;
+    /** Byte stride between elements. 0 = tightly packed. */
+    stride;
+    /** Byte offset within each stride. */
+    offset;
+    /** Whether this is per-instance data (stepMode: 'instance'). */
+    instanced;
+    constructor(desc, source, options = {}) {
+        super(desc);
+        this.source = source;
+        this.stride = options.stride ?? 0;
+        this.offset = options.offset ?? 0;
+        this.instanced = options.instanced ?? false;
+    }
+    /** Whether this is a name-based lookup. */
+    get isNamedReference() {
+        return typeof this.source === 'string';
+    }
+    /** Get the name, or null if buffer-based. */
+    get name() {
+        return typeof this.source === 'string' ? this.source : null;
+    }
+    /** Get the buffer, or null if name-based. */
+    get buffer() {
+        return typeof this.source === 'string' ? null : this.source;
+    }
+}
+// Implementation
+function attribute(nameOrBufferOrData, schemaOrOptions, maybeOptions) {
+    // Overload 1: attribute(name, schema, options?)
+    if (typeof nameOrBufferOrData === 'string') {
+        const name = nameOrBufferOrData;
+        const schema = schemaOrOptions;
+        const options = maybeOptions ?? {};
+        return new AttributeNode(schema, name, options);
+    }
+    // Overload 2: attribute(buffer, options?)
+    if ('isGpuBuffer' in nameOrBufferOrData) {
+        const buffer = nameOrBufferOrData;
+        const options = schemaOrOptions ?? {};
+        return new AttributeNode(buffer.schema, buffer, options);
+    }
+    // Overload 3: attribute(data, schema, options?)
+    // data is a TypedArray - wrap in GpuBuffer
+    const data = nameOrBufferOrData;
+    const schema = schemaOrOptions;
+    const options = maybeOptions ?? {};
+    const buffer = new GpuBuffer(schema, {
+        data: data,
+        usage: 'vertex',
+        label: options.label,
+    });
+    return new AttributeNode(schema, buffer, options);
+}
+/**
+ * UV attribute node for texture coordinate access.
+ *
+ * Returns an AttributeNode that reads the 'uv' vertex attribute (or 'uv1', 'uv2', etc.
+ * for additional UV channels).
+ *
+ * @param index - The UV channel index. Defaults to 0 (reads 'uv').
+ *                Index 1 reads 'uv1', index 2 reads 'uv2', etc.
+ * @returns An AttributeNode<Vec2fDesc> representing the UV coordinates.
+ *
+ * @example
+ * // Default UV channel
+ * const texCoord = uv();
+ *
+ * // Second UV channel (e.g., for lightmaps)
+ * const lightmapUV = uv(1);
+ *
+ * // Sample a texture with UVs
+ * const color = myTexture.sample(uv());
+ */
+const uv = (index = 0) => new AttributeNode(vec2f$1, 'uv' + (index > 0 ? index : ''));
+
+class BuiltinNode extends Node {
+    builtinKind;
+    kind = NodeKind.Builtin;
+    constructor(builtinKind, desc) {
+        super(desc);
+        this.builtinKind = builtinKind;
+    }
+}
+const builtin = (builtinKind, desc) => new BuiltinNode(builtinKind, desc);
+/** @builtin(instance_index), the instance index for instanced draw calls. */
+const instanceIndex = /*@__PURE__*/ builtin('instance_index', u32$1);
+/** @builtin(vertex_index), the vertex index in the current draw call. */
+const vertexIndex = /*@__PURE__*/ builtin('vertex_index', u32$1);
+/** @builtin(global_invocation_id), unique thread ID across the entire dispatch. */
+const globalId = /*@__PURE__*/ builtin('global_invocation_id', vec3u$1);
+/** @builtin(local_invocation_id), thread ID within its workgroup. */
+const localId = /*@__PURE__*/ builtin('local_invocation_id', vec3u$1);
+/** @builtin(local_invocation_index), flat 1-D index within the workgroup. */
+const localIndex = /*@__PURE__*/ builtin('local_invocation_index', u32$1);
+/** @builtin(workgroup_id), workgroup coordinate in the dispatch grid. */
+const workgroupId = /*@__PURE__*/ builtin('workgroup_id', vec3u$1);
+/** @builtin(num_workgroups), total number of workgroups dispatched. */
+const numWorkgroups = /*@__PURE__*/ builtin('num_workgroups', vec3u$1);
+/**
+ * Fragment position in window/pixel coordinates.
+ * @builtin(position) in the fragment shader, vec4f where xy are pixel coordinates.
+ *
+ * This is the raw fragment coordinate from the rasterizer.
+ * Use screenCoordinate.xy for 2D pixel position.
+ */
+const fragCoord = /*@__PURE__*/ builtin('position', vec4f$1);
+/**
+ * Linearized compute invocation index across the entire dispatch grid.
+ *
+ * For a dispatch of size (Dx, Dy, Dz) workgroups with workgroup size (Wx, Wy, Wz),
+ * this computes:
+ *   globalId.x + globalId.y * (Wx * Dx) + globalId.z * (Wx * Dx) * (Wy * Dy)
+ *
+ * This gives each thread a unique u32 index from 0 to (Dx*Wx * Dy*Wy * Dz*Wz - 1).
+ *
+ * Use this in compute shaders where you need a linear index into a buffer,
+ * similar to how instanceIndex works in vertex shaders.
+ */
+class ComputeIndexNode extends Node {
+    kind = NodeKind.ComputeIndex;
+    constructor() {
+        super(u32$1);
+    }
+}
+const computeIndex = /*@__PURE__*/ new ComputeIndexNode();
+
+class UniformNode extends Node {
+    kind = NodeKind.Uniform;
+    /** uniform name */
+    name;
+    /** The underlying Uniform data container */
+    uniform;
+    /**
+     * The uniform group, determines the WGSL @group index, update cadence, and
+     * struct packing. Defaults to `objectGroup`; reassign (e.g. `u.group = renderGroup`)
+     * before the node is first rendered to move it to a shared group.
+     */
+    get group() {
+        return this.uniform.group;
+    }
+    set group(g) {
+        this.uniform.group = g;
+    }
+    /** Get the current value */
+    get value() {
+        return this.uniform.value;
+    }
+    /** Set value directly */
+    set value(v) {
+        this.uniform.value = v;
+    }
+    constructor(uniform, name) {
+        super(uniform.schema);
+        this.uniform = uniform;
+        this.name = name;
+    }
+    /**
+     * Register an update callback that runs per frame/render/object.
+     * The callback returns a value which is assigned to the uniform's value.
+     */
+    onUpdate(callback, updateType) {
+        this.updateType = updateType;
+        this.update = (frame) => {
+            const value = callback(frame);
+            if (value !== undefined) {
+                this.uniform.value = value;
+            }
+        };
+        return this;
+    }
+    /** Register an update callback for FRAME update type. */
+    onFrameUpdate(callback) {
+        return this.onUpdate(callback, UniformUpdateType.FRAME);
+    }
+    /** Register an update callback for RENDER update type. */
+    onRenderUpdate(callback) {
+        return this.onUpdate(callback, UniformUpdateType.RENDER);
+    }
+    /** Register an update callback for OBJECT update type. */
+    onObjectUpdate(callback) {
+        return this.onUpdate(callback, UniformUpdateType.OBJECT);
+    }
+}
+// Implementation
+function uniform(init, nameOrSchema) {
+    // Value-based: uniform(Uniform)
+    if (typeof init === 'object' && init !== null && 'isUniform' in init) {
+        const u = init;
+        return new UniformNode(u, `uniform_${_nodeId}`);
+    }
+    // Name-based: uniform('name', schema) or uniform('name', StructDef)
+    if (typeof init === 'string') {
+        const name = init;
+        const schema = nameOrSchema;
+        // Check if it's a StructDef
+        if (schema && 'fields' in schema && 'construct' in schema) {
+            const def = schema;
+            const u = new Uniform(def);
+            const node = new UniformNode(u, name);
+            return fields(node);
+        }
+        // Regular schema, create Uniform for name-based resolution
+        const u = new Uniform(schema);
+        return new UniformNode(u, name);
+    }
+    // Inline scalar/vector/matrix form: uniform(f32(0.5), 'name')
+    const initNode = init;
+    const name = nameOrSchema;
+    const uniformId = name ?? `${initNode.type.wgslType}_${_nodeId}`;
+    // Extract initial value from the node
+    const initialValue = extractValue(initNode);
+    const u = new Uniform(initNode.type, initialValue);
+    return new UniformNode(u, uniformId);
+}
+/**
+ * Extract a concrete value from a LiteralNode or ConstructNode.
+ * For ConstructNode, recursively extracts from child LiteralNodes.
+ * Returns undefined if any child is not a LiteralNode (dynamic value).
+ */
+function extractValue(node) {
+    // LiteralNode has a direct value
+    if (node.kind === NodeKind.Literal) {
+        return node.value;
+    }
+    // ConstructNode: extract values from args (must all be LiteralNodes)
+    if (node.kind === NodeKind.Construct) {
+        const values = [];
+        for (const arg of node.args) {
+            const lit = arg.kind === NodeKind.Literal ? arg : null;
+            if (lit && typeof lit.value === 'number') {
+                values.push(lit.value);
+            }
+            else {
+                // Dynamic child - can't extract static value
+                return undefined;
+            }
+        }
+        return values;
+    }
+    return undefined;
+}
+
+/** Projection matrix of the scene camera. In renderGroup. */
+const cameraProjectionMatrix = /*@__PURE__*/ new UniformNode(new Uniform(mat4x4f$1, undefined, renderGroup), 'cameraProjectionMatrix').onRenderUpdate((frame) => frame.camera.projectionMatrix);
+/** View (world-to-camera) matrix. In renderGroup. */
+const cameraViewMatrix = /*@__PURE__*/ new UniformNode(new Uniform(mat4x4f$1, undefined, renderGroup), 'cameraViewMatrix').onRenderUpdate((frame) => frame.camera.matrixWorldInverse);
+/**
+ * Camera world-space position. In renderGroup.
+ *
+ * Read out of `matrixWorld` rather than off the camera's `position` property.
+ * Those are the same value only while the camera is unparented; the moment it is
+ * a child of anything — a rig, a vehicle, a player node — `position` is relative
+ * to that parent and this uniform would report the wrong place, silently, while
+ * `cameraViewMatrix` (built from `matrixWorldInverse`) kept working. A shader
+ * mixing the two would then disagree with itself.
+ *
+ * This is also what three.js does for its equivalent uniform:
+ * `self.value.setFromMatrixPosition( camera.matrixWorld )`.
+ *
+ * Written into a module scratch, so a per-frame read allocates nothing.
+ */
+const _cameraWorldPosition = /*@__PURE__*/ create$6();
+const cameraPosition = /*@__PURE__*/ new UniformNode(new Uniform(vec3f$1, undefined, renderGroup), 'cameraPosition').onRenderUpdate((frame) => getTranslation(_cameraWorldPosition, frame.camera.matrixWorld));
+/** Camera near plane distance. In renderGroup. */
+const cameraNear = /*@__PURE__*/ new UniformNode(new Uniform(f32$1, undefined, renderGroup), 'cameraNear').onRenderUpdate((frame) => frame.camera.near);
+/** Camera far plane distance. In renderGroup. */
+const cameraFar = /*@__PURE__*/ new UniformNode(new Uniform(f32$1, undefined, renderGroup), 'cameraFar').onRenderUpdate((frame) => frame.camera.far);
+/**
+ * Remap an NDC depth value (typically `clipPos.z / clipPos.w`) into the [0,1] range a depth texture
+ * stores, so shadow-map / depth-buffer comparisons are written ONCE and work on both backends. It is
+ * lowered per emitter — the node graph stays identical:
+ *   - WebGPU: NDC z is already [0,1] (ZO projection) → passthrough.
+ *   - WebGL:  NDC z is [-1,1] (NO projection)        → `z * 0.5 + 0.5`.
+ *
+ * This keeps the per-backend depth-range convention out of user graphs (the analog of three.js baking
+ * the remap into its shadow bias matrix rather than exposing it).
+ */
+function ndcDepthToStorage(ndcZ) {
+    return new CallNode(f32$1, 'ndcDepthToStorage', [ndcZ]);
+}
+
+/**
+ * Convert any color input to a `vec3f` linear RGB node.
+ *
+ * This is the primary way to introduce a color into the node graph.
+ * The resulting node has type `vec3f` so it can be used anywhere a `vec3f`
+ * is expected, including as the first argument to `vec4(xyz, w)`.
+ *
+ * @example
+ * import { rgb, vec4, f32 } from 'gpucat';
+ *
+ * const fragColor = vec4(rgb('#f00'), f32(1));
+ *
+ * // Other accepted forms:
+ * rgb('hsl(200, 80%, 50%)');
+ * rgb('deepskyblue');
+ * rgb(0xff8800);
+ * rgb([1, 0.5, 0]);
+ */
+function rgb(input) {
+    const c = fromColorInput(input);
+    if (c === null)
+        return vec3f(0, 0, 0);
+    return vec3f(c[0], c[1], c[2]);
+}
+
+/**
+ * Transform a bounding box by a 4x4 matrix.
+ * Uses Arvo's trick — transform the center, build new half-extents from
+ * |M| · extents — which is ~4× fewer ops than transforming all 8 corners.
+ * Reference: Jim Arvo, "Transforming Axis-Aligned Bounding Boxes",
+ * Graphics Gems I (1990).
+ * https://github.com/erich666/GraphicsGems/blob/master/gems/TransBox.c
+ * Assumes mat is affine (no perspective), which is always true for AABB
+ * transforms in practice.
+ * Safe under aliasing (out and box may be the same array): all six box
+ * components are read into locals before out is written.
+ * @param out - The output Box3
+ * @param box - The input Box3
+ * @param mat - The 4x4 transformation matrix
+ * @returns The transformed Box3
+ */
+function transformMat4(out, box, mat) {
+    const bMinX = box[0];
+    const bMinY = box[1];
+    const bMinZ = box[2];
+    const bMaxX = box[3];
+    const bMaxY = box[4];
+    const bMaxZ = box[5];
+    // empty input → empty output (preserve sentinel rather than producing
+    // a bogus transformed box from negative extents)
+    if (bMinX > bMaxX || bMinY > bMaxY || bMinZ > bMaxZ) {
+        out[0] = Number.POSITIVE_INFINITY;
+        out[1] = Number.POSITIVE_INFINITY;
+        out[2] = Number.POSITIVE_INFINITY;
+        out[3] = Number.NEGATIVE_INFINITY;
+        out[4] = Number.NEGATIVE_INFINITY;
+        out[5] = Number.NEGATIVE_INFINITY;
+        return out;
+    }
+    const cx = (bMinX + bMaxX) * 0.5;
+    const cy = (bMinY + bMaxY) * 0.5;
+    const cz = (bMinZ + bMaxZ) * 0.5;
+    const ex = (bMaxX - bMinX) * 0.5;
+    const ey = (bMaxY - bMinY) * 0.5;
+    const ez = (bMaxZ - bMinZ) * 0.5;
+    const m0 = mat[0], m1 = mat[1], m2 = mat[2];
+    const m4 = mat[4], m5 = mat[5], m6 = mat[6];
+    const m8 = mat[8], m9 = mat[9], m10 = mat[10];
+    const tcx = m0 * cx + m4 * cy + m8 * cz + mat[12];
+    const tcy = m1 * cx + m5 * cy + m9 * cz + mat[13];
+    const tcz = m2 * cx + m6 * cy + m10 * cz + mat[14];
+    const tex = Math.abs(m0) * ex + Math.abs(m4) * ey + Math.abs(m8) * ez;
+    const tey = Math.abs(m1) * ex + Math.abs(m5) * ey + Math.abs(m9) * ez;
+    const tez = Math.abs(m2) * ex + Math.abs(m6) * ey + Math.abs(m10) * ez;
+    out[0] = tcx - tex;
+    out[1] = tcy - tey;
+    out[2] = tcz - tez;
+    out[3] = tcx + tex;
+    out[4] = tcy + tey;
+    out[5] = tcz + tez;
+    return out;
+}
+
+/**
+ * Creates a new plane with normal (0, 1, 0) and constant 0
+ * @returns A new plane
+ */
+function create$1() {
+    return { normal: [0, 1, 0], constant: 0 };
+}
+/**
+ * Clones a plane
+ * @param plane - The plane to clone
+ * @returns A new plane
+ */
+function clone$1(plane) {
+    return {
+        normal: clone$2(plane.normal),
+        constant: plane.constant,
+    };
+}
+/**
+ * Copies one plane to another
+ * @param out - The output plane
+ * @param plane - The source plane
+ * @returns The output plane
+ */
+function copy$1(out, plane) {
+    copy$5(out.normal, plane.normal);
+    out.constant = plane.constant;
+    return out;
+}
+/**
+ * Normalizes a plane (ensures the normal vector is unit length)
+ * @param out - The output plane
+ * @param plane - The input plane
+ * @returns The normalized plane
+ */
+function normalize(out, plane) {
+    const invMagnitude = 1.0 / length$1(plane.normal);
+    scale(out.normal, plane.normal, invMagnitude);
+    out.constant = plane.constant * invMagnitude;
+    return out;
+}
+/**
+ * Calculates the signed distance from a point to the plane
+ * @param plane - The plane
+ * @param point - The point
+ * @returns The signed distance (positive = in direction of normal)
+ */
+function distanceToPoint(plane, point) {
+    return dot$1(plane.normal, point) + plane.constant;
+}
+
+function create() {
+    return [create$1(), create$1(), create$1(), create$1(), create$1(), create$1()];
+}
+function clone(f) {
+    return [
+        clone$1(f[0]),
+        clone$1(f[1]),
+        clone$1(f[2]),
+        clone$1(f[3]),
+        clone$1(f[4]),
+        clone$1(f[5]),
+    ];
+}
+function copy(out, f) {
+    copy$1(out[0], f[0]);
+    copy$1(out[1], f[1]);
+    copy$1(out[2], f[2]);
+    copy$1(out[3], f[3]);
+    copy$1(out[4], f[4]);
+    copy$1(out[5], f[5]);
+    return out;
+}
+function setFromViewProjectionMatrix(out, proj, view, coordinateSystem = CoordinateSystem.WEBGPU) {
+    const vp = create$3();
+    multiply(vp, proj, view);
+    const m = vp;
+    setPlane(out[0], m[0] + m[3], m[4] + m[7], m[8] + m[11], m[12] + m[15]);
+    setPlane(out[1], -m[0] + m[3], -m[4] + m[7], -m[8] + m[11], -m[12] + m[15]);
+    setPlane(out[2], m[1] + m[3], m[5] + m[7], m[9] + m[11], m[13] + m[15]);
+    setPlane(out[3], -m[1] + m[3], -m[5] + m[7], -m[9] + m[11], -m[13] + m[15]);
+    // Near plane depends on the clip-space depth convention: WebGPU (z=0 at near) uses row2 alone;
+    // WebGL (z=-1 at near) uses row2 + row3. Far plane (row3 - row2) is identical for both.
+    if (coordinateSystem === CoordinateSystem.WEBGL) {
+        setPlane(out[4], m[2] + m[3], m[6] + m[7], m[10] + m[11], m[14] + m[15]);
+    }
+    else {
+        setPlane(out[4], m[2], m[6], m[10], m[14]);
+    }
+    setPlane(out[5], -m[2] + m[3], -m[6] + m[7], -m[10] + m[11], -m[14] + m[15]);
+    for (let i = 0; i < 6; i++) {
+        normalize(out[i], out[i]);
+    }
+    return out;
+}
+function intersectsSphere(f, s) {
+    const { center, radius } = s;
+    for (let i = 0; i < 6; i++) {
+        if (distanceToPoint(f[i], center) < -radius) {
+            return false;
+        }
+    }
+    return true;
+}
+function intersectsBox3(f, box) {
+    const [minX, minY, minZ, maxX, maxY, maxZ] = box;
+    for (let i = 0; i < 6; i++) {
+        const p = f[i];
+        const nx = p.normal[0];
+        const ny = p.normal[1];
+        const nz = p.normal[2];
+        const px = nx >= 0 ? maxX : minX;
+        const py = ny >= 0 ? maxY : minY;
+        const pz = nz >= 0 ? maxZ : minZ;
+        if (nx * px + ny * py + nz * pz + p.constant < 0) {
+            return false;
+        }
+    }
+    return true;
+}
+function setPlane(out, nx, ny, nz, d) {
+    out.normal[0] = nx;
+    out.normal[1] = ny;
+    out.normal[2] = nz;
+    out.constant = d;
+}
+
+var frustum = /*#__PURE__*/Object.freeze({
+    __proto__: null,
+    clone: clone,
+    copy: copy,
+    create: create,
+    intersectsBox3: intersectsBox3,
+    intersectsSphere: intersectsSphere,
+    setFromViewProjectionMatrix: setFromViewProjectionMatrix
+});
+
+/**
+ * render-list.ts - Sorted render item list with object pooling and scene collection.
+ *
+ * - Object pooling for RenderItems (avoids GC pressure)
+ * - Sorted opaque and transparent lists
+ * - Cached per scene/camera using nested WeakMaps
+ * - Frustum culling integration
+ * - Scene graph traversal
+ *
+ * RenderList collects meshes from a scene graph and sorts them for rendering:
+ * - Opaque: sorted by material/pipeline key to minimize state changes
+ * - Transparent: sorted back-to-front by view-space Z
+ */
+// Factories
+/** ID counter for RenderItems. */
+let renderItemIdCounter = 0;
+/**
+ * Create a new RenderList.
+ */
+function createRenderList() {
+    return {
+        object: null,
+        camera: null,
+        renderItems: [],
+        renderItemsIndex: 0,
+        opaque: [],
+        transparent: [],
+    };
+}
+/**
+ * Create a new RenderLists state.
+ */
+function createRenderListsState() {
+    return {
+        lists: new WeakMap(),
+    };
+}
+// RenderList Access
+/**
+ * Get or create a RenderList for the given object and camera.
+ *
+ * @param state - The RenderLists state
+ * @param object - The object to render (Scene, Mesh, or any Object3D)
+ * @param camera - The camera to render from
+ */
+function getRenderList(state, object, camera) {
+    let cameraMap = state.lists.get(object);
+    if (!cameraMap) {
+        cameraMap = new WeakMap();
+        state.lists.set(object, cameraMap);
+    }
+    let list = cameraMap.get(camera);
+    if (!list) {
+        list = createRenderList();
+        cameraMap.set(camera, list);
+    }
+    return list;
+}
+// List Management
+/**
+ * Begin building a render list for a new frame.
+ *
+ * This resets the pool index but keeps pooled items for reuse.
+ */
+function beginRenderList(list, object, camera) {
+    list.object = object;
+    list.camera = camera;
+    list.renderItemsIndex = 0;
+    list.opaque.length = 0;
+    list.transparent.length = 0;
+}
+/**
+ * Get a RenderItem from the pool (or create a new one).
+ */
+function getNextRenderItem(list) {
+    const index = list.renderItemsIndex;
+    let item = list.renderItems[index];
+    if (item === undefined) {
+        item = {
+            id: renderItemIdCounter++,
+            mesh: null,
+            geometry: null,
+            material: null,
+            groupOrder: 0,
+            renderOrder: 0,
+            z: 0,
+        };
+        list.renderItems.push(item);
+    }
+    list.renderItemsIndex++;
+    return item;
+}
+/**
+ * Push a mesh into the render list.
+ *
+ * @param list - The RenderList
+ * @param mesh - The mesh to add
+ * @param geometry - The mesh's geometry
+ * @param material - The mesh's material
+ * @param groupOrder - Group order for layer-based sorting
+ * @param z - View-space Z for transparent sorting
+ */
+function pushRenderItem(list, mesh, geometry, material, groupOrder, z) {
+    const item = getNextRenderItem(list);
+    item.mesh = mesh;
+    item.geometry = geometry;
+    item.material = material;
+    item.groupOrder = groupOrder;
+    item.renderOrder = mesh.renderOrder;
+    item.z = z;
+    if (material.transparent) {
+        list.transparent.push(item);
+    }
+    else {
+        list.opaque.push(item);
+    }
+}
+// Sorting
+/**
+ * Sort the render list.
+ *
+ * @param list - The RenderList to sort
+ * @param customOpaqueSort - Optional custom sort for opaque items
+ * @param customTransparentSort - Optional custom sort for transparent items
+ */
+function sortRenderList(list, customOpaqueSort, customTransparentSort) {
+    if (list.opaque.length > 1) {
+        list.opaque.sort(painterSortStable);
+    }
+    if (list.transparent.length > 1) {
+        list.transparent.sort(reversePainterSortStable);
+    }
+}
+/**
+ * Default sort for opaque items.
+ *
+ * Sort priority:
+ * 1. groupOrder (render layers)
+ * 2. renderOrder (manual ordering)
+ * 3. Z (front-to-back for early-z rejection)
+ * 4. ID (stability)
+ *
+ * Note: we do NOT sort by material/pipeline. Pipeline switching is
+ * minimized at draw time by tracking the active pipeline in setPipeline().
+ */
+function painterSortStable(a, b) {
+    if (a.groupOrder !== b.groupOrder) {
+        return a.groupOrder - b.groupOrder;
+    }
+    if (a.renderOrder !== b.renderOrder) {
+        return a.renderOrder - b.renderOrder;
+    }
+    if (a.z !== b.z) {
+        return a.z - b.z;
+    }
+    return a.id - b.id;
+}
+/**
+ * Default sort for transparent items (back-to-front).
+ *
+ * "Reverse painter sort stable" - sorts back-to-front for proper alpha blending.
+ */
+function reversePainterSortStable(a, b) {
+    // Sort by groupOrder first (render layers)
+    if (a.groupOrder !== b.groupOrder) {
+        return a.groupOrder - b.groupOrder;
+    }
+    // Then by renderOrder
+    if (a.renderOrder !== b.renderOrder) {
+        return a.renderOrder - b.renderOrder;
+    }
+    // Then by Z (back-to-front for transparent = larger Z first)
+    if (a.z !== b.z) {
+        return b.z - a.z;
+    }
+    // Finally by ID for stability
+    return a.id - b.id;
+}
+// Scene Collection
+/** Frustum used for culling; rebuilt from VP every frame. */
+const _frustum = create();
+/** World-space AABB used when transforming a local bounding box. */
+const _worldBox = [0, 0, 0, 0, 0, 0];
+/** World-space sphere used when transforming a local bounding sphere. */
+const _worldSphere = { center: [0, 0, 0], radius: 0 };
+/**
+ * Collect all visible meshes from a scene into a RenderList.
+ *
+ * This walks the object graph, performs frustum culling, and populates
+ * the RenderList with opaque and transparent items.
+ *
+ * @param state - The RenderLists state
+ * @param object - The object to collect from (Scene, Mesh, or any Object3D)
+ * @param camera - The camera for frustum culling and Z sorting
+ * @returns The populated and sorted RenderList
+ */
+function collectRenderList(state, object, camera) {
+    const list = getRenderList(state, object, camera);
+    // Begin new frame
+    beginRenderList(list, object, camera);
+    // Build frustum from camera matrices
+    setFromViewProjectionMatrix(_frustum, camera.projectionMatrix, camera.matrixWorldInverse, camera.coordinateSystem);
+    // Walk object and collect visible meshes
+    walkObject(list, object, camera);
+    sortRenderList(list);
+    return list;
+}
+/**
+ * Walk the scene graph and collect visible meshes.
+ */
+function walkObject(list, obj, camera) {
+    if (!obj.visible)
+        return;
+    if (obj.isMesh) {
+        const mesh = obj;
+        if (isMeshVisible(mesh)) {
+            const material = mesh.material;
+            const z = computeViewZ(mesh, camera);
+            pushRenderItem(list, mesh, mesh.geometry, material, 0, // groupOrder - could be mesh.renderOrder or layer
+            z);
+        }
+    }
+    // Recurse into children
+    for (const child of obj.children) {
+        walkObject(list, child, camera);
+    }
+}
+/**
+ * Test whether a mesh should be included in the draw list.
+ *
+ * Uses frustum culling with bounding volumes:
+ * 1. boundingSphere, cheapest test (6 dot-products)
+ * 2. boundingBox, more precise but slightly more work
+ * 3. no bounds, always visible (safe fallback)
+ */
+function isMeshVisible(mesh) {
+    const geom = mesh.geometry;
+    const wm = mesh.matrixWorld;
+    // Skip disposed geometries
+    if (geom.disposed)
+        return false;
+    if (!mesh.frustumCulled)
+        return true;
+    // sphere test (preferred)
+    if (geom.boundingSphere !== undefined) {
+        const ls = geom.boundingSphere;
+        // Transform centre: ws_centre = wm * [cx, cy, cz, 1]
+        const cx = ls.center[0];
+        const cy = ls.center[1];
+        const cz = ls.center[2];
+        _worldSphere.center[0] = wm[0] * cx + wm[4] * cy + wm[8] * cz + wm[12];
+        _worldSphere.center[1] = wm[1] * cx + wm[5] * cy + wm[9] * cz + wm[13];
+        _worldSphere.center[2] = wm[2] * cx + wm[6] * cy + wm[10] * cz + wm[14];
+        // Scale the radius by the largest axis scale extracted from the world matrix.
+        const sx = Math.sqrt(wm[0] * wm[0] + wm[1] * wm[1] + wm[2] * wm[2]);
+        const sy = Math.sqrt(wm[4] * wm[4] + wm[5] * wm[5] + wm[6] * wm[6]);
+        const sz = Math.sqrt(wm[8] * wm[8] + wm[9] * wm[9] + wm[10] * wm[10]);
+        _worldSphere.radius = ls.radius * Math.max(sx, sy, sz);
+        return intersectsSphere(_frustum, _worldSphere);
+    }
+    // AABB test (fallback)
+    if (geom.boundingBox !== undefined) {
+        // Transform the local AABB by the world matrix to a world-space AABB.
+        transformMat4(_worldBox, geom.boundingBox, wm);
+        return intersectsBox3(_frustum, _worldBox);
+    }
+    // no bounds, always draw
+    return true;
+}
+/**
+ * Compute the view-space Z of a mesh for transparent sorting.
+ *
+ * Uses the mesh world-position (column 12, 13, 14 of matrixWorld)
+ * and the camera view matrix.
+ *
+ * Returns the view-space Z coordinate (negative = in front of camera in a
+ * right-handed system; we sort from largest (furthest) to smallest).
+ */
+function computeViewZ(mesh, camera) {
+    const wm = mesh.matrixWorld;
+    const vm = camera.matrixWorldInverse;
+    // World position of mesh origin
+    const wx = wm[12];
+    const wy = wm[13];
+    const wz = wm[14];
+    // Transform world position by view matrix (only z row needed)
+    return vm[2] * wx + vm[6] * wy + vm[10] * wz + vm[14];
+}
+
+function isRenderTarget(target) {
+    return target.isRenderTarget === true;
+}
+/** A `CanvasTarget` renders to the swapchain, which every backend addresses as a null render target. */
+function renderTargetOf(target) {
+    return isRenderTarget(target) ? target : null;
+}
+
+/** Frustum culled, in render order, opaque before transparent, drawn through the public `pass.draw`. */
+function drawScene(renderer, pass, scene, camera) {
+    // The scene tab's input, reported here so a pass recorded by hand correctly has no tree.
+    if (renderer.inspector !== null) {
+        const target = pass.desc.target;
+        const colorFormat = isRenderTarget(target) ? (target.textures[0]?.format ?? '') : target.colorFormat;
+        renderer.inspector.beginRenderScene(pass.desc.label ?? 'render', scene, target.samples, colorFormat);
+    }
+    const list = collectRenderList(renderer._renderLists, scene, camera);
+    drawItems(pass, list.opaque);
+    drawItems(pass, list.transparent);
+}
+function drawItems(pass, items) {
+    for (const item of items) {
+        if (item.mesh === null || item.material === null || item.geometry === null)
+            continue;
+        pass.draw(item.mesh);
+    }
+}
+
+/**
+ * SubBuildNode - wraps a node to build it in a specific sub-build context.
+ * Used by VaryingNode to ensure source nodes are built in VERTEX stage.
+ */
+class SubBuildNode extends Node {
+    node;
+    subBuildName;
+    kind = NodeKind.SubBuild;
+    constructor(node, subBuildName, nodeType = null) {
+        super(nodeType ?? node.type);
+        this.node = node;
+        this.subBuildName = subBuildName;
+    }
+}
+/**
+ * Creates a SubBuildNode wrapper.
+ */
+function subBuild(node, name, type = null) {
+    return new SubBuildNode(node, name, type);
+}
+
+/**
+ * VaryingNode - represents shader varyings that pass data from vertex to fragment stage.
+ */
+class VaryingNode extends Node {
+    kind = NodeKind.Varying;
+    /** The source node wrapped with subBuild('VERTEX') */
+    node;
+    /** The name of the varying in the shader (auto-generated if null) */
+    name;
+    /** Interpolation type */
+    interpolationType = null;
+    /** Interpolation sampling */
+    interpolationSampling = null;
+    constructor(source, name = null) {
+        super(source.type);
+        // wrap source in SubBuildNode for VERTEX stage
+        this.node = subBuild(source, 'VERTEX');
+        this.name = name;
+        // use global cache for varyings
+        this.global = true;
+    }
+    /**
+     * Set the WGSL @interpolate qualifier for this varying.
+     */
+    setInterpolation(type, sampling) {
+        // Enforce the WGSL vocabulary (perspective/linear/flat) — the canonical grammar that the GLSL
+        // emitter maps FROM. A GLSL term like 'smooth' would pass straight through to invalid WGSL.
+        if (type !== 'perspective' && type !== 'linear' && type !== 'flat') {
+            throw new Error(`[gpucat] setInterpolation type must be 'perspective' | 'linear' | 'flat' (WGSL), got '${type}'`);
+        }
+        this.interpolationType = type;
+        this.interpolationSampling = sampling ?? null;
+        return this;
+    }
+}
+const varying = (source, name) => new VaryingNode(source, name ?? null);
+
+/**
+ * SamplerNode - represents a sampler binding.
+ *
+ * Samplers are first-class nodes with their own bindings, mirroring WGSL's
+ * separate texture/sampler model.
+ *
+ * Holds a reference to a GpuSampler which contains the actual settings.
+ */
+class SamplerNode extends Node {
+    kind = NodeKind.Sampler;
+    /** The GpuSampler - always has a valid default */
+    value = new GpuSampler();
+    /** Unique ID for this sampler instance */
+    samplerId;
+    /** Uniform group, determines @group index. */
+    group;
+    constructor(desc, samplerId, group = objectGroup) {
+        super(desc);
+        this.samplerId = samplerId;
+        this.group = group;
+    }
+    /** Settings key from the GpuSampler (for deduplication) */
+    get settingsKey() {
+        return this.value.settingsKey;
+    }
+    /** Sampling parameters (forwarded from GpuSampler) */
+    get minFilter() {
+        return this.value.minFilter;
+    }
+    get magFilter() {
+        return this.value.magFilter;
+    }
+    get mipmapFilter() {
+        return this.value.mipmapFilter;
+    }
+    get addressModeU() {
+        return this.value.addressModeU;
+    }
+    get addressModeV() {
+        return this.value.addressModeV;
+    }
+    get addressModeW() {
+        return this.value.addressModeW;
+    }
+    get maxAnisotropy() {
+        return this.value.maxAnisotropy;
+    }
+    get compare() {
+        return this.value.compare;
+    }
+    /** Clone this sampler (shares same GpuSampler reference) */
+    clone() {
+        const cloned = new SamplerNode(this.type, this.samplerId, this.group);
+        cloned.value = this.value;
+        return cloned;
+    }
+}
+/**
+ * Bytes per mirror texel for a read-only `storage()` element on WebGL: the element's std430 array stride,
+ * capped at one rgba32uint texel. `4 → r32uint`, `8 → rg32uint`, and any multiple of 16 → `rgba32uint`
+ * (spanning `stride/16` texels per element). This packs one element (or a whole number of texels) per
+ * texel, so a scalar `array<u32>` reads element `i` from texel `i` — NOT `4·i` — and needs no padding
+ * (its byte length is always a multiple of 4). We never use a 3-component (`rgb`) texel: std430 pads a
+ * `vec3` to 16 bytes, so the only sub-16 strides are 4 and 8. Throws for an exotic stride (e.g. a 12- or
+ * 20-byte all-scalar struct) that has no whole-texel home — pad the struct to a multiple of 16 to read it.
+ */
+function storageMirrorBytesPerTexel(element) {
+    const stride = layoutStrideOf(element, 'std430');
+    if (stride === 4)
+        return 4;
+    if (stride === 8)
+        return 8;
+    if (stride % 16 === 0)
+        return 16;
+    throw new Error(`[gpucat] storage() read-lowering: element stride ${stride} bytes has no whole-texel WebGL layout ` +
+        `(supported: 4 → r32uint, 8 → rg32uint, multiples of 16 → rgba32uint). Pad the element to a ` +
+        `multiple of 16 bytes to read it on WebGL2.`);
+}
+class TextureBindingNode extends Node {
+    kind = NodeKind.TextureBinding;
+    /** The GpuTexture */
+    value = null;
+    /**
+     * When set, this binding is NOT a GpuTexture but a read-only storage `GpuBuffer` reinterpreted as an
+     * `rgba32uint` texture — the WebGL `storage()` read-lowering (WebGL2 has no SSBO). `value` stays null;
+     * the renderer reads the buffer's bytes directly as `width × height` u32 texels and caches one GL
+     * texture per `GpuBuffer`. WebGPU never sets this (storage stays a native `array<Struct>` there).
+     */
+    storageBufferSource = null;
+    /**
+     * When set, this binding's texture is the OUTPUT of a render pass, refreshed each frame by that pass.
+     * Carrying the source on the binding (not on a bespoke node subclass) is what lets any sampling node —
+     * color or depth — share one lifecycle: `getChildren` reaches `passNode` through here so discovery
+     * renders the source pass and orders it before consumers, and because `.sample()`/`.load()` clones
+     * SHARE this binding, that wiring survives cloning automatically. `previous` selects the ping-pong
+     * (last-frame) texture. `value` is (re)written from the pass each frame; the pass owns the texture.
+     */
+    passSource = null;
+    /** Unique ID for this texture binding (e.g. 'tAlbedo', 'tShadowMap'). */
+    textureId;
+    /** Uniform group, determines @group index. */
+    group;
+    constructor(desc, textureId, group = objectGroup) {
+        super(desc);
+        this.textureId = textureId;
+        this.group = group;
+    }
+}
+/**
+ * StorageTextureBindingNode - a module-scope storage texture binding, i.e.
+ * `var t : texture_storage_2d<rgba8unorm, write>`. Written via `textureStore`
+ * and read via `textureLoad` (no sampler).
+ *
+ * Format + dimension come from the GpuTexture's descriptor; `access` is a
+ * per-binding property (default `'write'`), so the same GpuTexture can be bound
+ * `write` in one shader and `read` in another (ping-pong). `mipLevel` selects the
+ * mip the binding view targets (for manual mip-pyramid writes).
+ */
+class StorageTextureBindingNode extends Node {
+    kind = NodeKind.StorageTextureBinding;
+    /** The GpuTexture */
+    value = null;
+    /** Unique ID for this texture binding (e.g. 'st3'). */
+    textureId;
+    /** Uniform group, determines @group index. */
+    group;
+    /** WGSL access mode for THIS binding (overrides the descriptor default). */
+    access;
+    /** Mip level the binding view targets. */
+    mipLevel = 0;
+    constructor(desc, textureId, access, group = objectGroup) {
+        super(desc);
+        this.textureId = textureId;
+        this.access = access;
+        this.group = group;
+    }
+    /** The storage texel format (from the descriptor). */
+    get format() {
+        return this.type.format;
+    }
+    /** The WGSL storage dimension tag ('1d' | '2d' | '2d_array' | '3d'). */
+    get dim() {
+        return this.type.dim;
+    }
+    /** The composed WGSL binding type, e.g. `texture_storage_2d<rgba8unorm, write>`. */
+    get wgslBindingType() {
+        return `texture_storage_${this.type.dim}<${this.type.format}, ${this.access}>`;
+    }
+    /** Set the mip level this binding view targets (for manual mip writes). */
+    setMipLevel(level) {
+        this.mipLevel = level;
+        return this;
+    }
+}
+/**
+ * storageTexture - bind a GpuTexture as a storage texture for compute writes/reads.
+ *
+ * @param gpuTex - a storage GpuTexture (e.g. from `createStorageTexture(...)`)
+ * @param access - 'write' (default), 'read', or 'read_write'
+ */
+function storageTexture(gpuTex, access = 'write') {
+    if (access === 'read_write' && !STORAGE_FORMATS[gpuTex.type.format].readWrite) {
+        throw new Error(`[gpucat] storage format '${gpuTex.type.format}' does not support 'read_write' access. ` +
+            `Use 'write' or 'read', or pick a read_write-capable format.`);
+    }
+    const node = new StorageTextureBindingNode(gpuTex.type, `st${gpuTex.id}`, access);
+    node.value = gpuTex;
+    return node;
+}
+/**
+ * TextureNode - represents a texture sample operation.
+ *
+ * When used as a value, it samples the texture at the given UV coordinates.
+ * The node type is 'vec4f' (the sampled color), not the texture type.
+ *
+ * Owns a TextureBindingNode that handles the module-scope binding.
+ *
+ * Supports chainable methods for ergonomic sampling control:
+ * - .sample(uv) - set UV coordinates
+ * - .level(level) - use textureSampleLevel
+ * - .bias(bias) - use textureSampleBias
+ * - .grad(ddx, ddy) - use textureSampleGrad
+ * - .offset(offset) - add offset parameter (2D only)
+ * - .load(coords, level?) - use textureLoad (no sampler)
+ */
+/**
+ * The vec4 result type for sampling/loading a texture: `vec4u`/`vec4i` for integer-sample textures
+ * (`texture_2d<u32>`/`<i32>` → usampler2D/isampler2D, whose texelFetch yields uvec4/ivec4), else
+ * `vec4f`. Set as the node's *runtime* type so both emitters declare the right texel type; the class
+ * keeps its static `vec4f` type (the common float case) to avoid widening every sampler's result.
+ */
+function textureResultVec4(desc) {
+    const sampleType = desc.sampleType?.type;
+    return sampleType === 'u32' ? vec4u$1 : sampleType === 'i32' ? vec4i$1 : vec4f$1;
+}
+class TextureNode extends Node {
+    kind = NodeKind.Texture;
+    /** The texture binding, holds GPU resource, textureId, group. */
+    bindingNode;
+    /**
+     * The texture coordinate node, derived from the texture's dimensionality:
+     * `vec2f` for 2D, `vec3f` for 3D (e.g. raymarching a volume or a 3D LUT),
+     * `f32` for 1D. Defaults to varying(uv()) (2D).
+     */
+    uvNode;
+    /**
+     * The reference node
+     * When sampling with different UVs, this points to the base texture node.
+     */
+    referenceNode = null;
+    /**
+     * The sampler node for this texture.
+     * Auto-created by texture() factory from texture settings.
+     * Can be set explicitly for custom sampler sharing.
+     */
+    samplerNode = null;
+    /** Current sampling mode */
+    samplingMode = 'sample';
+    /** Level node for textureSampleLevel (f32 for regular textures) */
+    levelNode = null;
+    /** Bias node for textureSampleBias */
+    biasNode = null;
+    /** Gradient nodes for textureSampleGrad [ddx, ddy] */
+    gradNode = null;
+    /** Offset node for sampling with offset (2D and 2D-array only, must be const) */
+    offsetNode = null;
+    /** Integer coordinates for textureLoad */
+    loadCoords = null;
+    /** Level for textureLoad (i32) */
+    loadLevel = null;
+    constructor(bindingNode, uvNode = null) {
+        // Node type is the sampled vec4 — vec4u/vec4i for integer-sample textures, else vec4f. Runtime
+        // type carries the truth (drives the emitter's texel type + swizzle element type); the static
+        // class type stays vec4f so existing float-texture usage isn't widened to a union.
+        super(textureResultVec4(bindingNode.type));
+        this.bindingNode = bindingNode;
+        // Default uv() (vec2f) only applies to 2D; 3D/1D always pass coords via sample().
+        this.uvNode = uvNode ?? varying(uv());
+    }
+    /** Get the base texture node (follows referenceNode chain) */
+    getBase() {
+        return this.referenceNode ? this.referenceNode.getBase() : this;
+    }
+    /** Convert this texture node to a sampler type */
+    convert(type) {
+        const desc = type === 'sampler' ? sampler$1 : samplerComparison;
+        return new CallNode(desc, type, [this]);
+    }
+    /** Clone this texture node with all sampling properties */
+    clone() {
+        const cloned = new TextureNode(this.bindingNode, this.uvNode);
+        // copy nodes
+        cloned.referenceNode = this.referenceNode;
+        cloned.samplerNode = this.samplerNode;
+        // copy sampling mode properties
+        cloned.samplingMode = this.samplingMode;
+        cloned.levelNode = this.levelNode;
+        cloned.biasNode = this.biasNode;
+        cloned.gradNode = this.gradNode;
+        cloned.offsetNode = this.offsetNode;
+        cloned.loadCoords = this.loadCoords;
+        cloned.loadLevel = this.loadLevel;
+        return cloned;
+    }
+    /** Sample the texture at the given coordinates (vec2 for 2D, vec3 for 3D, f32 for 1D). */
+    sample(uvNode) {
+        const textureNode = this.clone();
+        textureNode.uvNode = uvNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Use textureSampleLevel with explicit mip level */
+    level(levelNode) {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'level';
+        textureNode.levelNode = levelNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Use textureSampleBias with mip level bias */
+    bias(biasNode) {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'bias';
+        textureNode.biasNode = biasNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Use textureSampleGrad with explicit gradients */
+    grad(ddx, ddy) {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'grad';
+        textureNode.gradNode = [ddx, ddy];
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Add offset to sampling (2D and 2D-array only, must be const expression) */
+    offset(offsetNode) {
+        const textureNode = this.clone();
+        textureNode.offsetNode = offsetNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    load(a, b) {
+        // Struct read: first arg is a struct def (its `.type` is the literal 'struct'; a coord Node's
+        // `.type` is a schema descriptor object, never that string).
+        if (a.type === 'struct') {
+            const schema = a;
+            const layout = structFieldLayout(schema);
+            const idx = ensureU32(b);
+            const texelBase = layout.texelStride === 1 ? idx : idx.mul(u32(layout.texelStride));
+            return buildRecordAccessor(this.getBase(), schema, texelBase, storageRowWidth(this.getBase()));
+        }
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'load';
+        textureNode.loadCoords = a;
+        textureNode.loadLevel = b ?? null;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Read a struct record starting at an explicit TEXEL index (the primitive under {@link load}). */
+    loadAt(schema, texel) {
+        return buildRecordAccessor(this.getBase(), schema, ensureU32(texel), storageRowWidth(this.getBase()));
+    }
+}
+function ensureU32(n) {
+    return n.type.wgslType === 'u32' ? n : u32(n);
+}
+/** Read one rgba32uint texel at a linear texel index → a `vec4u` node. `width` (texels per row) is always
+ *  the runtime `textureSize()` node from {@link storageRowWidth} — the SAME addressing for both a real
+ *  `texture(t).load(schema, i)` and the WebGL `storage()` mirror lowering, mirroring three.js's PBO
+ *  indexing. Reading the width at runtime (never baking it) keeps the shader size- and binding-independent
+ *  and correct when the underlying texture is resized under a cached program. */
+function readTexel(base, texelIndex, width) {
+    const x = i32(texelIndex.mod(width));
+    const y = i32(texelIndex.div(width));
+    return base.load(vec2i(x, y), i32(0));
+}
+/**
+ * Runtime texel-row width of a storage mirror texture: `uint(textureSize(tex, 0).x)`. The WebGL
+ * `storage()` read-lowering addresses texels with this instead of a baked width constant, mirroring
+ * three.js's PBO addressing (`index % textureSize(...).x`). The emitted GLSL is then identical whether
+ * the buffer is value- or name-based and whatever its size, and the renderer sizes the mirror texture
+ * tight. Build ONE per mirror (cached on the `StorageMirror`) so CSE hoists the `textureSize` call.
+ */
+function storageRowWidth(base) {
+    return textureDimensions(base.bindingNode).x;
+}
+/**
+ * Decode one field at `byteOffset` from the record beginning at texel `texelBase` of an `rgba32uint`
+ * texture. Exported so the `storage()` WebGL lowering (the GLSL emitter's `matchStorageRead`) can decode
+ * a mirror-texture read through the same path as `texture(t).load(schema, i)`.
+ */
+function decodeField(base, texelBase, width, byteOffset, type) {
+    const texelWithin = Math.floor(byteOffset / 16);
+    const comp = (byteOffset % 16) / 4; // 0..3
+    const t = type.wgslType;
+    const texAt = (tw) => readTexel(base, tw === 0 ? texelBase : texelBase.add(u32(tw)), width);
+    // Swizzle a texel's component (0..3) → its u32 lane.
+    const lane = (texel, i) => [texel.x, texel.y, texel.z, texel.w][i];
+    const texel = texAt(texelWithin);
+    // Packed types occupy one u32 lane → decode via the WGSL unpack builtin (the GLSL emitter
+    // translates `unpack*` to native builtins / shift-mask). CSE-friendly: just wraps the lane.
+    if (isPackedDesc(type)) {
+        const spec = PACKED_SPECS[type.type];
+        const logical = spec.lanes === 4 ? vec4f$1 : vec2f$1;
+        return new CallNode(logical, spec.unpackFn, [lane(texel, comp)]);
+    }
+    // Bitfields: one u32 lane split into named fields via shift/mask (no builtins, both backends).
+    // Returns a sub-accessor whose `.<name>` lazily emits `(lane >> shift) & mask`.
+    if (isBitsDesc(type)) {
+        const laneNode = lane(texel, comp);
+        const sub = {};
+        for (const bf of type.fields) {
+            Object.defineProperty(sub, bf.name, {
+                enumerable: true,
+                get: () => {
+                    const shifted = bf.shift === 0 ? laneNode : shiftRight(laneNode, u32(bf.shift));
+                    if (bf.width >= 32)
+                        return shifted;
+                    const mask = ((1 << bf.width) - 1) >>> 0;
+                    return bitwiseAnd(shifted, u32(mask));
+                },
+            });
+        }
+        return sub;
+    }
+    // Scalars and float/int/uint vectors, driven by the descriptor's `scalar` kind + `len`. Read `len`
+    // lanes starting at `comp` (a vec2 aligns to 8 bytes so it may sit at comp 0 or 2; vec3/vec4 align to
+    // 16 so comp is 0), reinterpreting each lane per the component kind: u32 raw, i32/f32 via bitcast.
+    if ('scalar' in type && 'len' in type) {
+        const len = type.len;
+        const lanes = (reinterpret) => Array.from({ length: len }, (_, k) => reinterpret(lane(texel, comp + k)));
+        if (type.scalar === 'u32') {
+            // A whole u32 vec4 IS the texel — return it directly, no per-lane reconstruction.
+            if (len === 4)
+                return texel;
+            const c = lanes((l) => l);
+            if (len === 1)
+                return c[0];
+            return (len === 2 ? vec2u(c[0], c[1]) : vec3u(c[0], c[1], c[2]));
+        }
+        if (type.scalar === 'i32') {
+            const c = lanes(bitcastI32);
+            if (len === 1)
+                return c[0];
+            return (len === 2 ? vec2i(c[0], c[1]) : len === 3 ? vec3i(c[0], c[1], c[2]) : vec4i(c[0], c[1], c[2], c[3]));
+        }
+        if (type.scalar === 'f32') {
+            const c = lanes(bitcastF32);
+            if (len === 1)
+                return c[0];
+            return (len === 2 ? vec2f(c[0], c[1]) : len === 3 ? vec3(c[0], c[1], c[2]) : vec4(c[0], c[1], c[2], c[3]));
+        }
+        // bool / f16 components have no structured-texture decode form; fall through to the error below.
+    }
+    // f32 matrices: each column has stride 16 (one texel) for 3- and 4-row matrices. Shape read from the
+    // descriptor's cols/rows (present only on the matNxMf descriptors).
+    if ('cols' in type && 'rows' in type) {
+        const cols = type.cols;
+        const rows = type.rows;
+        if (rows !== 3 && rows !== 4) {
+            throw new Error(`[gpucat] structured-texture load: matrix '${t}' (2-row column packing) not yet supported`);
+        }
+        const columns = Array.from({ length: cols }, (_, c) => {
+            const ct = texAt(texelWithin + c);
+            return rows === 4
+                ? vec4(bitcastF32(lane(ct, 0)), bitcastF32(lane(ct, 1)), bitcastF32(lane(ct, 2)), bitcastF32(lane(ct, 3)))
+                : vec3(bitcastF32(lane(ct, 0)), bitcastF32(lane(ct, 1)), bitcastF32(lane(ct, 2)));
+        });
+        if (cols === 4 && rows === 4) {
+            const c = columns;
+            return mat4(c[0], c[1], c[2], c[3]);
+        }
+        if (cols === 3 && rows === 3) {
+            const c = columns;
+            return mat3(c[0], c[1], c[2]);
+        }
+        throw new Error(`[gpucat] structured-texture load: matrix '${t}' not yet supported`);
+    }
+    // Nested / whole struct: a structured-texture decode form like the scalar/vec/matrix branches above,
+    // decoding each member at its own byte offset and assembling a struct constructor (recursing for
+    // nested structs). Shared texel reads across members dedupe via CSE, so the record costs one fetch
+    // per distinct texel. Serves any struct-typed `texture(t).load(schema, i)` read; the storage() WebGL
+    // lowering reuses it like the other branches (a whole `storage.element(i)`, or a nested
+    // `.field('params').field('tint')`, resolves here). Members that are themselves arrays / bool / f16
+    // fall through to the per-member error below.
+    if (isStructDesc(type)) {
+        const layout = structFieldLayout(type);
+        const members = layout.fields.map((f) => decodeField(base, texelBase, width, byteOffset + f.byteOffset, f.type));
+        return new ConstructNode(type, members);
+    }
+    throw new Error(`[gpucat] structured-texture load: field type '${t}' not supported`);
+}
+function buildRecordAccessor(base, schema, texelBase, width) {
+    const layout = structFieldLayout(schema);
+    const acc = {};
+    for (const f of layout.fields) {
+        Object.defineProperty(acc, f.name, {
+            enumerable: true,
+            get: () => decodeField(base, texelBase, width, f.byteOffset, f.type),
+        });
+    }
+    return acc;
+}
+/** Counter for generating unique sampler IDs when using GpuSampler directly */
+let _samplerIdCounter = 0;
+function sampler(source, group = objectGroup) {
+    if ('isGpuSampler' in source) {
+        const node = new SamplerNode(sampler$1, `s${_samplerIdCounter++}`, group);
+        node.value = source;
+        return node;
+    }
+    else {
+        const node = new SamplerNode(sampler$1, `s${source.id}`, group);
+        node.value = source._gpuSampler;
+        return node;
+    }
+}
+function comparisonSampler(source, compare = 'less', group = objectGroup) {
+    const baseSampler = 'isGpuSampler' in source ? source : source._gpuSampler;
+    const samplerId = 'isGpuSampler' in source ? `s${_samplerIdCounter++}_cmp` : `s${source.id}_cmp`;
+    const node = new SamplerNode(samplerComparison, samplerId, group);
+    // Create a new GpuSampler with comparison function
+    const cmpSampler = new GpuSampler({
+        minFilter: baseSampler.minFilter,
+        magFilter: baseSampler.magFilter,
+        mipmapFilter: baseSampler.mipmapFilter,
+        addressModeU: baseSampler.addressModeU,
+        addressModeV: baseSampler.addressModeV,
+        addressModeW: baseSampler.addressModeW,
+        maxAnisotropy: baseSampler.maxAnisotropy,
+        compare,
+    });
+    node.value = cmpSampler;
+    return node;
+}
+/** Counter for generating unique texture IDs when using GpuTexture directly */
+let _textureIdCounter = 0;
+/** Build the sampled texture descriptor for sampling a storage texture (dual-usage). */
+function sampledDescForStorage(desc) {
+    const channel = STORAGE_FORMATS[desc.format].channel;
+    const sampleType = channel === 'u32' ? u32$1 : channel === 'i32' ? i32$1 : f32$1;
+    switch (desc.dim) {
+        case '1d':
+            return texture1d(sampleType);
+        case '2d_array':
+            return texture2dArray(sampleType);
+        case '3d':
+            return texture3d(sampleType);
+        default:
+            return texture2d(sampleType);
+    }
+}
+function texture(source, gpuSampler) {
+    if ('isGpuTexture' in source) {
+        if (!gpuSampler) {
+            throw new Error('texture(): GpuSampler required when passing GpuTexture directly');
+        }
+        // Storage textures are dual-usage (STORAGE_BINDING | TEXTURE_BINDING): the same GPU
+        // texture written in compute can be sampled here. Bind it as a sampled texture whose
+        // sample type matches the storage format's channel.
+        if (isStorageTextureDesc(source.type)) {
+            const sampledDesc = sampledDescForStorage(source.type);
+            const binding = new TextureBindingNode(sampledDesc, `t${_textureIdCounter++}`);
+            binding.value = source;
+            const node = new TextureNode(binding);
+            node.samplerNode = sampler(gpuSampler, binding.group);
+            return node;
+        }
+        // Widen the type for the binding to FlatSampledTexture
+        const sampledSource = source;
+        const desc = sampledSource.type;
+        const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
+        binding.value = sampledSource;
+        const node = new TextureNode(binding);
+        node.samplerNode = sampler(gpuSampler, binding.group);
+        return node;
+    }
+    else {
+        // A high-level Texture, DataTexture or Data3DTexture — all expose `_gpuTexture` / `_gpuSampler` /
+        // `id`. The GpuTexture's descriptor carries the sampled type (a DataTexture backed by an integer
+        // format reports `texture2d<u32>`/`texture2d<i32>`, so the emitter declares usampler2D/isampler2D
+        // and `.load()` returns uvec4/ivec4; a Data3DTexture reports `texture3d<f32>`) — so all three ride
+        // this same branch, no cast needed.
+        const gpuTex = source._gpuTexture;
+        const desc = gpuTex.type;
+        const binding = new TextureBindingNode(desc, `t${source.id}`);
+        binding.value = gpuTex;
+        const node = new TextureNode(binding);
+        node.samplerNode = sampler(source._gpuSampler, binding.group);
+        return node;
+    }
+}
+/**
+ * Create a standalone texture binding node.
+ *
+ * Use this when you want to work with WGSL-level free functions directly
+ * (textureSample, textureLoad, etc.) instead of the high-level TextureNode
+ * sampling API.
+ */
+const textureBinding = (tex, textureDesc) => {
+    const binding = new TextureBindingNode(textureDesc, `t${tex.id}`);
+    binding.value = tex._gpuTexture;
+    return binding;
+};
+/**
+ * CubeTextureNode - represents a cube texture sample operation.
+ *
+ * Cube textures use a 3D direction vector for sampling (vec3f).
+ * WGSL cube texture constraints:
+ * - NO offset support (cube textures don't support offset parameter)
+ * - NO textureLoad support (cube textures don't support direct texel access)
+ * - Uses vec3f for both coordinates and gradients
+ *
+ * Supports chainable methods:
+ * - .sample(direction) - set sampling direction
+ * - .level(level) - use textureSampleLevel
+ * - .bias(bias) - use textureSampleBias
+ * - .grad(ddx, ddy) - use textureSampleGrad
+ */
+class CubeTextureNode extends Node {
+    kind = NodeKind.CubeTexture;
+    /** The texture binding, holds GPU resource, textureId, group. */
+    bindingNode;
+    /**
+     * The direction node for cube texture sampling (vec3f).
+     * This is a 3D direction vector pointing into the cube.
+     */
+    directionNode = null;
+    /**
+     * The reference node.
+     * When sampling with different directions, this points to the base texture node.
+     */
+    referenceNode = null;
+    /**
+     * The sampler node for this texture.
+     * Auto-created by cubeTexture() factory from texture settings.
+     */
+    samplerNode = null;
+    /** Current sampling mode */
+    samplingMode = 'sample';
+    /** Level node for textureSampleLevel (f32) */
+    levelNode = null;
+    /** Bias node for textureSampleBias */
+    biasNode = null;
+    /** Gradient nodes for textureSampleGrad [ddx, ddy] - vec3f for cube textures */
+    gradNode = null;
+    constructor(bindingNode, directionNode = null) {
+        // Node type is vec4f (the sampled color)
+        super(vec4f$1);
+        this.bindingNode = bindingNode;
+        this.directionNode = directionNode;
+    }
+    /** Get the base texture node (follows referenceNode chain) */
+    getBase() {
+        return this.referenceNode ? this.referenceNode.getBase() : this;
+    }
+    /** Clone this texture node with all sampling properties */
+    clone() {
+        const cloned = new CubeTextureNode(this.bindingNode, this.directionNode);
+        cloned.referenceNode = this.referenceNode;
+        cloned.samplerNode = this.samplerNode;
+        // Copy sampling mode properties
+        cloned.samplingMode = this.samplingMode;
+        cloned.levelNode = this.levelNode;
+        cloned.biasNode = this.biasNode;
+        cloned.gradNode = this.gradNode;
+        return cloned;
+    }
+    /** Sample the cube texture in the given direction */
+    sample(directionNode) {
+        const textureNode = this.clone();
+        textureNode.directionNode = directionNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Use textureSampleLevel with explicit mip level */
+    level(levelNode) {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'level';
+        textureNode.levelNode = levelNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Use textureSampleBias with mip level bias */
+    bias(biasNode) {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'bias';
+        textureNode.biasNode = biasNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Use textureSampleGrad with explicit gradients (vec3f for cube textures) */
+    grad(ddx, ddy) {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'grad';
+        textureNode.gradNode = [ddx, ddy];
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+}
+function cubeTexture(source, gpuSampler) {
+    if ('isGpuTexture' in source) {
+        if (!gpuSampler) {
+            throw new Error('cubeTexture(): GpuSampler required when passing GpuTexture directly');
+        }
+        const desc = source.type;
+        const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
+        binding.value = source;
+        const node = new CubeTextureNode(binding);
+        node.samplerNode = sampler(gpuSampler, binding.group);
+        return node;
+    }
+    else {
+        const gpuTex = source._gpuTexture;
+        const desc = gpuTex.type;
+        const binding = new TextureBindingNode(desc, `t${source.id}`);
+        binding.value = gpuTex;
+        const node = new CubeTextureNode(binding);
+        node.samplerNode = sampler(source._gpuSampler, binding.group);
+        return node;
+    }
+}
+/**
+ * DepthTextureNode - represents a depth texture sample operation.
+ *
+ * Maps to WGSL `texture_depth_2d`. Returns f32 (not vec4f).
+ *
+ * Key differences from regular TextureNode:
+ * - Returns f32 (single depth value)
+ * - Level is i32 (not f32) for textureSampleLevel
+ * - NO textureSampleBias support
+ * - NO textureSampleGrad support
+ * - Supports offset (2D depth textures)
+ * - Comparison sampling via free functions (textureSampleCompare/textureSampleCompareLevel)
+ *   which require a sampler_comparison, use comparisonSampler() to create one
+ *
+ * Supports chainable methods:
+ * - .sample(uv) - set UV coordinates
+ * - .level(level) - use textureSampleLevel (i32 level)
+ * - .offset(offset) - add offset parameter
+ * - .load(coords, level?) - use textureLoad
+ */
+class DepthTextureNode extends Node {
+    kind = NodeKind.DepthTexture;
+    /** The texture binding, holds GPU resource, textureId, group. */
+    bindingNode;
+    /**
+     * The UV node for texture coordinates (vec2f).
+     * Defaults to varying(uv()) if not specified.
+     */
+    uvNode;
+    /**
+     * The reference node.
+     * When sampling with different UVs, this points to the base texture node.
+     */
+    referenceNode = null;
+    /**
+     * The sampler node for this texture.
+     * Auto-created by depthTexture() factory from texture settings.
+     * This is a regular sampler for textureSample/textureSampleLevel.
+     * For comparison sampling, use comparisonSampler() and the free functions.
+     */
+    samplerNode = null;
+    /** Current sampling mode */
+    samplingMode = 'sample';
+    /** Level node for textureSampleLevel (i32 for depth textures) */
+    levelNode = null;
+    /** Offset node for sampling with offset (must be const expression) */
+    offsetNode = null;
+    /** Integer coordinates for textureLoad */
+    loadCoords = null;
+    /** Level for textureLoad (i32) */
+    loadLevel = null;
+    constructor(bindingNode, uvNode = null) {
+        // Node type is f32 (depth value)
+        super(f32$1);
+        this.bindingNode = bindingNode;
+        this.uvNode = uvNode ?? varying(uv());
+    }
+    /** Get the base texture node (follows referenceNode chain) */
+    getBase() {
+        return this.referenceNode ? this.referenceNode.getBase() : this;
+    }
+    /** Clone this texture node */
+    clone() {
+        const cloned = new DepthTextureNode(this.bindingNode, this.uvNode);
+        cloned.referenceNode = this.referenceNode;
+        cloned.samplerNode = this.samplerNode;
+        cloned.samplingMode = this.samplingMode;
+        cloned.levelNode = this.levelNode;
+        cloned.offsetNode = this.offsetNode;
+        cloned.loadCoords = this.loadCoords;
+        cloned.loadLevel = this.loadLevel;
+        return cloned;
+    }
+    /** Sample the depth texture at the given UV coordinates */
+    sample(uvNode) {
+        const textureNode = this.clone();
+        textureNode.uvNode = uvNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Use textureSampleLevel with explicit mip level (i32 for depth textures) */
+    level(levelNode) {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'level';
+        textureNode.levelNode = levelNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Add offset to sampling (must be const expression) */
+    offset(offsetNode) {
+        const textureNode = this.clone();
+        textureNode.offsetNode = offsetNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Use textureLoad for direct texel fetch (no filtering) */
+    load(coords, level) {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'load';
+        textureNode.loadCoords = coords;
+        textureNode.loadLevel = level ?? null;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+}
+/**
+ * A DepthTexture's default GpuSampler is a COMPARISON sampler (`compare` set) for shadow mapping, but a
+ * DepthTextureNode's `.sample()`/`.level()` surface is a PLAIN depth read whose WGSL declares a plain
+ * `sampler`. WebGPU derives the sampler binding type from `compare`, so binding a comparison sampler
+ * where the shader declares a plain one is a layout/shader mismatch (pipeline-creation error). Strip
+ * `compare` for the plain read; shadow compares build their own `comparisonSampler()` explicitly.
+ * Returns the source untouched when it already carries no compare (the common non-depth-texture case).
+ */
+function plainDepthSampler(src) {
+    if (src.compare === undefined)
+        return src;
+    return new GpuSampler({
+        minFilter: src.minFilter,
+        magFilter: src.magFilter,
+        mipmapFilter: src.mipmapFilter,
+        addressModeU: src.addressModeU,
+        addressModeV: src.addressModeV,
+        addressModeW: src.addressModeW,
+        maxAnisotropy: src.maxAnisotropy,
+        lodMinClamp: src.lodMinClamp,
+        lodMaxClamp: src.lodMaxClamp,
+    });
+}
+function depthTexture(source, gpuSampler) {
+    if ('isGpuTexture' in source) {
+        if (!gpuSampler) {
+            throw new Error('depthTexture(): GpuSampler required when passing GpuTexture directly');
+        }
+        const desc = source.type;
+        const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
+        binding.value = source;
+        const node = new DepthTextureNode(binding);
+        node.samplerNode = sampler(plainDepthSampler(gpuSampler), binding.group);
+        return node;
+    }
+    else {
+        const gpuTex = source._gpuTexture;
+        const desc = gpuTex.type;
+        const binding = new TextureBindingNode(desc, `t${source.id}`);
+        binding.value = gpuTex;
+        const node = new DepthTextureNode(binding);
+        node.samplerNode = sampler(plainDepthSampler(source._gpuSampler), binding.group);
+        return node;
+    }
+}
+/**
+ * ArrayTextureNode - represents a 2D array texture sample operation.
+ *
+ * Maps to WGSL `texture_2d_array<f32>`. Returns vec4f.
+ *
+ * Key differences from regular TextureNode:
+ * - Has a `layerNode` (i32) for the array layer index
+ * - WGSL inserts the array_index after coords in all sampling calls
+ * - Uses vec2f coords + i32 array_index (not vec3f)
+ *
+ * Supports chainable methods:
+ * - .layer(index) - set the array layer index
+ * - .sample(uv) - set UV coordinates
+ * - .level(level) - use textureSampleLevel
+ * - .bias(bias) - use textureSampleBias
+ * - .grad(ddx, ddy) - use textureSampleGrad
+ * - .offset(offset) - add offset parameter
+ * - .load(coords, level?) - use textureLoad
+ */
+class ArrayTextureNode extends Node {
+    kind = NodeKind.ArrayTexture;
+    /** The texture binding, holds GPU resource, textureId, group. */
+    bindingNode;
+    /**
+     * The UV node for texture coordinates (vec2f).
+     * Defaults to varying(uv()) if not specified.
+     */
+    uvNode;
+    /** The array layer index (i32). */
+    layerNode;
+    /**
+     * The reference node.
+     * When sampling with different UVs/layers, this points to the base texture node.
+     */
+    referenceNode = null;
+    /**
+     * The sampler node for this texture.
+     * Auto-created by arrayTexture() factory from texture settings.
+     */
+    samplerNode = null;
+    /** Current sampling mode */
+    samplingMode = 'sample';
+    /** Level node for textureSampleLevel (f32) */
+    levelNode = null;
+    /** Bias node for textureSampleBias */
+    biasNode = null;
+    /** Gradient nodes for textureSampleGrad [ddx, ddy] (vec2f) */
+    gradNode = null;
+    /** Offset node for sampling with offset (must be const expression) */
+    offsetNode = null;
+    /** Integer coordinates for textureLoad */
+    loadCoords = null;
+    /** Level for textureLoad (i32) */
+    loadLevel = null;
+    constructor(bindingNode, layerNode, uvNode = null) {
+        // Node type is vec4f (the sampled color)
+        super(vec4f$1);
+        this.bindingNode = bindingNode;
+        this.layerNode = layerNode;
+        this.uvNode = uvNode ?? varying(uv());
+    }
+    /** Get the base texture node (follows referenceNode chain) */
+    getBase() {
+        return this.referenceNode ? this.referenceNode.getBase() : this;
+    }
+    /** Clone this texture node with all sampling properties */
+    clone() {
+        const cloned = new ArrayTextureNode(this.bindingNode, this.layerNode, this.uvNode);
+        cloned.referenceNode = this.referenceNode;
+        cloned.samplerNode = this.samplerNode;
+        cloned.samplingMode = this.samplingMode;
+        cloned.levelNode = this.levelNode;
+        cloned.biasNode = this.biasNode;
+        cloned.gradNode = this.gradNode;
+        cloned.offsetNode = this.offsetNode;
+        cloned.loadCoords = this.loadCoords;
+        cloned.loadLevel = this.loadLevel;
+        return cloned;
+    }
+    /** Set the array layer index */
+    layer(layerNode) {
+        const textureNode = this.clone();
+        textureNode.layerNode = layerNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Sample the texture at the given UV coordinates */
+    sample(uvNode) {
+        const textureNode = this.clone();
+        textureNode.uvNode = uvNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Use textureSampleLevel with explicit mip level */
+    level(levelNode) {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'level';
+        textureNode.levelNode = levelNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Use textureSampleBias with mip level bias */
+    bias(biasNode) {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'bias';
+        textureNode.biasNode = biasNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Use textureSampleGrad with explicit gradients */
+    grad(ddx, ddy) {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'grad';
+        textureNode.gradNode = [ddx, ddy];
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Add offset to sampling (must be const expression) */
+    offset(offsetNode) {
+        const textureNode = this.clone();
+        textureNode.offsetNode = offsetNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+    /** Use textureLoad for direct texel fetch (no filtering) */
+    load(coords, level) {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'load';
+        textureNode.loadCoords = coords;
+        textureNode.loadLevel = level ?? null;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+}
+function arrayTexture(source, samplerOrLayer, maybeLayerNode) {
+    if ('isGpuTexture' in source) {
+        const gpuSampler = samplerOrLayer;
+        const layerNode = maybeLayerNode;
+        const binding = new TextureBindingNode(source.type, `t${_textureIdCounter++}`);
+        binding.value = source;
+        const node = new ArrayTextureNode(binding, layerNode);
+        node.samplerNode = sampler(gpuSampler, binding.group);
+        return node;
+    }
+    else {
+        const layerNode = samplerOrLayer;
+        const gpuTex = source._gpuTexture;
+        const binding = new TextureBindingNode(gpuTex.type, `t${source.id}`);
+        binding.value = gpuTex;
+        const node = new ArrayTextureNode(binding, layerNode);
+        node.samplerNode = sampler(source._gpuSampler, binding.group);
+        return node;
+    }
+}
+/**
+ * textureSample - Sample a texture at UV coordinates.
+ * Fragment shader only.
+ */
+function textureSample(t, s, coords, offset) {
+    const args = offset ? [t, s, coords, offset] : [t, s, coords];
+    return new CallNode(textureSampleResultOf(t.type), 'textureSample', args);
+}
+/**
+ * textureSampleLevel - Sample a texture at a specific mip level.
+ * Works in any shader stage.
+ */
+function textureSampleLevel(t, s, coords, level, offset) {
+    const args = offset ? [t, s, coords, level, offset] : [t, s, coords, level];
+    return new CallNode(textureSampleResultOf(t.type), 'textureSampleLevel', args);
+}
+/**
+ * textureSampleBias - Sample a texture with mip level bias.
+ * Fragment shader only. Not supported for depth textures.
+ */
+function textureSampleBias(t, s, coords, bias, offset) {
+    const args = offset ? [t, s, coords, bias, offset] : [t, s, coords, bias];
+    return new CallNode(textureSampleResultOf(t.type), 'textureSampleBias', args);
+}
+/**
+ * textureSampleGrad - Sample a texture with explicit gradients.
+ * Works in any shader stage. Not supported for depth textures.
+ */
+function textureSampleGrad(t, s, coords, ddx, ddy, offset) {
+    const args = offset ? [t, s, coords, ddx, ddy, offset] : [t, s, coords, ddx, ddy];
+    return new CallNode(textureSampleResultOf(t.type), 'textureSampleGrad', args);
+}
+/**
+ * textureSampleCompare - Compare-sample a depth texture.
+ * Fragment shader only. Requires sampler_comparison.
+ */
+function textureSampleCompare(t, s, coords, depthRef, offset) {
+    const args = offset ? [t, s, coords, depthRef, offset] : [t, s, coords, depthRef];
+    return new CallNode(f32$1, 'textureSampleCompare', args);
+}
+/**
+ * textureSampleCompareLevel - Compare-sample a depth texture at mip level 0.
+ * Works in any shader stage (unlike textureSampleCompare, which is fragment-only). Requires
+ * sampler_comparison. WGSL's textureSampleCompareLevel always samples at the base level and takes NO
+ * level argument — arbitrary-LOD comparison sampling is not expressible in WGSL — so this takes only an
+ * optional const `offset`.
+ */
+function textureSampleCompareLevel(t, s, coords, depthRef, offset) {
+    const args = offset ? [t, s, coords, depthRef, offset] : [t, s, coords, depthRef];
+    return new CallNode(f32$1, 'textureSampleCompareLevel', args);
+}
+function textureLoad(t, coords, levelOrLayer) {
+    if (t.kind === NodeKind.StorageTextureBinding) {
+        if (t.access === 'write') {
+            throw new Error(`[gpucat] textureLoad on a 'write' storage texture; bind it with access 'read' or 'read_write'.`);
+        }
+        const args = levelOrLayer !== undefined ? [t, coords, levelOrLayer] : [t, coords];
+        return new CallNode(storageValueOf(t.type.format), 'textureLoad', args);
+    }
+    return new CallNode(textureSampleResultOf(t.type), 'textureLoad', [t, coords, levelOrLayer]);
+}
+/**
+ * textureStore - Store a value into a storage texture (a statement / side effect).
+ *
+ * 2D/3D: `textureStore(tex, coords, value)`. 2D-array: pass the array `layer` between
+ * coords and value. The binding must have access 'write' or 'read_write'.
+ */
+function textureStore(t, coords, value, layer) {
+    if (t.access === 'read') {
+        throw new Error(`[gpucat] textureStore on a 'read' storage texture; bind it with access 'write' or 'read_write'.`);
+    }
+    const args = layer !== undefined ? [t, coords, layer, value] : [t, coords, value];
+    addToStack(new CallNode(Void, 'textureStore', args));
+}
+/**
+ * textureDimensions - Get texture dimensions.
+ */
+function textureDimensions(t, level) {
+    const args = level ? [t, level] : [t];
+    return new CallNode(vec2u$1, 'textureDimensions', args);
+}
+/**
+ * textureNumLevels - Get number of mip levels.
+ */
+function textureNumLevels(t) {
+    return new CallNode(u32$1, 'textureNumLevels', [t]);
+}
+/**
+ * textureNumLayers - Get number of array layers.
+ */
+function textureNumLayers(t) {
+    return new CallNode(u32$1, 'textureNumLayers', [t]);
+}
+/**
+ * textureGather - Gather a single component from 4 texels.
+ */
+function textureGather(component, t, s, coords, offset) {
+    const args = offset ? [component, t, s, coords, offset] : [component, t, s, coords];
+    return new CallNode(textureSampleResultOf(t.type), 'textureGather', args);
+}
+/**
+ * textureGatherCompare - Gather compare results from 4 texels.
+ * Requires sampler_comparison.
+ */
+function textureGatherCompare(t, s, coords, depthRef, offset) {
+    const args = offset ? [t, s, coords, depthRef, offset] : [t, s, coords, depthRef];
+    return new CallNode(vec4f$1, 'textureGatherCompare', args);
+}
+/**
+ * What a render target's colour attachment holds, as a node to sample. The counterpart of drawing
+ * into it with `f.pass({ target })`, and the plain alternative to `RenderTextureNode`, which samples
+ * the same thing but also schedules a pass to fill it.
+ */
+function targetColor(target) {
+    const tex = target.texture;
+    if (tex === undefined) {
+        throw new Error('[targetColor] this render target has no colour attachment (count: 0).');
+    }
+    return texture(tex);
+}
+/** A render target's depth, as a node to sample. The target must be created with `depthSampled: true`. */
+function targetDepth(target) {
+    const tex = target.depthTexture;
+    if (tex === null || tex === undefined) {
+        throw new Error('[targetDepth] this render target has no sampled depth; create it with `depthSampled: true`.');
+    }
+    return depthTexture(tex);
+}
+
+/**
+ * Screen coordinate, the current fragment's xy position in pixels.
+ * Equivalent to @builtin(position).xy in WGSL.
+ *
+ * @example
+ * // Get pixel position
+ * const pixelPos = screenCoordinate;
+ */
+const screenCoordinate = fragCoord.xy;
+/**
+ * Screen/viewport size in pixels. Updated per render by the renderer.
+ * In renderGroup so it's shared across all objects in a frame.
+ *
+ * @example
+ * // Get screen dimensions
+ * const size = screenSize; // vec2f(width, height)
+ */
+const screenSize = /*@__PURE__*/ new UniformNode(new Uniform(vec2f$1, undefined, renderGroup), 'screenSize').onRenderUpdate(({ width, height }) => [width, height]);
+/**
+ * Normalized screen UV coordinates in [0, 1] range.
+ * Computed as screenCoordinate / screenSize.
+ *
+ * (0, 0) is top-left, (1, 1) is bottom-right (following WebGPU conventions).
+ *
+ * @example
+ * // Sample a texture using screen UV
+ * const color = texture.sample(screenUV);
+ *
+ * // Use x component for horizontal effects
+ * const x = screenUV.x;
+ */
+const screenUV = /*@__PURE__*/ (() => {
+    return div(screenCoordinate, screenSize);
+})();
+
+let _passCount = 0;
+class RenderTextureNode extends Node {
+    kind = NodeKind.RenderTexture;
+    /** Which aspect this node yields when read as an expression; the getters reach the rest. */
+    read;
+    /** What this draws: a scene to walk, or a recorder that calls `draw` itself. Read afresh every
+     *  frame, so reassigning it swaps what is rendered without rebuilding the node. */
+    contents;
+    /** A reference to the camera. */
+    camera;
+    /** Options for the internal render target. */
+    options;
+    /** Stable unique string used to namespace texture/sampler IDs. */
+    passId;
+    clearColor;
+    renderTarget;
+    updateBeforeType = 'frame';
+    deps = [];
+    wgsl = '';
+    _pixelRatio = 1;
+    _width = 1;
+    _height = 1;
+    _resolutionScale = 1;
+    _mrt = null;
+    _textures = {};
+    _textureNodes = {};
+    _previousTextures = {};
+    _previousTextureNodes = {};
+    _depthTextureNodes = {};
+    _viewZNodes = {};
+    _linearDepthNodes = {};
+    constructor(contents, camera, options = {}) {
+        // `label` (when given) names the pass in the inspector + GPU tooling.
+        // still burn a counter slot so auto ids never collide with a label.
+        const autoId = `_pass${_passCount++}`;
+        const pid = options.label ?? autoId;
+        super(vec4f$1);
+        this.read = options.read ?? 'color';
+        this.contents = contents;
+        this.camera = camera;
+        this.options = options;
+        this.passId = pid;
+        this.clearColor = options.clearColor ?? [0, 0, 0, 1];
+        const target = createRenderTarget(this._width * this._pixelRatio, this._height * this._pixelRatio, {
+            colorFormat: options.colorFormat ?? 'rgba16float',
+            // forwarded rather than resolved here: RenderTarget already owns the
+            // depthFormat-beats-stencilBuffer precedence, and duplicating it is how
+            // the two drift apart.
+            depthFormat: options.depthFormat,
+            stencilBuffer: options.stencilBuffer,
+            samples: options.samples ?? 1,
+            count: 1,
+        });
+        target.texture.name = 'output';
+        this.renderTarget = target;
+        this._textures['output'] = target.texture;
+        // The depth ATTACHMENT, not the sampling-gated `depthTexture` getter, which is null until
+        // getDepthTextureNode() declares sampling.
+        if (target._depthAttachment) {
+            this._textures['depth'] = target._depthAttachment;
+        }
+    }
+    /**
+     * Sets the resolution scale for the pass.
+     * The resolution scale is a factor that is multiplied with the renderer's width and height.
+     */
+    setResolutionScale(resolutionScale) {
+        this._resolutionScale = resolutionScale;
+        return this;
+    }
+    /** Gets the current resolution scale of the pass. */
+    getResolutionScale() {
+        return this._resolutionScale;
+    }
+    /**
+     * Sets the size of the pass's render target. Honors the pixel ratio.
+     */
+    setSize(width, height) {
+        this._width = width;
+        this._height = height;
+        const effectiveWidth = Math.floor(this._width * this._pixelRatio * this._resolutionScale);
+        const effectiveHeight = Math.floor(this._height * this._pixelRatio * this._resolutionScale);
+        this.renderTarget.setSize(effectiveWidth, effectiveHeight);
+    }
+    /** Sets the pixel ratio for the pass's render target and updates the size. */
+    setPixelRatio(pixelRatio) {
+        this._pixelRatio = pixelRatio;
+        this.setSize(this._width, this._height);
+    }
+    /** Sets the given MRT node to setup MRT for this pass. */
+    setMRT(mrt) {
+        this._mrt = mrt;
+        return this;
+    }
+    /** Returns the current MRT node. */
+    getMRT() {
+        return this._mrt;
+    }
+    /**
+     * Returns the texture for the given output name.
+     * Creates a new texture slot if it doesn't exist.
+     */
+    getTexture(name) {
+        let texture = this._textures[name];
+        if (texture === undefined) {
+            // Clone the reference texture format and create new render target texture
+            const refTexture = this.renderTarget.texture;
+            const image = { width: this.renderTarget.width, height: this.renderTarget.height };
+            texture = new Texture(image);
+            texture.format = refTexture.format;
+            texture.isRenderTargetTexture = true;
+            texture.generateMipmaps = false;
+            texture.flipY = false;
+            texture.name = name;
+            this._textures[name] = texture;
+            this.renderTarget.textures.push(texture);
+        }
+        return texture;
+    }
+    /**
+     * Returns the texture holding the data of the previous frame for the given output name.
+     */
+    getPreviousTexture(name) {
+        let texture = this._previousTextures[name];
+        if (texture === undefined) {
+            // Create a clone of the current texture for previous frame storage
+            const currentTexture = this.getTexture(name);
+            const image = { width: this.renderTarget.width, height: this.renderTarget.height };
+            texture = new Texture(image);
+            texture.format = currentTexture.format;
+            texture.isRenderTargetTexture = true;
+            texture.generateMipmaps = false;
+            texture.flipY = false;
+            texture.name = name;
+            this._previousTextures[name] = texture;
+        }
+        return texture;
+    }
+    /**
+     * Switches current and previous textures for the given output name.
+     */
+    toggleTexture(name) {
+        const prevTexture = this._previousTextures[name];
+        if (prevTexture !== undefined) {
+            const texture = this._textures[name];
+            // Swap in renderTarget.textures array (only for color textures, not depth)
+            if (texture && !('isDepthTexture' in texture)) {
+                const index = this.renderTarget.textures.indexOf(texture);
+                if (index !== -1 && !('isDepthTexture' in prevTexture)) {
+                    this.renderTarget.textures[index] = prevTexture;
+                }
+            }
+            this._textures[name] = prevTexture;
+            this._previousTextures[name] = texture;
+            // Binding values are refreshed post-render by _updateTextureResources().
+        }
+    }
+    /**
+     * Returns the underlying DepthTexture for the given attachment (typically
+     * `'depth'`). Null if the pass has no depth attachment.
+     */
+    getDepthTexture(name = 'depth') {
+        const tex = this._textures[name];
+        return tex && 'isDepthTexture' in tex ? tex : null;
+    }
+    /**
+     * Returns a depth-typed texture node for the given attachment.
+     * Use this instead of `getTextureNode('depth')`, depth-format render
+     * targets must be bound as `texture_depth_2d` (sampleType 'depth')
+     * because WebGPU rejects them as filterable Float.
+     *
+     * The pass's depth attachment is a stable reference (RenderTarget.setSize
+     * mutates in place), so the binding's `value` is set once at construction
+     * and never needs to be refreshed.
+     */
+    getDepthTextureNode(name = 'depth') {
+        let node = this._depthTextureNodes[name];
+        if (node === undefined) {
+            // Sampling the depth: it must be a texture attachment, not a renderbuffer
+            // (the WebGL backend reads this to attach the depth texture, not an RBO).
+            this.renderTarget.depthSampled = true;
+            const depthTex = this.getDepthTexture(name);
+            if (!depthTex)
+                throw new Error(`RenderTextureNode: no '${name}' depth attachment to bind`);
+            node = depthTexture(depthTex);
+            node.uvNode = screenUV;
+            // Tie the binding to this pass so discovery renders + orders the pass before any
+            // consumer of the depth — carried through .load()/.sample() clones via the shared binding.
+            node.bindingNode.passSource = { passNode: this, textureName: name, previous: false };
+            this._depthTextureNodes[name] = node;
+        }
+        return node;
+    }
+    /**
+     * Returns the texture node for the given output name.
+     */
+    getTextureNode(name = 'output') {
+        let textureNode = this._textureNodes[name];
+        if (textureNode === undefined) {
+            textureNode = texture(this.getTexture(name));
+            // A pass fills its whole target, so it reads by screen position. The `varying(uv())` a
+            // TextureNode defaults to would make every consuming mesh owe a `uv` attribute instead.
+            textureNode.uvNode = screenUV;
+            textureNode.bindingNode.passSource = { passNode: this, textureName: name, previous: false };
+            this._textureNodes[name] = textureNode;
+        }
+        return textureNode;
+    }
+    /**
+     * Returns the previous texture node for the given output name.
+     */
+    getPreviousTextureNode(name = 'output') {
+        let textureNode = this._previousTextureNodes[name];
+        if (textureNode === undefined) {
+            // Ensure current texture node exists first
+            if (this._textureNodes[name] === undefined) {
+                this.getTextureNode(name);
+            }
+            textureNode = texture(this.getPreviousTexture(name));
+            textureNode.uvNode = screenUV;
+            textureNode.bindingNode.passSource = { passNode: this, textureName: name, previous: true };
+            this._previousTextureNodes[name] = textureNode;
+        }
+        return textureNode;
+    }
+    /**
+     * Returns a viewZ node of this pass.
+     * Uses cameraNear/cameraFar builtin nodes for correct depth reconstruction.
+     */
+    getViewZNode(name = 'depth') {
+        let viewZNode = this._viewZNodes[name];
+        if (viewZNode === undefined) {
+            // Depth-format attachments must be sampled via `texture_depth_2d`
+            // + `textureLoad` (no sampler, pixel-coord fetch). Sampling
+            // through `textureSample` would require a 'float' sample type,
+            // which WebGPU rejects for depth24plus / depth32float.
+            const depthNode = this.getDepthTextureNode(name);
+            const depth = depthNode.load(vec2i(screenCoordinate));
+            // perspectiveDepthToViewZ formula (non-reversed depth buffer):
+            // viewZ = near.mul(far).div(far.sub(near).mul(depth).sub(far))
+            viewZNode = cameraNear.mul(cameraFar).div(cameraFar.sub(cameraNear).mul(depth).sub(cameraFar));
+            this._viewZNodes[name] = viewZNode;
+        }
+        return viewZNode;
+    }
+    /**
+     * Returns a linear depth node of this pass.
+     * Uses cameraNear/cameraFar builtin nodes for correct depth reconstruction.
+     */
+    getLinearDepthNode(name = 'depth') {
+        let linearDepthNode = this._linearDepthNodes[name];
+        if (linearDepthNode === undefined) {
+            const viewZNode = this.getViewZNode(name);
+            // viewZToOrthographicDepth formula:
+            // linearDepth = viewZ.add(near).div(near.sub(far))
+            linearDepthNode = viewZNode.add(cameraNear).div(cameraNear.sub(cameraFar));
+            this._linearDepthNodes[name] = linearDepthNode;
+        }
+        return linearDepthNode;
+    }
+    /** Records this pass on the open frame, so it encodes before the pass that samples its texture. */
+    updateBefore(frame) {
+        const renderer = frame.renderer;
+        const { contents, camera } = this;
+        this._pixelRatio = 1;
+        this.setSize(frame.width, frame.height);
+        cameraNear.value = camera.near;
+        cameraFar.value = camera.far;
+        // Motion vectors and TAA read last frame's colour, so swap before this frame overwrites it.
+        for (const name in this._previousTextures) {
+            this.toggleTexture(name);
+        }
+        const pass = renderer._frameState.pass({
+            target: this.renderTarget,
+            camera,
+            clear: this.clearColor,
+            mrt: this._mrt ?? undefined,
+            label: this.passId,
+        });
+        if (typeof contents === 'function')
+            contents(pass);
+        else
+            drawScene(renderer, pass, contents, camera);
+        pass.end();
+        this._updateTextureResources();
+    }
+    _updateTextureResources() {
+        // Refresh every pass-sourced binding with its current GPU texture. setSize / toggleTexture
+        // can swap the underlying texture object between frames, so each binding is re-pointed here.
+        for (const name in this._textureNodes) {
+            this._textureNodes[name].bindingNode.value = this.getTexture(name)._gpuTexture;
+        }
+        for (const name in this._previousTextureNodes) {
+            this._previousTextureNodes[name].bindingNode.value = this.getPreviousTexture(name)._gpuTexture;
+        }
+        for (const name in this._depthTextureNodes) {
+            const depthTex = this.getDepthTexture(name);
+            if (depthTex)
+                this._depthTextureNodes[name].bindingNode.value = depthTex._gpuTexture;
+        }
+    }
+    /**
+     * Frees internal resources. Should be called when the node is no longer in use.
+     */
+    dispose() {
+        this.renderTarget.dispose();
+    }
+}
+/**
+ * Schedules a render of `contents` from `camera` into its own target, and hands back a node you can
+ * sample. `read` picks which aspect the node yields when used as a value; every aspect stays
+ * reachable through the getters whatever it is set to.
+ */
+const renderTexture = (contents, camera, options) => {
+    return new RenderTextureNode(contents, camera, options);
+};
+
+/**
+ * ACES filmic tone mapping (Narkowicz 2015).
+ * f(x) = clamp((x * (2.51x + 0.03)) / (x * (2.43x + 0.59) + 0.14), 0, 1)
+ */
+const acesToneMapping = Fn((color) => {
+    const c = color.toConst('c');
+    const a = c.mul(c.mul(f32(2.51)).add(vec3f(0.03))).toVar('a');
+    const b = c
+        .mul(c.mul(f32(2.43)).add(vec3f(0.59)))
+        .add(vec3f(0.14))
+        .toVar('b');
+    const result = a.div(b).clamp(vec3f(0), vec3f(1)).toVar('result');
+    return result;
+}, { name: 'acesToneMapping', params: [{ name: 'color', type: vec3f$1 }] });
+/**
+ * Reinhard tone mapping.
+ * f(x) = x / (1 + x)
+ */
+const reinhardToneMapping = Fn((color) => {
+    const result = color.div(vec3f(1).add(color)).toVar('result');
+    return result;
+}, { name: 'reinhardToneMapping', params: [{ name: 'color', type: vec3f$1 }] });
+/**
+ * sRGB EOTF (electro-optical transfer function).
+ * Converts sRGB gamma-encoded values to linear-sRGB.
+ */
+const sRGBTransferEOTF = Fn((color) => {
+    const a = color.mul(f32(0.9478672986)).add(f32(0.0521327014)).pow(vec3f(2.4)).toVar('a');
+    const b = color.mul(f32(0.0773993808)).toVar('b');
+    const factor = color.lessThanEqual(vec3f(0.04045)).toVar('factor');
+    const result = factor.select(b, a).toVar('result');
+    return result;
+}, { name: 'sRGBTransferEOTF', params: [{ name: 'color', type: vec3f$1 }] });
+/**
+ * sRGB OETF (opto-electronic transfer function).
+ * Converts linear-sRGB values to sRGB gamma-encoded.
+ */
+const sRGBTransferOETF = Fn((color) => {
+    const a = color.pow(vec3f(0.41666)).mul(f32(1.055)).sub(f32(0.055)).toVar('a');
+    const b = color.mul(f32(12.92)).toVar('b');
+    const factor = color.lessThanEqual(vec3f(0.0031308)).toVar('factor');
+    const result = factor.select(b, a).toVar('result');
+    return result;
+}, { name: 'sRGBTransferOETF', params: [{ name: 'color', type: vec3f$1 }] });
+
+/**
+ * Wrap `inputNode` in tone-mapping and color-space conversion.
+ *
+ * Returns a `Node<d.vec4f>` suitable for final output:
+ * `fullscreen(renderOutput(scenePass.getTextureNode()))`, drawn in a pass to the canvas.
+ */
+function renderOutput(inputNode, options = {}) {
+    const toneMapping = options.toneMapping ?? 'aces';
+    const colorSpace = options.colorSpace ?? 'srgb';
+    const exposure = options.exposure ?? f32(1.0);
+    const input = inputNode.toConst('input');
+    const rgb = input.xyz.mul(exposure);
+    const alpha = input.w;
+    const tonemapped = applyToneMapping(rgb, toneMapping);
+    const finalRgb = colorSpace === 'srgb' ? sRGBTransferOETF(tonemapped) : tonemapped;
+    return vec4f(finalRgb, alpha);
+}
+function applyToneMapping(rgb, mode) {
+    switch (mode) {
+        case 'aces':
+            return acesToneMapping(rgb);
+        case 'reinhard':
+            return reinhardToneMapping(rgb);
+        case 'linear':
+            return rgb;
+        case 'none':
+            return rgb;
+    }
+}
+
+const EDGE_STEP_COUNT = 6;
+const EDGE_GUESS = 8.0;
+const CONTRAST_THRESHOLD = 0.0312;
+const RELATIVE_THRESHOLD = 0.063;
+const SUBPIXEL_BLENDING = 1.0;
+/**
+ * FXAA (Fast Approximate Anti-Aliasing) post-processing effect.
+ *
+ * Uses the standard FXAA 3.11 algorithm:
+ * 1. Samples luminance of neighboring pixels
+ * 2. Detects edges based on contrast
+ * 3. Blends pixels along detected edges to smooth jaggies
+ *
+ * The inverse texture size uniform is automatically updated each frame.
+ *
+ * @param textureNode - The texture to apply FXAA to (typically from pass.getTextureNode())
+ * @returns A vec4f node containing the anti-aliased color
+ *
+ * @example
+ * const scenePass = renderTexture(scene, camera);
+ * const fxaaOutput = fxaa(scenePass.getTextureNode());
+ *
+ * const postMaterial = createMaterial({
+ *     vertex: fullscreenQuadVertex,
+ *     fragment: fxaaOutput,
+ * });
+ */
+function fxaa(textureNode) {
+    // Uniform for inverse texture size, auto-updated each frame
+    const invSize = uniform(vec2(0, 0), 'fxaaInvSize');
+    // Lifecycle node to update invSize before rendering
+    const invSizeUpdater = node().onFrameUpdate(() => {
+        const tex = textureNode.bindingNode.value;
+        if (tex) {
+            invSize.value = [1 / tex.width, 1 / tex.height];
+        }
+    });
+    // Edge steps array for the edge search loop
+    const EDGE_STEPS = array([f32(1.0), f32(1.5), f32(2.0), f32(2.0), f32(2.0), f32(4.0)]);
+    // ── Helper Functions ──────────────────────────────────────────────────────
+    // Sample texture at explicit UV with level(0) to force base mip level
+    // We chain .sample(uv).level() to avoid holding a TextureNode with the
+    // default uvNode (which would pull in varying(uv()) as a dependency)
+    const Sample = Fn((uv) => {
+        return textureNode.sample(uv).level(f32(0));
+    }, { name: 'FxaaSample', params: [{ name: 'uv', type: vec2f$1 }] });
+    const SampleLuminance = Fn((uv) => {
+        return Sample(uv).rgb.dot(vec3(0.3, 0.59, 0.11));
+    }, { name: 'FxaaSampleLuminance', params: [{ name: 'uv', type: vec2f$1 }] });
+    const SampleLuminanceOffset = Fn((texSize, uv, uOffset, vOffset) => {
+        const shiftedUv = uv.add(texSize.mul(vec2(uOffset, vOffset)));
+        return SampleLuminance(shiftedUv);
+    }, {
+        name: 'FxaaSampleLuminanceOffset',
+        params: [
+            { name: 'texSize', type: vec2f$1 },
+            { name: 'uv', type: vec2f$1 },
+            { name: 'uOffset', type: f32$1 },
+            { name: 'vOffset', type: f32$1 },
+        ],
+    });
+    // ── Main FXAA Function ────────────────────────────────────────────────────
+    const ApplyFXAA = Fn((uv, texSize) => {
+        // Sample luminance neighborhood
+        const m = SampleLuminance(uv);
+        const n = SampleLuminanceOffset(texSize, uv, f32(0.0), f32(-1.0));
+        const e = SampleLuminanceOffset(texSize, uv, f32(1.0), f32(0.0));
+        const s = SampleLuminanceOffset(texSize, uv, f32(0.0), f32(1.0));
+        const w = SampleLuminanceOffset(texSize, uv, f32(-1.0), f32(0.0));
+        const ne = SampleLuminanceOffset(texSize, uv, f32(1.0), f32(-1.0));
+        const nw = SampleLuminanceOffset(texSize, uv, f32(-1.0), f32(-1.0));
+        const se = SampleLuminanceOffset(texSize, uv, f32(1.0), f32(1.0));
+        const sw = SampleLuminanceOffset(texSize, uv, f32(-1.0), f32(1.0));
+        const highest = max(s, e, n, w, m);
+        const lowest = min(s, e, n, w, m);
+        const contrast = highest.sub(lowest).toVar('contrast');
+        // Should skip pixel? (low contrast = no edge)
+        const threshold = max(f32(CONTRAST_THRESHOLD), f32(RELATIVE_THRESHOLD).mul(highest));
+        If(contrast.lessThan(threshold), () => {
+            Return(Sample(uv));
+        });
+        // Determine pixel blend factor (subpixel anti-aliasing)
+        const filterSum = f32(2.0)
+            .mul(s.add(e).add(n).add(w))
+            .add(se.add(sw).add(ne).add(nw))
+            .mul(f32(1.0 / 12.0));
+        const filterDiff = abs(filterSum.sub(m));
+        const filterClamped = clamp(filterDiff.div(max(contrast, f32(0.0001))), f32(0.0), f32(1.0));
+        const pixelBlendFactor = smoothstep(f32(0.0), f32(1.0), filterClamped).toVar('pixelBlendFactor');
+        const pixelBlend = pixelBlendFactor.mul(pixelBlendFactor).mul(f32(SUBPIXEL_BLENDING)).toVar('pixelBlend');
+        // Determine edge direction (horizontal vs vertical)
+        const horizontal = abs(s.add(n).sub(m.mul(f32(2.0))))
+            .mul(f32(2.0))
+            .add(abs(se.add(ne).sub(e.mul(f32(2.0)))))
+            .add(abs(sw.add(nw).sub(w.mul(f32(2.0)))));
+        const vertical = abs(e.add(w).sub(m.mul(f32(2.0))))
+            .mul(f32(2.0))
+            .add(abs(se.add(sw).sub(s.mul(f32(2.0)))))
+            .add(abs(ne.add(nw).sub(n.mul(f32(2.0)))));
+        const isHorizontal = horizontal.greaterThanEqual(vertical);
+        const pLuminance = isHorizontal.select(s, e);
+        const nLuminance = isHorizontal.select(n, w);
+        const pGradient = abs(pLuminance.sub(m));
+        const nGradient = abs(nLuminance.sub(m));
+        const pixelStep = isHorizontal.select(texSize.y, texSize.x).toVar('pixelStep');
+        const oppositeLuminance = f32(0).toVar('oppositeLum');
+        const gradient = f32(0).toVar('gradient');
+        If(pGradient.lessThan(nGradient), () => {
+            pixelStep.assign(pixelStep.negate());
+            oppositeLuminance.assign(nLuminance);
+            gradient.assign(nGradient);
+        }).Else(() => {
+            oppositeLuminance.assign(pLuminance);
+            gradient.assign(pGradient);
+        });
+        // Determine edge blend factor (edge-aware anti-aliasing)
+        const uvEdge = uv.toVar('uvEdge');
+        const edgeStep = vec2(0, 0).toVar('edgeStep');
+        If(isHorizontal, () => {
+            uvEdge.y.addAssign(pixelStep.mul(f32(0.5)));
+            edgeStep.assign(vec2(texSize.x, f32(0.0)));
+        }).Else(() => {
+            uvEdge.x.addAssign(pixelStep.mul(f32(0.5)));
+            edgeStep.assign(vec2(f32(0.0), texSize.y));
+        });
+        const edgeLuminance = m.add(oppositeLuminance).mul(f32(0.5));
+        const gradientThreshold = gradient.mul(f32(0.25));
+        // Search in positive direction
+        const puv = uvEdge.add(edgeStep.mul(EDGE_STEPS.element(f32(0).toU32()))).toVar('puv');
+        const pLuminanceDelta = SampleLuminance(puv).sub(edgeLuminance).toVar('pLumDelta');
+        const pAtEnd = abs(pLuminanceDelta).greaterThanEqual(gradientThreshold).toVar('pAtEnd');
+        Loop({ start: 1, end: EDGE_STEP_COUNT }, ({ i }) => {
+            If(pAtEnd, () => {
+                Break();
+            });
+            puv.addAssign(edgeStep.mul(EDGE_STEPS.element(i)));
+            pLuminanceDelta.assign(SampleLuminance(puv).sub(edgeLuminance));
+            pAtEnd.assign(abs(pLuminanceDelta).greaterThanEqual(gradientThreshold));
+        });
+        If(pAtEnd.not(), () => {
+            puv.addAssign(edgeStep.mul(f32(EDGE_GUESS)));
+        });
+        // Search in negative direction
+        const nuv = uvEdge.sub(edgeStep.mul(EDGE_STEPS.element(f32(0).toU32()))).toVar('nuv');
+        const nLuminanceDelta = SampleLuminance(nuv).sub(edgeLuminance).toVar('nLumDelta');
+        const nAtEnd = abs(nLuminanceDelta).greaterThanEqual(gradientThreshold).toVar('nAtEnd');
+        Loop({ start: 1, end: EDGE_STEP_COUNT }, ({ i }) => {
+            If(nAtEnd, () => {
+                Break();
+            });
+            nuv.subAssign(edgeStep.mul(EDGE_STEPS.element(i)));
+            nLuminanceDelta.assign(SampleLuminance(nuv).sub(edgeLuminance));
+            nAtEnd.assign(abs(nLuminanceDelta).greaterThanEqual(gradientThreshold));
+        });
+        If(nAtEnd.not(), () => {
+            nuv.subAssign(edgeStep.mul(f32(EDGE_GUESS)));
+        });
+        // Calculate distances
+        const pDistance = f32(0).toVar('pDist');
+        const nDistance = f32(0).toVar('nDist');
+        If(isHorizontal, () => {
+            pDistance.assign(puv.x.sub(uv.x));
+            nDistance.assign(uv.x.sub(nuv.x));
+        }).Else(() => {
+            pDistance.assign(puv.y.sub(uv.y));
+            nDistance.assign(uv.y.sub(nuv.y));
+        });
+        const shortestDistance = f32(0).toVar('shortestDist');
+        const deltaSign = bool(false).toVar('deltaSign');
+        If(pDistance.lessThanEqual(nDistance), () => {
+            shortestDistance.assign(pDistance);
+            deltaSign.assign(pLuminanceDelta.greaterThanEqual(f32(0.0)));
+        }).Else(() => {
+            shortestDistance.assign(nDistance);
+            deltaSign.assign(nLuminanceDelta.greaterThanEqual(f32(0.0)));
+        });
+        // Calculate edge blend factor
+        const edgeBlend = f32(0).toVar('edgeBlend');
+        const mDeltaSign = m.sub(edgeLuminance).greaterThanEqual(f32(0.0));
+        If(deltaSign.equal(mDeltaSign), () => {
+            edgeBlend.assign(f32(0.0));
+        }).Else(() => {
+            edgeBlend.assign(f32(0.5).sub(shortestDistance.div(pDistance.add(nDistance))));
+        });
+        // Final blend
+        const finalBlend = max(pixelBlend, edgeBlend).toVar('finalBlend');
+        const finalUv = uv.toVar('finalUv');
+        If(isHorizontal, () => {
+            finalUv.y.addAssign(pixelStep.mul(finalBlend));
+        }).Else(() => {
+            finalUv.x.addAssign(pixelStep.mul(finalBlend));
+        });
+        return Sample(finalUv);
+    }, {
+        name: 'ApplyFXAA',
+        params: [
+            { name: 'uv', type: vec2f$1 },
+            { name: 'texSize', type: vec2f$1 },
+        ],
+    });
+    // Return result with lifecycle updater attached
+    return ApplyFXAA(screenUV, invSize).before(invSizeUpdater);
+}
+
+/**
+ * Basic struct descriptor for a non-indexed indirect draw call (`drawIndirect`) with no additional fields.
+ * Memory layout (4 × u32, 16 bytes):
+ *   vertexCount, instanceCount, firstVertex, firstInstance
+ */
+const DrawIndirect = struct('DrawIndirect', {
+    vertexCount: u32$1,
+    instanceCount: u32$1,
+    firstVertex: u32$1,
+    firstInstance: u32$1,
+});
+/**
+ * Basic struct descriptor for an indexed indirect draw call (`drawIndexedIndirect`) with no additional fields.
+ * Memory layout (5 × u32, 20 bytes):
+ *   indexCount, instanceCount, firstIndex, baseVertex, firstInstance
+ */
+const DrawIndexedIndirect = struct('DrawIndexedIndirect', {
+    indexCount: u32$1,
+    instanceCount: u32$1,
+    firstIndex: u32$1,
+    baseVertex: u32$1,
+    firstInstance: u32$1,
+});
+
+/** Model-to-world transform matrix. */
+const modelWorldMatrix = /*@__PURE__*/ new UniformNode(new Uniform(mat4x4f$1, undefined, objectGroup), 'modelWorldMatrix').onObjectUpdate((frame) => frame.object.matrixWorld);
+/** Normal matrix (inverse-transpose of upper-left 3x3 of model matrix). In objectGroup. */
+const modelNormalMatrix = /*@__PURE__*/ new UniformNode(new Uniform(mat3x3f$1, undefined, objectGroup), 'modelNormalMatrix').onObjectUpdate((frame) => frame.object.normalMatrix);
+/** helper for vertex shader: compute clip-space position from vertex position attribute and camera matrices. */
+const positionClip = (() => {
+    const pos = attribute('position', vec3f$1);
+    const localPos = vec4f(pos, f32(1.0));
+    const worldPos = mul(modelWorldMatrix, localPos);
+    const viewPos = mul(cameraViewMatrix, worldPos);
+    const clipPos = mul(cameraProjectionMatrix, viewPos);
+    return clipPos;
+})();
+
+class BlendMode {
+    blending;
+    blendSrc;
+    blendDst;
+    blendEquation;
+    blendSrcAlpha;
+    blendDstAlpha;
+    blendEquationAlpha;
+    premultiplyAlpha;
+    constructor(blending = 'normal') {
+        this.blending = blending;
+        this.blendSrc = 'src-alpha';
+        this.blendDst = 'one-minus-src-alpha';
+        this.blendEquation = 'add';
+        this.blendSrcAlpha = null;
+        this.blendDstAlpha = null;
+        this.blendEquationAlpha = null;
+        this.premultiplyAlpha = false;
+    }
+    copy(source) {
+        this.blending = source.blending;
+        this.blendSrc = source.blendSrc;
+        this.blendDst = source.blendDst;
+        this.blendEquation = source.blendEquation;
+        this.blendSrcAlpha = source.blendSrcAlpha;
+        this.blendDstAlpha = source.blendDstAlpha;
+        this.blendEquationAlpha = source.blendEquationAlpha;
+        this.premultiplyAlpha = source.premultiplyAlpha;
+        return this;
+    }
+    clone() {
+        return new BlendMode().copy(this);
+    }
+}
+
+const _noBlending = /*#__PURE__*/ new BlendMode('no');
+const _materialBlending = /*#__PURE__*/ new BlendMode('material');
+/**
+ * Represents a fragment shader output struct with multiple @location outputs.
+ * Used for MRT (Multiple Render Targets).
+ *
+ * Each member in the `members` array corresponds to a @location(N) output.
+ * The index in the array determines the @location index.
+ *
+ * @example
+ * // Direct usage (rare):
+ * const outputs = new OutputStructNode([colorNode, normalNode, velocityNode]);
+ *
+ * // Typically created via mrt() helper instead.
+ */
+class OutputStructNode extends Node {
+    // 2-literal union (not bare NodeKind) so MRTNode can override to MRT while
+    // keeping `kind === OutputStruct` narrowing clean for every other branch.
+    kind = NodeKind.OutputStruct;
+    /**
+     * Array of output nodes. Each node maps to @location(index).
+     * All nodes should produce vec4f values.
+     */
+    members;
+    constructor(members = []) {
+        super(vec4f$1);
+        this.members = members;
+    }
+}
+class MRTNode extends OutputStructNode {
+    kind = NodeKind.MRT;
+    /**
+     * Dictionary of named outputs. Keys are texture names,
+     * values are nodes producing vec4f values.
+     */
+    outputNodes;
+    /**
+     * Per-output blend modes. Default `output` uses the material's blend;
+     * any name without an entry falls back to no-blend.
+     */
+    blendModes = { output: _materialBlending };
+    /**
+     * Resolved output names in order. Populated during setup() when
+     * render target is known. Used by the compiler to emit correct
+     * @location indices.
+     */
+    _resolvedNames = [];
+    constructor(outputNodes) {
+        super([]);
+        this.outputNodes = outputNodes;
+    }
+    setBlendMode(name, blend) {
+        this.blendModes[name] = blend;
+        return this;
+    }
+    getBlendMode(name) {
+        return this.blendModes[name] || _noBlending;
+    }
+    /**
+     * Returns true if this MRT node has an output with the given name.
+     */
+    has(name) {
+        return this.outputNodes[name] !== undefined;
+    }
+    /**
+     * Returns the output node for the given name.
+     */
+    get(name) {
+        return this.outputNodes[name];
+    }
+    /**
+     * Merge another MRTNode's outputs into this one.
+     * Returns a new MRTNode with combined outputs (other's outputs override this's).
+     */
+    merge(other) {
+        const merged = new MRTNode({ ...this.outputNodes, ...other.outputNodes });
+        merged.blendModes = { ...this.blendModes, ...other.blendModes };
+        return merged;
+    }
+    /**
+     * Resolve output names to @location indices against the target's attachment names. Throws on a
+     * name the target does not have: skipping it emits a shader with fewer locations than the pass
+     * binds, which the backend then draws with an attachment left at its clear colour.
+     *
+     * @param getTextureIndex - Maps an attachment name to its index, or -1.
+     * @param attachmentNames - Only read to name the alternatives when a lookup fails.
+     */
+    resolveOutputs(getTextureIndex, attachmentNames) {
+        const members = [];
+        const names = [];
+        for (const name in this.outputNodes) {
+            const index = getTextureIndex(name);
+            if (index === -1) {
+                const has = attachmentNames?.length ? attachmentNames.join(', ') : '(none)';
+                throw new Error(`[mrt] output '${name}' names no attachment on this target. It has: ${has}.`);
+            }
+            // Ensure the node outputs vec4f (wrap if needed)
+            let node = this.outputNodes[name];
+            if (node.type.wgslType !== 'vec4f') {
+                node = vec4f(node, new LiteralNode(f32$1, 1));
+            }
+            members[index] = node;
+            names[index] = name;
+        }
+        this.members = members;
+        this._resolvedNames = names;
+    }
+}
+/**
+ * Create an MRT (Multiple Render Targets) node from a dictionary of outputs.
+ *
+ * Output names must match the `.name` property of textures in the render target.
+ * The compiler maps each output to the corresponding @location(N) based on
+ * texture array indices.
+ *
+ * @example
+ * const mrtOutput = mrt({
+ *     color: finalColor,
+ *     normal: viewSpaceNormal,
+ *     velocity: motionVector,
+ * });
+ *
+ * const material = createMaterial({
+ *     vertex: clipPosition,
+ *     fragment: mrtOutput,
+ * });
+ */
+function mrt(outputNodes) {
+    return new MRTNode(outputNodes);
+}
+
+/**
+ * StorageNode, declares a storage buffer binding in a shader.
+ *
+ * Two forms:
+ * 1. **Named reference**: Resolved from `geometry.buffers` at render time
+ * 2. **Value reference**: Buffer provided directly, can be swapped via `.value`
+ *
+ * Both are first-class features for different use cases:
+ * - Named references enable buffer reuse across materials (same shader, different buffers per mesh)
+ * - Value references enable compute-only workloads (no geometry) and explicit buffer swapping
+ *
+ * @example Named reference (resolved from geometry.buffers)
+ * const particles = storage('particles', d.array(Particle), 'read_write');
+ * // Later: geometry.setBuffer('particles', myParticleBuffer);
+ *
+ * @example Value reference (buffer provided directly, swappable)
+ * const particles = storage(myBuffer, 'read_write');
+ * particles.value = otherBuffer;  // swap buffers for double-buffering
+ */
+class StorageNode extends Node {
+    kind = NodeKind.Storage;
+    /** Buffer name (for geometry.buffers lookup), null if value-based */
+    bufferName;
+    /** Direct buffer reference, null if name-based */
+    value;
+    /** The WGSL type string, e.g. 'array<mat4x4f>'. Emitted verbatim. */
+    storageType;
+    /** Access mode for the storage buffer. */
+    access;
+    /** Whether the node is atomic or not. */
+    isAtomic = false;
+    /** Uniform group, determines @group index. Defaults to objectGroup. */
+    group;
+    constructor(schema, nameOrBuffer, access = 'read', group = objectGroup) {
+        super(schema);
+        if (typeof nameOrBuffer === 'string') {
+            this.bufferName = nameOrBuffer;
+            this.value = null;
+        }
+        else {
+            this.bufferName = null;
+            this.value = nameOrBuffer;
+        }
+        this.storageType = schema.wgslType;
+        this.access = access;
+        this.group = group;
+    }
+    /** Whether this is a named reference (resolved from geometry.buffers) */
+    get isNamedReference() {
+        return this.bufferName !== null;
+    }
+    /** Whether this is an indirect storage buffer (has 'indirect' usage) */
+    get isIndirectStorageBuffer() {
+        return this.value?.usage.has('indirect') ?? false;
+    }
+    /** Defines whether the node is atomic or not */
+    setAtomic(value) {
+        this.isAtomic = value;
+        return this;
+    }
+    /** Convenience method for making this node atomic */
+    toAtomic() {
+        return this.setAtomic(true);
+    }
+    /** Convenience method for configuring read-only access */
+    toReadOnly() {
+        if (this.access === 'read')
+            return this;
+        if (this.bufferName !== null) {
+            return new StorageNode(this.type, this.bufferName, 'read', this.group);
+        }
+        else {
+            return new StorageNode(this.type, this.value, 'read', this.group);
+        }
+    }
+}
+function storage(nameOrBuffer, schemaOrAccess, accessArg) {
+    if (typeof nameOrBuffer === 'string') {
+        // Name-based: storage(name, schema, access?)
+        const schema = schemaOrAccess;
+        const access = accessArg ?? 'read';
+        return new StorageNode(schema, nameOrBuffer, access, objectGroup);
+    }
+    else {
+        // Value-based: storage(buffer, access?)
+        const buffer = nameOrBuffer;
+        const access = schemaOrAccess ?? 'read';
+        return new StorageNode(buffer.schema, buffer, access, objectGroup);
+    }
+}
+
+/**
+ * A transform-feedback kernel: named per-element attribute inputs → named captured-varying outputs,
+ * authored with the ordinary gpucat DSL body. This is the honest WebGL2 transform-feedback primitive
+ * (attribute-in / return-out), NOT a faked `storage()` compute — see
+ * llm/webgl-transform-feedback-plan.md. It has no WebGPU analogue; portability is via a shared body
+ * `Fn` wrapped in a WebGPU `compute()`, not by this node pretending to span backends.
+ *
+ * The body runs as the vertex `main()`. The element index is `vertexIndex` (= gl_VertexID); the
+ * instanced variant uses `instanceIndex` (= gl_InstanceID).
+ */
+class TransformFeedbackNode {
+    id;
+    /** Per-element input attribute schemas, keyed by name (declared `in a_<name>`). */
+    inputs;
+    /** Captured-varying output schemas, keyed by name (declared `out v_<name>`). */
+    outputs;
+    /** Input attribute nodes handed to the callback, keyed by input name (emitted as `a_<name>`). */
+    inputNodes;
+    /** The traced kernel body (statements pushed during the callback). */
+    body;
+    /** The per-output value expressions returned by the callback, keyed by output name. */
+    outputExprs;
+    name;
+    /** Set to true after dispose(). */
+    disposed = false;
+    /** @internal renderer cleanup hook (Phase 2). */
+    _onDispose = null;
+    constructor(opts) {
+        this.id = `_transformFeedback_${_tfCounter++}`;
+        this.inputs = opts.inputs;
+        this.outputs = opts.outputs;
+        this.inputNodes = opts.inputNodes;
+        this.body = opts.body;
+        this.outputExprs = opts.outputExprs;
+        this.name = opts.name;
+    }
+    dispose() {
+        if (this.disposed)
+            return;
+        this.disposed = true;
+        this._onDispose?.();
+    }
+}
+let _tfCounter = 0;
+/**
+ * Free factory for a transform-feedback kernel (the canonical authoring form).
+ *
+ * @example
+ * const kernel = transformFeedback(
+ *   (io) => ({ pos: io.pos.add(io.vel) }),
+ *   { inputs: { pos: d.vec4f, vel: d.vec4f }, outputs: { pos: d.vec4f } },
+ * );
+ */
+function transformFeedback(callback, layout) {
+    // Build one attribute node per input, sourced by name `a_<name>` (buffers bind at the run site in
+    // Phase 2, not baked into the node — see the plan's Runtime API section).
+    // Source each attribute by its bare input name; the GLSL emitter adds the `a_` prefix (→ `a_<name>`).
+    const inputNodes = {};
+    for (const name of Object.keys(layout.inputs)) {
+        inputNodes[name] = new AttributeNode(layout.inputs[name], String(name));
+    }
+    // Trace the callback exactly like FnNode.trace(): push a stack, run the body (which appends its
+    // statements to the stack), then capture the returned per-output expressions.
+    const body = new StackNode();
+    const prev = pushStack(body);
+    let outputs;
+    try {
+        outputs = callback(inputNodes);
+    }
+    finally {
+        popStack(prev);
+    }
+    const outputExprs = {};
+    for (const name of Object.keys(layout.outputs)) {
+        const expr = outputs[name];
+        if (expr == null) {
+            throw new Error(`[transformFeedback] kernel did not return an output for '${name}' declared in outputs.`);
+        }
+        outputExprs[name] = expr;
+    }
+    return new TransformFeedbackNode({
+        inputs: layout.inputs,
+        outputs: layout.outputs,
+        inputNodes: inputNodes,
+        body,
+        outputExprs,
+        name: layout.name,
+    });
+}
+
+/**
+ * Inline raw-shader expression node.
+ *
+ * Used for embedding raw WGSL and/or GLSL expressions with node dependencies.
+ * Each source string uses $0, $1, etc. as placeholders for `deps` (same deps,
+ * same ordering, for both backends). The active backend picks its own source;
+ * the emitter throws if the source for that backend is absent.
+ *
+ * @example
+ * const expr = new WgslNode(d.f32, 'dot($0, $1)', [a, b]);
+ * // WGSL: dot(a_expr, b_expr)
+ */
+class WgslNode extends Node {
+    wgsl;
+    deps;
+    glsl;
+    kind = NodeKind.Wgsl;
+    constructor(type, 
+    /** Raw WGSL source with $0/$1 placeholders. Undefined for GLSL-only nodes. */
+    wgsl, deps, 
+    /** Raw GLSL source with $0/$1 placeholders (companion). Undefined for WGSL-only nodes. */
+    glsl) {
+        super(type);
+        this.wgsl = wgsl;
+        this.deps = deps;
+        this.glsl = glsl;
+    }
+    /**
+     * Returns a new WgslNode with additional unreferenced deps appended.
+     * Useful for pulling nodes into the graph (e.g. varyings) without
+     * emitting them in the expression string.
+     */
+    with(...extra) {
+        return new WgslNode(this.type, this.wgsl, [...this.deps, ...extra], this.glsl);
+    }
+    /**
+     * Attach a GLSL companion expression so this node also compiles on the WebGL
+     * backend. The companion is a tagged template whose interpolations MUST be the
+     * same dep nodes (any order); they are appended to `deps` and reindexed so the
+     * `$N` placeholders in the GLSL string line up with the merged dep list.
+     *
+     * @example
+     * const luma = wgsl(d.f32)`dot(${c}, vec3f(0.299, 0.587, 0.114))`
+     *     .glslSource`dot(${c}, vec3(0.299, 0.587, 0.114))`;
+     */
+    glslSource(strings, ...deps) {
+        // Merge the companion's deps into this node's dep list, deduping by identity so a dep shared
+        // between the WGSL and GLSL sources keeps a single slot. Build the GLSL string against the
+        // merged indices.
+        const merged = [...this.deps];
+        const indexOf = (n) => {
+            const existing = merged.indexOf(n);
+            if (existing !== -1)
+                return existing;
+            merged.push(n);
+            return merged.length - 1;
+        };
+        const glslStr = String.raw({ raw: strings }, ...deps.map((dep) => `$${indexOf(dep)}`));
+        return new WgslNode(this.type, this.wgsl, merged, glslStr);
+    }
+}
+/**
+ * Create an inline WGSL expression node using a tagged template literal.
+ *
+ * @param desc - A descriptor specifying the result type
+ *
+ * @example
+ * // With desc:
+ * const expr = wgsl(d.f32)`dot(${a}, ${b})`;
+ * const rgbaNode = wgsl(d.vec4f)`vec4f(${rgb}, 1.0)`;
+ *
+ * // Preserving input type:
+ * const sinNode = <D extends d.WgslDesc>(a: Node<D>) => wgsl(a.type)`sin(${a})`;
+ *
+ * // Cross-backend (WGSL + GLSL companion) so one node runs on both backends:
+ * const luma = wgsl(d.f32)`dot(${c}, vec3f(0.299, 0.587, 0.114))`
+ *     .glslSource`dot(${c}, vec3(0.299, 0.587, 0.114))`;
+ */
+function wgsl(desc) {
+    return (strings, ...deps) => {
+        const wgslStr = String.raw({ raw: strings }, ...deps.map((_, i) => `$${i}`));
+        return new WgslNode(desc, wgslStr, deps);
+    };
+}
+/**
+ * Create an inline GLSL expression node using a tagged template literal.
+ *
+ * Mirrors `wgsl` but produces a GLSL-only node; it emits on the WebGL backend
+ * and throws on the WebGPU (WGSL) backend. For a node that runs on BOTH backends,
+ * use `wgsl(desc)\`...\`.glslSource\`...\`` instead.
+ *
+ * @param desc - A descriptor specifying the result type
+ *
+ * @example
+ * const luma = glsl(d.f32)`dot(${c}, vec3(0.299, 0.587, 0.114))`;
+ */
+function glsl(desc) {
+    return (strings, ...deps) => {
+        const glslStr = String.raw({ raw: strings }, ...deps.map((_, i) => `$${i}`));
+        return new WgslNode(desc, undefined, deps, glslStr);
+    };
+}
+
+/**
+ * Parse WGSL function source into a NodeFunction.
+ */
+function parseWgslFunction(source) {
+    source = source.trim();
+    const declarationRegexp = /^[fn]*\s*([a-z_0-9]+)?\s*\(([\s\S]*?)\)\s*[-]*[>]*\s*([a-z_0-9]+(?:<[\s\S]+?>)?)?/i;
+    const propertiesRegexp = /([a-z_0-9]+)\s*:\s*([a-z_0-9]+(?:<[\s\S]+?>)?)/gi;
+    const declaration = source.match(declarationRegexp);
+    if (declaration === null || declaration.length < 2) {
+        throw new Error(`[gpucat] FunctionNode: Could not parse WGSL function.\n${source.slice(0, 100)}...`);
+    }
+    const inputsCode = declaration[2] || '';
+    const propsMatches = [];
+    let match = null;
+    while ((match = propertiesRegexp.exec(inputsCode)) !== null) {
+        propsMatches.push({ name: match[1], type: match[2] });
+    }
+    const inputs = [];
+    for (const { name, type } of propsMatches) {
+        let resolvedType = type;
+        let pointer = false;
+        if (resolvedType.startsWith('ptr')) {
+            resolvedType = 'pointer';
+            pointer = true;
+        }
+        inputs.push({ name, type: resolvedType, pointer });
+    }
+    // find where function body starts (after the signature)
+    const bodyStart = source.indexOf('{');
+    const blockCode = bodyStart >= 0 ? source.substring(bodyStart) : '{}';
+    const outputType = declaration[3] || 'void';
+    const name = declaration[1] !== undefined ? declaration[1] : '';
+    const type = outputType; // keep WGSL type as-is
+    return {
+        type,
+        inputs,
+        name,
+        inputsCode,
+        blockCode,
+        outputType,
+        getCode(fnName = name) {
+            const outputPart = outputType !== 'void' ? `-> ${outputType}` : '';
+            return `fn ${fnName}(${inputsCode.trim()}) ${outputPart}${blockCode}`;
+        },
+    };
+}
+class WgslFunctionNode extends Node {
+    kind = NodeKind.WgslFunction;
+    /** Global nodes use globalCache for deduplication */
+    global = true;
+    /** The native WGSL shader code. Empty for GLSL-only functions. */
+    code;
+    /**
+     * The GLSL companion source (a complete GLSL function definition with the same name + signature
+     * as the WGSL one). Undefined for WGSL-only functions. When present the GLSL emitter emits this
+     * instead of throwing.
+     */
+    glslCode;
+    /** Array of included CodeNodes/FunctionNodes */
+    includes;
+    constructor(code = '', includes = [], glslCode) {
+        super(WgslFn);
+        this.code = code;
+        this.includes = includes;
+        this.glslCode = glslCode;
+    }
+    setIncludes(includes) {
+        this.includes = includes;
+        return this;
+    }
+    getIncludes() {
+        return this.includes;
+    }
+    /**
+     * Get the node function (parsed WGSL) for this function node.
+     */
+    getNodeFunction() {
+        return parseWgslFunction(this.code);
+    }
+    /**
+     * Returns the inputs (parameters) of this function.
+     */
+    getInputs() {
+        return this.getNodeFunction().inputs;
+    }
+    /**
+     * Create a CallNode that calls this function.
+     * @param args - Arguments to pass (positional or named object)
+     */
+    call(...args) {
+        const nodeFunc = this.getNodeFunction();
+        const fnName = nodeFunc.name;
+        const returnType = descFromWgslType(nodeFunc.outputType);
+        return new CallNode(returnType, fnName, args, undefined, this);
+    }
+}
+// Implementation
+function wgslFn(source, layoutOrIncludes, includesArg) {
+    // Determine layout and includes from arguments
+    let layout;
+    let includes = [];
+    if (layoutOrIncludes) {
+        if (Array.isArray(layoutOrIncludes)) {
+            // Legacy: wgslFn(source, includes)
+            includes = layoutOrIncludes;
+        }
+        else if ('output' in layoutOrIncludes) {
+            // New: wgslFn(source, layout, includes?)
+            layout = layoutOrIncludes;
+            includes = includesArg ?? [];
+        }
+    }
+    // Extract FunctionNode from callable includes
+    const includeNodes = [];
+    for (let i = 0; i < includes.length; i++) {
+        const include = includes[i];
+        // If it's a callable from wgslFn, extract the functionNode
+        if (typeof include === 'function') {
+            const fn = include.functionNode;
+            if (fn) {
+                includeNodes.push(fn);
+            }
+        }
+        else if (include.kind === NodeKind.WgslFunction) {
+            includeNodes.push(include);
+        }
+    }
+    const functionNode = new WgslFunctionNode(source.trim(), includeNodes, layout?.glsl?.trim());
+    const nodeFunc = functionNode.getNodeFunction();
+    const fnName = nodeFunc.name;
+    // Use layout output type if provided, otherwise parse from WGSL
+    const returnType = layout?.output ?? descFromWgslType(nodeFunc.outputType);
+    // Return a callable that creates CallNodes
+    const fn = (...args) => {
+        return new CallNode(returnType, fnName, args, undefined, functionNode);
+    };
+    // Attach functionNode for include resolution
+    fn.functionNode = functionNode;
+    return fn;
+}
+// Implementation
+function glslFn(source, layout, includes = []) {
+    // Extract FunctionNode from callable includes (same handling as wgslFn).
+    const includeNodes = [];
+    for (let i = 0; i < includes.length; i++) {
+        const include = includes[i];
+        if (typeof include === 'function') {
+            const inc = include.functionNode;
+            if (inc)
+                includeNodes.push(inc);
+        }
+        else if (include.kind === NodeKind.WgslFunction) {
+            includeNodes.push(include);
+        }
+    }
+    // GLSL-only: no WGSL source (code = ''), glslCode carries the GLSL definition.
+    const functionNode = new WgslFunctionNode('', includeNodes, source.trim());
+    const fnName = layout.name;
+    const returnType = layout.output;
+    const fn = (...args) => {
+        return new CallNode(returnType, fnName, args, undefined, functionNode);
+    };
+    fn.functionNode = functionNode;
+    return fn;
 }
 
 /**
@@ -31119,6 +28846,469 @@ function abandonFrame(frame) {
     frame.backend.discardFrame();
 }
 
+class Material {
+    /** Material name, for debugging. */
+    name;
+    /** Vertex node. Use `positionClip` for standard MVP transform. */
+    vertex;
+    /** Fragment output. Can be vec4f, OutputStructNode for MRT, or undefined for depth-only. */
+    fragment;
+    /** f32 depth override, written to @builtin(frag_depth) */
+    depth;
+    /** Controls draw sort order (opaque vs transparent) AND the default for depthWrite. */
+    transparent;
+    /** Optional blend state. Only meaningful when transparent=true or custom blending. */
+    blend;
+    /** Whether the fragment shader writes color. When false, the color target's write mask is 0. */
+    colorWrite;
+    /** Whether depth testing is active. When false, depthCompare is forced to 'always'. */
+    depthTest;
+    /** Whether to write to the depth buffer. Default: true for opaque, false for transparent. */
+    depthWrite;
+    /** Depth comparison function. Default 'less'. Forced to 'always' when depthTest=false. */
+    depthCompare;
+    /** Back-face culling mode. Default 'back'. */
+    cullMode;
+    /** Alpha-to-coverage. Meaningful only when renderer.samples > 1. Default false. */
+    alphaToCoverage;
+    /** Constant depth bias in depth buffer precision steps. Default 0. */
+    depthBias;
+    /** Depth bias scaled by the fragment's slope (dz/dx, dz/dy). Default 0. */
+    depthBiasSlopeScale;
+    /** Maximum absolute depth bias value. Default 0 (no clamp). */
+    depthBiasClamp;
+    /** Whether the stencil test is active. When false, the pipeline uses a no-op stencil state. */
+    stencilTest;
+    /** Stencil comparison function. Only used when stencilTest=true. */
+    stencilFunc;
+    /** Reference value the stencil test compares against; applied via setStencilReference. */
+    stencilRef;
+    /** Bitmask AND-ed with the reference and stored value before comparing. */
+    stencilReadMask;
+    /** Bitmask selecting which stencil bits may be written. */
+    stencilWriteMask;
+    /** Op applied when the stencil test fails. */
+    stencilFail;
+    /** Op applied when the stencil test passes but the depth test fails. */
+    stencilZFail;
+    /** Op applied when both the stencil and depth tests pass. */
+    stencilZPass;
+    /** Per-face override for back-face stencil ops, or null to use the front-face ops on both faces. */
+    stencilBack;
+    /**
+     * Named uniforms for this material.
+     * Used for name-based uniform resolution: uniform('roughness', d.f32) resolves
+     * to material.uniforms.get('roughness') at render time.
+     */
+    uniforms = new Map();
+    constructor(opts) {
+        this.name = opts.name ?? '';
+        this.vertex = opts.vertex;
+        this.fragment = opts.fragment;
+        this.depth = opts.depth;
+        this.transparent = opts.transparent ?? false;
+        this.blend = opts.blend;
+        this.colorWrite = opts.colorWrite ?? true;
+        this.depthTest = opts.depthTest ?? true;
+        this.depthWrite = opts.depthWrite ?? !this.transparent;
+        this.depthCompare = opts.depthCompare ?? 'less';
+        this.cullMode = opts.cullMode ?? 'back';
+        this.alphaToCoverage = opts.alphaToCoverage ?? false;
+        this.depthBias = opts.depthBias ?? 0;
+        this.depthBiasSlopeScale = opts.depthBiasSlopeScale ?? 0;
+        this.depthBiasClamp = opts.depthBiasClamp ?? 0;
+        this.stencilTest = opts.stencilTest ?? false;
+        this.stencilFunc = opts.stencilFunc ?? 'always';
+        this.stencilRef = opts.stencilRef ?? 0;
+        this.stencilReadMask = opts.stencilReadMask ?? 0xff;
+        this.stencilWriteMask = opts.stencilWriteMask ?? 0xff;
+        this.stencilFail = opts.stencilFail ?? 'keep';
+        this.stencilZFail = opts.stencilZFail ?? 'keep';
+        this.stencilZPass = opts.stencilZPass ?? 'keep';
+        this.stencilBack = opts.stencilBack ?? null;
+    }
+    /**
+     * Incremented whenever the material's node graph configuration changes in a
+     * way that requires a shader recompile.  The renderer includes this in the
+     * RenderObject cache key so that bumping it triggers recompilation on the
+     * next frame.
+     */
+    version = 0;
+    /**
+     * Setting needsUpdate = true increments version, which causes the renderer
+     * to recompile the material's shader on the next frame.
+     */
+    set needsUpdate(value) {
+        if (value === true)
+            this.version++;
+    }
+    /**
+     * Set to true after dispose() is called.
+     * The renderer checks this flag to skip rendering and clean up GPU resources.
+     */
+    disposed = false;
+    /**
+     * Internal callback set by the renderer to clean up GPU resources (e.g., pipelines).
+     * @internal
+     */
+    _onDispose = null;
+    /**
+     * Frees GPU-related resources allocated for this material.
+     * Call this method when the material is no longer used.
+     */
+    dispose() {
+        if (this.disposed)
+            return;
+        this.disposed = true;
+        this._onDispose?.();
+    }
+}
+/** The factory form, matching `createBoxGeometry` and the other resource constructors. */
+function createMaterial(opts) {
+    return new Material(opts);
+}
+
+/**
+ * Möller-Trumbore ray-triangle intersection.
+ * Returns raw t (distance along ray direction) or null if no hit.
+ */
+function rayTriangleIntersection(origin, direction, a, b, c, backfaceCulling) {
+    // edge1 = b - a, edge2 = c - a
+    const e1x = b[0] - a[0], e1y = b[1] - a[1], e1z = b[2] - a[2];
+    const e2x = c[0] - a[0], e2y = c[1] - a[1], e2z = c[2] - a[2];
+    // normal = edge1 × edge2
+    const nx = e1y * e2z - e1z * e2y;
+    const ny = e1z * e2x - e1x * e2z;
+    const nz = e1x * e2y - e1y * e2x;
+    let DdN = direction[0] * nx + direction[1] * ny + direction[2] * nz;
+    let sign;
+    if (DdN > 0) {
+        sign = 1;
+    }
+    else if (DdN < 0) {
+        sign = -1;
+        DdN = -DdN;
+    }
+    else {
+        return null;
+    }
+    const diffx = origin[0] - a[0];
+    const diffy = origin[1] - a[1];
+    const diffz = origin[2] - a[2];
+    // barycentric coord b1
+    const DdQxE2 = sign *
+        (direction[0] * (diffy * e2z - diffz * e2y) +
+            direction[1] * (diffz * e2x - diffx * e2z) +
+            direction[2] * (diffx * e2y - diffy * e2x));
+    if (DdQxE2 < 0)
+        return null;
+    // barycentric coord b2
+    const DdE1xQ = sign *
+        (direction[0] * (e1y * diffz - e1z * diffy) +
+            direction[1] * (e1z * diffx - e1x * diffz) +
+            direction[2] * (e1x * diffy - e1y * diffx));
+    if (DdE1xQ < 0)
+        return null;
+    if (DdQxE2 + DdE1xQ > DdN)
+        return null;
+    // t = raw distance along ray direction
+    const QdN = -sign * (diffx * nx + diffy * ny + diffz * nz);
+    if (QdN < 0)
+        return null;
+    return QdN / DdN;
+}
+/**
+ * Slab-based ray-AABB intersection test.
+ * Tests intersection within [0, maxT] along the ray.
+ */
+function rayIntersectsBox3(origin, direction, aabb, maxT) {
+    let tmin = 0;
+    let tmax = maxT;
+    for (let i = 0; i < 3; i++) {
+        // Pad degenerate slabs to avoid near-miss rejections on thin/flat geometry
+        let lo = aabb[i];
+        let hi = aabb[i + 3];
+        if (hi - lo < 1e-4) {
+            const mid = (lo + hi) * 0.5;
+            lo = mid - 5e-5;
+            hi = mid + 5e-5;
+        }
+        const d = direction[i];
+        if (Math.abs(d) < 1e-10) {
+            if (origin[i] < lo || origin[i] > hi) {
+                return false;
+            }
+        }
+        else {
+            const invD = 1 / d;
+            let t0 = (lo - origin[i]) * invD;
+            let t1 = (hi - origin[i]) * invD;
+            if (invD < 0) {
+                const tmp = t0;
+                t0 = t1;
+                t1 = tmp;
+            }
+            tmin = Math.max(tmin, t0);
+            tmax = Math.min(tmax, t1);
+            if (tmax < tmin)
+                return false;
+        }
+    }
+    return true;
+}
+const _target = [0, 0, 0];
+const _direction = [0, 0, 0];
+class Raycaster {
+    ray;
+    near;
+    far;
+    camera = null;
+    constructor(origin, direction, near = 0, far = Infinity) {
+        this.ray = { origin: [0, 0, 0], direction: [0, 0, 0] };
+        if (origin)
+            copy$5(this.ray.origin, origin);
+        if (direction)
+            copy$5(this.ray.direction, direction);
+        this.near = near;
+        this.far = far;
+    }
+    set(origin, direction) {
+        copy$5(this.ray.origin, origin);
+        copy$5(this.ray.direction, direction);
+    }
+    setFromCamera(coords, camera) {
+        const isOrthographic = camera.isOrthographicCamera === true;
+        if (isOrthographic) {
+            unproject(this.ray.origin, [coords[0], coords[1], 0], camera);
+            const e = camera.matrixWorld;
+            set$1(_direction, -e[8], -e[9], -e[10]);
+            normalize$4(this.ray.direction, _direction);
+        }
+        else {
+            getTranslation(this.ray.origin, camera.matrixWorld);
+            unproject(_target, [coords[0], coords[1], 1], camera);
+            subtract$1(_direction, _target, this.ray.origin);
+            normalize$4(this.ray.direction, _direction);
+        }
+        this.near = camera.near;
+        this.far = camera.far;
+    }
+    intersectObject(object, recursive = true, intersects = []) {
+        intersect(object, this, intersects, recursive);
+        intersects.sort(ascSort);
+        return intersects;
+    }
+    intersectObjects(objects, recursive = true, intersects = []) {
+        for (const object of objects) {
+            intersect(object, this, intersects, recursive);
+        }
+        intersects.sort(ascSort);
+        return intersects;
+    }
+}
+function ascSort(a, b) {
+    return a.distance - b.distance;
+}
+function intersect(object, raycaster, intersects, recursive) {
+    object.raycast(raycaster, intersects);
+    if (recursive) {
+        for (const child of object.children) {
+            intersect(child, raycaster, intersects, true);
+        }
+    }
+}
+// Helpers for Mesh.raycast() - exported for use by Mesh
+const _inverseMatrix = create$3();
+const _localRay = { origin: [0, 0, 0], direction: [0, 0, 0] };
+const _intersectionPoint = [0, 0, 0];
+const _intersectionPointWorld = [0, 0, 0];
+const _vA = [0, 0, 0];
+const _vB = [0, 0, 0];
+const _vC = [0, 0, 0];
+const _edge1 = [0, 0, 0];
+const _edge2 = [0, 0, 0];
+const _faceNormal = [0, 0, 0];
+/**
+ * Transform a ray into the local space of an object.
+ * Returns the local ray for intersection testing.
+ */
+function transformRayToLocalSpace(raycaster, matrixWorld) {
+    invert(_inverseMatrix, matrixWorld);
+    transformMat4$1(_localRay.origin, raycaster.ray.origin, _inverseMatrix);
+    // Transform direction by upper 3x3 of inverse matrix
+    const m = _inverseMatrix;
+    const dx = raycaster.ray.direction[0];
+    const dy = raycaster.ray.direction[1];
+    const dz = raycaster.ray.direction[2];
+    _localRay.direction[0] = m[0] * dx + m[4] * dy + m[8] * dz;
+    _localRay.direction[1] = m[1] * dx + m[5] * dy + m[9] * dz;
+    _localRay.direction[2] = m[2] * dx + m[6] * dy + m[10] * dz;
+    normalize$4(_localRay.direction, _localRay.direction);
+    return _localRay;
+}
+/**
+ * Test ray-triangle intersection and add to intersects if hit.
+ * Positions are in local space, ray should be in local space.
+ */
+function checkTriangleIntersection(object, raycaster, localRay, matrixWorld, a, b, c, positions, indices, uvs, intersects, faceIndex) {
+    const ia = indices ? indices[a] : a;
+    const ib = indices ? indices[b] : b;
+    const ic = indices ? indices[c] : c;
+    fromBuffer(_vA, positions, ia * 3);
+    fromBuffer(_vB, positions, ib * 3);
+    fromBuffer(_vC, positions, ic * 3);
+    const t = rayTriangleIntersection(localRay.origin, localRay.direction, _vA, _vB, _vC);
+    if (t === null)
+        return;
+    // Compute intersection point in local space: origin + direction * t
+    scaleAndAdd(_intersectionPoint, localRay.origin, localRay.direction, t);
+    // Transform to world space
+    transformMat4$1(_intersectionPointWorld, _intersectionPoint, matrixWorld);
+    // Check distance against near/far
+    const distance$1 = distance(raycaster.ray.origin, _intersectionPointWorld);
+    if (distance$1 < raycaster.near || distance$1 > raycaster.far)
+        return;
+    // Compute face normal
+    subtract$1(_edge1, _vB, _vA);
+    subtract$1(_edge2, _vC, _vA);
+    cross$1(_faceNormal, _edge1, _edge2);
+    normalize$4(_faceNormal, _faceNormal);
+    const intersection = {
+        distance: distance$1,
+        point: clone$2(_intersectionPointWorld),
+        object,
+        faceIndex,
+        face: {
+            a: ia,
+            b: ib,
+            c: ic,
+            normal: clone$2(_faceNormal),
+        },
+    };
+    if (uvs) {
+        const uv = computeBarycentricUV(_intersectionPoint, _vA, _vB, _vC, ia, ib, ic, uvs);
+        if (uv)
+            intersection.uv = uv;
+    }
+    intersects.push(intersection);
+}
+/**
+ * Compute UV coordinates at intersection point using barycentric interpolation.
+ */
+function computeBarycentricUV(point, vA, vB, vC, ia, ib, ic, uvs) {
+    // Compute barycentric coordinates
+    const v0 = [0, 0, 0];
+    const v1 = [0, 0, 0];
+    const v2 = [0, 0, 0];
+    subtract$1(v0, vC, vA);
+    subtract$1(v1, vB, vA);
+    subtract$1(v2, point, vA);
+    const dot00 = dot$1(v0, v0);
+    const dot01 = dot$1(v0, v1);
+    const dot02 = dot$1(v0, v2);
+    const dot11 = dot$1(v1, v1);
+    const dot12 = dot$1(v1, v2);
+    const denom = dot00 * dot11 - dot01 * dot01;
+    if (Math.abs(denom) < 1e-10)
+        return null;
+    const invDenom = 1 / denom;
+    const u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+    const v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+    const w = 1 - u - v;
+    // Interpolate UVs
+    const uvA_u = uvs[ia * 2];
+    const uvA_v = uvs[ia * 2 + 1];
+    const uvB_u = uvs[ib * 2];
+    const uvB_v = uvs[ib * 2 + 1];
+    const uvC_u = uvs[ic * 2];
+    const uvC_v = uvs[ic * 2 + 1];
+    return [w * uvA_u + v * uvB_u + u * uvC_u, w * uvA_v + v * uvB_v + u * uvC_v];
+}
+/** The factory form; set the ray later with `set` or `setFromCamera`. */
+function createRaycaster(origin, direction, near, far) {
+    return new Raycaster(origin, direction, near, far);
+}
+
+const _worldSphereCenter = [0, 0, 0];
+class Mesh extends Object3D {
+    isMesh = true;
+    geometry;
+    material;
+    count = 1;
+    /**
+     * Optional batched draw list. When set, the renderer issues one instanced draw per entry
+     * (a CPU loop) instead of the single `drawRange` + `count` draw, and `count`/`drawRange`
+     * are ignored. All entries share this mesh's `geometry` + `material` (one pipeline). An
+     * empty array draws nothing. Entries must match the mesh's geometry (indexed vs non-indexed).
+     */
+    draws;
+    frustumCulled = true;
+    constructor(geometry, material) {
+        super();
+        this.geometry = geometry;
+        this.material = material;
+    }
+    raycast(raycaster, intersects) {
+        const geometry = this.geometry;
+        const matrixWorld = this.matrixWorld;
+        // get position buffer - required for raycasting
+        const positionBuffer = geometry.getBuffer('position');
+        if (!positionBuffer?.array)
+            return;
+        const positions = positionBuffer.array;
+        // early-out: bounding sphere test in world space
+        if (geometry.boundingSphere) {
+            const sphere = geometry.boundingSphere;
+            // transform sphere center to world space
+            transformMat4$1(_worldSphereCenter, sphere.center, matrixWorld);
+            // get world scale to transform radius (approximate for non-uniform scale)
+            const sx = Math.hypot(matrixWorld[0], matrixWorld[1], matrixWorld[2]);
+            const sy = Math.hypot(matrixWorld[4], matrixWorld[5], matrixWorld[6]);
+            const sz = Math.hypot(matrixWorld[8], matrixWorld[9], matrixWorld[10]);
+            const worldRadius = sphere.radius * Math.max(sx, sy, sz);
+            // quick sphere-ray distance test
+            const rayToCenter = [0, 0, 0];
+            subtract$1(rayToCenter, _worldSphereCenter, raycaster.ray.origin);
+            const tca = dot$1(rayToCenter, raycaster.ray.direction);
+            const d2 = dot$1(rayToCenter, rayToCenter) - tca * tca;
+            if (d2 > worldRadius * worldRadius)
+                return;
+        }
+        // transform ray to local space
+        const localRay = transformRayToLocalSpace(raycaster, matrixWorld);
+        // early-out: bounding box test in local space
+        if (geometry.boundingBox) {
+            if (!rayIntersectsBox3(localRay.origin, localRay.direction, geometry.boundingBox, raycaster.far))
+                return;
+        }
+        // get optional index buffer and UV buffer
+        const indexBuffer = geometry.index;
+        const indices = indexBuffer?.array ?? null;
+        const uvBuffer = geometry.getBuffer('uv');
+        const uvs = uvBuffer?.array ?? null;
+        // triangle intersection tests
+        if (indices) {
+            // indexed geometry
+            const count = Math.min(indices.length, geometry.drawRange.start + (geometry.drawRange.count === Infinity ? indices.length : geometry.drawRange.count));
+            for (let i = geometry.drawRange.start; i < count; i += 3) {
+                checkTriangleIntersection(this, raycaster, localRay, matrixWorld, i, i + 1, i + 2, positions, indices, uvs, intersects, Math.floor(i / 3));
+            }
+        }
+        else {
+            // non-indexed geometry
+            const vertexCount = positions.length / 3;
+            const count = Math.min(vertexCount, geometry.drawRange.start + (geometry.drawRange.count === Infinity ? vertexCount : geometry.drawRange.count));
+            for (let i = geometry.drawRange.start; i < count; i += 3) {
+                checkTriangleIntersection(this, raycaster, localRay, matrixWorld, i, i + 1, i + 2, positions, null, uvs, intersects, Math.floor(i / 3));
+            }
+        }
+    }
+}
+/** The factory form, matching `createGeometry` and `createMaterial`. */
+function createMesh(geometry, material) {
+    return new Mesh(geometry, material);
+}
+
 /**
  * Clip position of a fullscreen triangle from `@builtin(vertex_index)` alone: vertices 0, 1 and 2 land
  * on (-1,-1), (3,-1) and (-1,3), so no vertex buffer is bound and no attribute is read. Built on call,
@@ -42530,5 +40720,5 @@ function createData3DTexture(data = null, width = 1, height = 1, depth = 1, opti
     return new Data3DTexture(data, width, height, depth, options);
 }
 
-export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp$1 as clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFlyControls, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createTransformControls, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId };
+export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, Scene, Source, TOUCH, Texture, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId };
 //# sourceMappingURL=index.js.map

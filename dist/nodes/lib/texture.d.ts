@@ -244,7 +244,7 @@ export type RecordAccessor<S extends d.StructSchema> = {
  * `Node<u32>` per declared bit-field name (matching the runtime `decodeField` bits branch); every
  * other field type stays a `Node` of its (decoded) type.
  */
-type FieldAccessor<T extends d.Any> = T extends d.bits<infer F> ? {
+export type FieldAccessor<T extends d.Any> = T extends d.bits<infer F> ? {
     readonly [N in keyof F]: Node<d.u32>;
 } : Node<T>;
 /**
@@ -265,7 +265,7 @@ export declare function decodeField(base: TextureNode<FlatSampledTexture>, texel
  * High-level texture types that have _gpuSampler.
  * All have ._gpuTexture and ._gpuSampler properties.
  */
-type HighLevelTexture = Texture | CubeTexture | DepthTexture | ArrayTexture | Data3DTexture;
+export type HighLevelTexture = Texture | CubeTexture | DepthTexture | ArrayTexture | Data3DTexture;
 /**
  * Create a sampler node.
  *
@@ -301,7 +301,7 @@ export declare function sampler(source: HighLevelTexture, group?: UniformGroup):
 export declare function comparisonSampler(source: GpuSampler, compare?: GPUCompareFunction, group?: UniformGroup): SamplerNode<d.samplerComparison>;
 export declare function comparisonSampler(source: HighLevelTexture, compare?: GPUCompareFunction, group?: UniformGroup): SamplerNode<d.samplerComparison>;
 /** The sampled-texture descriptor a storage texture is sampled as (dual-usage). */
-type StorageSampledOf<S extends d.StorageTexture> = S extends d.textureStorage3d ? d.texture3d : S extends d.textureStorage2dArray ? d.texture2dArray : S extends d.textureStorage1d ? d.texture1d : d.texture2d;
+export type StorageSampledOf<S extends d.StorageTexture> = S extends d.textureStorage3d ? d.texture3d : S extends d.textureStorage2dArray ? d.texture2dArray : S extends d.textureStorage1d ? d.texture1d : d.texture2d;
 /**
  * Create a texture node for sampling a flat (non-cube) texture.
  *
@@ -626,8 +626,8 @@ export declare class ArrayTextureNode extends Node<d.vec4f> {
  */
 export declare function arrayTexture(tex: ArrayTexture, layerNode: Node<d.i32>): ArrayTextureNode;
 export declare function arrayTexture(gpuTex: GpuTexture<d.texture2dArray>, gpuSampler: GpuSampler, layerNode: Node<d.i32>): ArrayTextureNode;
-type AnySamplerNode = SamplerNode<d.sampler>;
-type AnyComparisonSamplerNode = SamplerNode<d.samplerComparison>;
+export type AnySamplerNode = SamplerNode<d.sampler>;
+export type AnyComparisonSamplerNode = SamplerNode<d.samplerComparison>;
 /**
  * textureSample - Sample a texture at UV coordinates.
  * Fragment shader only.
@@ -708,4 +708,3 @@ export declare function textureGatherCompare(t: TextureBindingNode<FlatDepthText
 export declare function targetColor(target: RenderTarget): TextureNode<d.texture2d>;
 /** A render target's depth, as a node to sample. The target must be created with `depthSampled: true`. */
 export declare function targetDepth(target: RenderTarget): DepthTextureNode;
-export {};

@@ -6,7 +6,7 @@ import { type TextureRegion, type TextureRegionInit } from './texture-region';
 export type DimensionOf<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d ? '1d' : D extends d.texture3d | d.textureStorage3d ? '3d' : '2d';
 /** View dimension from schema type (for GPUTextureView) */
 export type ViewDimensionOf<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d ? '1d' : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d | d.textureStorage2d ? '2d' : D extends d.texture2dArray | d.textureDepth2dArray | d.textureStorage2dArray ? '2d-array' : D extends d.textureCube | d.textureDepthCube ? 'cube' : D extends d.textureCubeArray | d.textureDepthCubeArray ? 'cube-array' : D extends d.texture3d | d.textureStorage3d ? '3d' : '2d';
-type BaseOptions = {
+export type BaseOptions = {
     format?: GPUTextureFormat;
     usage?: GPUTextureUsageFlags;
     mipLevelCount?: number;
@@ -25,17 +25,17 @@ type BaseOptions = {
     /** Storage textures only: regenerate mips after a compute write (default true). */
     mipmapsAutoUpdate?: boolean;
 };
-type Options2D = BaseOptions & {
+export type Options2D = BaseOptions & {
     width: number;
     height: number;
 };
-type Options2DArray = BaseOptions & {
+export type Options2DArray = BaseOptions & {
     width: number;
     height: number;
     layers: number;
     sources?: (Source | SourceData)[];
 };
-type OptionsCube = BaseOptions & {
+export type OptionsCube = BaseOptions & {
     size: number;
     faces?: [
         Source | SourceData,
@@ -46,17 +46,17 @@ type OptionsCube = BaseOptions & {
         Source | SourceData
     ] | (Source | SourceData)[];
 };
-type OptionsCubeArray = BaseOptions & {
+export type OptionsCubeArray = BaseOptions & {
     size: number;
     cubeCount: number;
     faces?: (Source | SourceData)[];
 };
-type Options3D = BaseOptions & {
+export type Options3D = BaseOptions & {
     width: number;
     height: number;
     depth: number;
 };
-type Options1D = BaseOptions & {
+export type Options1D = BaseOptions & {
     width: number;
 };
 /** Map schema type → options type */
@@ -172,4 +172,3 @@ export declare function createStorageTexture3d<F extends d.StorageTextureFormat 
 export declare function createStorageTextureArray<F extends d.StorageTextureFormat = 'rgba8unorm'>(width: number, height: number, layers: number, format?: F): GpuTexture<d.textureStorage2dArray<F, 'write'>>;
 /** Create a 1D storage texture (`texture_storage_1d<format, _>`). */
 export declare function createStorageTexture1d<F extends d.StorageTextureFormat = 'rgba8unorm'>(width: number, format?: F): GpuTexture<d.textureStorage1d<F, 'write'>>;
-export {};

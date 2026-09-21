@@ -223,25 +223,11 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
   </tr>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-transform-controls">
-        <img src="./examples/public/screenshots/example-webgpu-transform-controls.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Transform Controls
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-fly-controls">
-        <img src="./examples/public/screenshots/example-webgpu-fly-controls.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Fly Controls
-      </a>
-    </td>
-    <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-moving-mesh-stress">
         <img src="./examples/public/screenshots/example-webgpu-moving-mesh-stress.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Moving Mesh Stress
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-static-mesh-stress">
         <img src="./examples/public/screenshots/example-webgpu-static-mesh-stress.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -254,14 +240,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Hello World
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgl-textured">
         <img src="./examples/public/screenshots/example-webgl-textured.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Textured Mesh
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgl-render-target">
         <img src="./examples/public/screenshots/example-webgl-render-target.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -274,14 +260,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Shadow Map (WebGL)
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgl-instanced-mesh">
         <img src="./examples/public/screenshots/example-webgl-instanced-mesh.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Instanced Mesh (WebGL)
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgl-cubemap">
         <img src="./examples/public/screenshots/example-webgl-cubemap.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -294,14 +280,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         MRT (WebGL)
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgl-cube-camera">
         <img src="./examples/public/screenshots/example-webgl-cube-camera.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Cube Camera (WebGL)
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgl-stencil">
         <img src="./examples/public/screenshots/example-webgl-stencil.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -314,6 +300,8 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Transform Feedback Particles (WebGL)
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-inspector-toggle">
         <img src="./examples/public/screenshots/example-webgpu-inspector-toggle.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -1716,8 +1704,6 @@ const controls = new OrbitControls(camera, canvas);
 controls.update();
 ```
 
-`FlyControls` (first-person, `update(dt)`) and `TransformControls` (a gizmo for moving objects) follow the same shape.
-
 The built-in **Inspector** is an in-page debugger for shaders, draw and compute calls, buffers, and timings. Attach it to the renderer and add its element to the page:
 
 ```ts
@@ -1727,23 +1713,6 @@ document.body.appendChild(inspector.domElement);
 ```
 
 See [`OrbitControls`](./api.md#orbitcontrols) and [`Inspector`](./api.md#inspector).
-
-<table>
-  <tr>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-transform-controls">
-        <img src="./examples/public/screenshots/example-webgpu-transform-controls.png" width="200" height="133" style="object-fit:cover;"/><br/>
-        Transform Controls
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-fly-controls">
-        <img src="./examples/public/screenshots/example-webgpu-fly-controls.png" width="200" height="133" style="object-fit:cover;"/><br/>
-        Fly Controls
-      </a>
-    </td>
-  </tr>
-</table>
 
 ## Compiling to WGSL
 
