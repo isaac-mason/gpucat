@@ -8066,3 +8066,234 @@ the engine draws, which is a bigger question than this refactor.
 
 **This is the third correction to a plan that looked finished**, after the inert-step ordering and
 step 1 already being done. Each came from reading the code the plan described rather than the plan.
+
+---
+
+## Layer 6.146 — bongle's frame is four explicit passes
+
+`lib/src/render/{pipeline,webgpu,webgl}.ts` and the visual modules; `targetColor` / `targetDepth`
+added to gpucat.
+
+The earlier attempts at this were scatty because they never questioned the shape: **two of the four
+passes were implicit.** `scenePass` and `overlayPass` were `RenderTextureNode`s that scheduled
+themselves when the composite sampled their textures. Everything awkward fell out of that — a
+`placeholderScene` that was "never rendered", `contents` mutated from outside each frame,
+`recordDispatches` threaded as a *parameter* so compute could reach the same frame, and a comment
+admitting "the scene and overlay passes schedule themselves from inside it".
+
+Now the whole frame is one readable run: cull, world, overlay, composite, submit. The two offscreen
+passes render into plain `RenderTarget`s and the composite samples them. **The post chain is
+unchanged** — fxaa, tint, overlay-over and tonemap were always nodes on the composite mesh, not
+passes, and still are. Only where `sceneColor` comes from changed.
+
+**gpucat had no clean way to sample a plain render target**, which is what removing `RenderTextureNode`
+exposed: the only sanctioned path was `getTextureNode()` on the node being removed, and reaching
+`rt.texture!._gpuTexture` in lib is the same smell as reaching `.backend`. `targetColor(target)` and
+`targetDepth(target)` are that API, named for what they do.
+
+**The engine's 13 `scene.add` had to go with the switch, not after it.** Left in, `drawScene` would
+have drawn every engine mesh a second time on top of its explicit draw. `VoxelVisuals.initRoomMeshes`
+and `dispose` no longer take a `Scene` at all.
+
+**Two things the plan called dead are not.** The 26 `frustumCulled = false` and `syncEnvVisibility`
+stay: the offline icon renders build their own `Scene` from the same engine batch meshes and still go
+through `drawScene`, so both are load-bearing there. Only the 7 `renderOrder` values were genuinely
+dead, since nothing sorts any more — order is the order of the lines.
+
+What stays in `pipeline.ts` is what is identical between backends: the post chain and the two
+targets, 106 lines with no backend branch in it. The frame is inlined in each backend because the two
+genuinely differ — WebGPU records a compute cull, WebGL culls on the CPU with no dispatch.
+
+Verified: lib tsc clean but for two pre-existing editor errors, 1227 lib tests passing (one
+pre-existing voxel failure), biome clean on the touched files.
+
+---
+
+## Layer 6.147 — `pass.scene()`
+
+`src/renderer/core/frame.ts`, `tst/pass-scene.test.ts`, `docs/README.template.md`, and both lib
+backends.
+
+The walk is now a verb on the pass, beside `draw` and `execute`, which is what this API's own rule
+already asked for: **the recording context keeps verbs; free functions are for operations that narrow
+the renderer type.** `drawScene` narrows nothing — it is backend-neutral — so it had no business
+being the only way in.
+
+```ts
+pass.scene(room.render.scene);
+// was: drawScene(state.renderer, pass, room.render.scene, camera);
+```
+
+The camera defaults to the pass's own, so the common call takes a tree alone. `drawScene` stays as
+the free form for a caller holding no pass.
+
+**Kept small on purpose.** The first sketch threaded a renderer through `createFrame` into every
+`Pass`, which meant changing a signature four tests use with fake backends. Instead `frame(renderer)`
+records the renderer it already has on the frame it already owns — one line — and `createRenderPass`
+already closes over the frame. A frame built straight from `createFrame` has no renderer and
+`scene()` says so by name rather than throwing on a null read.
+
+Verified: src tsc 0, 607 tests across 90 files, 55/55 WebGPU pixels, WebGL pixels pass, docs build,
+lib tsc clean and its two backends converted.
+
+---
+
+## Layer 6.148 — one place knows the world draw order
+
+`lib/src/render/{webgpu,webgl}.ts`.
+
+The live frame listed its draws and `prewarm` listed them again for `compile`. Those two lists drift,
+and had: when the visuals stopped mounting themselves into a scene, prewarm's copy silently lost the
+voxel and environment meshes, so their pipelines were no longer warmed and the first frame would
+hitch on them.
+
+`drawWorld(into, voxel, env, res, environmentEnabled)` is the one place that knows, and `into` is
+anything with a `draw` method. That keeps the sequence literal — no loop over an array, no order
+numbers — while letting more than one caller record it.
+
+**The prewarm collects rather than lists**, which is the part that removes the drift:
+
+```ts
+const drawables: Mesh[] = [];
+drawWorld({ draw: (mesh) => drawables.push(mesh) }, voxel, env, res, true);
+await state.renderer.compile(drawables, state.pipeline.sceneTarget, state.pipeline.camera);
+```
+
+**The first attempt used `bundle()` for this and was wrong.** A bundle is a replayable GPU recording;
+building one only to read its records back and throw it away is using a feature for its side effect,
+and it makes `prewarm` unreadable to anyone who does not already know what bundles are. A closure
+pushing to an array says the same thing with nothing to learn.
+
+`drawWorld` is duplicated between the two backends rather than shared, deliberately: the frames around
+it genuinely differ — WebGPU records a compute cull, WebGL culls on the CPU — and a shared module
+was tried and rejected earlier for putting the high-signal order one indirection away from the frame
+that reads it.
+
+The icon path keeps `pass.scene()`: its scene holds the objects being iconified, not the world.
+
+Verified: lib tsc clean, 1227 lib tests passing (one pre-existing voxel failure), biome clean.
+
+---
+
+## Layer 6.149 — comment goblin over the port
+
+`lib/src/render/{webgpu,webgl}.ts`, `lib/PLAN-explicit-passes.md`.
+
+Four comments written during the port, three of them wrong by the time the port finished.
+
+**One named a thing that no longer exists.** `DrawsInto`'s doc still said "a pass, or a bundle prewarm
+reads back" after the bundle was replaced by a closure — a comment describing an approach that had
+been abandoned two layers earlier.
+
+**One had drifted away from what it described.** "The order these lines are in is the order they draw
+in" sat above the world pass, but the draws had moved into `drawWorld`; the lines under it were a
+pass, a call and an `end`. It says the same thing on `drawWorld` now, where the lines actually are.
+
+**One restated its neighbour.** The prewarm's "collected from the same sequence, so the two cannot
+disagree" repeats what `drawWorld`'s own line says. Deleted rather than reworded.
+
+**One was a block where a line does.** `drawWorld`'s four-line header is now a single line carrying
+the only fact that is not visible in the body: no `renderOrder`, no sort.
+
+The one kept as written is "gpucat never updates matrices for you; anything posed since the last
+render is stale until this" — non-obvious, unguessable from the call, and one line.
+
+The plan now shows the code that exists rather than the code that was proposed.
+
+Verified: lib tsc clean, 1227 tests passing, biome clean on the touched files.
+
+---
+
+## Layer 6.150 — the adapters came off
+
+`lib/src/render/{webgpu,webgl}.ts`, `lib/src/render/voxels/voxel-visuals.ts`.
+
+`drawWorld` had grown `Pick<Pass, 'draw'>`, `Pick<VoxelVisuals, 'meshes'>` and a caller building
+`{ meshes: ... }` to satisfy the second one. Every one of those was an adapter for a single fact: one
+function was serving two callers that want different things. **The dual use was the problem, not the
+types.**
+
+`drawWorld(pass: Pass, visuals: RoomVisuals, res, environmentEnabled)` now — concrete types, nothing
+partial. The prewarm writes its own list of the same meshes, which is duplication accepted
+deliberately over an abstraction that made both callers worse.
+
+**Also removed: dispose calls that freed nothing.** `VoxelVisuals.dispose` had been rewritten to call
+`geometry.dispose()` on `res.voxel.geometries` — **engine-global geometry shared by every room**, so a
+room swap would have destroyed what the next room needed. `disposeEnvVisuals` was
+`removeFromParent()` on meshes that no longer have a parent. Both gone, along with the `try/finally`
+in prewarm that existed only to call them.
+
+`createPassMeshes` splits the three voxel meshes out of `initRoomMeshes`, so the prewarm stops
+allocating a room's dirty-chunk maps and starvation counters to get at them.
+
+**An adversarial review of the compile API produced one correction.** The claim that prewarm works
+because compiled node state is shared by cache key is **wrong**: `compileNodeState` has no lookup and
+recompiles for every RenderObject. The saving is one level lower — `state.renderPipelines` is keyed
+on `(material.version, geometry.version, sampleCount, formats)` and `createShaderModule` only runs on
+a miss. So prewarm buys device-side shader and pipeline creation and re-pays CPU codegen, which is
+still the right trade but not the mechanism claimed.
+
+What a pipeline is actually keyed on is `(material, geometry, renderContext)`. `compile` taking a
+`Mesh` is the API asking for more than it uses; the honest fix is to accept the pair and wrap it
+internally, preserving the upload warm. Left as a proposal rather than built, because the two
+complaints that motivated it — a room-lifecycle function misused, and dispose theatre — are fixed.
+
+Verified: lib tsc clean, 1227 tests passing, biome clean on the touched files.
+
+---
+
+## Layer 6.151 — the icon path, fixed twice and then guarded
+
+`lib/src/render/{webgpu,webgl}.ts`, `lib/tst/unit/render/offline-resources.test.ts`,
+`src/renderer/core/{renderer,compile,read}.ts`, `*Opts` renamed throughout.
+
+**The icon atlas came back transparent and the first fix could not have worked.** Removing the
+engine's `scene.add` calls emptied the scene `composeSceneToTarget` walked, so the diagnosis was
+right; the repair was not. It called `drawWorld(pass, ..., state.resources, ...)`, and the icons are
+built in a **pipeline worker** whose backend never fills its `resources` slot. `res.model.batch.mesh`
+threw mid-render, and a thrown icon render is indistinguishable from an empty one: a transparent
+atlas and nothing said.
+
+**It was also wrong in principle.** `RenderRoomDeps` carries `voxelResources`, `voxelMeshResources`,
+`modelResources` and `cloudResources` — **no sprite, shadow, particle or extruded-sprite**. An
+offline room cannot draw the world, so the world's draw order does not apply to it. The icon path
+draws what an offline room holds, from `deps` rather than `state`.
+
+`tst/unit/render/offline-resources.test.ts` is the guard the two attempts earned: `composeSceneToTarget`
+may reach no `state.resources`, and `RenderRoomDeps` is asserted to carry exactly the four it does.
+Reintroducing the `state.resources.model.batch.mesh` read fails it.
+
+**`_compile` and `_readPixels` are gone rather than hidden.** Making them private left two methods
+whose bodies were reachable from a `renderer` parameter — pure indirection behind the free functions.
+The bodies moved into `compile` and `read`, and `renderer.ts` lost four imports with them.
+`CompilableRenderer` and `ReadableRenderer` went too: once the methods were private, those structural
+types described which privates a free function reaches for, which is the `SceneGpu` shape this plan
+removed in 6.117.
+
+**`*Opts` is `*Options`.** `DrawOptions`, `ReadOptions`, `DispatchOptions`, `DispatchIndirectOptions`,
+`GlslOptions`, across src, tests, examples, docs and the plans.
+
+Verified: src tsc 0, tst tsc 0, examples tsc 0, 607 tests across 90 files, 55/55 WebGPU pixels, WebGL
+pixels pass, docs build; lib tsc clean, 1230 tests passing (one pre-existing voxel failure), dist
+rebuilt both sides.
+
+---
+
+## Layer 6.152 — comment goblin, and the lesson into the plan
+
+`lib/src/render/{webgpu,webgl}.ts`, `lib/tst/unit/render/offline-resources.test.ts`,
+`lib/PLAN-explicit-passes.md`.
+
+Two blocks from the icon fix cut to lines. The guard's four-line header said in prose what its two
+test names already say; what survives is the one fact neither name carries — that a thrown icon
+render and an empty one are indistinguishable, which is why the guard is structural rather than a
+pixel check.
+
+The plan gained the section the two wrong fixes earned: **the offline renderer is a different world.**
+Its deps carry four resources, the live path's backend carries all of them, and reusing the world's
+draw order across that line is what broke icons twice. Written down because the reuse looks right
+every time you read it.
+
+Verified: gpucat src tsc 0, 607 tests, 55/55 WebGPU pixels, WebGL pixels pass; lib tsc clean, 1229
+tests passing with the two known failures (a pre-existing voxel case and the flaky multiplayer
+handshake, which passes on re-run).

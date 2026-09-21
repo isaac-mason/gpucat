@@ -1,10 +1,12 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { Object3D } from '../../core/object3d';
 import type { RenderTarget } from '../../core/render-target';
 import type { Material } from '../../material/material';
 import type { ComputeNode } from '../../nodes/lib/core';
 import type { MRTNode } from '../../nodes/lib/mrt';
 import type { TransformFeedbackNode } from '../../nodes/lib/transform-feedback';
 import type { Mesh, MeshDraw } from '../../objects/mesh';
+import { drawScene } from '../../scene/draw-scene';
 import type { Any } from '../../schema/schema';
 import type { CanvasTarget } from './canvas-target';
 import type { Renderer } from './renderer';
@@ -32,7 +34,7 @@ export type PassDesc = {
     label?: string;
 };
 
-export type DrawOpts = {
+export type DrawOptions = {
     instances?: number;
     range?: { start: number; count: number };
     draws?: MeshDraw[];
@@ -45,7 +47,7 @@ export type DrawRecord = {
     kind: 'draw';
     mesh: Mesh;
     material: Material;
-    opts: DrawOpts | null;
+    opts: DrawOptions | null;
 };
 
 /**
@@ -72,15 +74,15 @@ export type PassEntry = DrawRecord | BundleRecord;
 
 export type ComputePassDesc = { label?: string };
 
-export type DispatchOpts = {
+export type DispatchOptions = {
     /** Rebinds the node's named `storage()` refs for this dispatch alone, so no pipeline is recompiled. */
     buffers?: Record<string, GpuBuffer<Any>>;
 };
 
-export type DispatchIndirectOpts = DispatchOpts & { offset?: number };
+export type DispatchIndirectOptions = DispatchOptions & { offset?: number };
 
 /** Exactly one of `counts` and `indirect` is set, which `dispatch` and `dispatchIndirect` guarantee. */
-export type DispatchRecord = DispatchOpts & {
+export type DispatchRecord = DispatchOptions & {
     node: ComputeNode;
     counts?: [number, number, number];
     indirect?: GpuBuffer<Any>;
@@ -120,9 +122,11 @@ export type Pass = {
     count: number;
     ended: boolean;
     /** Draws unconditionally: `mesh.visible` gates the scene walk, not a draw you recorded yourself. */
-    draw(mesh: Mesh, opts?: DrawOpts): void;
+    draw(mesh: Mesh, opts?: DrawOptions): void;
     /** Replays a bundle here, keeping its order against the draws around it. */
     execute(bundle: RenderBundle): void;
+    /** Walks a tree here: frustum culled, `visible` honoured, opaque before transparent. */
+    scene(root: Object3D, camera?: View): void;
     end(): void;
 };
 
@@ -133,9 +137,9 @@ export type ComputePass = {
     records: DispatchRecord[];
     count: number;
     ended: boolean;
-    dispatch(node: ComputeNode, counts: [number, number, number], opts?: DispatchOpts): void;
+    dispatch(node: ComputeNode, counts: [number, number, number], opts?: DispatchOptions): void;
     /** `indirect` needs `'indirect'` usage, and is typically written by an earlier compute pass. */
-    dispatchIndirect(node: ComputeNode, indirect: GpuBuffer<Any>, opts?: DispatchIndirectOpts): void;
+    dispatchIndirect(node: ComputeNode, indirect: GpuBuffer<Any>, opts?: DispatchIndirectOptions): void;
     end(): void;
 };
 
@@ -170,6 +174,8 @@ export type AnyPass = Pass | ComputePass | TransformFeedbackPass;
 /** Holds both pass pools for the life of the renderer, so a steady-state frame allocates nothing. */
 export type Frame = {
     backend: FrameBackend;
+    /** Set by `frame(renderer)`; `pass.scene()` needs it for the per-(scene, camera) render-list cache. */
+    renderer: Renderer | null;
     pool: Pass[];
     poolIndex: number;
     computePool: ComputePass[];
@@ -200,6 +206,7 @@ export type Frame = {
 export function createFrame(backend: FrameBackend): Frame {
     const frame: Frame = {
         backend,
+        renderer: null,
         pool: [],
         poolIndex: 0,
         computePool: [],
@@ -243,6 +250,7 @@ export function passLabel(pass: AnyPass): string {
 export function frame(renderer: Renderer): Frame {
     renderer._assertInitialized('frame');
     renderer._frameState ??= createFrame(renderer.backend);
+    renderer._frameState.renderer = renderer;
     beginFrame(renderer._frameState);
     return renderer._frameState;
 }
@@ -309,9 +317,17 @@ function createRenderPass(frame: Frame, desc: PassDesc): Pass {
         ended: false,
         draw: (mesh, opts) => recordDraw(pass, mesh, opts),
         execute: (bundle) => recordBundle(pass, bundle),
+        scene: (root, camera) => recordScene(frame, pass, root, camera),
         end: () => endPass(frame, pass),
     };
     return pass;
+}
+
+function recordScene(frame: Frame, pass: Pass, root: Object3D, camera?: View): void {
+    if (frame.renderer === null) throw new Error('[pass] scene() needs a frame opened with frame(renderer).');
+    const view = camera ?? pass.desc.camera;
+    if (view === undefined) throw new Error('[pass] scene() needs a camera, on the pass desc or as its second argument.');
+    drawScene(frame.renderer, pass, root, view);
 }
 
 function openComputePass(frame: Frame, desc: ComputePassDesc): ComputePass {
@@ -425,7 +441,7 @@ function recordDispatch(
     pass.count++;
 }
 
-function recordDraw(pass: Pass, mesh: Mesh, opts?: DrawOpts): void {
+function recordDraw(pass: Pass, mesh: Mesh, opts?: DrawOptions): void {
     if (pass.ended) throw new Error(`[pass ${passLabel(pass)}] draw after end()`);
 
     const record = pass.records[pass.count];

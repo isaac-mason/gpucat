@@ -56,13 +56,13 @@ import {
 } from '../../src/index';
 
 export type Slots = Parameters<typeof compileGlsl>[0];
-export type GlslOpts = Parameters<typeof compileGlsl>[1];
+export type GlslOptions = Parameters<typeof compileGlsl>[1];
 
 export interface Case {
     name: string;
     build: () => Slots;
     /** Optional GLSL emitter options (e.g. `{ precision: 'mediump' }`) passed to compileGlsl. */
-    opts?: GlslOpts;
+    opts?: GlslOptions;
 }
 
 /**

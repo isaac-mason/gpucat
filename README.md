@@ -663,10 +663,12 @@ Cameras carry the projection: `PerspectiveCamera(fov, aspect, near, far)` or `Or
 
 ```ts
 const pass = f.pass({ target: view, camera });
-drawScene(renderer, pass, scene, camera);   // the tree
-pass.draw(cursor);                          // and anything else, in the order you say
+pass.scene(scene);     // the tree, using the pass's own camera
+pass.draw(cursor);     // and anything else, in the order you say
 pass.end();
 ```
+
+`pass.scene(tree)` is the walk as a verb on the pass, beside `draw` and `execute`; `drawScene(renderer, pass, tree, camera)` is the same thing as a free function, for when you have no pass to hand.
 
 **A draw you record yourself is unconditional.** `pass.draw(mesh)` draws that mesh: it does not read `visible`, does not frustum cull, and does not sort. Those are the walk's, not the pass's. This matters if you keep your own list of what to draw, because hiding something by setting `visible = false` will do nothing and report nothing. Skip it yourself, or hand the tree to `drawScene` and let it decide.
 

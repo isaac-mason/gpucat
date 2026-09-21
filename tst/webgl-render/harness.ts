@@ -8,6 +8,7 @@ import {
     CubeTexture,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    compile,
     createCanvasTarget,
     createBoxGeometry,
     createFullscreenTriangleGeometry,
@@ -155,7 +156,7 @@ async function caseCompilePrewarm(): Promise<CaseResult> {
 
     const programs = () => Programs.getProgramCacheStats(renderer.backend.programs).programCount;
     const before = programs();
-    await renderer.compile([mesh], target, new PerspectiveCamera());
+    await compile(renderer, [mesh], target, new PerspectiveCamera());
     const warmed = programs();
 
     const f = frame(renderer);
@@ -1749,7 +1750,7 @@ async function caseCubeMips(): Promise<CaseResult> {
  * this read would come back as untouched texture rather than the clear colour.
  */
 /**
- * draw-opts: one mesh, drawn twice in one pass, differing only by `DrawOpts.range`. The geometry is a
+ * draw-opts: one mesh, drawn twice in one pass, differing only by `DrawOptions.range`. The geometry is a
  * two-triangle strip: indices 0..2 cover the left half GREEN, 3..5 the right half RED. Both submissions
  * share a geometry whose own `drawRange` covers everything, so if `range` were ignored each draw would
  * cover the whole screen and the last one would win. Reading the LEFT half proves the override landed.

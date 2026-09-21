@@ -1,4 +1,5 @@
 import type { RenderTarget } from '../../core/render-target';
+import type { ComputeNode } from '../../nodes/lib/core';
 import type { FrameBackend } from './frame';
 import type { MemoryInfo } from './info';
 import type { RenderContext } from './pass-context';
@@ -18,6 +19,8 @@ export interface DeviceBackend extends FrameBackend {
     dispose(): void;
     /** Warm whatever this API compiles per drawable, for objects `compileTargets` already resolved. */
     compileObjects(objects: RenderObject[], context: RenderContext): Promise<void>;
+    /** Warm compute pipelines. WebGL2 implements it by refusing: it has no compute shaders. */
+    compileCompute(nodes: ComputeNode[]): Promise<void>;
     readPixels(target: RenderTarget, attachmentIndex: number, layer: number): Promise<Uint8Array>;
     /**
      * Fill the shared counts and this API's own, at the renderer's frame boundary. Read live off the

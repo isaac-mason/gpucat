@@ -439,37 +439,37 @@ The full node DSL, grouped by category. Learn it with examples in the [guide](./
 </tr><tr>
 <td><a href="#struct"><code>struct</code></a></td><td><a href="#sub"><code>sub</code></a></td><td><a href="#texturetype"><code>TextureType</code></a></td><td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td>
 </tr><tr>
-<td><a href="#transformfeedbackcallback"><code>TransformFeedbackCallback</code></a></td><td><a href="#transformfeedbacklayout"><code>TransformFeedbackLayout</code></a></td><td><a href="#tan"><code>tan</code></a></td><td><a href="#texture"><code>texture</code></a></td>
+<td><a href="#transformfeedbackcallback"><code>TransformFeedbackCallback</code></a></td><td><a href="#transformfeedbacklayout"><code>TransformFeedbackLayout</code></a></td><td><a href="#tan"><code>tan</code></a></td><td><a href="#targetcolor"><code>targetColor</code></a></td>
 </tr><tr>
-<td><a href="#texturebarrier"><code>textureBarrier</code></a></td><td><a href="#texturebinding"><code>textureBinding</code></a></td><td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td>
+<td><a href="#targetdepth"><code>targetDepth</code></a></td><td><a href="#texture"><code>texture</code></a></td><td><a href="#texturebarrier"><code>textureBarrier</code></a></td><td><a href="#texturebinding"><code>textureBinding</code></a></td>
 </tr><tr>
-<td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td><td><a href="#textureload"><code>textureLoad</code></a></td><td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td>
+<td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td><td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td><td><a href="#textureload"><code>textureLoad</code></a></td>
 </tr><tr>
-<td><a href="#texturesample"><code>textureSample</code></a></td><td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td>
+<td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td><td><a href="#texturesample"><code>textureSample</code></a></td><td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td>
 </tr><tr>
-<td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transformfeedback"><code>transformFeedback</code></a></td>
+<td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td><td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td>
 </tr><tr>
-<td><a href="#transpose"><code>transpose</code></a></td><td><a href="#u32"><code>u32</code></a></td><td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td>
+<td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transformfeedback"><code>transformFeedback</code></a></td><td><a href="#transpose"><code>transpose</code></a></td><td><a href="#u32"><code>u32</code></a></td>
 </tr><tr>
-<td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td><td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td><td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td>
+<td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td><td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td><td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td>
 </tr><tr>
-<td><a href="#var"><code>Var</code></a></td><td><a href="#vec2type"><code>Vec2Type</code></a></td><td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td>
+<td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td><td><a href="#var"><code>Var</code></a></td><td><a href="#vec2type"><code>Vec2Type</code></a></td>
 </tr><tr>
-<td><a href="#vectype"><code>VecType</code></a></td><td><a href="#varying"><code>varying</code></a></td><td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td>
+<td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td><td><a href="#vectype"><code>VecType</code></a></td><td><a href="#varying"><code>varying</code></a></td>
 </tr><tr>
-<td><a href="#vec2f"><code>vec2f</code></a></td><td><a href="#vec2h"><code>vec2h</code></a></td><td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td>
+<td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td><td><a href="#vec2f"><code>vec2f</code></a></td><td><a href="#vec2h"><code>vec2h</code></a></td>
 </tr><tr>
-<td><a href="#vec3"><code>vec3</code></a></td><td><a href="#vec3b"><code>vec3b</code></a></td><td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td>
+<td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td><td><a href="#vec3"><code>vec3</code></a></td><td><a href="#vec3b"><code>vec3b</code></a></td>
 </tr><tr>
-<td><a href="#vec3i"><code>vec3i</code></a></td><td><a href="#vec3u"><code>vec3u</code></a></td><td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td>
+<td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td><td><a href="#vec3i"><code>vec3i</code></a></td><td><a href="#vec3u"><code>vec3u</code></a></td>
 </tr><tr>
-<td><a href="#vec4f"><code>vec4f</code></a></td><td><a href="#vec4h"><code>vec4h</code></a></td><td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td>
+<td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td><td><a href="#vec4f"><code>vec4f</code></a></td><td><a href="#vec4h"><code>vec4h</code></a></td>
 </tr><tr>
-<td><a href="#vertexindex"><code>vertexIndex</code></a></td><td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgsltype"><code>WgslType</code></a></td>
+<td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td><td><a href="#vertexindex"><code>vertexIndex</code></a></td><td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td>
 </tr><tr>
-<td><a href="#while"><code>While</code></a></td><td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td><td><a href="#wgsl"><code>wgsl</code></a></td><td><a href="#wgslfn"><code>wgslFn</code></a></td>
+<td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgsltype"><code>WgslType</code></a></td><td><a href="#while"><code>While</code></a></td><td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td>
 </tr><tr>
-<td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td><td><a href="#workgroupid"><code>workgroupId</code></a></td><td></td><td></td>
+<td><a href="#wgsl"><code>wgsl</code></a></td><td><a href="#wgslfn"><code>wgslFn</code></a></td><td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td><td><a href="#workgroupid"><code>workgroupId</code></a></td>
 </tr></table>
 
 ### Renderer
@@ -499,11 +499,11 @@ Drive the GPU: create a renderer, build pipelines, render to the canvas or a tar
 <table><tr>
 <td><a href="#canvasalphamode"><code>CanvasAlphaMode</code></a></td><td><a href="#canvastargetoptions"><code>CanvasTargetOptions</code></a></td><td><a href="#canvasresizeevent"><code>CanvasResizeEvent</code></a></td><td><a href="#canvastarget"><code>CanvasTarget</code></a></td>
 </tr><tr>
-<td><a href="#createcanvastarget"><code>createCanvasTarget</code></a></td><td><a href="#readopts"><code>ReadOpts</code></a></td><td><a href="#readablerenderer"><code>ReadableRenderer</code></a></td><td><a href="#read"><code>read</code></a></td>
+<td><a href="#createcanvastarget"><code>createCanvasTarget</code></a></td><td><a href="#readopts"><code>ReadOpts</code></a></td><td><a href="#read"><code>read</code></a></td><td><a href="#rendertargetoptions"><code>RenderTargetOptions</code></a></td>
 </tr><tr>
-<td><a href="#rendertargetoptions"><code>RenderTargetOptions</code></a></td><td><a href="#rendertargettexture"><code>RenderTargetTexture</code></a></td><td><a href="#rendertarget"><code>RenderTarget</code></a></td><td><a href="#createrendertarget"><code>createRenderTarget</code></a></td>
+<td><a href="#rendertargettexture"><code>RenderTargetTexture</code></a></td><td><a href="#rendertarget"><code>RenderTarget</code></a></td><td><a href="#createrendertarget"><code>createRenderTarget</code></a></td><td><a href="#cuberendertargetoptions"><code>CubeRenderTargetOptions</code></a></td>
 </tr><tr>
-<td><a href="#cuberendertargetoptions"><code>CubeRenderTargetOptions</code></a></td><td><a href="#cuberendertarget"><code>CubeRenderTarget</code></a></td><td><a href="#createcuberendertarget"><code>createCubeRenderTarget</code></a></td><td></td>
+<td><a href="#cuberendertarget"><code>CubeRenderTarget</code></a></td><td><a href="#createcuberendertarget"><code>createCubeRenderTarget</code></a></td><td></td><td></td>
 </tr></table>
 
 ### Scene & objects
@@ -2866,6 +2866,24 @@ export type TransformFeedbackLayout<In extends Record<string, Any>, Out extends 
 export const tan: <D extends Any>(a: Node<D>) => Node<D>;
 ```
 
+#### `targetColor`
+
+```ts
+/**
+ * What a render target's colour attachment holds, as a node to sample. The counterpart of drawing
+ * into it with `f.pass({ target })`, and the plain alternative to `RenderTextureNode`, which samples
+ * the same thing but also schedules a pass to fill it.
+ */
+export function targetColor(target: RenderTarget): TextureNode<d.texture2d>;
+```
+
+#### `targetDepth`
+
+```ts
+/** A render target's depth, as a node to sample. The target must be created with `depthSampled: true`. */
+export function targetDepth(target: RenderTarget): DepthTextureNode;
+```
+
 #### `texture`
 
 ```ts
@@ -3586,9 +3604,6 @@ export class Renderer<B extends DeviceBackend = DeviceBackend> implements Render
     get inspector(): InspectorBase | null;
     set inspector(next: InspectorBase | null);
     init(): Promise<this>;
-    /** Pre-warm the drawables a pass will look up, resolved through the context that pass resolves. */
-    compile(drawables: Mesh[], target: Target, camera: View): Promise<void>;
-    readPixels(target: RenderTarget, attachmentIndex?: number, layer?: number): Promise<Uint8Array>;
     dispose(): void;
 }
 ```
@@ -3784,6 +3799,8 @@ export type Pass = {
     draw(mesh: Mesh, opts?: DrawOpts): void;
     /** Replays a bundle here, keeping its order against the draws around it. */
     execute(bundle: RenderBundle): void;
+    /** Walks a tree here: frustum culled, `visible` honoured, opaque before transparent. */
+    scene(root: Object3D, camera?: View): void;
     end(): void;
 };
 ```
@@ -3863,6 +3880,8 @@ export type AnyPass = Pass | ComputePass | TransformFeedbackPass;
 /** Holds both pass pools for the life of the renderer, so a steady-state frame allocates nothing. */
 export type Frame = {
     backend: FrameBackend;
+    /** Set by `frame(renderer)`; `pass.scene()` needs it for the per-(scene, camera) render-list cache. */
+    renderer: Renderer | null;
     pool: Pass[];
     poolIndex: number;
     computePool: ComputePass[];
@@ -4059,15 +4078,6 @@ export type ReadOpts = {
 };
 ```
 
-#### `ReadableRenderer`
-
-```ts
-/** What `read` needs of a renderer. Both renderers satisfy it; a target holds no device to do it itself. */
-export type ReadableRenderer = {
-    readPixels(target: RenderTarget, attachment: number, layer: number): Promise<Uint8Array>;
-};
-```
-
 #### `read`
 
 ```ts
@@ -4075,7 +4085,7 @@ export type ReadableRenderer = {
  * Reads a colour attachment back as tightly-packed, top-to-bottom RGBA8. Call it after the frame that
  * wrote the target has been submitted; reading with one open throws rather than returning stale pixels.
  */
-export function read(renderer: ReadableRenderer, target: RenderTarget, opts?: ReadOpts): Promise<Uint8Array>;
+export function read(renderer: Renderer, target: RenderTarget, opts?: ReadOpts): Promise<Uint8Array>;
 ```
 
 #### `RenderTargetOptions`

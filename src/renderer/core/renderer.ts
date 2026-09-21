@@ -1,16 +1,12 @@
-import type { RenderTarget } from '../../core/render-target';
 import type { InspectableRenderer, InspectorBase } from '../../inspector/inspector-base';
-import type { Mesh } from '../../objects/mesh';
 import type { DeviceBackend } from './device-backend';
-import { type Frame, isFrameOpen } from './frame';
+import type { Frame } from './frame';
 import { beginInfoFrame, createRendererInfo, type RendererInfo } from './info';
 import * as NodeManager from './node-manager';
 import * as RenderContext from './pass-context';
 import * as RenderLists from './render-list';
 import * as RenderObjects from './render-objects';
-import { compileTargets, type DeviceLostInfo, type RendererState } from './renderer-ops';
-import type { Target } from './target';
-import type { View } from './view';
+import type { DeviceLostInfo, RendererState } from './renderer-ops';
 
 /**
  * What `init` returns: one class over any backend, so the orchestration has a single home and the
@@ -73,20 +69,7 @@ export class Renderer<B extends DeviceBackend = DeviceBackend> implements Render
 
     /** The renderer's one reusable frame, reopened. */
     /** Pre-warm the drawables a pass will look up, resolved through the context that pass resolves. */
-    async compile(drawables: Mesh[], target: Target, camera: View): Promise<void> {
-        this._assertInitialized('compile');
-        if (drawables.length === 0) return;
-        const { context, objects } = compileTargets(this, drawables, target, camera);
-        await this.backend.compileObjects(objects, context);
-    }
 
-    readPixels(target: RenderTarget, attachmentIndex = 0, layer = 0): Promise<Uint8Array> {
-        this._assertInitialized('readPixels');
-        if (isFrameOpen(this._frameState)) {
-            return Promise.reject(new Error('[Renderer] readPixels() while a frame is open reads stale pixels; submit() first.'));
-        }
-        return this.backend.readPixels(target, attachmentIndex, layer);
-    }
 
     dispose(): void {
         this.backend.dispose();

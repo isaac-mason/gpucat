@@ -1,6 +1,6 @@
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { Mesh } from '../../objects/mesh';
-import type { DrawOpts, PassEntry } from './frame';
+import type { DrawOptions, PassEntry } from './frame';
 import type { NodeManagerState } from './node-manager';
 import type * as RenderContextModule from './pass-context';
 import type { RenderContext } from './pass-context';
@@ -57,7 +57,7 @@ export declare function compileTargets(r: RendererState, drawables: Mesh[], targ
 /** The recorded-draw counterpart to {@link prepareRenderObjects}: no render list, no scene walk. */
 export declare function prepareRecordedDraws(r: RendererState, records: readonly PassEntry[], count: number, camera: View, passCtx: RenderContext, 
 /** Null unless an inspector is attached; only annotates each object for the draw-calls tab. */
-inspectorLabel: string | null, prepare: (nodes: NodeManagerState, renderObject: RenderObject) => boolean, out: PreparedRenderObject[], outOpts: (DrawOpts | null)[], 
+inspectorLabel: string | null, prepare: (nodes: NodeManagerState, renderObject: RenderObject) => boolean, out: PreparedRenderObject[], outOpts: (DrawOptions | null)[], 
 /** Runs of `out`, one per bundle plus the direct draws between them. WebGL has no use for these. */
 outSegments: PreparedSegment[]): number;
 /** A per-depth list, grown on demand so a steady-state frame reuses one array. */

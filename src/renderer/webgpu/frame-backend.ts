@@ -4,7 +4,7 @@ import type { RenderTarget } from '../../core/render-target';
 import type * as d from '../../schema/schema';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DeviceBackend } from '../core/device-backend';
-import type { ComputePassDesc, DispatchRecord, DrawOpts, PassDesc, PassEntry } from '../core/frame';
+import type { ComputePassDesc, DispatchRecord, DrawOptions, PassDesc, PassEntry } from '../core/frame';
 import type { RenderContext } from '../core/pass-context';
 import { alignCameraToBackend, resolvePassContext, resolvePassParams } from '../core/pass-desc';
 import type { PreparedRenderObject, PreparedSegment, RenderPassParams } from '../core/render-types';
@@ -26,7 +26,7 @@ export type WebGPUFrameBackendState = {
     /** One prepared list per nesting depth, since a nested pass prepares while an outer list is live. */
     preparedByDepth: PreparedRenderObject[][];
     /** Each prepared object's per-submission overrides, same index, same depth. */
-    preparedOptsByDepth: (DrawOpts | null)[][];
+    preparedOptsByDepth: (DrawOptions | null)[][];
     segmentsByDepth: PreparedSegment[][];
     depth: number;
     /** Targets written this frame whose mips are filled after submit, since generation owns an encoder. */

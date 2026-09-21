@@ -1,6 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
+import type { RenderTarget } from '../../core/render-target';
 import { layoutStrideOf, structFieldLayout } from '../../schema/pack';
 import type { Any, CubeSampledTexture, FlatDepthTexture, FlatSampledTexture } from '../../schema/schema';
 import * as d from '../../schema/schema';
@@ -1640,4 +1641,26 @@ export function textureGatherCompare(
 ): CallNode<d.vec4f> {
     const args: Node<Any>[] = offset ? [t, s, coords, depthRef, offset] : [t, s, coords, depthRef];
     return new CallNode(d.vec4f, 'textureGatherCompare', args);
+}
+
+/**
+ * What a render target's colour attachment holds, as a node to sample. The counterpart of drawing
+ * into it with `f.pass({ target })`, and the plain alternative to `RenderTextureNode`, which samples
+ * the same thing but also schedules a pass to fill it.
+ */
+export function targetColor(target: RenderTarget): TextureNode<d.texture2d> {
+    const tex = target.texture;
+    if (tex === undefined) {
+        throw new Error('[targetColor] this render target has no colour attachment (count: 0).');
+    }
+    return texture(tex as Texture);
+}
+
+/** A render target's depth, as a node to sample. The target must be created with `depthSampled: true`. */
+export function targetDepth(target: RenderTarget): DepthTextureNode {
+    const tex = target.depthTexture;
+    if (tex === null || tex === undefined) {
+        throw new Error('[targetDepth] this render target has no sampled depth; create it with `depthSampled: true`.');
+    }
+    return depthTexture(tex);
 }

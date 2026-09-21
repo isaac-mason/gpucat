@@ -3,6 +3,7 @@ import {
     ArrayTexture,
     arrayTexture,
     attribute,
+    compile,
     bundle,
     CubeCamera,
     CubeTexture,
@@ -339,7 +340,7 @@ async function caseBundleReplay(gpu: Renderer<WebGPUBackend>): Promise<CaseResul
     };
 }
 
-/** draw-material: `DrawOpts.material` replaces the mesh's own material for this one submission. */
+/** draw-material: `DrawOptions.material` replaces the mesh's own material for this one submission. */
 async function caseDrawMaterial(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
 
@@ -771,7 +772,7 @@ async function casePassDepthSample(gpu: Renderer<WebGPUBackend>): Promise<CaseRe
 }
 
 /**
- * draw-opts: `DrawOpts.range` per submission, which is what lets one geometry serve two draws. Six
+ * draw-opts: `DrawOptions.range` per submission, which is what lets one geometry serve two draws. Six
  * vertices cover the left half and six the right; green takes the first range, red the second, so the
  * left reads green only if each draw honoured its own range rather than drawing the whole buffer.
  */
@@ -1941,7 +1942,7 @@ async function caseCompilePrewarm(gpu: Renderer<WebGPUBackend>): Promise<CaseRes
 
     const pipelines = () => gpu.backend.pipelines.renderPipelines.size;
     const before = pipelines();
-    await gpu.compile([mesh], target, new PerspectiveCamera());
+    await compile(gpu, [mesh], target, new PerspectiveCamera());
     const warmed = pipelines();
 
     const f = frame(gpu);

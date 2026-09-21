@@ -13,7 +13,7 @@
  * (never loose `glUniform*`).
  */
 import type { InspectorBase } from '../../inspector/inspector-base';
-import type { DrawOpts } from '../core/frame';
+import type { DrawOptions } from '../core/frame';
 import type { RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
@@ -41,5 +41,5 @@ export type PassScope = {
 export declare function beginPass(gl: WebGL2RenderingContext, caches: BackendState, passCtx: RenderContext, params: RenderPassParams): PassScope;
 /** Unbinds the VAO so later buffer mutations cannot record into it, then resolves an MSAA target. */
 export declare function endPass(gl: WebGL2RenderingContext, caches: BackendState): void;
-export declare function encodeDraws(gl: WebGL2RenderingContext, caches: BackendState, nodes: NodeManagerState, passCtx: RenderContext, prepared: readonly PreparedRenderObject[], preparedOpts: readonly (DrawOpts | null)[], count: number, inspector: InspectorBase | null, info: RendererInfo, { passBlend }: PassScope): void;
+export declare function encodeDraws(gl: WebGL2RenderingContext, caches: BackendState, nodes: NodeManagerState, passCtx: RenderContext, prepared: readonly PreparedRenderObject[], preparedOpts: readonly (DrawOptions | null)[], count: number, inspector: InspectorBase | null, info: RendererInfo, { passBlend }: PassScope): void;
 export {};

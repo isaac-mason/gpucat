@@ -13,7 +13,7 @@
 
 import type { Geometry } from '../../geometry/geometry';
 
-/** `DrawOpts.range` and `Geometry.drawRange` share this shape; the former overrides the latter. */
+/** `DrawOptions.range` and `Geometry.drawRange` share this shape; the former overrides the latter. */
 export type DrawRange = { start: number; count: number };
 
 /** A draw range resolved against what the geometry actually holds. */

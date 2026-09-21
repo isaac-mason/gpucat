@@ -1,5 +1,5 @@
 import type { DeviceBackend } from '../core/device-backend';
-import type { DrawOpts, PassDesc, PassEntry } from '../core/frame';
+import type { DrawOptions, PassDesc, PassEntry } from '../core/frame';
 import type { PreparedRenderObject, PreparedSegment } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
 import type { WebGLBackend } from './webgl-backend';
@@ -11,7 +11,7 @@ export type WebGLFrameBackendState = {
     /** One prepared list per nesting depth, since a nested pass prepares while an outer list is live. */
     preparedByDepth: PreparedRenderObject[][];
     /** Each prepared object's per-submission overrides, same index, same depth. */
-    preparedOptsByDepth: (DrawOpts | null)[][];
+    preparedOptsByDepth: (DrawOptions | null)[][];
     segmentsByDepth: PreparedSegment[][];
     depth: number;
 };

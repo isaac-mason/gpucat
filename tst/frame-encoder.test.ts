@@ -432,11 +432,11 @@ describe('work that owns its own encoder refuses to run inside a frame', () => {
         pass.end();
 
         // The pass is recorded but not queued, so a read here returns the previous frame's pixels.
-        await expect(renderer.readPixels(target)).rejects.toThrow(/submit\(\) first/);
+        await expect(read(renderer, target)).rejects.toThrow(/submit\(\) first/);
 
         // After submit the guard is gone; the stub cannot do a real readback, so only the guard is asserted.
         f.submit();
-        await expect(renderer.readPixels(target)).rejects.not.toThrow(/submit\(\) first/);
+        await expect(read(renderer, target)).rejects.not.toThrow(/submit\(\) first/);
     });
 });
 
@@ -613,15 +613,21 @@ describe('read is an operation on the gpu, not a method on the target', () => {
         const seen: [number, number][] = [];
 
         const spy = {
-            readPixels: (_t: RenderTarget, attachment: number, layer: number) => {
-                seen.push([attachment, layer]);
-                return Promise.resolve(new Uint8Array(0));
+            _assertInitialized: () => {},
+            _frameState: null,
+            backend: {
+                readPixels: (_t: RenderTarget, attachment: number, layer: number) => {
+                    seen.push([attachment, layer]);
+                    return Promise.resolve(new Uint8Array(0));
+                },
             },
         };
 
-        await read(spy, target);
-        await read(spy, target, { attachment: 2 });
-        await read(spy, target, { layer: 4 });
+        // `read` takes a Renderer; this stands in for one to watch what it forwards.
+        const spyRenderer = spy as unknown as Renderer;
+        await read(spyRenderer, target);
+        await read(spyRenderer, target, { attachment: 2 });
+        await read(spyRenderer, target, { layer: 4 });
 
         expect(seen).toEqual([
             [0, 0],

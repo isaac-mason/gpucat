@@ -1,21 +1,22 @@
 import type { RenderTarget } from '../../core/render-target';
+import { isFrameOpen } from './frame';
+import type { Renderer } from './renderer';
 
-export type ReadOpts = {
+export type ReadOptions = {
     /** Which MRT colour attachment to read. Defaults to the first. */
     attachment?: number;
     /** Array layer, or cube face: 0..5 = +X, -X, +Y, -Y, +Z, -Z. */
     layer?: number;
 };
 
-/** What `read` needs of a renderer. Both renderers satisfy it; a target holds no device to do it itself. */
-export type ReadableRenderer = {
-    readPixels(target: RenderTarget, attachment: number, layer: number): Promise<Uint8Array>;
-};
-
 /**
  * Reads a colour attachment back as tightly-packed, top-to-bottom RGBA8. Call it after the frame that
  * wrote the target has been submitted; reading with one open throws rather than returning stale pixels.
  */
-export function read(renderer: ReadableRenderer, target: RenderTarget, opts: ReadOpts = {}): Promise<Uint8Array> {
-    return renderer.readPixels(target, opts.attachment ?? 0, opts.layer ?? 0);
+export function read(renderer: Renderer, target: RenderTarget, opts: ReadOptions = {}): Promise<Uint8Array> {
+    renderer._assertInitialized('read');
+    if (isFrameOpen(renderer._frameState)) {
+        return Promise.reject(new Error('[read] reading while a frame is open gives stale pixels; submit() first.'));
+    }
+    return renderer.backend.readPixels(target, opts.attachment ?? 0, opts.layer ?? 0);
 }

@@ -1,6 +1,6 @@
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { CanvasTarget } from '../core/canvas-target';
-import type { DrawOpts } from '../core/frame';
+import type { DrawOptions } from '../core/frame';
 import type { RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
@@ -89,7 +89,7 @@ export type DrawScope = {
 };
 export declare function beginPass(encoder: GPUCommandEncoder, passCtx: RenderContext, colorAttachments: GPURenderPassColorAttachment[], depthAttachment: GPURenderPassDepthStencilAttachment | undefined, passId: string, inspector: InspectorBase | null): PassScope;
 export declare function endPass(scope: PassScope): void;
-export declare function encodeDraws(b: BackendState, nodes: NodeManagerState, passCtx: RenderContext, preparedObjects: readonly PreparedRenderObject[], preparedOpts: readonly (DrawOpts | null)[], count: number, inspector: InspectorBase | null, info: RendererInfo, scope: PassScope, segments: readonly PreparedSegment[]): void;
+export declare function encodeDraws(b: BackendState, nodes: NodeManagerState, passCtx: RenderContext, preparedObjects: readonly PreparedRenderObject[], preparedOpts: readonly (DrawOptions | null)[], count: number, inspector: InspectorBase | null, info: RendererInfo, scope: PassScope, segments: readonly PreparedSegment[]): void;
 /**
  * Release all device resources: the canvas context, swapchain textures, default placeholder
  * textures + samplers, mipmap state, pipeline caches, and (unless the device was pre-created) the

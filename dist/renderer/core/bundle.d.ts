@@ -1,8 +1,8 @@
 import type { Mesh } from '../../objects/mesh';
-import type { DrawOpts, RenderBundle } from './frame';
+import type { DrawOptions, RenderBundle } from './frame';
 /** Records draws for replay. `finish()` hands back the bundle and closes recording. */
 export type BundleEncoder = {
-    draw(mesh: Mesh, opts?: DrawOpts): void;
+    draw(mesh: Mesh, opts?: DrawOptions): void;
     finish(): RenderBundle;
 };
 /**

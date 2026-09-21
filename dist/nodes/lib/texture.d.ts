@@ -1,6 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
+import type { RenderTarget } from '../../core/render-target';
 import type { Any, CubeSampledTexture, FlatDepthTexture, FlatSampledTexture } from '../../schema/schema';
 import * as d from '../../schema/schema';
 import type { ArrayTexture } from '../../texture/array-texture';
@@ -697,4 +698,12 @@ export declare function textureGather<D extends FlatSampledTexture>(component: N
  * Requires sampler_comparison.
  */
 export declare function textureGatherCompare(t: TextureBindingNode<FlatDepthTexture>, s: AnyComparisonSamplerNode, coords: Node<d.vec2f>, depthRef: Node<d.f32>, offset?: Node<d.vec2i>): CallNode<d.vec4f>;
+/**
+ * What a render target's colour attachment holds, as a node to sample. The counterpart of drawing
+ * into it with `f.pass({ target })`, and the plain alternative to `RenderTextureNode`, which samples
+ * the same thing but also schedules a pass to fill it.
+ */
+export declare function targetColor(target: RenderTarget): TextureNode<d.texture2d>;
+/** A render target's depth, as a node to sample. The target must be created with `depthSampled: true`. */
+export declare function targetDepth(target: RenderTarget): DepthTextureNode;
 export {};

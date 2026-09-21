@@ -11,7 +11,7 @@
  * optional: handing `Infinity` to a draw call is not a clamp the API does for you.
  */
 import type { Geometry } from '../../geometry/geometry';
-/** `DrawOpts.range` and `Geometry.drawRange` share this shape; the former overrides the latter. */
+/** `DrawOptions.range` and `Geometry.drawRange` share this shape; the former overrides the latter. */
 export type DrawRange = {
     start: number;
     count: number;

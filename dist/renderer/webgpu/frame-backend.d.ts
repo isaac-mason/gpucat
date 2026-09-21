@@ -2,7 +2,7 @@ import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
 import type * as d from '../../schema/schema';
 import type { DeviceBackend } from '../core/device-backend';
-import type { ComputePassDesc, DispatchRecord, DrawOpts, PassDesc, PassEntry } from '../core/frame';
+import type { ComputePassDesc, DispatchRecord, DrawOptions, PassDesc, PassEntry } from '../core/frame';
 import type { PreparedRenderObject, PreparedSegment } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
 import type { WebGPUBackend } from './webgpu-backend';
@@ -14,7 +14,7 @@ export type WebGPUFrameBackendState = {
     /** One prepared list per nesting depth, since a nested pass prepares while an outer list is live. */
     preparedByDepth: PreparedRenderObject[][];
     /** Each prepared object's per-submission overrides, same index, same depth. */
-    preparedOptsByDepth: (DrawOpts | null)[][];
+    preparedOptsByDepth: (DrawOptions | null)[][];
     segmentsByDepth: PreparedSegment[][];
     depth: number;
     /** Targets written this frame whose mips are filled after submit, since generation owns an encoder. */

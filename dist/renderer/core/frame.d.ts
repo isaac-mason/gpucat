@@ -1,4 +1,5 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { Object3D } from '../../core/object3d';
 import type { RenderTarget } from '../../core/render-target';
 import type { Material } from '../../material/material';
 import type { ComputeNode } from '../../nodes/lib/core';
@@ -36,7 +37,7 @@ export type PassDesc = {
     scissor?: Rect;
     label?: string;
 };
-export type DrawOpts = {
+export type DrawOptions = {
     instances?: number;
     range?: {
         start: number;
@@ -51,7 +52,7 @@ export type DrawRecord = {
     kind: 'draw';
     mesh: Mesh;
     material: Material;
-    opts: DrawOpts | null;
+    opts: DrawOptions | null;
 };
 /**
  * Draws recorded once and replayed into any pass of the same attachment shape. Holds its meshes and
@@ -78,15 +79,15 @@ export type PassEntry = DrawRecord | BundleRecord;
 export type ComputePassDesc = {
     label?: string;
 };
-export type DispatchOpts = {
+export type DispatchOptions = {
     /** Rebinds the node's named `storage()` refs for this dispatch alone, so no pipeline is recompiled. */
     buffers?: Record<string, GpuBuffer<Any>>;
 };
-export type DispatchIndirectOpts = DispatchOpts & {
+export type DispatchIndirectOptions = DispatchOptions & {
     offset?: number;
 };
 /** Exactly one of `counts` and `indirect` is set, which `dispatch` and `dispatchIndirect` guarantee. */
-export type DispatchRecord = DispatchOpts & {
+export type DispatchRecord = DispatchOptions & {
     node: ComputeNode;
     counts?: [number, number, number];
     indirect?: GpuBuffer<Any>;
@@ -120,9 +121,11 @@ export type Pass = {
     count: number;
     ended: boolean;
     /** Draws unconditionally: `mesh.visible` gates the scene walk, not a draw you recorded yourself. */
-    draw(mesh: Mesh, opts?: DrawOpts): void;
+    draw(mesh: Mesh, opts?: DrawOptions): void;
     /** Replays a bundle here, keeping its order against the draws around it. */
     execute(bundle: RenderBundle): void;
+    /** Walks a tree here: frustum culled, `visible` honoured, opaque before transparent. */
+    scene(root: Object3D, camera?: View): void;
     end(): void;
 };
 /** A recording compute pass. The batch shares one GPU pass unless an inspector wants per-node timings. */
@@ -132,9 +135,9 @@ export type ComputePass = {
     records: DispatchRecord[];
     count: number;
     ended: boolean;
-    dispatch(node: ComputeNode, counts: [number, number, number], opts?: DispatchOpts): void;
+    dispatch(node: ComputeNode, counts: [number, number, number], opts?: DispatchOptions): void;
     /** `indirect` needs `'indirect'` usage, and is typically written by an earlier compute pass. */
-    dispatchIndirect(node: ComputeNode, indirect: GpuBuffer<Any>, opts?: DispatchIndirectOpts): void;
+    dispatchIndirect(node: ComputeNode, indirect: GpuBuffer<Any>, opts?: DispatchIndirectOptions): void;
     end(): void;
 };
 export type TransformFeedbackPassDesc = {
@@ -167,6 +170,8 @@ export type AnyPass = Pass | ComputePass | TransformFeedbackPass;
 /** Holds both pass pools for the life of the renderer, so a steady-state frame allocates nothing. */
 export type Frame = {
     backend: FrameBackend;
+    /** Set by `frame(renderer)`; `pass.scene()` needs it for the per-(scene, camera) render-list cache. */
+    renderer: Renderer | null;
     pool: Pass[];
     poolIndex: number;
     computePool: ComputePass[];

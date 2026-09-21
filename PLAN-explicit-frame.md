@@ -44,7 +44,7 @@ The consumer pays for this. In makecat.io's `lib`:
 - Two per-submission facts live on shared long-lived objects: `mesh.visible`, which means "skip this",
   and `geometry.drawRange` on client-global batches that several rooms share. Not `mesh.draws` or
   `mesh.count`, which describe what the mesh is rather than how one submission of it differs.
-  `DrawOpts` (`instances`, `range`, `draws`, `material`) is the replacement, and it overrides the
+  `DrawOptions` (`instances`, `range`, `draws`, `material`) is the replacement, and it overrides the
   mesh and geometry per submission rather than shadowing them.
 
 ## Resources stay declarative
@@ -107,10 +107,16 @@ compositePass.end()
 f.submit()
 ```
 
-`compile`, `compileCompute` and `read` take a structural minimum (`CompilableRenderer`, `ReadableRenderer`)
-rather than `Renderer`, so each says what it needs and nothing else; both renderers satisfy all of
-them. `Drawable` was drafted as an alias for `Mesh` and never created: an alias with exactly one
-member is a second name for the same thing.
+~~`compile`, `compileCompute` and `read` take a structural minimum (`CompilableRenderer`,
+`ReadableRenderer`) rather than `Renderer`.~~ **Both deleted, 6.151.** They named methods that are
+now `_compile` and `_readPixels`, so the minimum they described had become a list of which privates a
+free function reaches for — the `SceneGpu` shape this plan already removed once. All three take
+`Renderer`. `Drawable` was drafted as an alias for `Mesh` and never created: an alias with exactly
+one member is a second name for the same thing.
+
+**The methods went private so there is one spelling.** `renderer.compile` and `renderer.readPixels`
+were public beside the free functions that wrapped them, which is two ways to do one thing on the
+surface this plan exists to make consistent.
 
 **The public API is methods; the code behind it is State plus standalone functions.** Those are
 different questions and conflating them cost a detour: the house style note was about orchestration
@@ -122,9 +128,9 @@ pools, the records and the backend vtable stay plain state operated on by module
 ```ts
 init<B extends DeviceBackend>( backend: B ): Promise<Renderer<B>>
 frame( renderer: Renderer ): Frame
-compile( renderer: CompilableRenderer, drawables: Mesh | Mesh[], target: Target, camera: View ): Promise<void>
-compileCompute( renderer: CompilableRenderer, nodes: ComputeNode | ComputeNode[] ): Promise<void>
-read( renderer: ReadableRenderer, target: RenderTarget, opts?: ReadOpts ): Promise<Uint8Array>
+compile( renderer: Renderer, drawables: Mesh | Mesh[], target: Target, camera: View ): Promise<void>
+compileCompute( renderer: Renderer, nodes: ComputeNode | ComputeNode[] ): Promise<void>
+read( renderer: Renderer, target: RenderTarget, opts?: ReadOptions ): Promise<Uint8Array>
 
 f.pass( desc: PassDesc ): Pass
 f.compute( desc?: ComputePassDesc ): ComputePass                                  // webgpu only
@@ -132,17 +138,17 @@ f.transformFeedback( desc?: TransformFeedbackPassDesc ): TransformFeedbackPass  
 f.submit(): void
 f.abandon(): void
 
-p.draw( mesh: Mesh, opts?: DrawOpts ): void
+p.draw( mesh: Mesh, opts?: DrawOptions ): void
 p.end(): void
 
-c.dispatch( node: ComputeNode, counts: [ number, number, number ], opts?: DispatchOpts ): void
-c.dispatchIndirect( node: ComputeNode, indirect: GpuBuffer<d.Any>, opts?: DispatchIndirectOpts ): void
+c.dispatch( node: ComputeNode, counts: [ number, number, number ], opts?: DispatchOptions ): void
+c.dispatchIndirect( node: ComputeNode, indirect: GpuBuffer<d.Any>, opts?: DispatchIndirectOptions ): void
 t.dispatch( node: TransformFeedbackNode, opts: TransformFeedbackDispatch ): void
 readBuffer( renderer: Renderer<WebGLBackend>, buffer: GpuBuffer ): Promise<Float32Array | Int32Array | Uint32Array>
 c.end(): void
 
-type DispatchOpts         = { buffers?: Record<string, GpuBuffer<d.Any>> }   // named storage rebind, see below
-type DispatchIndirectOpts = DispatchOpts & { offset?: number }
+type DispatchOptions         = { buffers?: Record<string, GpuBuffer<d.Any>> }   // named storage rebind, see below
+type DispatchIndirectOptions = DispatchOptions & { offset?: number }
 
 type PassDesc = {
     target: Target                   // a bundle: colors + depth + stencil + samples
@@ -161,7 +167,7 @@ type PassDesc = {
 type Rect = { x?: number; y?: number; width: number; height: number }
 
 type Target = RenderTarget | CanvasTarget
-type DrawOpts = {
+type DrawOptions = {
     instances?: number
     range?: { start: number; count: number }
     draws?: MeshDraw[]      // CPU multi-draw, overriding mesh.draws for this submission
@@ -174,7 +180,7 @@ loop iterates it instead of the single `drawRange` plus `count` draw (`Mesh.draw
 `objects/mesh.ts`, `encodeDraws` in `webgpu/render-pass.ts`). lib drives its whole batched voxel and
 mesh path through it:
 `mesh.draws = draws` shared by identity between a mesh and its outline in lib's `mesh-resources.ts`,
-rewritten by CPU frustum and cone culling each frame. `DrawOpts.draws` exists to override it per
+rewritten by CPU frustum and cone culling each frame. `DrawOptions.draws` exists to override it per
 submission, not to replace it.
 
 **A target is a bundle, not one texture.** Colour count, depth, stencil, sample count and store
@@ -322,7 +328,7 @@ not be is a closure over hidden state.
 ### What is public
 
 `Frame`, `Pass`, `ComputePass` and their methods, plus the descs and options: `PassDesc`,
-`ComputePassDesc`, `DrawOpts`, `DispatchOpts`, `DispatchIndirectOpts`, `Rect`, `Target`, `View`.
+`ComputePassDesc`, `DrawOptions`, `DispatchOptions`, `DispatchIndirectOptions`, `Rect`, `Target`, `View`.
 
 Not public: `createFrame` and `beginFrame`, which `frame(renderer)` owns so a consumer cannot double-begin
 a frame; `FrameBackend` and the backend states, which are implementation; the `pass-desc` resolvers;
@@ -880,7 +886,7 @@ type FrameBackend = {
   discardFrame(): void
 }
 
-type DrawRecord = { mesh: Mesh; material: Material; opts: DrawOpts | null }
+type DrawRecord = { mesh: Mesh; material: Material; opts: DrawOptions | null }
 ```
 
 Three things this settles that the sketch above left open.
@@ -910,7 +916,7 @@ an argument" is only true for `RenderTarget`, and a frame drawing to several can
 with previews, a multi-view editor) either draws to the wrong one or thrashes one shared depth
 texture between sizes.
 
-**`DrawOpts` needs a parallel array, not a field on `RenderObject`.** Render objects are cached by
+**`DrawOptions` needs a parallel array, not a field on `RenderObject`.** Render objects are cached by
 (mesh, material, camera, passCtx, passId), so one mesh drawn twice in a pass is one object. Opts live
 beside the prepared list at the same index, per nesting depth. Sharing the render object is right:
 opts change no pipeline and no bind group, only the draw-call arguments, which are read at encode.
@@ -1334,7 +1340,7 @@ reachable from `index.ts` or hanging off a public object needs the consumer chec
 called dead.
 
 **Write-only is a defect class, not an untidiness.** `PassDesc.layer`, `PassDesc.clearDepth`,
-`DrawOpts` entire, `RenderObject.passId`, `RenderObject.initialCacheKey`, `RenderObjectGpu`'s
+`DrawOptions` entire, `RenderObject.passId`, `RenderObject.initialCacheKey`, `RenderObjectGpu`'s
 `vertexBuffers` and `indexBuffer`, `RenderList.occlusionQueryCount`: each compiled, several were
 assigned on a hot path, and none were read. A type-checker cannot see it and a green test suite does
 not either. Comparing reads against writes per field is the sweep that does.
@@ -1434,10 +1440,10 @@ plan refuses elsewhere.
 only content is which privates this function uses. Deleted; nothing outside its own export line named
 it.
 
-~~`DrawOpts` gained `material` to carry it, since the render list resolves each item's material and
+~~`DrawOptions` gained `material` to carry it, since the render list resolves each item's material and
 `draw` otherwise reads `mesh.material`.~~ **The reason is wrong** (6.117). `RenderItem.material` is a
 cache of `mesh.material`, never a substitution, so `pass.draw(item.mesh)` is already equivalent and
-the walk passes no opts. `DrawOpts.material` is real and earns its place as a caller's per-draw
+the walk passes no opts. `DrawOptions.material` is real and earns its place as a caller's per-draw
 override, which is what the `draw-material` pixel case covers.
 
 `renderer.render(scene, camera)` being writable on top of `frame` + `pass` + `drawScene` is the test that
@@ -1652,7 +1658,7 @@ theme. Nothing ships between layers; no intermediate state has to be coherent or
   takes a `Target` and records `canvasTarget` beside `renderTarget`, and the pipeline reads the format
   off the context. This blocked layer 4: while the renderer's own canvas is privileged, `init` cannot
   stop creating one, because the swapchain configuration has nowhere else to live. **Done.**
-- **`core/frame.ts`.** Done. Frame, Pass, `PassDesc`, `DrawOpts`, `DrawRecord`, `FrameBackend`,
+- **`core/frame.ts`.** Done. Frame, Pass, `PassDesc`, `DrawOptions`, `DrawRecord`, `FrameBackend`,
   pooling, open-encode-close, abandoned-frame recovery. One file, not two: `Pass` is meaningless apart
   from the `Frame` that owns its pool, so splitting them would have been a file boundary with no
   seam behind it. 11 tests, no backend needed.
@@ -1873,7 +1879,7 @@ lib already does this for mesh and outline pairs.
 
 The machinery was in the code anyway: `overrideMaterial` on both renderers, in `RendererState` and
 threaded through the render-list walk, with no users. **Deleted.** What survives is
-`DrawOpts.material`, the per-submission form, which is not the same thing: the argument above is
+`DrawOptions.material`, the per-submission form, which is not the same thing: the argument above is
 against an ambient scene-wide switch, and its own alternative needs a submission to be able to pick
 which of the two materials to draw with.
 
@@ -1957,7 +1963,7 @@ section.
    lib) and compares centre pixels: clear, a solid fullscreen draw, a uniform through the UBO path, a
    camera-transformed box through the scene walk, two targets on one frame and one submit, a scissor
    rect that must keep the draw out of the centre, a named MRT output on attachment 1, six cube faces
-   through `PassDesc.layer` on one frame, a 4-sample resolve, the per-submission `DrawOpts.material`
+   through `PassDesc.layer` on one frame, a 4-sample resolve, the per-submission `DrawOptions.material`
    override, and a compute pass feeding a draw on the same frame.
 
    **Each case runs in its own process, and that is not paranoia.** Dawn in Node dies after roughly

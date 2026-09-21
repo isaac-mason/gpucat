@@ -2202,293 +2202,6 @@ function unproject(out, ndc, camera) {
     return out;
 }
 
-function isRenderTarget(target) {
-    return target.isRenderTarget === true;
-}
-/** A `CanvasTarget` renders to the swapchain, which every backend addresses as a null render target. */
-function renderTargetOf(target) {
-    return isRenderTarget(target) ? target : null;
-}
-
-function createFrame(backend) {
-    const frame = {
-        backend,
-        pool: [],
-        poolIndex: 0,
-        computePool: [],
-        computePoolIndex: 0,
-        transformFeedbackPool: [],
-        transformFeedbackPoolIndex: 0,
-        open: null,
-        targets: [],
-        completion: null,
-        closed: true,
-        pass: (desc) => openRenderPass(frame, desc),
-        compute: (desc) => openComputePass(frame, desc ?? {}),
-        transformFeedback: (desc) => openTransformFeedbackPass(frame, desc ?? {}),
-        submit: () => submitFrame$2(frame),
-        abandon: () => abandonFrame(frame),
-        get done() {
-            if (!frame.closed)
-                throw new Error('[frame] done read before submit(); there is no work to wait on yet');
-            frame.completion ??= frame.backend.awaitCompletion();
-            return frame.completion;
-        },
-    };
-    return frame;
-}
-/** True between `gpu.frame()` and `frame.submit()`, when recorded work has not reached the queue yet. */
-function isFrameOpen(frame) {
-    return frame !== null && !frame.closed;
-}
-function passLabel(pass) {
-    return pass.desc.label ?? pass.kind;
-}
-/**
- * Opens the renderer's frame for recording. A free function because every other operation on a
- * renderer is one; `Frame` and `Pass` keep their verbs because they are the recording context, not
- * the device handle.
- *
- * One `Frame` per renderer for its lifetime, so a steady-state frame allocates nothing.
- */
-function frame(renderer) {
-    renderer._assertInitialized('frame');
-    renderer._frameState ??= createFrame(renderer.backend);
-    beginFrame$2(renderer._frameState);
-    return renderer._frameState;
-}
-function beginFrame$2(frame) {
-    if (!frame.closed) {
-        // Recovery rather than a throw, so a frame a throw escaped from does not wedge the renderer.
-        // Silent recovery would hide a missing submit() forever, which is the failure this reports.
-        const dropped = frame.open === null ? '' : `, with "${passLabel(frame.open)}" still open`;
-        console.warn(`[frame] the previous frame was never submitted${dropped}; dropping its work`);
-        abandonFrame(frame);
-    }
-    frame.closed = false;
-    frame.poolIndex = 0;
-    frame.computePoolIndex = 0;
-    frame.transformFeedbackPoolIndex = 0;
-    frame.targets.length = 0;
-    frame.completion = null; // the reused frame object must not hand out the last frame's promise
-    frame.backend.beginFrame();
-}
-/** Runs before a pool slot is claimed, so a rejected open leaves the pool untouched. */
-function assertCanOpen(frame, verb) {
-    if (frame.closed)
-        throw new Error(`[frame] ${verb} after the frame was closed`);
-    if (frame.open !== null) {
-        throw new Error(`[frame] ${verb} while "${passLabel(frame.open)}" is still open; end it first`);
-    }
-}
-/** A WebGL2 context belongs to one canvas for its lifetime, so a pass naming another would draw nowhere visible. */
-function assertTargetReachable(frame, desc) {
-    const deviceCanvas = frame.backend.deviceCanvasTarget;
-    if (deviceCanvas === null || isRenderTarget(desc.target) || desc.target === deviceCanvas)
-        return;
-    throw new Error('[frame] this pass names a canvas the device was not created on; a WebGL2 context cannot present ' +
-        'to a second canvas. Use one pass per viewport on the device canvas, or a renderer per canvas.');
-}
-function openRenderPass(frame, desc) {
-    assertCanOpen(frame, 'frame.pass()');
-    assertTargetReachable(frame, desc);
-    let pass = frame.pool[frame.poolIndex];
-    if (pass === undefined) {
-        pass = createRenderPass(frame, desc);
-        frame.pool.push(pass);
-    }
-    else {
-        pass.desc = desc;
-        pass.count = 0;
-        pass.ended = false;
-    }
-    frame.poolIndex++;
-    frame.open = pass;
-    return pass;
-}
-function createRenderPass(frame, desc) {
-    const pass = {
-        kind: 'render',
-        desc,
-        records: [],
-        count: 0,
-        ended: false,
-        draw: (mesh, opts) => recordDraw(pass, mesh, opts),
-        execute: (bundle) => recordBundle(pass, bundle),
-        end: () => endPass$2(frame, pass),
-    };
-    return pass;
-}
-function openComputePass(frame, desc) {
-    assertCanOpen(frame, 'frame.compute()');
-    if (frame.backend.name === 'webgl') {
-        throw new Error('[frame] compute passes need the webgpu backend; WebGL2 has no compute shaders');
-    }
-    let pass = frame.computePool[frame.computePoolIndex];
-    if (pass === undefined) {
-        pass = createComputePass(frame, desc);
-        frame.computePool.push(pass);
-    }
-    else {
-        pass.desc = desc;
-        pass.count = 0;
-        pass.ended = false;
-    }
-    frame.computePoolIndex++;
-    frame.open = pass;
-    return pass;
-}
-function openTransformFeedbackPass(frame, desc) {
-    assertCanOpen(frame, 'frame.transformFeedback()');
-    if (frame.backend.name === 'webgpu') {
-        throw new Error('[frame] transform feedback is WebGL2-only; use frame.compute() on the webgpu backend');
-    }
-    let pass = frame.transformFeedbackPool[frame.transformFeedbackPoolIndex];
-    if (pass === undefined) {
-        pass = createTransformFeedbackPass(frame, desc);
-        frame.transformFeedbackPool.push(pass);
-    }
-    else {
-        pass.desc = desc;
-        pass.count = 0;
-        pass.ended = false;
-    }
-    frame.transformFeedbackPoolIndex++;
-    frame.open = pass;
-    return pass;
-}
-function createTransformFeedbackPass(frame, desc) {
-    const pass = {
-        kind: 'transform-feedback',
-        desc,
-        records: [],
-        count: 0,
-        ended: false,
-        dispatch: (node, opts) => recordTransformFeedback(pass, node, opts),
-        end: () => endPass$2(frame, pass),
-    };
-    return pass;
-}
-function recordTransformFeedback(pass, node, opts) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
-    const existing = pass.records[pass.count];
-    if (existing === undefined) {
-        pass.records.push({ node, ...opts });
-    }
-    else {
-        existing.node = node;
-        existing.inputs = opts.inputs;
-        existing.outputs = opts.outputs;
-        existing.count = opts.count;
-        existing.instanceCount = opts.instanceCount;
-    }
-    pass.count++;
-}
-function createComputePass(frame, desc) {
-    const pass = {
-        kind: 'compute',
-        desc,
-        records: [],
-        count: 0,
-        ended: false,
-        dispatch: (node, counts, opts) => recordDispatch(pass, node, counts, undefined, 0, opts?.buffers),
-        dispatchIndirect: (node, indirect, opts) => recordDispatch(pass, node, undefined, indirect, opts?.offset ?? 0, opts?.buffers),
-        end: () => endPass$2(frame, pass),
-    };
-    return pass;
-}
-function recordDispatch(pass, node, counts, indirect, indirectOffset, buffers) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
-    const existing = pass.records[pass.count];
-    if (existing === undefined) {
-        pass.records.push({ node, counts, indirect, indirectOffset, buffers });
-    }
-    else {
-        existing.node = node;
-        existing.counts = counts;
-        existing.indirect = indirect;
-        existing.indirectOffset = indirectOffset;
-        existing.buffers = buffers;
-    }
-    pass.count++;
-}
-function recordDraw(pass, mesh, opts) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] draw after end()`);
-    const record = pass.records[pass.count];
-    const material = opts?.material ?? mesh.material;
-    // A pooled slot that last held a bundle has no draw fields to overwrite, so it is replaced whole.
-    if (record === undefined || record.kind !== 'draw') {
-        pass.records[pass.count] = { kind: 'draw', mesh, material, opts: opts ?? null };
-    }
-    else {
-        record.mesh = mesh;
-        record.material = material;
-        record.opts = opts ?? null;
-    }
-    pass.count++;
-}
-function recordBundle(pass, bundle) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] execute after end()`);
-    if (bundle.disposed)
-        throw new Error(`[bundle ${bundle.label}] execute after dispose()`);
-    const record = pass.records[pass.count];
-    if (record === undefined || record.kind !== 'bundle') {
-        pass.records[pass.count] = { kind: 'bundle', bundle };
-    }
-    else {
-        record.bundle = bundle;
-    }
-    pass.count++;
-}
-function endPass$2(frame, pass) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] end() called twice`);
-    pass.ended = true;
-    frame.open = null; // cleared first: encoding evaluates the graph, which may open a nested pass
-    if (pass.kind === 'compute') {
-        frame.backend.encodeComputePass(pass.desc, pass.records, pass.count);
-    }
-    else if (pass.kind === 'transform-feedback') {
-        frame.backend.encodeTransformFeedbackPass(pass.desc, pass.records, pass.count);
-    }
-    else {
-        const target = pass.desc.target;
-        if (isRenderTarget(target))
-            frame.targets.push(target);
-        frame.backend.encodePass(pass.desc, pass.records, pass.count);
-    }
-}
-function submitFrame$2(frame) {
-    if (frame.closed)
-        throw new Error('[frame] submit() called twice');
-    if (frame.open !== null) {
-        throw new Error(`[frame] submit() while "${passLabel(frame.open)}" is still open; end it first`);
-    }
-    // A target disposed between its pass and this submit reaches the driver as "destroyed texture used
-    // in a submit", asynchronously and with no way back to the pass that named it. Swapping rooms
-    // mid-frame is the case that does this; `abandon()` is the answer, not a disposal race.
-    for (const target of frame.targets) {
-        const dead = target.textures.find((tex) => tex._gpuTexture.disposed);
-        if (dead !== undefined) {
-            throw new Error(`[frame] '${dead.name}' was disposed after its pass recorded into it; abandon() the frame instead of disposing mid-frame.`);
-        }
-    }
-    frame.closed = true;
-    frame.backend.submitFrame();
-}
-/** A recorded-but-unencoded pass is dropped with the frame; atomic encoding leaves no GPU pass open. */
-function abandonFrame(frame) {
-    if (frame.closed)
-        return;
-    frame.open = null;
-    frame.closed = true;
-    frame.backend.discardFrame();
-}
-
 /**
  * Transform a bounding box by a 4x4 matrix.
  * Uses Arvo's trick — transform the center, build new half-extents from
@@ -2980,6 +2693,14 @@ function computeViewZ(mesh, camera) {
     return vm[2] * wx + vm[6] * wy + vm[10] * wz + vm[14];
 }
 
+function isRenderTarget(target) {
+    return target.isRenderTarget === true;
+}
+/** A `CanvasTarget` renders to the swapchain, which every backend addresses as a null render target. */
+function renderTargetOf(target) {
+    return isRenderTarget(target) ? target : null;
+}
+
 /** Frustum culled, in render order, opaque before transparent, drawn through the public `pass.draw`. */
 function drawScene(renderer, pass, scene, camera) {
     // The scene tab's input, reported here so a pass recorded by hand correctly has no tree.
@@ -2998,6 +2719,296 @@ function drawItems(pass, items) {
             continue;
         pass.draw(item.mesh);
     }
+}
+
+function createFrame(backend) {
+    const frame = {
+        backend,
+        renderer: null,
+        pool: [],
+        poolIndex: 0,
+        computePool: [],
+        computePoolIndex: 0,
+        transformFeedbackPool: [],
+        transformFeedbackPoolIndex: 0,
+        open: null,
+        targets: [],
+        completion: null,
+        closed: true,
+        pass: (desc) => openRenderPass(frame, desc),
+        compute: (desc) => openComputePass(frame, desc ?? {}),
+        transformFeedback: (desc) => openTransformFeedbackPass(frame, desc ?? {}),
+        submit: () => submitFrame$2(frame),
+        abandon: () => abandonFrame(frame),
+        get done() {
+            if (!frame.closed)
+                throw new Error('[frame] done read before submit(); there is no work to wait on yet');
+            frame.completion ??= frame.backend.awaitCompletion();
+            return frame.completion;
+        },
+    };
+    return frame;
+}
+/** True between `gpu.frame()` and `frame.submit()`, when recorded work has not reached the queue yet. */
+function isFrameOpen(frame) {
+    return frame !== null && !frame.closed;
+}
+function passLabel(pass) {
+    return pass.desc.label ?? pass.kind;
+}
+/**
+ * Opens the renderer's frame for recording. A free function because every other operation on a
+ * renderer is one; `Frame` and `Pass` keep their verbs because they are the recording context, not
+ * the device handle.
+ *
+ * One `Frame` per renderer for its lifetime, so a steady-state frame allocates nothing.
+ */
+function frame(renderer) {
+    renderer._assertInitialized('frame');
+    renderer._frameState ??= createFrame(renderer.backend);
+    renderer._frameState.renderer = renderer;
+    beginFrame$2(renderer._frameState);
+    return renderer._frameState;
+}
+function beginFrame$2(frame) {
+    if (!frame.closed) {
+        // Recovery rather than a throw, so a frame a throw escaped from does not wedge the renderer.
+        // Silent recovery would hide a missing submit() forever, which is the failure this reports.
+        const dropped = frame.open === null ? '' : `, with "${passLabel(frame.open)}" still open`;
+        console.warn(`[frame] the previous frame was never submitted${dropped}; dropping its work`);
+        abandonFrame(frame);
+    }
+    frame.closed = false;
+    frame.poolIndex = 0;
+    frame.computePoolIndex = 0;
+    frame.transformFeedbackPoolIndex = 0;
+    frame.targets.length = 0;
+    frame.completion = null; // the reused frame object must not hand out the last frame's promise
+    frame.backend.beginFrame();
+}
+/** Runs before a pool slot is claimed, so a rejected open leaves the pool untouched. */
+function assertCanOpen(frame, verb) {
+    if (frame.closed)
+        throw new Error(`[frame] ${verb} after the frame was closed`);
+    if (frame.open !== null) {
+        throw new Error(`[frame] ${verb} while "${passLabel(frame.open)}" is still open; end it first`);
+    }
+}
+/** A WebGL2 context belongs to one canvas for its lifetime, so a pass naming another would draw nowhere visible. */
+function assertTargetReachable(frame, desc) {
+    const deviceCanvas = frame.backend.deviceCanvasTarget;
+    if (deviceCanvas === null || isRenderTarget(desc.target) || desc.target === deviceCanvas)
+        return;
+    throw new Error('[frame] this pass names a canvas the device was not created on; a WebGL2 context cannot present ' +
+        'to a second canvas. Use one pass per viewport on the device canvas, or a renderer per canvas.');
+}
+function openRenderPass(frame, desc) {
+    assertCanOpen(frame, 'frame.pass()');
+    assertTargetReachable(frame, desc);
+    let pass = frame.pool[frame.poolIndex];
+    if (pass === undefined) {
+        pass = createRenderPass(frame, desc);
+        frame.pool.push(pass);
+    }
+    else {
+        pass.desc = desc;
+        pass.count = 0;
+        pass.ended = false;
+    }
+    frame.poolIndex++;
+    frame.open = pass;
+    return pass;
+}
+function createRenderPass(frame, desc) {
+    const pass = {
+        kind: 'render',
+        desc,
+        records: [],
+        count: 0,
+        ended: false,
+        draw: (mesh, opts) => recordDraw(pass, mesh, opts),
+        execute: (bundle) => recordBundle(pass, bundle),
+        scene: (root, camera) => recordScene(frame, pass, root, camera),
+        end: () => endPass$2(frame, pass),
+    };
+    return pass;
+}
+function recordScene(frame, pass, root, camera) {
+    if (frame.renderer === null)
+        throw new Error('[pass] scene() needs a frame opened with frame(renderer).');
+    const view = camera ?? pass.desc.camera;
+    if (view === undefined)
+        throw new Error('[pass] scene() needs a camera, on the pass desc or as its second argument.');
+    drawScene(frame.renderer, pass, root, view);
+}
+function openComputePass(frame, desc) {
+    assertCanOpen(frame, 'frame.compute()');
+    if (frame.backend.name === 'webgl') {
+        throw new Error('[frame] compute passes need the webgpu backend; WebGL2 has no compute shaders');
+    }
+    let pass = frame.computePool[frame.computePoolIndex];
+    if (pass === undefined) {
+        pass = createComputePass(frame, desc);
+        frame.computePool.push(pass);
+    }
+    else {
+        pass.desc = desc;
+        pass.count = 0;
+        pass.ended = false;
+    }
+    frame.computePoolIndex++;
+    frame.open = pass;
+    return pass;
+}
+function openTransformFeedbackPass(frame, desc) {
+    assertCanOpen(frame, 'frame.transformFeedback()');
+    if (frame.backend.name === 'webgpu') {
+        throw new Error('[frame] transform feedback is WebGL2-only; use frame.compute() on the webgpu backend');
+    }
+    let pass = frame.transformFeedbackPool[frame.transformFeedbackPoolIndex];
+    if (pass === undefined) {
+        pass = createTransformFeedbackPass(frame, desc);
+        frame.transformFeedbackPool.push(pass);
+    }
+    else {
+        pass.desc = desc;
+        pass.count = 0;
+        pass.ended = false;
+    }
+    frame.transformFeedbackPoolIndex++;
+    frame.open = pass;
+    return pass;
+}
+function createTransformFeedbackPass(frame, desc) {
+    const pass = {
+        kind: 'transform-feedback',
+        desc,
+        records: [],
+        count: 0,
+        ended: false,
+        dispatch: (node, opts) => recordTransformFeedback(pass, node, opts),
+        end: () => endPass$2(frame, pass),
+    };
+    return pass;
+}
+function recordTransformFeedback(pass, node, opts) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
+    const existing = pass.records[pass.count];
+    if (existing === undefined) {
+        pass.records.push({ node, ...opts });
+    }
+    else {
+        existing.node = node;
+        existing.inputs = opts.inputs;
+        existing.outputs = opts.outputs;
+        existing.count = opts.count;
+        existing.instanceCount = opts.instanceCount;
+    }
+    pass.count++;
+}
+function createComputePass(frame, desc) {
+    const pass = {
+        kind: 'compute',
+        desc,
+        records: [],
+        count: 0,
+        ended: false,
+        dispatch: (node, counts, opts) => recordDispatch(pass, node, counts, undefined, 0, opts?.buffers),
+        dispatchIndirect: (node, indirect, opts) => recordDispatch(pass, node, undefined, indirect, opts?.offset ?? 0, opts?.buffers),
+        end: () => endPass$2(frame, pass),
+    };
+    return pass;
+}
+function recordDispatch(pass, node, counts, indirect, indirectOffset, buffers) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
+    const existing = pass.records[pass.count];
+    if (existing === undefined) {
+        pass.records.push({ node, counts, indirect, indirectOffset, buffers });
+    }
+    else {
+        existing.node = node;
+        existing.counts = counts;
+        existing.indirect = indirect;
+        existing.indirectOffset = indirectOffset;
+        existing.buffers = buffers;
+    }
+    pass.count++;
+}
+function recordDraw(pass, mesh, opts) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] draw after end()`);
+    const record = pass.records[pass.count];
+    const material = opts?.material ?? mesh.material;
+    // A pooled slot that last held a bundle has no draw fields to overwrite, so it is replaced whole.
+    if (record === undefined || record.kind !== 'draw') {
+        pass.records[pass.count] = { kind: 'draw', mesh, material, opts: opts ?? null };
+    }
+    else {
+        record.mesh = mesh;
+        record.material = material;
+        record.opts = opts ?? null;
+    }
+    pass.count++;
+}
+function recordBundle(pass, bundle) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] execute after end()`);
+    if (bundle.disposed)
+        throw new Error(`[bundle ${bundle.label}] execute after dispose()`);
+    const record = pass.records[pass.count];
+    if (record === undefined || record.kind !== 'bundle') {
+        pass.records[pass.count] = { kind: 'bundle', bundle };
+    }
+    else {
+        record.bundle = bundle;
+    }
+    pass.count++;
+}
+function endPass$2(frame, pass) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] end() called twice`);
+    pass.ended = true;
+    frame.open = null; // cleared first: encoding evaluates the graph, which may open a nested pass
+    if (pass.kind === 'compute') {
+        frame.backend.encodeComputePass(pass.desc, pass.records, pass.count);
+    }
+    else if (pass.kind === 'transform-feedback') {
+        frame.backend.encodeTransformFeedbackPass(pass.desc, pass.records, pass.count);
+    }
+    else {
+        const target = pass.desc.target;
+        if (isRenderTarget(target))
+            frame.targets.push(target);
+        frame.backend.encodePass(pass.desc, pass.records, pass.count);
+    }
+}
+function submitFrame$2(frame) {
+    if (frame.closed)
+        throw new Error('[frame] submit() called twice');
+    if (frame.open !== null) {
+        throw new Error(`[frame] submit() while "${passLabel(frame.open)}" is still open; end it first`);
+    }
+    // A target disposed between its pass and this submit reaches the driver as "destroyed texture used
+    // in a submit", asynchronously and with no way back to the pass that named it. Swapping rooms
+    // mid-frame is the case that does this; `abandon()` is the answer, not a disposal race.
+    for (const target of frame.targets) {
+        const dead = target.textures.find((tex) => tex._gpuTexture.disposed);
+        if (dead !== undefined) {
+            throw new Error(`[frame] '${dead.name}' was disposed after its pass recorded into it; abandon() the frame instead of disposing mid-frame.`);
+        }
+    }
+    frame.closed = true;
+    frame.backend.submitFrame();
+}
+/** A recorded-but-unencoded pass is dropped with the frame; atomic encoding leaves no GPU pass open. */
+function abandonFrame(frame) {
+    if (frame.closed)
+        return;
+    frame.open = null;
+    frame.closed = true;
+    frame.backend.discardFrame();
 }
 
 class PerspectiveCamera extends Camera {
@@ -12620,6 +12631,26 @@ function textureGather(component, t, s, coords, offset) {
 function textureGatherCompare(t, s, coords, depthRef, offset) {
     const args = offset ? [t, s, coords, depthRef, offset] : [t, s, coords, depthRef];
     return new CallNode(vec4f$1, 'textureGatherCompare', args);
+}
+/**
+ * What a render target's colour attachment holds, as a node to sample. The counterpart of drawing
+ * into it with `f.pass({ target })`, and the plain alternative to `RenderTextureNode`, which samples
+ * the same thing but also schedules a pass to fill it.
+ */
+function targetColor(target) {
+    const tex = target.texture;
+    if (tex === undefined) {
+        throw new Error('[targetColor] this render target has no colour attachment (count: 0).');
+    }
+    return texture(tex);
+}
+/** A render target's depth, as a node to sample. The target must be created with `depthSampled: true`. */
+function targetDepth(target) {
+    const tex = target.depthTexture;
+    if (tex === null || tex === undefined) {
+        throw new Error('[targetDepth] this render target has no sampled depth; create it with `depthSampled: true`.');
+    }
+    return depthTexture(tex);
 }
 
 /**
@@ -35314,19 +35345,6 @@ function bundle(label) {
     };
 }
 
-/**
- * Pre-warms the pipelines, bind groups and uploads a later pass would build on its first frame.
- * `target` and `camera` are the pass it is warming for: a key built against anything else warms
- * something no pass will look up.
- */
-function compile(renderer, drawables, target, camera) {
-    return renderer.compile(Array.isArray(drawables) ? drawables : [drawables], target, camera);
-}
-/** Pre-warms compute pipelines. Throws on WebGL2, which cannot run them at all. */
-function compileCompute(renderer, nodes) {
-    return renderer.backend.compileCompute(Array.isArray(nodes) ? nodes : [nodes]);
-}
-
 // RenderContext ID counter
 let renderContextIdCounter = 0;
 // ComputeContext
@@ -35614,6 +35632,28 @@ function preparedAt(byDepth, depth) {
 }
 
 /**
+ * What `compile` needs of a renderer. Render pre-warm is orchestration and lives on the renderer;
+ * compute pre-warm is a device batch and lives on the backend, which is why this reaches both.
+ */
+/**
+ * Pre-warms the pipelines, bind groups and uploads a later pass would build on its first frame.
+ * `target` and `camera` are the pass it is warming for: a key built against anything else warms
+ * something no pass will look up.
+ */
+function compile(renderer, drawables, target, camera) {
+    renderer._assertInitialized('compile');
+    const list = Array.isArray(drawables) ? drawables : [drawables];
+    if (list.length === 0)
+        return Promise.resolve();
+    const { context, objects } = compileTargets(renderer, list, target, camera);
+    return renderer.backend.compileObjects(objects, context);
+}
+/** Pre-warms compute pipelines. Throws on WebGL2, which cannot run them at all. */
+function compileCompute(renderer, nodes) {
+    return renderer.backend.compileCompute(Array.isArray(nodes) ? nodes : [nodes]);
+}
+
+/**
  * What `init` returns: one class over any backend, so the orchestration has a single home and the
  * backends cannot drift apart without failing to satisfy `DeviceBackend`. `B` stays on the type, so
  * `init(webgpu())` reaches `gpu.backend.device` with no cast.
@@ -35666,20 +35706,6 @@ class Renderer {
     }
     /** The renderer's one reusable frame, reopened. */
     /** Pre-warm the drawables a pass will look up, resolved through the context that pass resolves. */
-    async compile(drawables, target, camera) {
-        this._assertInitialized('compile');
-        if (drawables.length === 0)
-            return;
-        const { context, objects } = compileTargets(this, drawables, target, camera);
-        await this.backend.compileObjects(objects, context);
-    }
-    readPixels(target, attachmentIndex = 0, layer = 0) {
-        this._assertInitialized('readPixels');
-        if (isFrameOpen(this._frameState)) {
-            return Promise.reject(new Error('[Renderer] readPixels() while a frame is open reads stale pixels; submit() first.'));
-        }
-        return this.backend.readPixels(target, attachmentIndex, layer);
-    }
     dispose() {
         this.backend.dispose();
         // Cleared, not disposed one by one: the backend's teardown invalidates every GPU resource, and
@@ -35716,7 +35742,11 @@ function init(backend) {
  * wrote the target has been submitted; reading with one open throws rather than returning stale pixels.
  */
 function read(renderer, target, opts = {}) {
-    return renderer.readPixels(target, opts.attachment ?? 0, opts.layer ?? 0);
+    renderer._assertInitialized('read');
+    if (isFrameOpen(renderer._frameState)) {
+        return Promise.reject(new Error('[read] reading while a frame is open gives stale pixels; submit() first.'));
+    }
+    return renderer.backend.readPixels(target, opts.attachment ?? 0, opts.layer ?? 0);
 }
 
 function yieldToMain() {
@@ -42035,5 +42065,5 @@ function createStructTexture(schema, capacity, options = {}) {
     });
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp$1 as clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCanvasTarget, createCubeRenderTarget, createCylinderGeometry, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createPlaneGeometry, createRenderTarget, createScene, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId };
+export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp$1 as clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCanvasTarget, createCubeRenderTarget, createCylinderGeometry, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createPlaneGeometry, createRenderTarget, createScene, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId };
 //# sourceMappingURL=index.js.map

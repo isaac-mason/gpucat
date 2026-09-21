@@ -1,6 +1,6 @@
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { Mesh } from '../../objects/mesh';
-import type { DrawOpts, DrawRecord, PassEntry, RenderBundle as RenderBundleRef } from './frame';
+import type { DrawOptions, DrawRecord, PassEntry, RenderBundle as RenderBundleRef } from './frame';
 import type { NodeManagerState } from './node-manager';
 import * as NodeManager from './node-manager';
 import type * as RenderContextModule from './pass-context';
@@ -88,7 +88,7 @@ export function prepareRecordedDraws(
     inspectorLabel: string | null,
     prepare: (nodes: NodeManagerState, renderObject: RenderObject) => boolean,
     out: PreparedRenderObject[],
-    outOpts: (DrawOpts | null)[],
+    outOpts: (DrawOptions | null)[],
     /** Runs of `out`, one per bundle plus the direct draws between them. WebGL has no use for these. */
     outSegments: PreparedSegment[],
 ): number {

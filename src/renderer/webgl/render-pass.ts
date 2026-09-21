@@ -16,7 +16,7 @@
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { IndexedMeshDraw, NonIndexedMeshDraw } from '../../objects/mesh';
 import { resolveIndexedDrawRange, resolveVertexDrawRange } from '../core/draw-range';
-import type { DrawOpts } from '../core/frame';
+import type { DrawOptions } from '../core/frame';
 import type { RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import * as NodeManager from '../core/node-manager';
@@ -212,7 +212,7 @@ export function encodeDraws(
     nodes: NodeManagerState,
     passCtx: RenderContext,
     prepared: readonly PreparedRenderObject[],
-    preparedOpts: readonly (DrawOpts | null)[],
+    preparedOpts: readonly (DrawOptions | null)[],
     count: number,
     inspector: InspectorBase | null,
     info: RendererInfo,

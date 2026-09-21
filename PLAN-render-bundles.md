@@ -49,7 +49,7 @@ So `Pass.records` stops being `DrawRecord[]` and becomes a list of entries:
 
 ```ts
 type PassEntry =
-    | { kind: 'draw'; mesh: Mesh; material: Material; opts: DrawOpts | null }
+    | { kind: 'draw'; mesh: Mesh; material: Material; opts: DrawOptions | null }
     | { kind: 'bundle'; bundle: RenderBundle };
 ```
 

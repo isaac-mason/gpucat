@@ -260,6 +260,8 @@ export {
     type TransformFeedbackLayout,
     TransformFeedbackNode,
     tan,
+    targetColor,
+    targetDepth,
     texture,
     textureBarrier,
     textureBinding,
@@ -339,16 +341,16 @@ export {
     type CanvasTargetOptions,
     createCanvasTarget,
 } from './renderer/core/canvas-target';
-export { type CompilableRenderer, compile, compileCompute } from './renderer/core/compile';
+export { compile, compileCompute } from './renderer/core/compile';
 export type { DeviceBackend } from './renderer/core/device-backend';
 export {
     type BundleRecord,
     type ComputePass,
     type ComputePassDesc,
-    type DispatchIndirectOpts,
-    type DispatchOpts,
+    type DispatchIndirectOptions,
+    type DispatchOptions,
     type DispatchRecord,
-    type DrawOpts,
+    type DrawOptions,
     type DrawRecord,
     type Frame,
     frame,
@@ -372,7 +374,7 @@ export {
 } from './renderer/core/info';
 export { init } from './renderer/core/init';
 
-export { type ReadableRenderer, type ReadOpts, read } from './renderer/core/read';
+export { type ReadOptions, read } from './renderer/core/read';
 export { type DeviceLostInfo, Renderer } from './renderer/core/renderer';
 export type { RendererBackend } from './renderer/core/renderer-interface';
 export { isRenderTarget, renderTargetOf, type Target } from './renderer/core/target';

@@ -24,12 +24,12 @@ function membersOf(file: string, name: string): { member: string; type: string }
 
     const out: { member: string; type: string }[] = [];
     const visit = (node: ts.Node): void => {
-        const isTarget =
-            (ts.isInterfaceDeclaration(node) || ts.isClassDeclaration(node)) && node.name?.getText(source) === name;
+        const isTarget = (ts.isInterfaceDeclaration(node) || ts.isClassDeclaration(node)) && node.name?.getText(source) === name;
         if (isTarget) {
             for (const member of node.members) {
                 if (!member.name) continue;
-                if (ts.canHaveModifiers(member) && ts.getModifiers(member)?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword)) continue;
+                if (ts.canHaveModifiers(member) && ts.getModifiers(member)?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword))
+                    continue;
                 const symbol = checker.getSymbolAtLocation(member.name);
                 if (!symbol) continue;
                 out.push({
@@ -62,13 +62,7 @@ test('no graphics API leaks into the neutral surfaces the one Renderer serves ev
  * listed here, which is where the argument for it gets made.
  */
 const EXPECTED: Record<string, string[]> = {
-    DeviceBackend: [
-        'init',
-        'dispose',
-        'compileObjects',
-        'readPixels',
-        'readMemoryStats',
-    ],
+    DeviceBackend: ['init', 'dispose', 'compileObjects', 'compileCompute', 'readPixels', 'readMemoryStats'],
     Renderer: [
         'backend',
         '_initialized',
@@ -84,8 +78,6 @@ const EXPECTED: Record<string, string[]> = {
         'inspector',
         'api',
         'init',
-        'compile',
-        'readPixels',
         'dispose',
         '_assertInitialized',
         '_beginInfoFrame',
@@ -95,7 +87,13 @@ const EXPECTED: Record<string, string[]> = {
 test('a member added to a neutral surface is listed, so widening one to fit cannot pass unremarked', () => {
     for (const { file, name } of NEUTRAL) {
         const actual = membersOf(file, name).map((m) => m.member);
-        expect(actual.filter((m) => !EXPECTED[name].includes(m)), `unlisted on ${name}`).toEqual([]);
-        expect(EXPECTED[name].filter((m) => !actual.includes(m)), `listed but gone from ${name}`).toEqual([]);
+        expect(
+            actual.filter((m) => !EXPECTED[name].includes(m)),
+            `unlisted on ${name}`,
+        ).toEqual([]);
+        expect(
+            EXPECTED[name].filter((m) => !actual.includes(m)),
+            `listed but gone from ${name}`,
+        ).toEqual([]);
     }
 });

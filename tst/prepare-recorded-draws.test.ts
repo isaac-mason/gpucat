@@ -4,7 +4,7 @@ import { Geometry } from '../src/geometry/geometry';
 import { Material } from '../src/material/material';
 import { Mesh } from '../src/objects/mesh';
 import { bundle } from '../src/renderer/core/bundle';
-import type { DrawOpts, DrawRecord, PassEntry } from '../src/renderer/core/frame';
+import type { DrawOptions, DrawRecord, PassEntry } from '../src/renderer/core/frame';
 import * as NodeManager from '../src/renderer/core/node-manager';
 import { createRenderContextsState, getRenderContext } from '../src/renderer/core/pass-context';
 import * as RenderObjects from '../src/renderer/core/render-objects';
@@ -114,7 +114,7 @@ test('per-submission opts travel beside the prepared object, one slot each', () 
     records[0].opts = { instances: 7 };
     records[1].opts = null;
     const out: PreparedRenderObject[] = [];
-    const outOpts: (DrawOpts | null)[] = [];
+    const outOpts: (DrawOptions | null)[] = [];
 
     const n = prepareRecordedDraws(state(), records, records.length, camera, ctx(), 'render', () => true, out, outOpts, []);
 
@@ -129,7 +129,7 @@ test('a dropped draw does not shift the opts out of step with the objects', () =
     records[1].opts = { instances: 2 };
     records[2].opts = { instances: 3 };
     const out: PreparedRenderObject[] = [];
-    const outOpts: (DrawOpts | null)[] = [];
+    const outOpts: (DrawOptions | null)[] = [];
 
     const n = prepareRecordedDraws(
         state(),

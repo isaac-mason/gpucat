@@ -1,16 +1,12 @@
-import type { RenderTarget } from '../../core/render-target';
 import type { InspectorBase } from '../../inspector/inspector-base';
-import type { Mesh } from '../../objects/mesh';
 import type { DeviceBackend } from './device-backend';
-import { type Frame } from './frame';
+import type { Frame } from './frame';
 import { type RendererInfo } from './info';
 import * as NodeManager from './node-manager';
 import * as RenderContext from './pass-context';
 import * as RenderLists from './render-list';
 import * as RenderObjects from './render-objects';
-import { type DeviceLostInfo, type RendererState } from './renderer-ops';
-import type { Target } from './target';
-import type { View } from './view';
+import type { DeviceLostInfo, RendererState } from './renderer-ops';
 /**
  * What `init` returns: one class over any backend, so the orchestration has a single home and the
  * backends cannot drift apart without failing to satisfy `DeviceBackend`. `B` stays on the type, so
@@ -46,8 +42,6 @@ export declare class Renderer<B extends DeviceBackend = DeviceBackend> implement
     init(): Promise<this>;
     /** The renderer's one reusable frame, reopened. */
     /** Pre-warm the drawables a pass will look up, resolved through the context that pass resolves. */
-    compile(drawables: Mesh[], target: Target, camera: View): Promise<void>;
-    readPixels(target: RenderTarget, attachmentIndex?: number, layer?: number): Promise<Uint8Array>;
     dispose(): void;
     /** @internal */
     _beginInfoFrame(): void;
