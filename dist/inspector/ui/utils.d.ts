@@ -6,4 +6,3 @@ export declare function splitPath(fullPath: string): {
     name: string;
 };
 export declare function splitCamelCase(str: string): string;
-export declare function formatBytes(bytes: number, decimals?: number): string;

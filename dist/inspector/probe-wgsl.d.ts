@@ -37,8 +37,6 @@ export type ProbeTarget = {
  *   return <expr>;                  → probe <expr>, anchor on return
  */
 export declare function extractProbeTarget(line: string): ProbeTarget | null;
-/** Backwards-compat shim used by shader-panel hover logic. */
-export declare function extractProbeVar(line: string): string | null;
 /**
  * Patch the combined WGSL emitted by compile.ts so that:
  *  1. Everything up to and including the original vs_main is kept verbatim.

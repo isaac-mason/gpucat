@@ -48,8 +48,3 @@ export declare function getRenderObjectGpu(cache: RenderObjectGpuCache, renderOb
  * Returns undefined if the RenderObject has no entry yet.
  */
 export declare function peekRenderObjectGpu(cache: RenderObjectGpuCache, renderObject: RenderObject): RenderObjectGpu | undefined;
-/**
- * Reset the device payload for a RenderObject (clears pipeline/bindGroups/buffers).
- * Used on disposal / invalidation.
- */
-export declare function clearRenderObjectGpu(cache: RenderObjectGpuCache, renderObject: RenderObject): void;

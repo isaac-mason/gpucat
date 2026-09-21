@@ -26,12 +26,8 @@ export type RenderObjectsState = {
 };
 export declare function createRenderObjectsState(): RenderObjectsState;
 export declare function getRenderObject(state: RenderObjectsState, mesh: Mesh, material: Material, camera: View, renderContext: RenderContext): RenderObject;
-/** Dispose all RenderObjects for a specific mesh. */
-export declare function disposeRenderObjectsForMesh(state: RenderObjectsState, mesh: Mesh): void;
 /** Dispose all RenderObjects for a specific material. */
 export declare function disposeRenderObjectsForMaterial(state: RenderObjectsState, material: Material): void;
-/** Dispose all RenderObjects. */
-export declare function disposeAllRenderObjects(state: RenderObjectsState): void;
 /** Get statistics about RenderObjects. */
 export declare function getRenderObjectsStats(state: RenderObjectsState): {
     total: number;
