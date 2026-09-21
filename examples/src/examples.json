@@ -323,28 +323,6 @@
         "backend": "webgpu",
         "category": "compute"
     },
-    "example-webgpu-transform-controls": {
-        "title": "Transform Controls",
-        "description": "A translate/rotate/scale gizmo. T/R/S to switch modes.",
-        "tags": [
-            "controls",
-            "gizmo",
-            "interaction"
-        ],
-        "backend": "webgpu",
-        "category": "controls"
-    },
-    "example-webgpu-fly-controls": {
-        "title": "Fly Controls",
-        "description": "A first-person WASD fly camera.",
-        "tags": [
-            "controls",
-            "camera",
-            "interaction"
-        ],
-        "backend": "webgpu",
-        "category": "controls"
-    },
     "example-webgpu-moving-mesh-stress": {
         "title": "Moving Mesh Stress",
         "description": "900 individually animated meshes.",

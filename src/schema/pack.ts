@@ -96,7 +96,7 @@ function getLayout<T>(schema: Any, memLayout: MemoryLayout): CompiledLayout<T> {
     return layout as CompiledLayout<T>;
 }
 
-type BufferSource = ArrayBuffer | ArrayBufferView;
+export type BufferSource = ArrayBuffer | ArrayBufferView;
 
 function toDataView(src: BufferSource): DataView {
     if (src instanceof ArrayBuffer) {

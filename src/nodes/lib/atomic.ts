@@ -7,8 +7,8 @@ import { addToStack, CallNode, type Node } from './core';
 // `atomic<i32>`/`atomic<u32>` nodes (e.g. struct fields declared with d.atomic()).
 // The operations always return/accept the underlying scalar type.
 
-type AtomicPtrDesc = d.i32 | d.u32 | d.atomicI32 | d.atomicU32;
-type ScalarResultDesc = d.i32 | d.u32;
+export type AtomicPtrDesc = d.i32 | d.u32 | d.atomicI32 | d.atomicU32;
+export type ScalarResultDesc = d.i32 | d.u32;
 
 /** Strip `atomic<…>` wrapper to get the underlying scalar type descriptor at runtime. */
 function scalarDescOf(desc: Any): ScalarResultDesc {

@@ -34,7 +34,7 @@ import { type InspectableRenderer, InspectorBase } from './inspector-base';
 // Frame data types
 
 /** Base fields shared by all timeline entries */
-type TimelineEntryBase = {
+export type TimelineEntryBase = {
     /** Entry name (pass ID or marker name) */
     name: string;
     /** Start time relative to frame start (ms) */

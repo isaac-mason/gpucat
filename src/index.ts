@@ -5,7 +5,6 @@ export { unproject } from './camera/camera';
 export * from './camera/cube-camera';
 export * from './camera/orthographic-camera';
 export * from './camera/perspective-camera';
-export { createFlyControls, FlyControls } from './controls/fly-controls';
 export type {
     MouseAction,
     OrbitControlsEvent,
@@ -13,14 +12,13 @@ export type {
     OrbitControlsEventType,
     TouchAction,
 } from './controls/orbit-controls';
-export { createOrbitControls, MOUSE, OrbitControls, TOUCH } from './controls/orbit-controls';
-export type { TransformMode, TransformSpace } from './controls/transform-controls';
-export { createTransformControls, TransformControls } from './controls/transform-controls';
+export { createOrbitControls, MOUSE, OrbitControls, type StateValue, TOUCH } from './controls/orbit-controls';
 export * from './core/coordinate-system';
 export * from './core/cube-render-target';
 export * from './core/gpu-buffer';
 export { createSampler, GpuSampler, type GpuSamplerOptions } from './core/gpu-sampler';
 export {
+    type BaseOptions,
     createStorageTexture,
     createStorageTexture1d,
     createStorageTexture3d,
@@ -28,6 +26,12 @@ export {
     type DimensionOf,
     GpuTexture,
     type GpuTextureOptions,
+    type Options1D,
+    type Options2D,
+    type Options2DArray,
+    type Options3D,
+    type OptionsCube,
+    type OptionsCubeArray,
     type ViewDimensionOf,
 } from './core/gpu-texture';
 export * from './core/object3d';
@@ -45,11 +49,13 @@ export * from './geometry/geometry';
 export * from './geometry/geometry-helpers';
 export * from './inspector/inspector';
 export type { InspectableRenderer, InspectorBase } from './inspector/inspector-base';
+export type { TimelineEntryBase } from './inspector/renderer-inspector';
 export * from './material/blend-mode';
 export * from './material/material';
 export type { Frustum } from './math/frustum';
 export * as frustum from './math/frustum';
 export { createRaycaster, type Intersection, type Ray, Raycaster } from './math/raycaster';
+export type { StorageMirror } from './nodes/backend/glsl/emit';
 export {
     type AttributeEntry,
     type CompileGlslOptions,
@@ -78,8 +84,11 @@ export {
     type VertexBufferGroup,
 } from './nodes/builder';
 export {
+    type AnyComparisonSamplerNode,
+    type AnySamplerNode,
     type ArraySamplingMode,
     type ArrayTextureNode,
+    type AtomicPtrDesc,
     type AttributeNode,
     type AttributeOptions,
     abs,
@@ -160,6 +169,7 @@ export {
     equal,
     exp,
     exp2,
+    type FieldAccessor,
     type Fields,
     Fn,
     type FnLayout,
@@ -185,6 +195,7 @@ export {
     glslFn,
     greaterThan,
     greaterThanEqual,
+    type HighLevelTexture,
     If,
     type IfChain,
     type InspectorNode,
@@ -274,11 +285,13 @@ export {
     type SamplerNode,
     type SamplerType,
     type SamplingMode,
+    type ScalarResultDesc,
     type ScalarType,
     type StackNode,
     type StorageBufferTextureSource,
     type StorageCoord,
     type StorageNode,
+    type StorageSampledOf,
     type StorageTextureBindingNode,
     type StorageValue,
     type StructDef,
@@ -461,6 +474,7 @@ export { WebGPUBackend, type WebGPUBackendOptions } from './renderer/webgpu/webg
 export { drawScene } from './scene/draw-scene';
 export * from './scene/scene';
 export {
+    type BufferSource,
     layoutSizeOf,
     layoutStrideOf,
     type MemoryLayout,

@@ -71,7 +71,7 @@ const SECTIONS = [
     {
         title: 'Controls & debugging',
         groups: [
-            { title: 'Camera controls', modules: ['controls/orbit-controls', 'controls/fly-controls', 'controls/transform-controls'] },
+            { title: 'Camera controls', modules: ['controls/orbit-controls'] },
             { title: 'Inspector', modules: ['inspector/inspector'] },
         ],
     },

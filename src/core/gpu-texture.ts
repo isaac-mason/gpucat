@@ -25,7 +25,7 @@ export type ViewDimensionOf<D extends d.Texture> = D extends d.texture1d | d.tex
               ? '3d'
               : '2d';
 
-type BaseOptions = {
+export type BaseOptions = {
     format?: GPUTextureFormat;
     usage?: GPUTextureUsageFlags;
     mipLevelCount?: number;
@@ -51,19 +51,19 @@ type BaseOptions = {
     mipmapsAutoUpdate?: boolean;
 };
 
-type Options2D = BaseOptions & {
+export type Options2D = BaseOptions & {
     width: number;
     height: number;
 };
 
-type Options2DArray = BaseOptions & {
+export type Options2DArray = BaseOptions & {
     width: number;
     height: number;
     layers: number;
     sources?: (Source | SourceData)[];
 };
 
-type OptionsCube = BaseOptions & {
+export type OptionsCube = BaseOptions & {
     size: number;
     faces?:
         | [
@@ -77,19 +77,19 @@ type OptionsCube = BaseOptions & {
         | (Source | SourceData)[];
 };
 
-type OptionsCubeArray = BaseOptions & {
+export type OptionsCubeArray = BaseOptions & {
     size: number;
     cubeCount: number;
     faces?: (Source | SourceData)[];
 };
 
-type Options3D = BaseOptions & {
+export type Options3D = BaseOptions & {
     width: number;
     height: number;
     depth: number;
 };
 
-type Options1D = BaseOptions & {
+export type Options1D = BaseOptions & {
     width: number;
 };
 

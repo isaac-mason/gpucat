@@ -483,7 +483,7 @@ export type RecordAccessor<S extends d.StructSchema> = { readonly [K in keyof S]
  * `Node<u32>` per declared bit-field name (matching the runtime `decodeField` bits branch); every
  * other field type stays a `Node` of its (decoded) type.
  */
-type FieldAccessor<T extends d.Any> = T extends d.bits<infer F> ? { readonly [N in keyof F]: Node<d.u32> } : Node<T>;
+export type FieldAccessor<T extends d.Any> = T extends d.bits<infer F> ? { readonly [N in keyof F]: Node<d.u32> } : Node<T>;
 
 function ensureU32(n: Node<d.u32 | d.i32>): Node<d.u32> {
     return (n.type as { wgslType?: string }).wgslType === 'u32' ? (n as Node<d.u32>) : u32(n);
@@ -655,7 +655,7 @@ function buildRecordAccessor<S extends d.StructSchema>(
  * High-level texture types that have _gpuSampler.
  * All have ._gpuTexture and ._gpuSampler properties.
  */
-type HighLevelTexture = Texture | CubeTexture | DepthTexture | ArrayTexture | Data3DTexture;
+export type HighLevelTexture = Texture | CubeTexture | DepthTexture | ArrayTexture | Data3DTexture;
 
 /** Counter for generating unique sampler IDs when using GpuSampler directly */
 let _samplerIdCounter = 0;
@@ -742,7 +742,7 @@ export function comparisonSampler(
 let _textureIdCounter = 0;
 
 /** The sampled-texture descriptor a storage texture is sampled as (dual-usage). */
-type StorageSampledOf<S extends d.StorageTexture> = S extends d.textureStorage3d
+export type StorageSampledOf<S extends d.StorageTexture> = S extends d.textureStorage3d
     ? d.texture3d
     : S extends d.textureStorage2dArray
       ? d.texture2dArray
@@ -1444,8 +1444,8 @@ export function arrayTexture(
 }
 
 // Type aliases for free function parameters
-type AnySamplerNode = SamplerNode<d.sampler>;
-type AnyComparisonSamplerNode = SamplerNode<d.samplerComparison>;
+export type AnySamplerNode = SamplerNode<d.sampler>;
+export type AnyComparisonSamplerNode = SamplerNode<d.samplerComparison>;
 
 /**
  * textureSample - Sample a texture at UV coordinates.

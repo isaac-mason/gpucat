@@ -1034,8 +1034,6 @@ const controls = new OrbitControls(camera, canvas);
 controls.update();
 ```
 
-`FlyControls` (first-person, `update(dt)`) and `TransformControls` (a gizmo for moving objects) follow the same shape.
-
 The built-in **Inspector** is an in-page debugger for shaders, draw and compute calls, buffers, and timings. Attach it to the renderer and add its element to the page:
 
 ```ts
@@ -1045,8 +1043,6 @@ document.body.appendChild(inspector.domElement);
 ```
 
 See [`OrbitControls`](./api.md#orbitcontrols) and [`Inspector`](./api.md#inspector).
-
-<ExamplesTable ids="example-webgpu-transform-controls,example-webgpu-fly-controls" />
 
 ## Compiling to WGSL
 

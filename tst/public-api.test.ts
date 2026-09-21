@@ -67,33 +67,6 @@ test('a new export is either public or internal on purpose, never silently unrea
     expect(missing, 'add each to index.ts, or to DELIBERATELY_INTERNAL in public-api-internal.ts').toEqual([]);
 });
 
-/**
- * Named in a public signature and not exported, so a consumer can reach the member and cannot write
- * its type. Each is a decision owed: export it, mark the member `@internal`, or shrink the signature.
- */
-const UNWRITABLE: ReadonlySet<string> = new Set([
-    'AnyComparisonSamplerNode',
-    'AnySamplerNode',
-    'AtomicPtrDesc',
-    'BaseOptions',
-    'BufferSource',
-    'FieldAccessor',
-    'HighLevelTexture',
-    'Options1D',
-    'Options2D',
-    'Options2DArray',
-    'Options3D',
-    'OptionsCube',
-    'OptionsCubeArray',
-    'ScalarResultDesc',
-    'StateValue',
-    'StorageMirror',
-    'StorageSampledOf',
-    'TimelineEntryBase',
-    'Topic',
-    'TransformControlsRoot',
-]);
-
 /** `@internal` is this codebase's word for "public so the package can reach it, not for you". */
 function isInternal(node: ts.Node): boolean {
     return (
@@ -146,10 +119,7 @@ function unreachableTypes(): string[] {
         }
     }
 
-    return [...found]
-        .filter(([name]) => !UNWRITABLE.has(name))
-        .map(([name, owner]) => `${name} (named by ${owner})`)
-        .sort();
+    return [...found].map(([name, owner]) => `${name} (named by ${owner})`).sort();
 }
 
 test('no public signature names a type the package keeps to itself', () => {
@@ -171,14 +141,4 @@ test('index.ts re-exports each module once', () => {
         .filter((line) => line.startsWith('export * from'));
 
     expect(stars).toEqual([...new Set(stars)]);
-});
-
-/** A name that becomes writable has to leave the list, or the list stops describing anything. */
-test('a listed unwritable type is removed once it is exported', () => {
-    const prog = program();
-    const checker = prog.getTypeChecker();
-    const index = checker.getSymbolAtLocation(prog.getSourceFile(INDEX)!)!;
-    const exported = new Set(checker.getExportsOfModule(index).map((e) => e.getName()));
-
-    expect([...UNWRITABLE].filter((n) => exported.has(n))).toEqual([]);
 });

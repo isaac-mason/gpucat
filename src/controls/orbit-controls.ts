@@ -13,7 +13,7 @@ const STATE = {
     TOUCH_DOLLY_ROTATE: 6,
 } as const;
 
-type StateValue = (typeof STATE)[keyof typeof STATE];
+export type StateValue = (typeof STATE)[keyof typeof STATE];
 
 export const MOUSE = {
     ROTATE: 0,
@@ -1257,7 +1257,7 @@ function _interceptControlUp(this: OrbitControls, event: KeyboardEvent): void {
     }
 }
 
-/** The factory form, matching `createFlyControls` and `createTransformControls`. */
+/** The factory form, matching the other `create*` resource constructors. */
 export function createOrbitControls(object: Camera, domElement: HTMLElement | null = null): OrbitControls {
     return new OrbitControls(object, domElement);
 }
