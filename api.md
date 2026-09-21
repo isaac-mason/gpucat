@@ -339,11 +339,11 @@ The full node DSL, grouped by category. Learn it with examples in the [guide](./
 </tr><tr>
 <td><a href="#createstoragetexturearray"><code>createStorageTextureArray</code></a></td><td><a href="#dimensionof"><code>DimensionOf</code></a></td><td><a href="#gputexture"><code>GpuTexture</code></a></td><td><a href="#gputextureoptions"><code>GpuTextureOptions</code></a></td>
 </tr><tr>
-<td><a href="#viewdimensionof"><code>ViewDimensionOf</code></a></td><td><a href="#region_cap"><code>REGION_CAP</code></a></td><td><a href="#regionsfromlinearrun"><code>regionsFromLinearRun</code></a></td><td><a href="#regionextent"><code>RegionExtent</code></a></td>
+<td><a href="#viewdimensionof"><code>ViewDimensionOf</code></a></td><td><a href="#region_cap"><code>REGION_CAP</code></a></td><td><a href="#regionextent"><code>RegionExtent</code></a></td><td><a href="#regionsfromlinearrun"><code>regionsFromLinearRun</code></a></td>
 </tr><tr>
-<td><a href="#texturerectinit"><code>TextureRectInit</code></a></td><td><a href="#textureregion"><code>TextureRegion</code></a></td><td><a href="#textureregioninit"><code>TextureRegionInit</code></a></td><td><a href="#compile"><code>compile</code></a></td>
+<td><a href="#texturerectinit"><code>TextureRectInit</code></a></td><td><a href="#textureregion"><code>TextureRegion</code></a></td><td><a href="#textureregioninit"><code>TextureRegionInit</code></a></td><td><a href="#compilecomputewgsl"><code>compileComputeWgsl</code></a></td>
 </tr><tr>
-<td><a href="#compilecompute"><code>compileCompute</code></a></td><td><a href="#compileglsl"><code>compileGlsl</code></a></td><td><a href="#compiletransformfeedback"><code>compileTransformFeedback</code></a></td><td><a href="#transformfeedbackglslresult"><code>TransformFeedbackGlslResult</code></a></td>
+<td><a href="#compileglsl"><code>compileGlsl</code></a></td><td><a href="#compiletransformfeedback"><code>compileTransformFeedback</code></a></td><td><a href="#compilewgsl"><code>compileWgsl</code></a></td><td><a href="#transformfeedbackglslresult"><code>TransformFeedbackGlslResult</code></a></td>
 </tr><tr>
 <td><a href="#transformfeedbackinputattribute"><code>TransformFeedbackInputAttribute</code></a></td><td><a href="#attributeoptions"><code>AttributeOptions</code></a></td><td><a href="#abs"><code>abs</code></a></td><td><a href="#acestonemapping"><code>acesToneMapping</code></a></td>
 </tr><tr>
@@ -389,85 +389,85 @@ The full node DSL, grouped by category. Learn it with examples in the [guide](./
 </tr><tr>
 <td><a href="#fwidthcoarse"><code>fwidthCoarse</code></a></td><td><a href="#fwidthfine"><code>fwidthFine</code></a></td><td><a href="#fxaa"><code>fxaa</code></a></td><td><a href="#gputypedarray"><code>GpuTypedArray</code></a></td>
 </tr><tr>
-<td><a href="#globalid"><code>globalId</code></a></td><td><a href="#greaterthan"><code>greaterThan</code></a></td><td><a href="#greaterthanequal"><code>greaterThanEqual</code></a></td><td><a href="#if"><code>If</code></a></td>
+<td><a href="#globalid"><code>globalId</code></a></td><td><a href="#glsl"><code>glsl</code></a></td><td><a href="#glslfn"><code>glslFn</code></a></td><td><a href="#greaterthan"><code>greaterThan</code></a></td>
 </tr><tr>
-<td><a href="#interpolationsampling"><code>InterpolationSampling</code></a></td><td><a href="#interpolationtype"><code>InterpolationType</code></a></td><td><a href="#i32"><code>i32</code></a></td><td><a href="#index"><code>index</code></a></td>
+<td><a href="#greaterthanequal"><code>greaterThanEqual</code></a></td><td><a href="#if"><code>If</code></a></td><td><a href="#interpolationsampling"><code>InterpolationSampling</code></a></td><td><a href="#interpolationtype"><code>InterpolationType</code></a></td>
 </tr><tr>
-<td><a href="#instanceindex"><code>instanceIndex</code></a></td><td><a href="#inversesqrt"><code>inverseSqrt</code></a></td><td><a href="#let"><code>Let</code></a></td><td><a href="#loop"><code>Loop</code></a></td>
+<td><a href="#i32"><code>i32</code></a></td><td><a href="#index"><code>index</code></a></td><td><a href="#instanceindex"><code>instanceIndex</code></a></td><td><a href="#inversesqrt"><code>inverseSqrt</code></a></td>
 </tr><tr>
-<td><a href="#length"><code>length</code></a></td><td><a href="#lessthan"><code>lessThan</code></a></td><td><a href="#lessthanequal"><code>lessThanEqual</code></a></td><td><a href="#localid"><code>localId</code></a></td>
+<td><a href="#let"><code>Let</code></a></td><td><a href="#loop"><code>Loop</code></a></td><td><a href="#length"><code>length</code></a></td><td><a href="#lessthan"><code>lessThan</code></a></td>
 </tr><tr>
-<td><a href="#localindex"><code>localIndex</code></a></td><td><a href="#log"><code>log</code></a></td><td><a href="#log2"><code>log2</code></a></td><td><a href="#mattype"><code>MatType</code></a></td>
+<td><a href="#lessthanequal"><code>lessThanEqual</code></a></td><td><a href="#localid"><code>localId</code></a></td><td><a href="#localindex"><code>localIndex</code></a></td><td><a href="#log"><code>log</code></a></td>
 </tr><tr>
-<td><a href="#mat2x2f"><code>mat2x2f</code></a></td><td><a href="#mat2x2h"><code>mat2x2h</code></a></td><td><a href="#mat2x3f"><code>mat2x3f</code></a></td><td><a href="#mat2x3h"><code>mat2x3h</code></a></td>
+<td><a href="#log2"><code>log2</code></a></td><td><a href="#mattype"><code>MatType</code></a></td><td><a href="#mat2x2f"><code>mat2x2f</code></a></td><td><a href="#mat2x2h"><code>mat2x2h</code></a></td>
 </tr><tr>
-<td><a href="#mat2x4f"><code>mat2x4f</code></a></td><td><a href="#mat2x4h"><code>mat2x4h</code></a></td><td><a href="#mat3"><code>mat3</code></a></td><td><a href="#mat3x2f"><code>mat3x2f</code></a></td>
+<td><a href="#mat2x3f"><code>mat2x3f</code></a></td><td><a href="#mat2x3h"><code>mat2x3h</code></a></td><td><a href="#mat2x4f"><code>mat2x4f</code></a></td><td><a href="#mat2x4h"><code>mat2x4h</code></a></td>
 </tr><tr>
-<td><a href="#mat3x2h"><code>mat3x2h</code></a></td><td><a href="#mat3x3f"><code>mat3x3f</code></a></td><td><a href="#mat3x3h"><code>mat3x3h</code></a></td><td><a href="#mat3x4f"><code>mat3x4f</code></a></td>
+<td><a href="#mat3"><code>mat3</code></a></td><td><a href="#mat3x2f"><code>mat3x2f</code></a></td><td><a href="#mat3x2h"><code>mat3x2h</code></a></td><td><a href="#mat3x3f"><code>mat3x3f</code></a></td>
 </tr><tr>
-<td><a href="#mat3x4h"><code>mat3x4h</code></a></td><td><a href="#mat4"><code>mat4</code></a></td><td><a href="#mat4x2f"><code>mat4x2f</code></a></td><td><a href="#mat4x2h"><code>mat4x2h</code></a></td>
+<td><a href="#mat3x3h"><code>mat3x3h</code></a></td><td><a href="#mat3x4f"><code>mat3x4f</code></a></td><td><a href="#mat3x4h"><code>mat3x4h</code></a></td><td><a href="#mat4"><code>mat4</code></a></td>
 </tr><tr>
-<td><a href="#mat4x3f"><code>mat4x3f</code></a></td><td><a href="#mat4x3h"><code>mat4x3h</code></a></td><td><a href="#mat4x4f"><code>mat4x4f</code></a></td><td><a href="#mat4x4h"><code>mat4x4h</code></a></td>
+<td><a href="#mat4x2f"><code>mat4x2f</code></a></td><td><a href="#mat4x2h"><code>mat4x2h</code></a></td><td><a href="#mat4x3f"><code>mat4x3f</code></a></td><td><a href="#mat4x3h"><code>mat4x3h</code></a></td>
 </tr><tr>
-<td><a href="#max"><code>max</code></a></td><td><a href="#min"><code>min</code></a></td><td><a href="#mix"><code>mix</code></a></td><td><a href="#mod"><code>mod</code></a></td>
+<td><a href="#mat4x4f"><code>mat4x4f</code></a></td><td><a href="#mat4x4h"><code>mat4x4h</code></a></td><td><a href="#max"><code>max</code></a></td><td><a href="#min"><code>min</code></a></td>
 </tr><tr>
-<td><a href="#modelnormalmatrix"><code>modelNormalMatrix</code></a></td><td><a href="#modelworldmatrix"><code>modelWorldMatrix</code></a></td><td><a href="#mrt"><code>mrt</code></a></td><td><a href="#mul"><code>mul</code></a></td>
+<td><a href="#mix"><code>mix</code></a></td><td><a href="#mod"><code>mod</code></a></td><td><a href="#modelnormalmatrix"><code>modelNormalMatrix</code></a></td><td><a href="#modelworldmatrix"><code>modelWorldMatrix</code></a></td>
 </tr><tr>
-<td><a href="#ndcdepthtostorage"><code>ndcDepthToStorage</code></a></td><td><a href="#numerictype"><code>NumericType</code></a></td><td><a href="#normalize"><code>normalize</code></a></td><td><a href="#notequal"><code>notEqual</code></a></td>
+<td><a href="#mrt"><code>mrt</code></a></td><td><a href="#mul"><code>mul</code></a></td><td><a href="#numerictype"><code>NumericType</code></a></td><td><a href="#ndcdepthtostorage"><code>ndcDepthToStorage</code></a></td>
 </tr><tr>
-<td><a href="#numworkgroups"><code>numWorkgroups</code></a></td><td><a href="#outputcolorspace"><code>OutputColorSpace</code></a></td><td><a href="#or"><code>or</code></a></td><td><a href="#paramdesc"><code>ParamDesc</code></a></td>
+<td><a href="#normalize"><code>normalize</code></a></td><td><a href="#notequal"><code>notEqual</code></a></td><td><a href="#numworkgroups"><code>numWorkgroups</code></a></td><td><a href="#outputcolorspace"><code>OutputColorSpace</code></a></td>
 </tr><tr>
-<td><a href="#passnodeoptions"><code>PassNodeOptions</code></a></td><td><a href="#privatevar"><code>PrivateVar</code></a></td><td><a href="#pack2x16float"><code>pack2x16float</code></a></td><td><a href="#pack2x16snorm"><code>pack2x16snorm</code></a></td>
+<td><a href="#or"><code>or</code></a></td><td><a href="#paramdesc"><code>ParamDesc</code></a></td><td><a href="#privatevar"><code>PrivateVar</code></a></td><td><a href="#pack2x16float"><code>pack2x16float</code></a></td>
 </tr><tr>
-<td><a href="#pack2x16unorm"><code>pack2x16unorm</code></a></td><td><a href="#pack4x8snorm"><code>pack4x8snorm</code></a></td><td><a href="#pack4x8unorm"><code>pack4x8unorm</code></a></td><td><a href="#pass"><code>pass</code></a></td>
+<td><a href="#pack2x16snorm"><code>pack2x16snorm</code></a></td><td><a href="#pack2x16unorm"><code>pack2x16unorm</code></a></td><td><a href="#pack4x8snorm"><code>pack4x8snorm</code></a></td><td><a href="#pack4x8unorm"><code>pack4x8unorm</code></a></td>
 </tr><tr>
-<td><a href="#positionclip"><code>positionClip</code></a></td><td><a href="#pow"><code>pow</code></a></td><td><a href="#renderoutputoptions"><code>RenderOutputOptions</code></a></td><td><a href="#return"><code>Return</code></a></td>
+<td><a href="#positionclip"><code>positionClip</code></a></td><td><a href="#pow"><code>pow</code></a></td><td><a href="#renderoutputoptions"><code>RenderOutputOptions</code></a></td><td><a href="#rendertextureoptions"><code>RenderTextureOptions</code></a></td>
 </tr><tr>
-<td><a href="#reinhardtonemapping"><code>reinhardToneMapping</code></a></td><td><a href="#renderoutput"><code>renderOutput</code></a></td><td><a href="#reversebits"><code>reverseBits</code></a></td><td><a href="#rgb"><code>rgb</code></a></td>
+<td><a href="#return"><code>Return</code></a></td><td><a href="#reinhardtonemapping"><code>reinhardToneMapping</code></a></td><td><a href="#renderoutput"><code>renderOutput</code></a></td><td><a href="#rendertexture"><code>renderTexture</code></a></td>
 </tr><tr>
-<td><a href="#samplertype"><code>SamplerType</code></a></td><td><a href="#scalartype"><code>ScalarType</code></a></td><td><a href="#structdef"><code>StructDef</code></a></td><td><a href="#structinstance"><code>StructInstance</code></a></td>
+<td><a href="#reversebits"><code>reverseBits</code></a></td><td><a href="#rgb"><code>rgb</code></a></td><td><a href="#samplertype"><code>SamplerType</code></a></td><td><a href="#scalartype"><code>ScalarType</code></a></td>
 </tr><tr>
-<td><a href="#structmember"><code>StructMember</code></a></td><td><a href="#sampler"><code>sampler</code></a></td><td><a href="#screencoordinate"><code>screenCoordinate</code></a></td><td><a href="#screensize"><code>screenSize</code></a></td>
+<td><a href="#structdef"><code>StructDef</code></a></td><td><a href="#structinstance"><code>StructInstance</code></a></td><td><a href="#structmember"><code>StructMember</code></a></td><td><a href="#sampler"><code>sampler</code></a></td>
 </tr><tr>
-<td><a href="#screenuv"><code>screenUV</code></a></td><td><a href="#select"><code>select</code></a></td><td><a href="#shiftleft"><code>shiftLeft</code></a></td><td><a href="#shiftright"><code>shiftRight</code></a></td>
+<td><a href="#screencoordinate"><code>screenCoordinate</code></a></td><td><a href="#screensize"><code>screenSize</code></a></td><td><a href="#screenuv"><code>screenUV</code></a></td><td><a href="#select"><code>select</code></a></td>
 </tr><tr>
-<td><a href="#sign"><code>sign</code></a></td><td><a href="#sin"><code>sin</code></a></td><td><a href="#smoothstep"><code>smoothstep</code></a></td><td><a href="#sqrt"><code>sqrt</code></a></td>
+<td><a href="#shiftleft"><code>shiftLeft</code></a></td><td><a href="#shiftright"><code>shiftRight</code></a></td><td><a href="#sign"><code>sign</code></a></td><td><a href="#sin"><code>sin</code></a></td>
 </tr><tr>
-<td><a href="#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td><td><a href="#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td><td><a href="#step"><code>step</code></a></td><td><a href="#storage"><code>storage</code></a></td>
+<td><a href="#smoothstep"><code>smoothstep</code></a></td><td><a href="#sqrt"><code>sqrt</code></a></td><td><a href="#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td><td><a href="#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td>
 </tr><tr>
-<td><a href="#storagebarrier"><code>storageBarrier</code></a></td><td><a href="#storagetexture"><code>storageTexture</code></a></td><td><a href="#struct"><code>struct</code></a></td><td><a href="#sub"><code>sub</code></a></td>
+<td><a href="#step"><code>step</code></a></td><td><a href="#storage"><code>storage</code></a></td><td><a href="#storagebarrier"><code>storageBarrier</code></a></td><td><a href="#storagetexture"><code>storageTexture</code></a></td>
 </tr><tr>
-<td><a href="#texturetype"><code>TextureType</code></a></td><td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td><td><a href="#transformfeedbackcallback"><code>TransformFeedbackCallback</code></a></td><td><a href="#transformfeedbacklayout"><code>TransformFeedbackLayout</code></a></td>
+<td><a href="#struct"><code>struct</code></a></td><td><a href="#sub"><code>sub</code></a></td><td><a href="#texturetype"><code>TextureType</code></a></td><td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td>
 </tr><tr>
-<td><a href="#tan"><code>tan</code></a></td><td><a href="#texture"><code>texture</code></a></td><td><a href="#texturebarrier"><code>textureBarrier</code></a></td><td><a href="#texturebinding"><code>textureBinding</code></a></td>
+<td><a href="#transformfeedbackcallback"><code>TransformFeedbackCallback</code></a></td><td><a href="#transformfeedbacklayout"><code>TransformFeedbackLayout</code></a></td><td><a href="#tan"><code>tan</code></a></td><td><a href="#texture"><code>texture</code></a></td>
 </tr><tr>
-<td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td><td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td><td><a href="#textureload"><code>textureLoad</code></a></td>
+<td><a href="#texturebarrier"><code>textureBarrier</code></a></td><td><a href="#texturebinding"><code>textureBinding</code></a></td><td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td>
 </tr><tr>
-<td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td><td><a href="#texturesample"><code>textureSample</code></a></td><td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td>
+<td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td><td><a href="#textureload"><code>textureLoad</code></a></td><td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td>
 </tr><tr>
-<td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td><td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td>
+<td><a href="#texturesample"><code>textureSample</code></a></td><td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td>
 </tr><tr>
-<td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transformfeedback"><code>transformFeedback</code></a></td><td><a href="#transpose"><code>transpose</code></a></td><td><a href="#u32"><code>u32</code></a></td>
+<td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transformfeedback"><code>transformFeedback</code></a></td>
 </tr><tr>
-<td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td><td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td><td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td>
+<td><a href="#transpose"><code>transpose</code></a></td><td><a href="#u32"><code>u32</code></a></td><td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td>
 </tr><tr>
-<td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td><td><a href="#var"><code>Var</code></a></td><td><a href="#vec2type"><code>Vec2Type</code></a></td>
+<td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td><td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td><td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td>
 </tr><tr>
-<td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td><td><a href="#vectype"><code>VecType</code></a></td><td><a href="#varying"><code>varying</code></a></td>
+<td><a href="#var"><code>Var</code></a></td><td><a href="#vec2type"><code>Vec2Type</code></a></td><td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td>
 </tr><tr>
-<td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td><td><a href="#vec2f"><code>vec2f</code></a></td><td><a href="#vec2h"><code>vec2h</code></a></td>
+<td><a href="#vectype"><code>VecType</code></a></td><td><a href="#varying"><code>varying</code></a></td><td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td>
 </tr><tr>
-<td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td><td><a href="#vec3"><code>vec3</code></a></td><td><a href="#vec3b"><code>vec3b</code></a></td>
+<td><a href="#vec2f"><code>vec2f</code></a></td><td><a href="#vec2h"><code>vec2h</code></a></td><td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td>
 </tr><tr>
-<td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td><td><a href="#vec3i"><code>vec3i</code></a></td><td><a href="#vec3u"><code>vec3u</code></a></td>
+<td><a href="#vec3"><code>vec3</code></a></td><td><a href="#vec3b"><code>vec3b</code></a></td><td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td>
 </tr><tr>
-<td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td><td><a href="#vec4f"><code>vec4f</code></a></td><td><a href="#vec4h"><code>vec4h</code></a></td>
+<td><a href="#vec3i"><code>vec3i</code></a></td><td><a href="#vec3u"><code>vec3u</code></a></td><td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td>
 </tr><tr>
-<td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td><td><a href="#vertexindex"><code>vertexIndex</code></a></td><td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td>
+<td><a href="#vec4f"><code>vec4f</code></a></td><td><a href="#vec4h"><code>vec4h</code></a></td><td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td>
 </tr><tr>
-<td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgsltype"><code>WgslType</code></a></td><td><a href="#while"><code>While</code></a></td><td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td>
+<td><a href="#vertexindex"><code>vertexIndex</code></a></td><td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgsltype"><code>WgslType</code></a></td>
 </tr><tr>
-<td><a href="#glsl"><code>glsl</code></a></td><td><a href="#glslfn"><code>glslFn</code></a></td><td><a href="#wgsl"><code>wgsl</code></a></td><td><a href="#wgslfn"><code>wgslFn</code></a></td>
+<td><a href="#while"><code>While</code></a></td><td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td><td><a href="#wgsl"><code>wgsl</code></a></td><td><a href="#wgslfn"><code>wgslFn</code></a></td>
 </tr><tr>
 <td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td><td><a href="#workgroupid"><code>workgroupId</code></a></td><td></td><td></td>
 </tr></table>
@@ -476,12 +476,34 @@ The full node DSL, grouped by category. Learn it with examples in the [guide](./
 
 Drive the GPU: create a renderer, build pipelines, render to the canvas or a target.
 
+**Renderer**
+
+<table><tr>
+<td><a href="#renderer"><code>Renderer</code></a></td><td><a href="#init"><code>init</code></a></td><td><a href="#backendname"><code>BackendName</code></a></td><td><a href="#rect"><code>Rect</code></a></td>
+</tr><tr>
+<td><a href="#passdesc"><code>PassDesc</code></a></td><td><a href="#drawopts"><code>DrawOpts</code></a></td><td><a href="#drawrecord"><code>DrawRecord</code></a></td><td><a href="#renderbundle"><code>RenderBundle</code></a></td>
+</tr><tr>
+<td><a href="#bundlerecord"><code>BundleRecord</code></a></td><td><a href="#passentry"><code>PassEntry</code></a></td><td><a href="#computepassdesc"><code>ComputePassDesc</code></a></td><td><a href="#dispatchopts"><code>DispatchOpts</code></a></td>
+</tr><tr>
+<td><a href="#dispatchindirectopts"><code>DispatchIndirectOpts</code></a></td><td><a href="#dispatchrecord"><code>DispatchRecord</code></a></td><td><a href="#framebackend"><code>FrameBackend</code></a></td><td><a href="#pass"><code>Pass</code></a></td>
+</tr><tr>
+<td><a href="#computepass"><code>ComputePass</code></a></td><td><a href="#transformfeedbackpassdesc"><code>TransformFeedbackPassDesc</code></a></td><td><a href="#transformfeedbackdispatch"><code>TransformFeedbackDispatch</code></a></td><td><a href="#transformfeedbackrecord"><code>TransformFeedbackRecord</code></a></td>
+</tr><tr>
+<td><a href="#transformfeedbackpass"><code>TransformFeedbackPass</code></a></td><td><a href="#anypass"><code>AnyPass</code></a></td><td><a href="#frame"><code>Frame</code></a></td><td><a href="#createframe"><code>createFrame</code></a></td>
+</tr><tr>
+<td><a href="#isframeopen"><code>isFrameOpen</code></a></td><td><a href="#passlabel"><code>passLabel</code></a></td><td><a href="#frame-2"><code>frame</code></a></td><td><a href="#beginframe"><code>beginFrame</code></a></td>
+</tr></table>
+
 **Pipelines & targets**
 
 <table><tr>
-<td><a href="#rendertargetoptions"><code>RenderTargetOptions</code></a></td><td><a href="#rendertargettexture"><code>RenderTargetTexture</code></a></td><td><a href="#rendertarget"><code>RenderTarget</code></a></td><td><a href="#cuberendertargetoptions"><code>CubeRenderTargetOptions</code></a></td>
+<td><a href="#canvasalphamode"><code>CanvasAlphaMode</code></a></td><td><a href="#canvastargetoptions"><code>CanvasTargetOptions</code></a></td><td><a href="#canvasresizeevent"><code>CanvasResizeEvent</code></a></td><td><a href="#canvastarget"><code>CanvasTarget</code></a></td>
 </tr><tr>
-<td><a href="#cuberendertarget"><code>CubeRenderTarget</code></a></td><td></td><td></td><td></td>
+<td><a href="#createcanvastarget"><code>createCanvasTarget</code></a></td><td><a href="#readopts"><code>ReadOpts</code></a></td><td><a href="#readablerenderer"><code>ReadableRenderer</code></a></td><td><a href="#read"><code>read</code></a></td>
+</tr><tr>
+<td><a href="#rendertargetoptions"><code>RenderTargetOptions</code></a></td><td><a href="#rendertargettexture"><code>RenderTargetTexture</code></a></td><td><a href="#rendertarget"><code>RenderTarget</code></a></td><td><a href="#createrendertarget"><code>createRenderTarget</code></a></td>
+</tr><tr>
+<td><a href="#cuberendertargetoptions"><code>CubeRenderTargetOptions</code></a></td><td><a href="#cuberendertarget"><code>CubeRenderTarget</code></a></td><td><a href="#createcuberendertarget"><code>createCubeRenderTarget</code></a></td><td></td>
 </tr></table>
 
 ### Scene & objects
@@ -491,15 +513,15 @@ The scene graph, cameras, and the objects you put in it.
 **Scene graph**
 
 <table><tr>
-<td><a href="#scene"><code>Scene</code></a></td><td><a href="#object3d"><code>Object3D</code></a></td>
+<td><a href="#scene"><code>Scene</code></a></td><td><a href="#createscene"><code>createScene</code></a></td><td><a href="#object3d"><code>Object3D</code></a></td><td><a href="#createobject3d"><code>createObject3D</code></a></td>
 </tr></table>
 
 **Cameras**
 
 <table><tr>
-<td><a href="#camera"><code>Camera</code></a></td><td><a href="#unproject"><code>unproject</code></a></td><td><a href="#perspectivecamera"><code>PerspectiveCamera</code></a></td><td><a href="#orthographiccamera"><code>OrthographicCamera</code></a></td>
+<td><a href="#camera"><code>Camera</code></a></td><td><a href="#unproject"><code>unproject</code></a></td><td><a href="#perspectivecamera"><code>PerspectiveCamera</code></a></td><td><a href="#viewoffset"><code>ViewOffset</code></a></td>
 </tr><tr>
-<td><a href="#cubecamera"><code>CubeCamera</code></a></td><td></td><td></td><td></td>
+<td><a href="#orthographiccamera"><code>OrthographicCamera</code></a></td><td><a href="#cubecamera"><code>CubeCamera</code></a></td><td></td><td></td>
 </tr></table>
 
 **Objects**
@@ -507,19 +529,19 @@ The scene graph, cameras, and the objects you put in it.
 <table><tr>
 <td><a href="#indexedmeshdraw"><code>IndexedMeshDraw</code></a></td><td><a href="#nonindexedmeshdraw"><code>NonIndexedMeshDraw</code></a></td><td><a href="#meshdraw"><code>MeshDraw</code></a></td><td><a href="#mesh"><code>Mesh</code></a></td>
 </tr><tr>
-<td><a href="#linegeometry"><code>LineGeometry</code></a></td><td><a href="#linesegmentsgeometry"><code>LineSegmentsGeometry</code></a></td><td><a href="#linematerialoptions"><code>LineMaterialOptions</code></a></td><td><a href="#linematerial"><code>LineMaterial</code></a></td>
+<td><a href="#createmesh"><code>createMesh</code></a></td><td><a href="#linegeometry"><code>LineGeometry</code></a></td><td><a href="#linesegmentsgeometry"><code>LineSegmentsGeometry</code></a></td><td><a href="#linematerialoptions"><code>LineMaterialOptions</code></a></td>
 </tr><tr>
-<td><a href="#linesegments"><code>LineSegments</code></a></td><td><a href="#line"><code>Line</code></a></td><td></td><td></td>
+<td><a href="#linematerial"><code>LineMaterial</code></a></td><td><a href="#linesegments"><code>LineSegments</code></a></td><td><a href="#line"><code>Line</code></a></td><td></td>
 </tr></table>
 
 **Geometry**
 
 <table><tr>
-<td><a href="#drawrange"><code>DrawRange</code></a></td><td><a href="#geometry"><code>Geometry</code></a></td><td><a href="#createboxgeometry"><code>createBoxGeometry</code></a></td><td><a href="#createspheregeometry"><code>createSphereGeometry</code></a></td>
+<td><a href="#drawrange"><code>DrawRange</code></a></td><td><a href="#geometry"><code>Geometry</code></a></td><td><a href="#creategeometry"><code>createGeometry</code></a></td><td><a href="#createboxgeometry"><code>createBoxGeometry</code></a></td>
 </tr><tr>
-<td><a href="#createplanegeometry"><code>createPlaneGeometry</code></a></td><td><a href="#createfullscreentrianglegeometry"><code>createFullscreenTriangleGeometry</code></a></td><td><a href="#createcylindergeometry"><code>createCylinderGeometry</code></a></td><td><a href="#createtorusgeometry"><code>createTorusGeometry</code></a></td>
+<td><a href="#createspheregeometry"><code>createSphereGeometry</code></a></td><td><a href="#createplanegeometry"><code>createPlaneGeometry</code></a></td><td><a href="#createfullscreentrianglegeometry"><code>createFullscreenTriangleGeometry</code></a></td><td><a href="#createcylindergeometry"><code>createCylinderGeometry</code></a></td>
 </tr><tr>
-<td><a href="#createoctahedrongeometry"><code>createOctahedronGeometry</code></a></td><td></td><td></td><td></td>
+<td><a href="#createtorusgeometry"><code>createTorusGeometry</code></a></td><td><a href="#createoctahedrongeometry"><code>createOctahedronGeometry</code></a></td><td></td><td></td>
 </tr></table>
 
 ### GPU resources
@@ -535,17 +557,17 @@ Declarative, data-oriented resources: buffers, uniforms, materials, and textures
 </tr><tr>
 <td><a href="#gpubuffer"><code>GpuBuffer</code></a></td><td><a href="#createvertexbuffer"><code>createVertexBuffer</code></a></td><td><a href="#createstoragebuffer"><code>createStorageBuffer</code></a></td><td><a href="#createuniformbuffer"><code>createUniformBuffer</code></a></td>
 </tr><tr>
-<td><a href="#createindirectbuffer"><code>createIndirectBuffer</code></a></td><td><a href="#createindexbuffer"><code>createIndexBuffer</code></a></td><td><a href="#uniformvalue"><code>UniformValue</code></a></td><td><a href="#uniformupdatetype"><code>UniformUpdateType</code></a></td>
+<td><a href="#createindirectbuffer"><code>createIndirectBuffer</code></a></td><td><a href="#createindexbuffer"><code>createIndexBuffer</code></a></td><td><a href="#uniformvalue"><code>UniformValue</code></a></td><td><a href="#uniformstored"><code>UniformStored</code></a></td>
 </tr><tr>
-<td><a href="#uniformgroup"><code>UniformGroup</code></a></td><td><a href="#uniformgroup-2"><code>uniformGroup</code></a></td><td><a href="#shareduniformgroup"><code>sharedUniformGroup</code></a></td><td><a href="#framegroup"><code>frameGroup</code></a></td>
+<td><a href="#uniformupdatetype"><code>UniformUpdateType</code></a></td><td><a href="#uniformgroup"><code>UniformGroup</code></a></td><td><a href="#uniformgroup-2"><code>uniformGroup</code></a></td><td><a href="#shareduniformgroup"><code>sharedUniformGroup</code></a></td>
 </tr><tr>
-<td><a href="#rendergroup"><code>renderGroup</code></a></td><td><a href="#objectgroup"><code>objectGroup</code></a></td><td><a href="#uniform-2"><code>Uniform</code></a></td><td></td>
+<td><a href="#framegroup"><code>frameGroup</code></a></td><td><a href="#rendergroup"><code>renderGroup</code></a></td><td><a href="#objectgroup"><code>objectGroup</code></a></td><td><a href="#uniform-2"><code>Uniform</code></a></td>
 </tr></table>
 
 **Materials**
 
 <table><tr>
-<td><a href="#stencilfaceoverride"><code>StencilFaceOverride</code></a></td><td><a href="#materialoptions"><code>MaterialOptions</code></a></td><td><a href="#material"><code>Material</code></a></td>
+<td><a href="#stencilfaceoverride"><code>StencilFaceOverride</code></a></td><td><a href="#materialoptions"><code>MaterialOptions</code></a></td><td><a href="#material"><code>Material</code></a></td><td><a href="#creatematerial"><code>createMaterial</code></a></td>
 </tr></table>
 
 **Textures**
@@ -571,7 +593,7 @@ Turn a node graph into WGSL.
 **Compile**
 
 <table><tr>
-<td><a href="#compile-2"><code>compile</code></a></td><td><a href="#compileglsloptions"><code>CompileGlslOptions</code></a></td><td><a href="#compileglsl-2"><code>compileGlsl</code></a></td><td><a href="#compilecompute-2"><code>compileCompute</code></a></td>
+<td><a href="#compilewgsl-2"><code>compileWgsl</code></a></td><td><a href="#compileglsloptions"><code>CompileGlslOptions</code></a></td><td><a href="#compileglsl-2"><code>compileGlsl</code></a></td><td><a href="#compilecomputewgsl-2"><code>compileComputeWgsl</code></a></td>
 </tr><tr>
 <td><a href="#compiletransformfeedback-2"><code>compileTransformFeedback</code></a></td><td><a href="#nodeupdatetype"><code>NodeUpdateType</code></a></td><td><a href="#updatebeforenode"><code>UpdateBeforeNode</code></a></td><td><a href="#updateafternode"><code>UpdateAfterNode</code></a></td>
 </tr><tr>
@@ -829,6 +851,17 @@ export type ViewDimensionOf<D extends d.Texture> = D extends d.texture1d | d.tex
 export const REGION_CAP = 16;
 ```
 
+#### `RegionExtent`
+
+```ts
+/** Extent used to fill in omitted fields of a {@link TextureRegionInit}. */
+export type RegionExtent = {
+    width: number;
+    height: number;
+    depth: number;
+};
+```
+
 #### `regionsFromLinearRun`
 
 ```ts
@@ -839,17 +872,6 @@ export const REGION_CAP = 16;
  * dirtying the whole row.
  */
 export function regionsFromLinearRun(start: number, count: number, width: number): TextureRegion[];
-```
-
-#### `RegionExtent`
-
-```ts
-/** Extent used to fill in omitted fields of a {@link TextureRegionInit}. */
-export type RegionExtent = {
-    width: number;
-    height: number;
-    depth: number;
-};
 ```
 
 #### `TextureRectInit`
@@ -881,16 +903,10 @@ export type TextureRegion = {
 export type TextureRegionInit = Partial<TextureRegion>;
 ```
 
-#### `compile`
+#### `compileComputeWgsl`
 
 ```ts
-export function compile(slots: CompileSlots): CompileResult;
-```
-
-#### `compileCompute`
-
-```ts
-export function compileCompute(node: ComputeNode): ComputeCompileResult;
+export function compileComputeWgsl(node: ComputeNode): ComputeCompileResult;
 ```
 
 #### `compileGlsl`
@@ -912,6 +928,12 @@ export function compileGlsl(slots: CompileSlots, opts?: CompileGlslOptions): Com
  * a shared body `Fn` wrapped in a WebGPU compute(), not by this node spanning backends.
  */
 export function compileTransformFeedback(node: TransformFeedbackNode, opts?: CompileGlslOptions): TransformFeedbackGlslResult;
+```
+
+#### `compileWgsl`
+
+```ts
+export function compileWgsl(slots: CompileSlots): CompileResult;
 ```
 
 #### `TransformFeedbackGlslResult`
@@ -959,6 +981,14 @@ export type AttributeOptions = {
     offset?: number;
     /** Whether this is per-instance data (stepMode: 'instance'). */
     instanced?: boolean;
+    /**
+     * Name this attribute's buffer reports in the per-frame upload breakdown.
+     *
+     * Only meaningful for `attribute(data, schema, options)`, which mints a buffer internally and
+     * so has no name of its own - a named geometry buffer or a caller-owned `GpuBuffer` already
+     * carries one. Without it those buffers report as a bare usage and cannot be told apart.
+     */
+    label?: string;
 };
 ```
 
@@ -1337,7 +1367,6 @@ export const cameraNear: UniformNode<d.f32>;
 #### `cameraPosition`
 
 ```ts
-/** Camera world-space position. In renderGroup. */
 export const cameraPosition: UniformNode<d.vec3f>;
 ```
 
@@ -1774,10 +1803,10 @@ export const fwidthFine: <D extends Any>(a: Node<D>) => Node<D>;
  * @returns A vec4f node containing the anti-aliased color
  *
  * @example
- * const scenePass = pass(scene, camera);
+ * const scenePass = renderTexture(scene, camera);
  * const fxaaOutput = fxaa(scenePass.getTextureNode());
  *
- * const postMaterial = new Material({
+ * const postMaterial = createMaterial({
  *     vertex: fullscreenQuadVertex,
  *     fragment: fxaaOutput,
  * });
@@ -1796,6 +1825,55 @@ export type GpuTypedArray = Float32Array | Int32Array | Uint32Array | Int16Array
 ```ts
 /** @builtin(global_invocation_id), unique thread ID across the entire dispatch. */
 export const globalId: BuiltinNode<d.vec3u>;
+```
+
+#### `glsl`
+
+```ts
+/**
+ * Create an inline GLSL expression node using a tagged template literal.
+ *
+ * Mirrors `wgsl` but produces a GLSL-only node; it emits on the WebGL backend
+ * and throws on the WebGPU (WGSL) backend. For a node that runs on BOTH backends,
+ * use `wgsl(desc)\`...\`.glslSource\`...\`` instead.
+ *
+ * @param desc - A descriptor specifying the result type
+ *
+ * @example
+ * const luma = glsl(d.f32)`dot(${c}, vec3(0.299, 0.587, 0.114))`;
+ */
+export function glsl<D extends d.Any>(desc: D): (strings: TemplateStringsArray, ...deps: Node<d.Any>[]) => WgslNode<D>;
+```
+
+#### `glslFn`
+
+```ts
+/**
+ * Create a GLSL-only function from raw GLSL source code.
+ *
+ * Mirrors `wgslFn` but targets the WebGL backend only; the returned callable emits the GLSL
+ * function on the WebGL backend and throws on the WebGPU (WGSL) backend. For a function that runs
+ * on BOTH backends, use `wgslFn(wgslSrc, { output, params, glsl: glslSrc })` instead.
+ *
+ * The layout must carry the function `name` (GLSL can't be parsed for it) and `output` type; `params`
+ * are optional but recommended for type-checked call sites.
+ *
+ * @example
+ * const tint = glslFn(
+ *     `vec3 tint(vec3 c, float k) { return c * k; }`,
+ *     { name: 'tint', output: d.vec3f, params: [{ name: 'c', type: d.vec3f }, { name: 'k', type: d.f32 }] },
+ * );
+ */
+export function glslFn<D extends d.Any, P extends readonly ParamDesc[]>(source: string, layout: {
+    readonly name: string;
+    readonly output: D;
+    readonly params: [...P];
+}, includes?: (WgslFnCallable | WgslFunctionNode)[]): WgslFnCallableTyped<D, P>;
+export function glslFn<D extends d.Any>(source: string, layout: {
+    readonly name: string;
+    readonly output: D;
+    readonly params?: undefined;
+}, includes?: (WgslFnCallable | WgslFunctionNode)[]): WgslFnCallableUntyped<D>;
 ```
 
 #### `greaterThan`
@@ -2230,7 +2308,7 @@ export const modelWorldMatrix: UniformNode<d.mat4x4f>;
  *     velocity: motionVector,
  * });
  *
- * const material = new Material({
+ * const material = createMaterial({
  *     vertex: clipPosition,
  *     fragment: mrtOutput,
  * });
@@ -2242,6 +2320,12 @@ export function mrt(outputNodes: Record<string, Node<d.Any>>): MRTNode;
 
 ```ts
 export const mul: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<MulResultDesc<NA["type"], NB["type"]>>;
+```
+
+#### `NumericType`
+
+```ts
+export type NumericType = ScalarType | VecType | MatType;
 ```
 
 #### `ndcDepthToStorage`
@@ -2258,12 +2342,6 @@ export const mul: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => 
  * the remap into its shadow bias matrix rather than exposing it).
  */
 export function ndcDepthToStorage(ndcZ: Node<d.f32>): Node<d.f32>;
-```
-
-#### `NumericType`
-
-```ts
-export type NumericType = ScalarType | VecType | MatType;
 ```
 
 #### `normalize`
@@ -2303,26 +2381,6 @@ export const or: (a: Node<d.bool>, b: Node<d.bool>) => Node<d.bool>;
 export type ParamDesc = {
     readonly name: string;
     readonly type: Any;
-};
-```
-
-#### `PassNodeOptions`
-
-```ts
-export type PassNodeOptions = {
-    /** RGBA clear color for this pass's color attachment. Defaults to [0, 0, 0, 1]. */
-    clearColor?: [number, number, number, number];
-    /** GPUTextureFormat for the color render target. Defaults to 'rgba16float'. */
-    colorFormat?: GPUTextureFormat;
-    /** Number of MSAA samples. Defaults to 1 (no MSAA). */
-    samples?: number;
-    /**
-     * Friendly identifier for this pass. Used verbatim as the `passId` (so it
-     * must be unique among passes). It names the pass in the inspector's perf
-     * panel and labels the GPU render pass for tooling (RenderDoc, browser GPU
-     * errors). When omitted, an auto id like `_pass0` is generated.
-     */
-    label?: string;
 };
 ```
 
@@ -2381,13 +2439,6 @@ export const pack4x8snorm: (v: Node<d.vec4f>) => Node<d.u32>;
 export const pack4x8unorm: (v: Node<d.vec4f>) => Node<d.u32>;
 ```
 
-#### `pass`
-
-```ts
-/** creates a pass node */
-export const pass: (scene: Scene, camera: Camera, options?: PassNodeOptions) => PassNode;
-```
-
 #### `positionClip`
 
 ```ts
@@ -2425,6 +2476,42 @@ export type RenderOutputOptions = {
 };
 ```
 
+#### `RenderTextureOptions`
+
+```ts
+export type RenderTextureOptions = {
+    /** Which aspect the node yields when read as an expression. Defaults to 'color'. */
+    read?: 'color' | 'depth';
+    /** RGBA clear color for this pass's color attachment. Defaults to [0, 0, 0, 1]. */
+    clearColor?: [number, number, number, number];
+    /** GPUTextureFormat for the color render target. Defaults to 'rgba16float'. */
+    colorFormat?: GPUTextureFormat;
+    /**
+     * Format for the depth attachment. Defaults to 'depth24plus'. Takes precedence
+     * over `stencilBuffer`, so pass this when you want a specific depth precision
+     * alongside a stencil aspect (e.g. 'depth32float-stencil8'). Mirrors
+     * `RenderTargetOptions.depthFormat`.
+     */
+    depthFormat?: DepthTextureFormat;
+    /**
+     * Allocate a stencil aspect on the depth attachment ('depth24plus-stencil8'),
+     * so materials drawn in this pass can use `stencilTest` / `stencilRef` and the
+     * stencil ops. Default false; ignored when `depthFormat` is given. The pass
+     * clears stencil to 0 each render.
+     */
+    stencilBuffer?: boolean;
+    /** Number of MSAA samples. Defaults to 1 (no MSAA). */
+    samples?: number;
+    /**
+     * Friendly identifier for this pass. Used verbatim as the `passId` (so it
+     * must be unique among passes). It names the pass in the inspector's perf
+     * panel and labels the GPU render pass for tooling (RenderDoc, browser GPU
+     * errors). When omitted, an auto id like `_pass0` is generated.
+     */
+    label?: string;
+};
+```
+
 #### `Return`
 
 ```ts
@@ -2449,9 +2536,20 @@ export const reinhardToneMapping: (args_0: import("../core").Node<d.vec3f>) => i
  * Wrap `inputNode` in tone-mapping and color-space conversion.
  *
  * Returns a `Node<d.vec4f>` suitable for final output:
- * `renderer.render(renderOutput(scenePass.getTextureNode()))`.
+ * `fullscreen(renderOutput(scenePass.getTextureNode()))`, drawn in a pass to the canvas.
  */
 export function renderOutput(inputNode: Node<d.vec4f>, options?: RenderOutputOptions): Node<d.vec4f>;
+```
+
+#### `renderTexture`
+
+```ts
+/**
+ * Schedules a render of `contents` from `camera` into its own target, and hands back a node you can
+ * sample. `read` picks which aspect the node yields when used as a value; every aspect stays
+ * reachable through the getters whatever it is set to.
+ */
+export const renderTexture: (contents: RenderTextureContents, camera: Camera, options?: RenderTextureOptions) => RenderTextureNode;
 ```
 
 #### `reverseBits`
@@ -3010,8 +3108,8 @@ export const u32: u32;
  *   uniform(vec4f(1, 0, 0, 1), 'baseColor')
  */
 export function uniform<D extends Any>(u: Uniform<D>): UniformNode<D>;
-export function uniform<D extends Any>(name: string, schema: D): UniformNode<D>;
 export function uniform<S extends StructSchema>(name: string, def: StructDef<S>): StructInstance<S>;
+export function uniform<D extends Any>(name: string, schema: D): UniformNode<D>;
 export function uniform<D extends Any>(init: ConstructNode<D>, name?: string): UniformNode<D>;
 export function uniform<D extends Any>(init: LiteralNode<D>, name?: string): UniformNode<D>;
 ```
@@ -3371,55 +3469,6 @@ export function While(condition: Node<Any>, body: () => void): void;
 export function WorkgroupVar<D extends Any>(name: string, type: D): WorkgroupVarNode<D>;
 ```
 
-#### `glsl`
-
-```ts
-/**
- * Create an inline GLSL expression node using a tagged template literal.
- *
- * Mirrors `wgsl` but produces a GLSL-only node; it emits on the WebGL backend
- * and throws on the WebGPU (WGSL) backend. For a node that runs on BOTH backends,
- * use `wgsl(desc)\`...\`.glslSource\`...\`` instead.
- *
- * @param desc - A descriptor specifying the result type
- *
- * @example
- * const luma = glsl(d.f32)`dot(${c}, vec3(0.299, 0.587, 0.114))`;
- */
-export function glsl<D extends d.Any>(desc: D): (strings: TemplateStringsArray, ...deps: Node<d.Any>[]) => WgslNode<D>;
-```
-
-#### `glslFn`
-
-```ts
-/**
- * Create a GLSL-only function from raw GLSL source code.
- *
- * Mirrors `wgslFn` but targets the WebGL backend only; the returned callable emits the GLSL
- * function on the WebGL backend and throws on the WebGPU (WGSL) backend. For a function that runs
- * on BOTH backends, use `wgslFn(wgslSrc, { output, params, glsl: glslSrc })` instead.
- *
- * The layout must carry the function `name` (GLSL can't be parsed for it) and `output` type; `params`
- * are optional but recommended for type-checked call sites.
- *
- * @example
- * const tint = glslFn(
- *     `vec3 tint(vec3 c, float k) { return c * k; }`,
- *     { name: 'tint', output: d.vec3f, params: [{ name: 'c', type: d.vec3f }, { name: 'k', type: d.f32 }] },
- * );
- */
-export function glslFn<D extends d.Any, P extends readonly ParamDesc[]>(source: string, layout: {
-    readonly name: string;
-    readonly output: D;
-    readonly params: [...P];
-}, includes?: (WgslFnCallable | WgslFunctionNode)[]): WgslFnCallableTyped<D, P>;
-export function glslFn<D extends d.Any>(source: string, layout: {
-    readonly name: string;
-    readonly output: D;
-    readonly params?: undefined;
-}, includes?: (WgslFnCallable | WgslFunctionNode)[]): WgslFnCallableUntyped<D>;
-```
-
 #### `wgsl`
 
 ```ts
@@ -3517,6 +3566,518 @@ export const workgroupId: BuiltinNode<d.vec3u>;
 
 Drive the GPU: create a renderer, build pipelines, render to the canvas or a target.
 
+#### `Renderer`
+
+```ts
+/**
+ * What `init` returns: one class over any backend, so the orchestration has a single home and the
+ * backends cannot drift apart without failing to satisfy `DeviceBackend`. `B` stays on the type, so
+ * `init(webgpu())` reaches `gpu.backend.device` with no cast.
+ */
+export class Renderer<B extends DeviceBackend = DeviceBackend> implements RendererState {
+    /** Per-frame draw and upload stats. Reset at this renderer's own frame boundary, never from outside,
+     *  so any number of readers can share it. */
+    readonly info: RendererInfo;
+    onDeviceLost: ((info: DeviceLostInfo) => void) | null;
+    constructor(backend: B);
+    /** `B['name']`, not `RendererBackend`, so a union of concrete renderers discriminates on it. */
+    get api(): B['name'];
+    /** Assigning attaches; assigning `null` detaches and disposes the old one. Order vs `init` is free. */
+    get inspector(): InspectorBase | null;
+    set inspector(next: InspectorBase | null);
+    init(): Promise<this>;
+    /** Pre-warm the drawables a pass will look up, resolved through the context that pass resolves. */
+    compile(drawables: Mesh[], target: Target, camera: View): Promise<void>;
+    readPixels(target: RenderTarget, attachmentIndex?: number, layer?: number): Promise<Uint8Array>;
+    dispose(): void;
+}
+```
+
+#### `init`
+
+```ts
+/**
+ * The one place a `Renderer` is constructed. No 'auto' backend: only the caller knows what a probe
+ * failure should fall back to, so a backend is chosen and built before this is called.
+ */
+export function init<B extends DeviceBackend>(backend: B): Promise<Renderer<B>>;
+```
+
+#### `BackendName`
+
+```ts
+export type BackendName = 'webgl' | 'webgpu';
+```
+
+#### `Rect`
+
+```ts
+export type Rect = {
+    x?: number;
+    y?: number;
+    width: number;
+    height: number;
+};
+```
+
+#### `PassDesc`
+
+```ts
+export type PassDesc = {
+    target: Target;
+    camera?: View;
+    /** Omitted clears with the target's own clear colour; `false` preserves. */
+    clear?: [number, number, number, number] | false;
+    clearDepth?: number | false;
+    clearStencil?: number | false;
+    /** Cube face, 0..5 = +X, -X, +Y, -Y, +Z, -Z. Only a `CubeRenderTarget` can select one. */
+    layer?: number;
+    /** Mip level to render into. Only a `CubeRenderTarget` allocates a chain to select from. */
+    mipLevel?: number;
+    mrt?: MRTNode;
+    viewport?: Rect & {
+        minDepth?: number;
+        maxDepth?: number;
+    };
+    scissor?: Rect;
+    label?: string;
+};
+```
+
+#### `DrawOpts`
+
+```ts
+export type DrawOpts = {
+    instances?: number;
+    range?: {
+        start: number;
+        count: number;
+    };
+    draws?: MeshDraw[];
+    /** Draws the mesh with this material instead of its own, for this submission alone. */
+    material?: Material;
+};
+```
+
+#### `DrawRecord`
+
+```ts
+/** One recorded draw. `kind` is the seam a bundle entry joins at; see `PLAN-render-bundles.md`. */
+export type DrawRecord = {
+    kind: 'draw';
+    mesh: Mesh;
+    material: Material;
+    opts: DrawOpts | null;
+};
+```
+
+#### `RenderBundle`
+
+```ts
+/**
+ * Draws recorded once and replayed into any pass of the same attachment shape. Holds its meshes and
+ * materials strongly and redraws whatever they have become, so the set is expected to be static:
+ * `invalidate()` after changing it, `dispose()` when done with it.
+ */
+export type RenderBundle = {
+    /** Names the bundle in errors and on the device objects recorded from it. */
+    readonly label: string;
+    readonly records: readonly PassEntry[];
+    readonly count: number;
+    /** Bumped by `invalidate`; a recorded device bundle compares against it to decide on a re-record. */
+    version: number;
+    readonly disposed: boolean;
+    invalidate(): void;
+    dispose(): void;
+};
+```
+
+#### `BundleRecord`
+
+```ts
+export type BundleRecord = {
+    kind: 'bundle';
+    bundle: RenderBundle;
+};
+```
+
+#### `PassEntry`
+
+```ts
+/** What a pass records: a draw it was handed, or a bundle it was told to replay. */
+export type PassEntry = DrawRecord | BundleRecord;
+```
+
+#### `ComputePassDesc`
+
+```ts
+export type ComputePassDesc = {
+    label?: string;
+};
+```
+
+#### `DispatchOpts`
+
+```ts
+export type DispatchOpts = {
+    /** Rebinds the node's named `storage()` refs for this dispatch alone, so no pipeline is recompiled. */
+    buffers?: Record<string, GpuBuffer<Any>>;
+};
+```
+
+#### `DispatchIndirectOpts`
+
+```ts
+export type DispatchIndirectOpts = DispatchOpts & {
+    offset?: number;
+};
+```
+
+#### `DispatchRecord`
+
+```ts
+/** Exactly one of `counts` and `indirect` is set, which `dispatch` and `dispatchIndirect` guarantee. */
+export type DispatchRecord = DispatchOpts & {
+    node: ComputeNode;
+    counts?: [number, number, number];
+    indirect?: GpuBuffer<Any>;
+    indirectOffset?: number;
+};
+```
+
+#### `FrameBackend`
+
+```ts
+/**
+ * Encoding a pass is atomic: preparing its draws evaluates the node graph, which may open and close
+ * further passes, so no GPU pass may be open across it. Both encoders read `records[0..count)`.
+ */
+export type FrameBackend = {
+    name: BackendName;
+    /** The one canvas this backend's device can present to, or null when any canvas target is reachable. */
+    deviceCanvasTarget: CanvasTarget | null;
+    beginFrame(): void;
+    encodePass(desc: PassDesc, records: readonly PassEntry[], count: number): void;
+    encodeComputePass(desc: ComputePassDesc, records: readonly DispatchRecord[], count: number): void;
+    encodeTransformFeedbackPass(desc: TransformFeedbackPassDesc, records: readonly TransformFeedbackRecord[], count: number): void;
+    submitFrame(): void;
+    discardFrame(): void;
+    /**
+     * Resolves once the device has finished the submitted work. Resolve-only: the errors worth knowing
+     * about arrive after it settles, so they go to `onDeviceLost` and the validation scopes instead.
+     */
+    awaitCompletion(): Promise<void>;
+};
+```
+
+#### `Pass`
+
+```ts
+/** A recording render pass. `end()` prepares its draws, opens the GPU pass, encodes and closes it. */
+export type Pass = {
+    readonly kind: 'render';
+    desc: PassDesc;
+    records: PassEntry[];
+    count: number;
+    ended: boolean;
+    /** Draws unconditionally: `mesh.visible` gates the scene walk, not a draw you recorded yourself. */
+    draw(mesh: Mesh, opts?: DrawOpts): void;
+    /** Replays a bundle here, keeping its order against the draws around it. */
+    execute(bundle: RenderBundle): void;
+    end(): void;
+};
+```
+
+#### `ComputePass`
+
+```ts
+/** A recording compute pass. The batch shares one GPU pass unless an inspector wants per-node timings. */
+export type ComputePass = {
+    readonly kind: 'compute';
+    desc: ComputePassDesc;
+    records: DispatchRecord[];
+    count: number;
+    ended: boolean;
+    dispatch(node: ComputeNode, counts: [number, number, number], opts?: DispatchOpts): void;
+    /** `indirect` needs `'indirect'` usage, and is typically written by an earlier compute pass. */
+    dispatchIndirect(node: ComputeNode, indirect: GpuBuffer<Any>, opts?: DispatchIndirectOpts): void;
+    end(): void;
+};
+```
+
+#### `TransformFeedbackPassDesc`
+
+```ts
+export type TransformFeedbackPassDesc = {
+    label?: string;
+};
+```
+
+#### `TransformFeedbackDispatch`
+
+```ts
+export type TransformFeedbackDispatch = {
+    inputs: Record<string, GpuBuffer>;
+    outputs: Record<string, GpuBuffer>;
+    count: number;
+    instanceCount?: number;
+};
+```
+
+#### `TransformFeedbackRecord`
+
+```ts
+export type TransformFeedbackRecord = TransformFeedbackDispatch & {
+    node: TransformFeedbackNode;
+};
+```
+
+#### `TransformFeedbackPass`
+
+```ts
+/**
+ * A recording transform-feedback pass, the WebGL2 mirror of `ComputePass`. WebGL2 has no encoder, so
+ * the kernels run at `end()` — which is when this backend's render passes run too, so a pass placed
+ * between two of them lands between them.
+ */
+export type TransformFeedbackPass = {
+    readonly kind: 'transform-feedback';
+    desc: TransformFeedbackPassDesc;
+    records: TransformFeedbackRecord[];
+    count: number;
+    ended: boolean;
+    dispatch(node: TransformFeedbackNode, opts: TransformFeedbackDispatch): void;
+    end(): void;
+};
+```
+
+#### `AnyPass`
+
+```ts
+export type AnyPass = Pass | ComputePass | TransformFeedbackPass;
+```
+
+#### `Frame`
+
+```ts
+/** Holds both pass pools for the life of the renderer, so a steady-state frame allocates nothing. */
+export type Frame = {
+    backend: FrameBackend;
+    pool: Pass[];
+    poolIndex: number;
+    computePool: ComputePass[];
+    computePoolIndex: number;
+    transformFeedbackPool: TransformFeedbackPass[];
+    transformFeedbackPoolIndex: number;
+    open: AnyPass | null;
+    closed: boolean;
+    /** Render targets this frame encoded into, so `submit` can see one disposed since. */
+    targets: RenderTarget[];
+    /** Memoised by the `done` getter, so asking twice waits once and never asking waits not at all. */
+    completion: Promise<void> | null;
+    pass(desc: PassDesc): Pass;
+    compute(desc?: ComputePassDesc): ComputePass;
+    transformFeedback(desc?: TransformFeedbackPassDesc): TransformFeedbackPass;
+    submit(): void;
+    /**
+     * Resolves once the device has finished this frame's work. **Resolve-only**: it is a completion
+     * signal, not a success check, because the errors worth knowing about arrive after it settles.
+     * Reading it is what starts the wait, and it is only meaningful between `submit()` and the next
+     * `frame()`, since the frame object is reused.
+     */
+    readonly done: Promise<void>;
+    /** Drops everything recorded so far. A frame a throw escaped from is abandoned by the next `frame()`. */
+    abandon(): void;
+};
+```
+
+#### `createFrame`
+
+```ts
+export function createFrame(backend: FrameBackend): Frame;
+```
+
+#### `isFrameOpen`
+
+```ts
+/** True between `gpu.frame()` and `frame.submit()`, when recorded work has not reached the queue yet. */
+export function isFrameOpen(frame: Frame | null): boolean;
+```
+
+#### `passLabel`
+
+```ts
+export function passLabel(pass: AnyPass): string;
+```
+
+#### `frame`
+
+```ts
+/**
+ * Opens the renderer's frame for recording. A free function because every other operation on a
+ * renderer is one; `Frame` and `Pass` keep their verbs because they are the recording context, not
+ * the device handle.
+ *
+ * One `Frame` per renderer for its lifetime, so a steady-state frame allocates nothing.
+ */
+export function frame(renderer: Renderer): Frame;
+```
+
+#### `beginFrame`
+
+```ts
+export function beginFrame(frame: Frame): void;
+```
+
+#### `CanvasAlphaMode`
+
+```ts
+/** Alpha compositing mode for the canvas. Neutral (backend-agnostic) string type. */
+export type CanvasAlphaMode = 'opaque' | 'premultiplied';
+```
+
+#### `CanvasTargetOptions`
+
+```ts
+export type CanvasTargetOptions = {
+    /** alpha compositing mode for the canvas. defaults to 'opaque'. */
+    alphaMode?: CanvasAlphaMode;
+    /**
+     * Depth(-stencil) format for the swapchain's depth attachment, e.g. 'depth32float' for higher
+     * precision or 'depth24plus-stencil8' for a stencil aspect. Defaults to 'depth24plus'.
+     */
+    depthFormat?: DepthTextureFormat;
+    /** MSAA sample count for the swapchain. 0 or 1 = no MSAA. Defaults to 1. */
+    samples?: number;
+    /**
+     * Match the backing store to the canvas's CSS layout size at the start of each pass. Defaults to
+     * true for a DOM canvas and false for an `OffscreenCanvas`, which has no layout to read.
+     */
+    autoResize?: boolean;
+    /** Clear colour used by a pass that clears without naming one. Default [0, 0, 0, 1]. */
+    clearColor?: [number, number, number, number];
+    /**
+     * Device pixel ratio policy. A number pins it; a `[min, max]` tuple clamps whatever is passed to
+     * `setPixelRatio`, so a caller can forward `devicePixelRatio` without tracking limits itself.
+     * Omitted leaves the ratio unclamped.
+     */
+    dpr?: number | [number, number];
+};
+```
+
+#### `CanvasResizeEvent`
+
+```ts
+/** Fired after the canvas buffer size or pixel ratio changes. */
+export type CanvasResizeEvent = {
+    /** Physical pixel width, equal to `canvas.width`. */
+    width: number;
+    /** Physical pixel height, equal to `canvas.height`. */
+    height: number;
+    pixelRatio: number;
+    target: CanvasTarget;
+};
+```
+
+#### `CanvasTarget`
+
+```ts
+/**
+ * The HTMLCanvasElement target for the renderer to draw into. Backend-agnostic: it holds the canvas
+ * element, its logical size and pixel ratio, and the alpha mode. The graphics context is acquired and
+ * owned by the backend, not by this class.
+ */
+export class CanvasTarget {
+    /** The canvas this target wraps. An `OffscreenCanvas` is accepted for headless/worker use. */
+    readonly canvas: HTMLCanvasElement | OffscreenCanvas;
+    /** Alpha compositing mode for the canvas. */
+    readonly alphaMode: CanvasAlphaMode;
+    /** Swapchain depth(-stencil) format. The backend owns the texture; this is the config for it. */
+    readonly depthFormat: DepthTextureFormat;
+    /** Swapchain MSAA sample count; 1 = no MSAA. */
+    readonly samples: number;
+    /** Whether a pass matches the backing store to the canvas's CSS layout size before drawing. */
+    readonly autoResize: boolean;
+    clearColor: [number, number, number, number];
+    constructor(canvas: HTMLCanvasElement | OffscreenCanvas, opts?: CanvasTargetOptions);
+    /**
+     * Subscribe to size changes. Fires immediately with the current size, then after every change.
+     * Returns an unsubscribe function. Use it to keep derived render targets in step with the canvas.
+     */
+    onResize(listener: (event: CanvasResizeEvent) => void): () => void;
+    /**
+     * Get the pixel ratio.
+     */
+    getPixelRatio(): number;
+    /**
+     * Set the pixel ratio and resize the canvas to match.
+     */
+    setPixelRatio(value: number): void;
+    /**
+     * Returns the drawing buffer size in physical pixels (honors pixel ratio).
+     */
+    getDrawingBufferSize(): {
+        width: number;
+        height: number;
+    };
+    /**
+     * Returns the size in logical pixels (does not honor pixel ratio).
+     */
+    getSize(): {
+        width: number;
+        height: number;
+    };
+    /** No-op unless the layout size changed. Never writes CSS back, since CSS is what it is reading. */
+    syncToClientSize(): void;
+    setSize(width: number, height: number, updateStyle?: boolean): void;
+    /**
+     * Set the drawing buffer size directly (width, height, pixelRatio all at once).
+     */
+    setDrawingBufferSize(width: number, height: number, pixelRatio: number): void;
+    /**
+     * Dispose this target. The backend owns the graphics context and releases it separately.
+     */
+    dispose(): void;
+}
+```
+
+#### `createCanvasTarget`
+
+```ts
+/** Holds no device: the backend acquires the canvas context on first use. */
+export function createCanvasTarget(canvas: HTMLCanvasElement | OffscreenCanvas, opts?: CanvasTargetOptions): CanvasTarget;
+```
+
+#### `ReadOpts`
+
+```ts
+export type ReadOpts = {
+    /** Which MRT colour attachment to read. Defaults to the first. */
+    attachment?: number;
+    /** Array layer, or cube face: 0..5 = +X, -X, +Y, -Y, +Z, -Z. */
+    layer?: number;
+};
+```
+
+#### `ReadableRenderer`
+
+```ts
+/** What `read` needs of a renderer. Both renderers satisfy it; a target holds no device to do it itself. */
+export type ReadableRenderer = {
+    readPixels(target: RenderTarget, attachment: number, layer: number): Promise<Uint8Array>;
+};
+```
+
+#### `read`
+
+```ts
+/**
+ * Reads a colour attachment back as tightly-packed, top-to-bottom RGBA8. Call it after the frame that
+ * wrote the target has been submitted; reading with one open throws rather than returning stale pixels.
+ */
+export function read(renderer: ReadableRenderer, target: RenderTarget, opts?: ReadOpts): Promise<Uint8Array>;
+```
+
 #### `RenderTargetOptions`
 
 ```ts
@@ -3539,10 +4100,12 @@ export type RenderTargetOptions = {
      * Whether the depth attachment will be sampled (read as a texture). Default false: the depth is a
      * write-only attachment (a RENDERBUFFER on WebGL — more broadly FBO-complete, three.js parity), and
      * `rt.depthTexture` is null. Set true (or provide an explicit `depthTexture`, or call
-     * `PassNode.getDepthTextureNode()`) to expose the depth as a sampleable texture — required to read
+     * `RenderTextureNode.getDepthTextureNode()`) to expose the depth as a sampleable texture — required to read
      * it in a shader (e.g. a shadow map). Depth testing works either way; this only governs readability.
      */
     depthSampled?: boolean;
+    /** Clear colour used by a pass that clears without naming one. Default [0, 0, 0, 1]. */
+    clearColor?: [number, number, number, number];
     /** MSAA sample count. Default: 1. */
     samples?: number;
     /** Number of color attachments (MRT). Default: 1. */
@@ -3567,6 +4130,7 @@ export type RenderTargetTexture = Texture | CubeTexture;
  */
 export class RenderTarget {
     readonly isRenderTarget = true;
+    clearColor: [number, number, number, number];
     /** Brand set true on CubeRenderTarget; declared here so `rt.isCubeRenderTarget` types on a RenderTarget ref. */
     readonly isCubeRenderTarget?: true;
     /** The width of the render target */
@@ -3584,7 +4148,7 @@ export class RenderTarget {
     /**
      * The depth attachment exposed for SAMPLING, or null when the depth isn't declared sampled.
      * three.js-aligned: a render target's depth is readable as a texture only when you opt in
-     * (`depthSampled: true`, an explicit `depthTexture`, or `PassNode.getDepthTextureNode()`), mirroring
+     * (`depthSampled: true`, an explicit `depthTexture`, or `RenderTextureNode.getDepthTextureNode()`), mirroring
      * three.js where the *presence* of `renderTarget.depthTexture` is the signal. The actual depth
      * attachment for depth testing always exists (see {@link _depthAttachment}); returning null here
      * makes sampling an undeclared depth fail loud (a null at wiring time) instead of silently reading
@@ -3595,21 +4159,10 @@ export class RenderTarget {
      * Whether the depth attachment is sampled. When false and the target owns an
      * auto-allocated depth, the WebGL backend attaches a depth RENDERBUFFER instead
      * of a texture (three.js parity, more broadly FBO-complete; depth-testing still
-     * works). Set true by `PassNode.getDepthTextureNode()` or the `depthSampled` option.
+     * works). Set true by `RenderTextureNode.getDepthTextureNode()` or the `depthSampled` option.
      * WebGPU always allocates the attachment as a texture, so it is unaffected.
      */
     depthSampled: boolean;
-    /**
-     * Viewport for renders into this target as a `Vec4` [x, y, width, height] in the target's pixels
-     * (top-left origin); null = full target. A render into a target uses the target's own viewport/scissor,
-     * never the renderer's swapchain one, so a swapchain compositing viewport can't leak into a
-     * render-to-texture (or cube) pass.
-     */
-    viewport: Vec4 | null;
-    /** Scissor rect as a `Vec4` [x, y, width, height] in the target's pixels; null = full target. Clips only while scissorTest is on. */
-    scissor: Vec4 | null;
-    /** Whether the scissor test is enabled for renders into this target. */
-    scissorTest: boolean;
     /** Constructs a new render target */
     constructor(width: number, height: number, opts?: RenderTargetOptions);
     /** The first color attachment texture, or undefined when count=0 (depth-only target). */
@@ -3636,6 +4189,13 @@ export class RenderTarget {
     /** Returns the texture index for the given name, or -1 if not found. */
     getTextureIndex(name: string): number;
 }
+```
+
+#### `createRenderTarget`
+
+```ts
+/** Holds no device: the backend allocates the textures on first use. */
+export function createRenderTarget(width: number, height: number, opts?: RenderTargetOptions): RenderTarget;
 ```
 
 #### `CubeRenderTargetOptions`
@@ -3670,7 +4230,7 @@ export type CubeRenderTargetOptions = {
 ```ts
 /**
  * A render target whose color attachment is a cube texture. Render each of the
- * six faces (set `activeFace` and call `renderer.render(scene, faceCamera)`),
+ * six faces (a pass per face, naming it with `PassDesc.layer`; see `CubeCamera`),
  * then sample the result as an environment map via `cubeTexture(rt.texture)`.
  *
  * Usually driven by a `CubeCamera`, which sets up the six face cameras and loops
@@ -3695,6 +4255,13 @@ export class CubeRenderTarget extends RenderTarget {
 }
 ```
 
+#### `createCubeRenderTarget`
+
+```ts
+/** A cube render target: six square faces, drawn one pass each with `PassDesc.layer`. */
+export function createCubeRenderTarget(size: number, opts?: CubeRenderTargetOptions): CubeRenderTarget;
+```
+
 ## Scene & objects
 
 The scene graph, cameras, and the objects you put in it.
@@ -3705,6 +4272,13 @@ The scene graph, cameras, and the objects you put in it.
 export class Scene extends Object3D {
     constructor();
 }
+```
+
+#### `createScene`
+
+```ts
+/** The factory form; a `Scene` is the root `Object3D` a walk starts from. */
+export function createScene(): Scene;
 ```
 
 #### `Object3D`
@@ -3745,6 +4319,13 @@ export class Object3D {
      */
     raycast(_raycaster: any, _intersects: any[]): void;
 }
+```
+
+#### `createObject3D`
+
+```ts
+/** The factory form; an `Object3D` is the bare transform node other objects attach to. */
+export function createObject3D(): Object3D;
 ```
 
 #### `Camera`
@@ -3797,6 +4378,21 @@ export class PerspectiveCamera extends Camera {
     /** Recompute the projection matrix from current fov / aspect / near / far, for the camera's coordinate system. */
     updateProjectionMatrix(): void;
 }
+```
+
+#### `ViewOffset`
+
+```ts
+/** A sub-rectangle of a larger frustum, for tiled rendering. Set it with `setViewOffset`. */
+export type ViewOffset = {
+    enabled: boolean;
+    fullWidth: number;
+    fullHeight: number;
+    offsetX: number;
+    offsetY: number;
+    width: number;
+    height: number;
+};
 ```
 
 #### `OrthographicCamera`
@@ -3873,10 +4469,7 @@ export class CubeCamera extends Object3D {
     /** Active mip level written by update(). */
     activeMipmapLevel: number;
     constructor(near: number, far: number, renderTarget: CubeRenderTarget);
-    /**
-     * Render the scene into all six faces of the cube render target from this
-     * camera's world position. Restores the renderer's previous render target.
-     */
+    /** Records six passes, one per face, on a frame of its own. */
     update(renderer: Renderer, scene: Object3D): void;
 }
 ```
@@ -3950,6 +4543,13 @@ export class Mesh extends Object3D {
     constructor(geometry: Geometry, material: Material);
     raycast(raycaster: Raycaster, intersects: Intersection[]): void;
 }
+```
+
+#### `createMesh`
+
+```ts
+/** The factory form, matching `createGeometry` and `createMaterial`. */
+export function createMesh(geometry: Geometry, material: Material): Mesh;
 ```
 
 #### `LineGeometry`
@@ -4155,7 +4755,9 @@ export class Geometry {
      * `count` is the number of vertices/indices. Defaults to `Infinity` (full buffer).
      */
     drawRange: DrawRange;
-    /** Geometry ersion counter. Auto-incremented when buffers are added/removed */
+    /** Bumped when any buffer is set or removed, which is what forces a rebind. */
+    bindingsVersion: number;
+    /** Bumped when the buffer set or an attribute's format changes, which is what forces a recompile. */
     version: number;
     /**
      * Optional indirect draw buffer. When set, the renderer calls
@@ -4241,6 +4843,13 @@ export class Geometry {
      */
     dispose(): void;
 }
+```
+
+#### `createGeometry`
+
+```ts
+/** The factory form, matching `createBoxGeometry` and the other resource constructors. */
+export function createGeometry(): Geometry;
 ```
 
 #### `createBoxGeometry`
@@ -4420,6 +5029,14 @@ export type GpuBufferOptions<T extends Any = Any> = {
     usage?: BufferUsage | BufferUsage[];
     /** How this buffer's lifecycle is managed. Defaults to MANUAL. */
     lifecycle?: BufferLifecycle;
+    /**
+     * Name this buffer reports itself under in `RendererInfo.buffers.byLabel`, the
+     * per-frame upload breakdown. Optional: an unlabelled buffer falls back to
+     * `usage:byteLength`, which is already distinguishing enough to find the big
+     * ones (a multi-megabyte `storage` is unmistakable), so labels are worth adding
+     * only where several buffers would otherwise collide in one row.
+     */
+    label?: string;
 };
 ```
 
@@ -4453,6 +5070,9 @@ export class GpuBuffer<T extends Any = Any> {
     readonly usage: Set<BufferUsage>;
     /** How this buffer's lifecycle is managed */
     readonly lifecycle: BufferLifecycle;
+    /** Name this buffer reports in the per-frame upload breakdown, when the caller set one.
+     *  Undefined otherwise: the upload site supplies a name, since identity is call-site knowledge. */
+    readonly label: string | undefined;
     /** CPU-side typed array. Can be set to null after onUpload releases memory. */
     array: TypedArrayFor<T> | null;
     /** Number of elements */
@@ -4481,7 +5101,7 @@ export class GpuBuffer<T extends Any = Any> {
      * into `this.array` and queuing a partial re-upload (`addUpdateRange` + version bump). The common
      * CPU-side write, parallel to {@link DataTexture.packAtIndex}: on WebGPU the renderer `writeBuffer`s
      * just this range; on WebGL2 (where a read-only storage buffer is reinterpreted as an rgba32uint
-     * texture) it `texSubImage2D`s just the covering rows.
+     * texture) it `texSubImage2D`s just the texels this range touches.
      *
      * `schema` is the ELEMENT type: `d.mat4x4f` for an `array<mat4x4f>` buffer, or the struct for
      * `array<Struct>`. Its std430 stride must match the buffer's element stride (byteLength / count),
@@ -4550,7 +5170,7 @@ export function createVertexBuffer<T extends Any>(schema: T, data: TypedArrayFor
  * @example
  * const particles = createStorageBuffer(d.array(Particle, 1000), new Float32Array(1000 * particleStride));
  */
-export function createStorageBuffer<T extends Any>(schema: T, data: TypedArrayFor<T>): GpuBuffer<T>;
+export function createStorageBuffer<T extends Any>(schema: T, data: TypedArrayFor<T>, label?: string): GpuBuffer<T>;
 ```
 
 #### `createUniformBuffer`
@@ -4598,7 +5218,15 @@ export function createIndexBuffer(data: Uint16Array | Uint32Array): GpuBuffer<An
 #### `UniformValue`
 
 ```ts
+/** What may be assigned to a uniform: the schema's own shape, a plain array, or a matching typed array. */
 export type UniformValue<T extends Any = Any> = Any extends T ? number | number[] | Float32Array | Int32Array | Uint32Array : Infer<T> | number[] | TypedArrayFor<T>;
+```
+
+#### `UniformStored`
+
+```ts
+/** What a uniform holds: no `number[]`, since a plain array is packed on write into the schema's own array. */
+export type UniformStored<T extends Any = Any> = Any extends T ? number | Float32Array | Int32Array | Uint32Array : Infer<T> | TypedArrayFor<T>;
 ```
 
 #### `UniformUpdateType`
@@ -4703,8 +5331,10 @@ export class Uniform<T extends Any = Any> {
     /** Determines @group index, update cadence, and packing. Mutable, but only
      *  read at compile time, set it before the owning node is first rendered. */
     group: UniformGroup;
-    value: UniformValue<T> | null;
     constructor(schema: T, initialValue?: UniformValue<T>, group?: UniformGroup);
+    get value(): UniformStored<T> | null;
+    /** A typed array is adopted by reference, so writing through it keeps updating this uniform. */
+    set value(next: UniformValue<T> | null);
 }
 ```
 
@@ -4873,6 +5503,13 @@ export class Material {
      */
     dispose(): void;
 }
+```
+
+#### `createMaterial`
+
+```ts
+/** The factory form, matching `createBoxGeometry` and the other resource constructors. */
+export function createMaterial(opts: MaterialOptions): Material;
 ```
 
 #### `WrapMode`
@@ -5489,10 +6126,10 @@ export function createStructTexture<S extends d.StructSchema>(schema: StructDef<
 
 Turn a node graph into WGSL.
 
-#### `compile`
+#### `compileWgsl`
 
 ```ts
-export function compile(slots: CompileSlots): CompileResult;
+export function compileWgsl(slots: CompileSlots): CompileResult;
 ```
 
 #### `CompileGlslOptions`
@@ -5525,10 +6162,10 @@ export type CompileGlslOptions = {
 export function compileGlsl(slots: CompileSlots, opts?: CompileGlslOptions): CompileResult;
 ```
 
-#### `compileCompute`
+#### `compileComputeWgsl`
 
 ```ts
-export function compileCompute(node: ComputeNode): ComputeCompileResult;
+export function compileComputeWgsl(node: ComputeNode): ComputeCompileResult;
 ```
 
 #### `compileTransformFeedback`
@@ -6043,7 +6680,9 @@ export function getCompiledLayout<D extends Any>(schema: D, memLayout?: MemoryLa
 
 ```ts
 /** Pack a value into a DataView. */
-export function packToView<D extends Any>(schema: D, view: DataView, offset: number, value: Infer<D>, memLayout?: MemoryLayout): void;
+export function packToView<D extends Any>(schema: D, view: DataView, offset: number, 
+/** A typed array is accepted because the generated writer indexes positionally, as a tuple does. */
+value: Infer<D> | TypedArrayFor<D>, memLayout?: MemoryLayout): void;
 ```
 
 #### `unpackFromView`
@@ -6344,18 +6983,6 @@ export class TransformControls {
 
 ```ts
 export class Inspector extends RendererInspector {
-    readonly profiler: Profiler;
-    readonly performance: Performance;
-    readonly performanceTimeline: PerformanceTimeline;
-    readonly memory: Memory;
-    readonly console: Console;
-    readonly parameters: Parameters;
-    readonly viewer: Viewer;
-    readonly timeline: Timeline;
-    readonly settings: Settings;
-    readonly sceneHierarchy: SceneHierarchy;
-    readonly drawCalls: DrawCalls;
-    readonly computeCalls: ComputeCalls;
     constructor();
     get domElement(): HTMLElement;
     /**
@@ -6367,7 +6994,6 @@ export class Inspector extends RendererInspector {
         warn: (msg: string) => void;
         error: (msg: string) => void;
     };
-    setRenderer(renderer: InspectableRenderer | null): void;
     /**
      * Release everything this Inspector owns: GPU resources (probe + timestamp
      * query state), DOM (panel + any detached tab windows), and window
@@ -6379,10 +7005,10 @@ export class Inspector extends RendererInspector {
      */
     dispose(): Promise<void>;
     begin(frameId: number): void;
-    beginRender(passId: string, frameId: number): void;
-    finishRender(passId: string, frameId: number): void;
-    beginCompute(node: ComputeNode, frameId: number): void;
-    finishCompute(nodeId: string, frameId: number): void;
+    beginRender(passId: string): void;
+    finishRender(passId: string): void;
+    beginCompute(node: ComputeNode): void;
+    finishCompute(nodeId: string): void;
     setPipeline(label: string): void;
     setBindGroup(index: number, label: string): void;
     setVertexBuffer(slot: number): void;
@@ -6394,31 +7020,9 @@ export class Inspector extends RendererInspector {
     dispatchWorkgroups(x: number, y: number, z: number): void;
     dispatchWorkgroupsIndirect(_buffer: GPUBuffer, offset: number): void;
     finish(frameId: number): void;
-    createParameters(name: string): GUI;
-    /**
-     * Set the active probe to the given variable expression in the given mesh's
-     * compiled WGSL.  Builds a new probe pipeline (patched WGSL + same bind
-     * group layouts), creates a 140×140 CanvasTarget, and wires it to render
-     * every frame in _processFrame.
-     *
-     * Returns the probe canvas element so the caller can display it, or null
-     * if patching / pipeline creation fails.
-     */
-    setProbe(target: ProbeTarget, sourceRO: RenderObject): HTMLElement | null;
     /** Remove the active probe (WebGPU and WebGL). Returns a promise that resolves
      *  once the WebGPU probe's GPU resources are actually destroyed (drained first). */
     clearProbe(): Promise<void>;
-    navigateToRO(ro: RenderObject): void;
-    /**
-     * Build canvasData for each inspectable node and call viewer.update().
-     */
-    resolveViewer(nodes: InspectorNode<Any>[]): void;
-    /**
-     * Get or create the CanvasData for an inspectable node.
-     * Creates a 140×140 CanvasTarget, wraps the node as vec4(vec3(node), 1),
-     * and builds a fullscreen Material. Cached per node, never recreated.
-     */
-    getCanvasDataByNode(node: InspectorNode<Any>): CanvasData;
 }
 ```
 

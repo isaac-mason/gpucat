@@ -1,4 +1,4 @@
-import { type Any, type Infer, type StructDesc } from './schema';
+import { type Any, type Infer, type StructDesc, type TypedArrayFor } from './schema';
 /**
  * A GPU buffer memory-layout standard. gpucat targets:
  *
@@ -114,7 +114,9 @@ export declare function layoutAlignOf(schema: Any, memLayout?: MemoryLayout): nu
  */
 export declare function getCompiledLayout<D extends Any>(schema: D, memLayout?: MemoryLayout): CompiledLayout<Infer<D>>;
 /** Pack a value into a DataView. */
-export declare function packToView<D extends Any>(schema: D, view: DataView, offset: number, value: Infer<D>, memLayout?: MemoryLayout): void;
+export declare function packToView<D extends Any>(schema: D, view: DataView, offset: number, 
+/** A typed array is accepted because the generated writer indexes positionally, as a tuple does. */
+value: Infer<D> | TypedArrayFor<D>, memLayout?: MemoryLayout): void;
 /** Unpack a value from a DataView. */
 export declare function unpackFromView<D extends Any>(schema: D, view: DataView, offset: number, memLayout?: MemoryLayout): Infer<D>;
 export {};

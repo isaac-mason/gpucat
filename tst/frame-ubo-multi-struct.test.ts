@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { attribute, compile, d, f32, struct, vec4 } from '../src/index';
+import { attribute, compileWgsl, d, f32, struct, vec4 } from '../src/index';
 import { fields, frameGroup, Uniform, UniformNode } from '../src/nodes/nodes';
 import { packToView } from '../src/schema/pack';
 
@@ -56,7 +56,7 @@ describe('frame UBO with two struct members: nested struct rounds to 16-byte ali
 
         // Read `enabled` (u32→f32) exactly like the sky's enabledMask.
         const mask = config.enabled.toF32();
-        const result = compile({
+        const result = compileWgsl({
             vertex: vec4(attribute('position', d.vec3f), f32(1)),
             fragment: vec4(mask, mask, mask, time.time),
             depth: undefined,

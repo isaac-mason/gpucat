@@ -4,10 +4,9 @@ import {
     Break,
     Const,
     Continue,
-    compile,
-    compileCompute,
+    compileComputeWgsl,
+    compileWgsl,
     computeIndex,
-    createStorageBuffer,
     Fn,
     f32,
     GpuBuffer,
@@ -45,7 +44,7 @@ describe('control flow', () => {
             });
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
         expect(result.code).toContain('if ((1.0 > 0.0))');
         expect(result.code).toContain('} else {');
@@ -70,7 +69,7 @@ describe('control flow', () => {
                 });
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
         expect(result.code).toContain('if ((15.0 > 10.0))');
         expect(result.code).toContain('} else if ((7.0 > 5.0))');
@@ -96,7 +95,7 @@ describe('control flow', () => {
             });
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
         expect(result.code).toContain('for (var i_0_0: i32 = 0i; i_0_0 < 100i; i_0_0++)');
         expect(result.code).toContain('if ((i_0_0 == 50i))');
@@ -116,7 +115,7 @@ describe('control flow', () => {
             });
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
         expect(result.code).toContain('for (var i_0_0: i32 = 0i; i_0_0 < 3i; i_0_0++)');
         expect(result.code).toContain('for (var i_1_1: i32 = 0i; i_1_1 < 4i; i_1_1++)');
@@ -137,7 +136,7 @@ describe('control flow', () => {
             });
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
         // condition-driven header, not a broken `for (… < 0i; …)`
         expect(result.code).toMatch(/while \(.*_i < 10i.*\)/);
@@ -155,7 +154,7 @@ describe('variables', () => {
             x.assign(x.add(f32(5)));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
         expect(result.code).toContain('var ');
         expect(result.code).toContain('= 10.0');
     });
@@ -167,7 +166,7 @@ describe('variables', () => {
             y.assign(x.add(f32(1)));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
         expect(result.code).toContain('let ');
         expect(result.code).toContain('var ');
     });
@@ -182,7 +181,7 @@ describe('common subexpression elimination', () => {
             Return(expensive);
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
         const sinCalls = result.code.match(/sin\(/g)?.length ?? 0;
         expect(sinCalls).toBe(1);
@@ -195,7 +194,7 @@ describe('common subexpression elimination', () => {
             Return(sin(f32(2)));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
         const sinCalls = result.code.match(/sin\(/g)?.length ?? 0;
         expect(sinCalls).toBe(2);
@@ -217,7 +216,7 @@ describe('struct.construct', () => {
             Return(s);
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
         expect(result.code).toContain('MyStruct(vec3f(1.0, 2.0, 3.0), 4.0)');
     });
 
@@ -236,7 +235,7 @@ describe('struct.construct', () => {
             Return(s);
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
         // Args should be pos first, mass second (declaration order)
         expect(result.code).toContain('MyStruct(vec3f(1.0, 2.0, 3.0), 4.0)');
         expect(result.code).not.toContain('MyStruct(4.0');
@@ -251,7 +250,7 @@ describe('module-scope variables', () => {
             counter.assign(counter.add(i32(1).toU32()));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
         expect(result.code).toContain('var<private> counter: u32;');
         // i32(1).toU32() generates u32(1i)
@@ -266,7 +265,7 @@ describe('module-scope variables', () => {
             x.assign(x.mul(scale));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
         expect(result.code).toContain('var<private> scale: f32 = 2.5;');
     });
@@ -279,7 +278,7 @@ describe('module-scope variables', () => {
             vel.assign(vel.add(gravity));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
         expect(result.code).toContain('var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);');
     });
@@ -291,7 +290,7 @@ describe('module-scope variables', () => {
             shared.element(i32(0)).assign(f32(42));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
         expect(result.code).toContain('var<workgroup> sharedData: array<f32, 256>;');
     });
@@ -305,7 +304,7 @@ describe('module-scope variables', () => {
             counter.assign(counter.add(i32(1).toU32()));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
         // Both vars should be declared
         expect(result.code).toContain('var<private> counter: u32;');
@@ -327,7 +326,7 @@ describe('module-scope variables', () => {
             y.assign(x.add(f32(1)));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
         expect(result.code).toContain('let ');
         expect(result.code).toContain('var ');
     });
@@ -341,7 +340,7 @@ describe('compute builtins', () => {
             idx.assign(idx.add(i32(1)));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
         expect(result.code).toContain('@builtin(global_invocation_id) global_id: vec3u');
         expect(result.code).not.toContain('@builtin(num_workgroups)');
         expect(result.code).not.toContain('var<private> computeIndex');
@@ -354,7 +353,7 @@ describe('compute builtins', () => {
             idx.assign(idx.add(i32(1)));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
         expect(result.code).toContain('@builtin(global_invocation_id) global_id: vec3u');
         expect(result.code).toContain('@builtin(num_workgroups) num_workgroups: vec3u');
         expect(result.code).toContain('var<private> computeIndex: u32;');
@@ -367,7 +366,7 @@ describe('compute builtins', () => {
             x.assign(f32(2));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
         expect(result.code).not.toContain('@builtin');
     });
 });
@@ -399,7 +398,7 @@ describe('struct storage buffer with index', () => {
         const material = new Material({ vertex: worldPos, fragment: finalColor });
 
         // Compile and check that the struct is found
-        const result = compile({
+        const result = compileWgsl({
             vertex: material.vertex,
             fragment: material.fragment,
             depth: undefined,
@@ -411,12 +410,12 @@ describe('struct storage buffer with index', () => {
 });
 
 describe('fragment-less (depth/stencil-only) material', () => {
-    // Regression: an omitted fragment slot is `undefined`, not `null`. compile() must treat both as
+    // Regression: an omitted fragment slot is `undefined`, not `null`. compileWgsl() must treat both as
     // "no fragment" — otherwise it dereferences the missing fragment root and throws while collecting varyings.
     test('compiles with an omitted (undefined) fragment', () => {
         const pos = attribute('position', d.vec3f);
         const clip = vec4f(pos, f32(1));
-        const result = compile({ vertex: clip, fragment: undefined, depth: undefined });
+        const result = compileWgsl({ vertex: clip, fragment: undefined, depth: undefined });
         expect(result.code).toContain('vs_main');
         expect(result.code).not.toContain('fs_main');
     });
@@ -424,7 +423,7 @@ describe('fragment-less (depth/stencil-only) material', () => {
     test('compiles with an explicit null fragment', () => {
         const pos = attribute('position', d.vec3f);
         const clip = vec4f(pos, f32(1));
-        expect(() => compile({ vertex: clip, fragment: null as never, depth: undefined })).not.toThrow();
+        expect(() => compileWgsl({ vertex: clip, fragment: null as never, depth: undefined })).not.toThrow();
     });
 });
 

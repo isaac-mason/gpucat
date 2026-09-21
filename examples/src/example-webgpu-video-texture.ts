@@ -2,30 +2,32 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    createCanvasTarget,
     createBoxGeometry,
+    createMaterial,
     d,
     f32,
+    frame,
+    fullscreen,
     Inspector,
-    Material,
+    init,
     Mesh,
     modelNormalMatrix,
     modelWorldMatrix,
     mul,
     normalize,
-    pass,
     PerspectiveCamera,
     renderOutput,
-    RenderPipeline,
+    renderTexture,
     Scene,
-    texture,
     Texture,
+    texture,
     varying,
     vec3,
     vec4,
-    WebGPURenderer,
-    type Node,
+    webgpu,
 } from 'gpucat';
-import { quat, type Euler } from 'math';
+import { type Euler, quat } from 'math';
 
 /**
  * Video Texture Example
@@ -50,14 +52,18 @@ video.muted = true;
 video.playsInline = true;
 video.crossOrigin = 'anonymous';
 
-const renderer = new WebGPURenderer({ antialias: true });
-renderer.inspector = new Inspector();
-await renderer.init();
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
 
-document.body.appendChild(renderer.domElement);
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
+renderer.inspector = new Inspector();
+
 document.body.appendChild((renderer.inspector as Inspector).domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
 
 const scene = new Scene();
 const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 100);
@@ -67,7 +73,7 @@ scene.updateWorldMatrix();
 camera.updateViewMatrix();
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
@@ -100,12 +106,12 @@ const vUv = varying(uvAttr, 'v_uv');
 
 // fragment: sample the video texture, with gentle directional lighting so the
 // cube's faces read as 3D.
-const texColor = texture(videoTexture).sample(vUv as unknown as Node<d.vec2f>);
+const texColor = texture(videoTexture).sample(vUv);
 const lightDir = vec3(f32(0.5), f32(0.8), f32(1.0)).normalize();
 const diffuse = vNormal.dot(lightDir).max(f32(0.35));
 const litColor = texColor.xyz.mul(diffuse);
 
-const material = new Material({
+const material = createMaterial({
     vertex: clipPosition,
     fragment: vec4(litColor, f32(1)),
 });
@@ -113,16 +119,15 @@ const material = new Material({
 const mesh = new Mesh(createBoxGeometry(1.4, 1.4, 1.4), material);
 scene.add(mesh);
 
-const scenePass = pass(scene, camera);
+const scenePass = renderTexture(scene, camera);
 // Skip tone mapping — that's for HDR scene colour; a video is already display-graded,
 // so we want it shown faithfully (the sRGB output encode still runs for the swapchain).
 const outputNode = renderOutput(scenePass.getTextureNode(), { toneMapping: 'none' });
-const renderPipeline = new RenderPipeline(renderer, outputNode);
-
+const composite = fullscreen(outputNode);
 let angle = 0;
 let prevTime = performance.now() / 1000;
 
-function frame() {
+function update() {
     const now = performance.now() / 1000;
     const dt = now - prevTime;
     prevTime = now;
@@ -133,8 +138,12 @@ function frame() {
 
     // Re-copy the current video frame into the GPU texture this frame.
     videoTexture.needsUpdate = true;
-    renderPipeline.render();
-    requestAnimationFrame(frame);
+    const f = frame(renderer);
+    const compositePass = f.pass({ target: view });
+    compositePass.draw(composite);
+    compositePass.end();
+    f.submit();
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

@@ -28,11 +28,12 @@ for (let i = 0; i < N; i++) {
 
     // rainbow hue per instance
     const h = i / N;
-    g.color.set(_color,
+    g.color.set(
+        _color,
         Math.abs(Math.sin(h * Math.PI * 2 + 0)),
         Math.abs(Math.sin(h * Math.PI * 2 + (2 * Math.PI) / 3)),
         Math.abs(Math.sin(h * Math.PI * 2 + (4 * Math.PI) / 3)),
-    )
+    );
     instanceColors[i * 3 + 0] = _color[0];
     instanceColors[i * 3 + 1] = _color[1];
     instanceColors[i * 3 + 2] = _color[2];
@@ -52,49 +53,43 @@ const vColor = g.varying(instanceColor, 'v_color');
 const pos = g.attribute('position', d.vec3f);
 const localPos = g.vec4(pos, g.f32(1.0));
 const worldPos = g.mul(instanceTransform, localPos);
-const viewPos  = g.mul(g.cameraViewMatrix, worldPos);
-const clipPos  = g.mul(g.cameraProjectionMatrix, viewPos);
+const viewPos = g.mul(g.cameraViewMatrix, worldPos);
+const clipPos = g.mul(g.cameraProjectionMatrix, viewPos);
 
 // `time` is a user-driven uniform (seconds), updated each frame in the loop.
 const time = g.uniform(g.f32(0), 'time');
 // pulse: gentle brightness oscillation each second
 const tScaled = time.mul(g.f32(2.0));
-const pulse = g.f32(0.12).mul(
-    g.f32(1.0).add(tScaled.sin()),
-);
-const finalColor = g.vec4(
-    vColor.add(g.vec3f(1, 1, 1).mul(pulse)),
-    g.f32(1.0),
-);
+const pulse = g.f32(0.12).mul(g.f32(1.0).add(tScaled.sin()));
+const finalColor = g.vec4(vColor.add(g.vec3f(1, 1, 1).mul(pulse)), g.f32(1.0));
 
 const material = new g.Material({ vertex: clipPos, fragment: finalColor });
 
 async function main() {
-    const renderer = new g.WebGPURenderer({ antialias: true });
+    const canvas = document.createElement('canvas');
+    canvas.style.display = 'block';
+    document.body.appendChild(canvas);
+
+    const view = g.createCanvasTarget(canvas, { samples: 4 });
+    view.setPixelRatio(devicePixelRatio);
+    view.setSize(window.innerWidth, window.innerHeight);
+
+    const renderer = await g.init(g.webgpu());
     const inspector = new g.Inspector();
     renderer.inspector = inspector;
-    await renderer.init();
 
-    document.body.appendChild(renderer.domElement);
     document.body.appendChild(inspector.domElement);
-    renderer.setPixelRatio(devicePixelRatio);
-    renderer.setSize(window.innerWidth, window.innerHeight);
 
     const scene = new g.Scene();
 
-    const perspCamera = new g.PerspectiveCamera(
-        Math.PI / 4,
-        window.innerWidth / window.innerHeight,
-        0.1,
-        200,
-    );
+    const perspCamera = new g.PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 200);
     perspCamera.position[2] = 18;
     scene.add(perspCamera);
     scene.updateWorldMatrix();
     perspCamera.updateViewMatrix();
 
     window.addEventListener('resize', () => {
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        view.setSize(window.innerWidth, window.innerHeight);
         perspCamera.aspect = window.innerWidth / window.innerHeight;
         perspCamera.updateProjectionMatrix();
     });
@@ -103,17 +98,20 @@ async function main() {
     mesh.count = N;
     scene.add(mesh);
 
-    const scenePass = g.pass(scene, perspCamera);
+    const scenePass = g.renderTexture(scene, perspCamera);
     const outputNode = g.renderOutput(scenePass);
-    const renderPipeline = new g.RenderPipeline(renderer, outputNode);
-
-    function frame() {
+    const composite = g.fullscreen(outputNode);
+    function update() {
         time.value = performance.now() / 1000;
-        renderPipeline.render();
-        requestAnimationFrame(frame);
+        const f = g.frame(renderer);
+        const compositePass = f.pass({ target: view });
+        compositePass.draw(composite);
+        compositePass.end();
+        f.submit();
+        requestAnimationFrame(update);
     }
 
-    requestAnimationFrame(frame);
+    requestAnimationFrame(update);
 }
 
 main();

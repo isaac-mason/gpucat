@@ -1149,7 +1149,12 @@ export type Infer<D extends Any> =
                                 : // Array, match structurally
                                   D extends { type: 'array'; element: infer E extends Any }
                                   ? Infer<E>[]
-                                  : never;
+                                  : // Packed, the CPU value is the UNPACKED lane tuple
+                                    D extends unorm8x4 | snorm8x4
+                                    ? [number, number, number, number]
+                                    : D extends half2x16 | unorm2x16 | snorm2x16
+                                      ? [number, number]
+                                      : never;
 
 export type StructFields<D extends Any> = D extends { type: 'struct'; fields: infer S extends Record<string, Any> } ? S : never;
 

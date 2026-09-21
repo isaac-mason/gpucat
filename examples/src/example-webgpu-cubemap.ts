@@ -1,26 +1,30 @@
 import {
     attribute,
+    CubeTexture,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    compile,
     createBoxGeometry,
-    CubeTexture,
+    createCanvasTarget,
+    createMaterial,
     cubeTexture,
     d,
     f32,
+    frame,
+    fullscreen,
     Inspector,
-    Material,
+    init,
     Mesh,
     modelWorldMatrix,
     mul,
     OrbitControls,
-    pass,
     PerspectiveCamera,
     renderOutput,
-    RenderPipeline,
+    renderTexture,
     Scene,
     varying,
     vec4,
-    WebGPURenderer,
+    webgpu,
 } from 'gpucat';
 
 /**
@@ -65,39 +69,36 @@ async function createCubeFaces(size = 512): Promise<ImageBitmap[]> {
         ['-Z', '#f1c40f'], // yellow
     ];
 
-    return Promise.all(
-        faces.map(([label, color]) => createImageBitmap(createFaceImage(label, color, size))),
-    );
+    return Promise.all(faces.map(([label, color]) => createImageBitmap(createFaceImage(label, color, size))));
 }
 
 async function main() {
-    const renderer = new WebGPURenderer({ antialias: true });
-    renderer.inspector = new Inspector();
-    await renderer.init();
+    const canvas = document.createElement('canvas');
+    canvas.style.display = 'block';
+    document.body.appendChild(canvas);
 
-    document.body.appendChild(renderer.domElement);
+    const view = createCanvasTarget(canvas, { samples: 4 });
+    view.setPixelRatio(devicePixelRatio);
+    view.setSize(window.innerWidth, window.innerHeight);
+
+    const renderer = await init(webgpu());
+    renderer.inspector = new Inspector();
+
     document.body.appendChild((renderer.inspector as Inspector).domElement);
-    renderer.setPixelRatio(devicePixelRatio);
-    renderer.setSize(window.innerWidth, window.innerHeight);
 
     const scene = new Scene();
 
-    const camera = new PerspectiveCamera(
-        Math.PI / 3,
-        window.innerWidth / window.innerHeight,
-        0.1,
-        100,
-    );
+    const camera = new PerspectiveCamera(Math.PI / 3, window.innerWidth / window.innerHeight, 0.1, 100);
     camera.position[2] = 0.01; // Inside the box, slightly off-center so orbit works
     scene.add(camera);
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    const controls = new OrbitControls(camera, renderer.domElement);
+    const controls = new OrbitControls(camera, canvas);
     controls.target = [0, 0, 0];
 
     window.addEventListener('resize', () => {
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        view.setSize(window.innerWidth, window.innerHeight);
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
     });
@@ -125,7 +126,7 @@ async function main() {
     const envNode = cubeTexture(cubeTex);
     const envColor = envNode.sample(vDirection);
 
-    const material = new Material({
+    const material = createMaterial({
         vertex: clipPos,
         fragment: vec4(envColor.xyz, f32(1)),
         cullMode: 'front', // Render back faces (we're inside the box)
@@ -138,12 +139,11 @@ async function main() {
 
     scene.updateWorldMatrix();
 
-    await renderer.compile(scene, camera);
+    await compile(renderer, mesh, view, camera);
 
-    const scenePass = pass(scene, camera);
+    const scenePass = renderTexture(scene, camera);
     const outputNode = renderOutput(scenePass.getTextureNode());
-    const renderPipeline = new RenderPipeline(renderer, outputNode);
-
+    const composite = fullscreen(outputNode);
     // UI overlay
     const overlay = document.createElement('div');
     overlay.style.cssText = `
@@ -167,15 +167,23 @@ async function main() {
     `;
     document.body.appendChild(overlay);
 
-    function frame() {
+    function update() {
         controls.update();
         camera.updateViewMatrix();
 
-        renderPipeline.render();
-        requestAnimationFrame(frame);
+        const f = frame(renderer);
+
+        const compositePass = f.pass({ target: view });
+
+        compositePass.draw(composite);
+
+        compositePass.end();
+
+        f.submit();
+        requestAnimationFrame(update);
     }
 
-    requestAnimationFrame(frame);
+    requestAnimationFrame(update);
 }
 
 main().catch(console.error);

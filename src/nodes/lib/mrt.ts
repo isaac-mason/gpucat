@@ -94,20 +94,22 @@ export class MRTNode extends OutputStructNode {
     }
 
     /**
-     * Resolve output names to @location indices based on render target textures.
-     * Called by the compiler when the render target is known.
+     * Resolve output names to @location indices against the target's attachment names. Throws on a
+     * name the target does not have: skipping it emits a shader with fewer locations than the pass
+     * binds, which the backend then draws with an attachment left at its clear colour.
      *
-     * @param getTextureIndex - Function that maps texture name to index (from RenderTarget)
+     * @param getTextureIndex - Maps an attachment name to its index, or -1.
+     * @param attachmentNames - Only read to name the alternatives when a lookup fails.
      */
-    resolveOutputs(getTextureIndex: (name: string) => number): void {
+    resolveOutputs(getTextureIndex: (name: string) => number, attachmentNames?: readonly string[]): void {
         const members: Node<d.Any>[] = [];
         const names: string[] = [];
 
         for (const name in this.outputNodes) {
             const index = getTextureIndex(name);
             if (index === -1) {
-                console.warn(`[MRTNode] Output '${name}' not found in render target textures. Skipping.`);
-                continue;
+                const has = attachmentNames?.length ? attachmentNames.join(', ') : '(none)';
+                throw new Error(`[mrt] output '${name}' names no attachment on this target. It has: ${has}.`);
             }
             // Ensure the node outputs vec4f (wrap if needed)
             let node = this.outputNodes[name];
@@ -137,7 +139,7 @@ export class MRTNode extends OutputStructNode {
  *     velocity: motionVector,
  * });
  *
- * const material = new Material({
+ * const material = createMaterial({
  *     vertex: clipPosition,
  *     fragment: mrtOutput,
  * });

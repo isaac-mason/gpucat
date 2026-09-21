@@ -24,21 +24,17 @@
  */
 
 import type { GpuBuffer } from '../../core/gpu-buffer';
-import { typedArrayCtorOf } from '../../schema/schema';
-import {
-    compileTransformFeedback,
-    type TransformFeedbackGlslResult,
-} from '../../nodes/builder';
+import { compileTransformFeedback, type TransformFeedbackGlslResult } from '../../nodes/builder';
 import type { TransformFeedbackNode } from '../../nodes/lib/transform-feedback';
+import { typedArrayCtorOf } from '../../schema/schema';
 import type { NodeFrame } from '../core/node-frame';
-import { attribFormat, glComponentType } from './geometries';
-import { createTransformFeedbackProgram } from './programs';
-import type { ProgramInfo } from './programs';
-import type { SamplerCache } from './samplers';
-import type { TextureCache } from './textures';
-import { bindStandaloneTextures } from './texture-bindings';
-import { updateAndBindStandaloneUniformGroup, type BindingsState } from './bindings';
+import type { BackendState } from './backend-state';
+import { updateAndBindStandaloneUniformGroup } from './bindings';
 import * as Buffers from './buffers';
+import { attribFormat, glComponentType } from './geometries';
+import type { ProgramInfo } from './programs';
+import { createTransformFeedbackProgram } from './programs';
+import { bindStandaloneTextures } from './texture-bindings';
 
 /** Per-node cached compile + link. */
 type TfNodeCache = {
@@ -102,9 +98,9 @@ function ensureIo(
     if (!buffer.array) {
         throw new Error(
             role === 'output'
-                ? `[WebGLRenderer] transform-feedback output buffer '${name}' has a null array; ` +
-                  `allocate it with { count } or { data } so its size is known.`
-                : `[WebGLRenderer] transform-feedback input buffer '${name}' has a null array.`,
+                ? `[webgl] transform-feedback output buffer '${name}' has a null array; ` +
+                      `allocate it with { count } or { data } so its size is known.`
+                : `[webgl] transform-feedback input buffer '${name}' has a null array.`,
         );
     }
     const hint = role === 'output' ? gl.DYNAMIC_COPY : gl.STATIC_DRAW;
@@ -136,7 +132,7 @@ function getNodeCache(
     );
 
     const vao = gl.createVertexArray();
-    if (!vao) throw new Error('[WebGLRenderer] gl.createVertexArray returned null (transform-feedback).');
+    if (!vao) throw new Error('[webgl] gl.createVertexArray returned null (transform-feedback).');
 
     cache = { compiled, programInfo, vao };
     state.nodes.set(node, cache);
@@ -166,16 +162,14 @@ function getNodeCache(
  */
 export function runTransformFeedback(
     gl: WebGL2RenderingContext,
+    b: BackendState,
     state: TransformFeedbackState,
     node: TransformFeedbackNode,
     opts: TransformFeedbackRunOptions,
     precision: 'highp' | 'mediump' | 'lowp' | undefined,
     frame: NodeFrame,
-    uniforms: BindingsState,
-    textures: TextureCache,
-    samplers: SamplerCache,
-    buffers: Buffers.BufferCache,
 ): void {
+    const { uniforms, textures, samplers, buffers } = b;
     const { inputs, outputs, count, instanceCount } = opts;
 
     // Alias guard: a buffer used as an output can't also be an input (a TF-bound buffer must not be
@@ -184,8 +178,7 @@ export function runTransformFeedback(
     for (const outBuf of Object.values(outputs)) {
         if (inputBuffers.has(outBuf)) {
             throw new Error(
-                `[WebGLRenderer] transform-feedback output buffer can't also be an input; ` +
-                    `use distinct buffers and ping-pong`,
+                `[webgl] transform-feedback output buffer can't also be an input; ` + `use distinct buffers and ping-pong`,
             );
         }
     }
@@ -193,12 +186,19 @@ export function runTransformFeedback(
     const cache = getNodeCache(gl, state, node, precision);
     const { compiled, programInfo, vao } = cache;
 
-    // Validate every declared input/output has a buffer.
+    // Both checks run before any GL state is touched: a throw past `useProgram` would leave the
+    // program, the VAO and the transform-feedback object bound, with nothing unwinding them.
     for (const attr of compiled.inputAttributes) {
         // Attribute shader name is `a_<name>`; the run-site key is the bare `<name>`.
         const key = attr.name.startsWith('a_') ? attr.name.slice(2) : attr.name;
         if (!inputs[key]) {
-            throw new Error(`[WebGLRenderer] transform-feedback kernel input '${key}' has no bound buffer.`);
+            throw new Error(`[webgl] transform-feedback kernel input '${key}' has no bound buffer.`);
+        }
+    }
+    for (const varying of compiled.feedbackVaryings) {
+        const key = varying.startsWith('v_') ? varying.slice(2) : varying;
+        if (!outputs[key]) {
+            throw new Error(`[webgl] transform-feedback kernel output '${key}' has no bound buffer.`);
         }
     }
 
@@ -251,18 +251,14 @@ export function runTransformFeedback(
     // order. Each varying is `v_<name>`; the run-site key is the bare `<name>`.
     if (!state.tf) {
         const tf = gl.createTransformFeedback();
-        if (!tf) throw new Error('[WebGLRenderer] gl.createTransformFeedback returned null.');
+        if (!tf) throw new Error('[webgl] gl.createTransformFeedback returned null.');
         state.tf = tf;
     }
     gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, state.tf);
     for (let i = 0; i < compiled.feedbackVaryings.length; i++) {
         const varying = compiled.feedbackVaryings[i]!;
         const key = varying.startsWith('v_') ? varying.slice(2) : varying;
-        const outGpuBuffer = outputs[key];
-        if (!outGpuBuffer) {
-            throw new Error(`[WebGLRenderer] transform-feedback kernel output '${key}' has no bound buffer.`);
-        }
-        const glOut = ensureIo(gl, buffers, outGpuBuffer, 'output', key);
+        const glOut = ensureIo(gl, buffers, outputs[key]!, 'output', key);
         gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, i, glOut);
     }
 
@@ -306,20 +302,25 @@ export function getGlBufferFor(buffers: Buffers.BufferCache, buffer: GpuBuffer):
  * guarantee the flush; subsequent polls yield a tick, then re-poll. This mirrors the Phase-0.5 probe
  * (`tst/tf-probe/run.mjs`), whose whole point was proving this async shape is the one that works.
  */
-function clientWaitAsync(gl: WebGL2RenderingContext, sync: WebGLSync, maxPolls = 4000): Promise<void> {
+export function clientWaitAsync(
+    gl: WebGL2RenderingContext,
+    sync: WebGLSync,
+    label = 'readBufferAsync',
+    maxPolls = 4000,
+): Promise<void> {
     return new Promise((resolve, reject) => {
         let polls = 0;
         const poll = (flags: number): void => {
             const status = gl.clientWaitSync(sync, flags, 0);
             if (status === gl.WAIT_FAILED) {
-                reject(new Error('[WebGLRenderer] readBufferAsync: clientWaitSync returned WAIT_FAILED.'));
+                reject(new Error(`[webgl] ${label}: clientWaitSync returned WAIT_FAILED.`));
                 return;
             }
             if (status === gl.TIMEOUT_EXPIRED) {
                 if (polls >= maxPolls) {
                     reject(
                         new Error(
-                            `[WebGLRenderer] readBufferAsync: fence not signalled after ${polls} polls ` +
+                            `[webgl] ${label}: fence not signalled after ${polls} polls ` +
                                 `(TIMEOUT_EXPIRED). The GPU never completed the copy — this is the single-threaded ` +
                                 `busy-loop failure mode; readback must yield across event-loop ticks.`,
                         ),
@@ -356,7 +357,7 @@ export async function readBufferAsync(
     const src = Buffers.getUploaded(buffers, buffer) ?? null;
     if (!src) {
         throw new Error(
-            '[WebGLRenderer] readBufferAsync: no GL buffer backs this GpuBuffer — it was never used by a ' +
+            '[webgl] readBufferAsync: no GL buffer backs this GpuBuffer — it was never used by a ' +
                 'transformFeedback() call (nothing to read back).',
         );
     }
@@ -370,7 +371,7 @@ export async function readBufferAsync(
     // Copy source → a fresh STREAM_READ staging buffer (reading back from a buffer bound to a TF
     // binding point is illegal, and staging keeps the source untouched for continued ping-pong).
     const staging = gl.createBuffer();
-    if (!staging) throw new Error('[WebGLRenderer] readBufferAsync: gl.createBuffer returned null (staging).');
+    if (!staging) throw new Error('[webgl] readBufferAsync: gl.createBuffer returned null (staging).');
 
     gl.bindBuffer(gl.COPY_READ_BUFFER, src);
     gl.bindBuffer(gl.COPY_WRITE_BUFFER, staging);
@@ -379,7 +380,7 @@ export async function readBufferAsync(
 
     // Fence the copy, flush, then poll to completion across ticks (the load-bearing detail).
     const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
-    if (!sync) throw new Error('[WebGLRenderer] readBufferAsync: gl.fenceSync returned null.');
+    if (!sync) throw new Error('[webgl] readBufferAsync: gl.fenceSync returned null.');
     gl.flush();
     try {
         await clientWaitAsync(gl, sync);

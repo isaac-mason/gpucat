@@ -1,25 +1,9 @@
-/**
- * viewer.ts, Inspector Viewer tab.
- *
- * Pattern:
- *   getCanvasDataByNode(), creates a CanvasTarget + wraps the node as vec4(vec3(node), 1)
- *                           + builds a Material. Cached per node, never recreated.
- *   update(), for each canvasData:
- *                             1. save renderer state (renderTarget, mrt, clearColor)
- *                             2. reset state (setMRT(null), clearColor black)
- *                             3. setCanvasTarget(canvasData.canvasTarget)
- *                             4. renderer.renderQuad(canvasData.material, encoder)
- *                             5. renderer.setCanvasTarget(previousTarget)
- *                             6. restoreRendererState(savedState)
- *
- * renderQuad() is used instead of renderer.render(wrappedNode) to avoid
- * triggering updateBefore() on PassNodes, which would cause a stack overflow
- * by recursively rendering the scene inside the inspector viewer.
- */
+import { frame } from '../../renderer/core/frame';
+/** Inspector Viewer tab: one preview canvas per inspectable node, each its own one-pass frame. */
 
-import { Material } from '../../material/material';
-import { attribute, f32, type Node, vec4f, wgsl } from '../../nodes/nodes';
-import type { QuadMesh } from '../../objects/quad-mesh';
+import { type Node, wgsl } from '../../nodes/nodes';
+import { fullscreen } from '../../objects/fullscreen';
+import type { Mesh } from '../../objects/mesh';
 import type { CanvasTarget } from '../../renderer/core/canvas-target';
 import * as d from '../../schema/schema';
 import type { Inspector } from '../inspector';
@@ -34,8 +18,8 @@ export type CanvasData = {
     id: number;
     /** The original inspectable node */
     node: Node<d.Any>;
-    /** QuadMesh for rendering the preview */
-    quadMesh: QuadMesh;
+    /** The bufferless fullscreen mesh drawn into `canvasTarget`. */
+    mesh: Mesh;
     /** 140x140 CanvasTarget the viewer renders into */
     canvasTarget: CanvasTarget;
     /** Human-readable label (leaf name after splitPath) */
@@ -99,19 +83,8 @@ export class Viewer extends Tab {
     }
 
     /**
-     * Update the viewer: render every inspectable node into its preview canvas.
-     *
-     * For each canvasData:
-     *   1. Save renderer state (renderTarget, mrt, clearColor)
-     *   2. Reset state, setMRT(null), clearColor → black
-     *   3. renderer.setCanvasTarget(canvasData.canvasTarget)
-     *   4. renderer.renderQuad(canvasData.material, encoder)  ← no updateBefore!
-     *   5. renderer.setCanvasTarget(previousTarget)
-     *   6. Restore renderer state
-     *
-     * Using renderQuad() instead of render(node) is the critical difference:
-     * render(node) calls updateBefore() which triggers PassNode.updateBefore()
-     * causing a stack overflow. renderQuad() skips updateBefore entirely.
+     * Each preview draws a `fullscreen` mesh wrapping the node, never the node's own graph: a
+     * `RenderTextureNode` in it would open its pass inside the preview's and recurse.
      */
     update(inspector: Inspector, canvasDataList: CanvasData[]): void {
         if (!this.isActive && !this.isDetached) return;
@@ -172,24 +145,11 @@ export class Viewer extends Tab {
                 }
             }
 
-            // Save renderer state for restoration after the preview render
-            const savedState = renderer.saveRendererState();
-
-            // Reset to clean defaults for the preview render
-            renderer.mrt = null;
-            renderer.renderTarget = null;
-            renderer.clearColor = [0, 0, 0, 1];
-
-            // Swap to preview canvas target
-            const previousTarget = renderer.getCanvasTarget();
-            renderer.setCanvasTarget(canvasData.canvasTarget);
-
-            // Render the preview quad
-            canvasData.quadMesh.render(renderer);
-
-            // Restore canvas target and renderer state
-            renderer.setCanvasTarget(previousTarget);
-            renderer.restoreRendererState(savedState);
+            const f = frame(renderer);
+            const pass = f.pass({ target: canvasData.canvasTarget, clear: [0, 0, 0, 1], label: 'viewer' });
+            pass.draw(canvasData.mesh);
+            pass.end();
+            f.submit();
         }
     }
 
@@ -289,19 +249,7 @@ function nodeToVec4f(node: Node<d.Any>): Node<d.vec4f> {
     return wgsl(d.vec4f)`vec4f((${node}).xyz, 1.0)`;
 }
 
-/**
- * Create a fullscreen preview material for the given node.
- * Uses QuadMesh geometry (position attribute) and converts the node to vec4f.
- */
-export function createPreviewMaterial(node: Node<d.Any>): Material {
-    const posAttr = attribute('position', d.vec3f);
-    const posNode = vec4f(posAttr, f32(1));
-    const fragNode = nodeToVec4f(node);
-
-    return new Material({
-        vertex: posNode,
-        fragment: fragNode,
-        depthWrite: false,
-        depthTest: false,
-    });
+/** A bufferless fullscreen draw of `node`, coerced to vec4f. */
+export function createPreviewMesh(node: Node<d.Any>): Mesh {
+    return fullscreen(nodeToVec4f(node));
 }

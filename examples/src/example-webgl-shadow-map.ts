@@ -4,28 +4,32 @@ import {
     cameraViewMatrix,
     comparisonSampler,
     createBoxGeometry,
+    createCanvasTarget,
+    createMaterial,
     createPlaneGeometry,
+    createRenderTarget,
     createSphereGeometry,
     createVertexBuffer,
     d,
     depthTexture,
+    drawScene,
     f32,
+    frame,
     Geometry,
     greaterThan,
+    init,
     lessThan,
-    Material,
     Mesh,
     modelNormalMatrix,
     modelWorldMatrix,
     mul,
-    ndcDepthToStorage,
     type Node,
+    ndcDepthToStorage,
     normalize,
     OrbitControls,
     OrthographicCamera,
     or,
     PerspectiveCamera,
-    RenderTarget,
     Scene,
     select,
     textureSampleCompare,
@@ -36,18 +40,21 @@ import {
     vec2,
     vec3,
     vec4,
-    WebGLRenderer,
+    webgl,
 } from 'gpucat';
-import { type Euler, mat4, type Mat4, quat, type Vec3 } from 'math';
+import { type Euler, mat4, quat, type Vec3 } from 'math';
 
 // ─── Renderer ───────────────────────────────────────────────────────────────
 
-const renderer = new WebGLRenderer({ antialias: true });
-await renderer.init();
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
 
-document.body.appendChild(renderer.domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgl({ target: view }));
 
 // ─── Cameras ────────────────────────────────────────────────────────────────
 
@@ -55,7 +62,7 @@ const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.inn
 camera.position = [3, 4, 6];
 camera.lookAt([0, 0, 0]);
 
-const controls = new OrbitControls(camera, renderer.domElement);
+const controls = new OrbitControls(camera, canvas);
 
 // Light camera: orthographic projection for directional light shadow map
 const SHADOW_SIZE = 1024;
@@ -65,14 +72,14 @@ lightCamera.position = [5, 8, 6];
 lightCamera.lookAt([0, 0, 0]);
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
 
 // ─── Shadow render target (depth-only, count: 0) ───────────────────────────
 
-const shadowRT = new RenderTarget(SHADOW_SIZE, SHADOW_SIZE, {
+const shadowRT = createRenderTarget(SHADOW_SIZE, SHADOW_SIZE, {
     depthFormat: 'depth32float',
     count: 0,
     // Declare that the depth attachment is sampled (this is a shadow map). Required to read it as a
@@ -93,7 +100,7 @@ const clipPos = mul(cameraProjectionMatrix, viewPos);
 
 // ─── Shadow pass material (depth-only, no fragment) ─────────────────────────
 
-const shadowMaterial = new Material({
+const shadowMaterial = createMaterial({
     vertex: clipPos,
     fragment: undefined,
     depthBias: 2,
@@ -103,7 +110,8 @@ const shadowMaterial = new Material({
 // ─── Scene pass material (with shadow sampling) ─────────────────────────────
 
 // Light-space projection matrix: lightProj * lightView (computed on CPU, uploaded as uniform)
-const lightVPUniform = new Uniform(d.mat4x4f, new Float32Array(16));
+const lightVPMatrix = mat4.create();
+const lightVPUniform = new Uniform(d.mat4x4f, lightVPMatrix);
 const lightVP = uniform(lightVPUniform);
 
 // Compute world position varying for light-space projection in fragment
@@ -118,7 +126,8 @@ const shadowDepthTex = depthTexture(shadowRT.depthTexture!);
 const shadowCmpSampler = comparisonSampler(shadowRT.depthTexture!, 'less');
 
 // Light direction uniform: updated each frame from lightCamera.position.
-const lightDirUniform = new Uniform(d.vec3f, new Float32Array([5, 8, 6]));
+const lightDirVector = new Float32Array([5, 8, 6]);
+const lightDirUniform = new Uniform(d.vec3f, lightDirVector);
 const lightDir = normalize(uniform(lightDirUniform));
 
 // Normal offset bias: nudge the world position along the surface normal before
@@ -149,14 +158,7 @@ const pcfSamples: Node<d.f32>[] = [];
 for (let dy = -1; dy <= 1; dy++) {
     for (let dx = -1; dx <= 1; dx++) {
         const offsetUV = vec2(shadowUV.x.add(f32(dx).mul(texelSize)), shadowUV.y.add(f32(dy).mul(texelSize)));
-        pcfSamples.push(
-            textureSampleCompare(
-                shadowDepthTex.bindingNode,
-                shadowCmpSampler,
-                offsetUV as unknown as Node<d.vec2f>,
-                depthRef as unknown as Node<d.f32>,
-            ),
-        );
+        pcfSamples.push(textureSampleCompare(shadowDepthTex.bindingNode, shadowCmpSampler, offsetUV, depthRef));
     }
 }
 
@@ -182,7 +184,7 @@ const diffuse = nDotL.mul(shadowFactor).add(ambient);
 const baseColor = vec3(f32(0.8), f32(0.85), f32(0.9));
 const litColor = baseColor.mul(diffuse);
 
-const sceneMaterial = new Material({
+const sceneMaterial = createMaterial({
     vertex: clipPos,
     fragment: vec4(litColor, f32(1)),
 });
@@ -270,7 +272,7 @@ frustumGeo.setBuffer('position', frustumPosBuf);
 frustumGeo.setBuffer('normal', frustumNormBuf);
 frustumGeo.drawRange.count = FRUSTUM_VERTEX_COUNT;
 
-const frustumMaterial = new Material({
+const frustumMaterial = createMaterial({
     vertex: clipPos,
     fragment: vec4(vec3(f32(1.0), f32(0.8), f32(0.2)), f32(1)),
     cullMode: 'none',
@@ -368,8 +370,7 @@ function updateFrustumGeometry(): void {
 // ─── Compute light VP matrix ────────────────────────────────────────────────
 
 function updateLightVP(): void {
-    const data = lightVPUniform.value as Float32Array;
-    mat4.mul(data as unknown as Mat4, lightCamera.projectionMatrix, lightCamera.matrixWorldInverse);
+    mat4.mul(lightVPMatrix, lightCamera.projectionMatrix, lightCamera.matrixWorldInverse);
 }
 updateLightVP();
 updateFrustumGeometry();
@@ -379,7 +380,7 @@ updateFrustumGeometry();
 let angle = 0;
 let prevTime = performance.now() / 1000;
 
-function frame() {
+function update() {
     const now = performance.now() / 1000;
     const dt = now - prevTime;
     prevTime = now;
@@ -402,27 +403,35 @@ function frame() {
     // Update light direction uniform (normalize on CPU).
     const lp = lightCamera.position;
     const ll = Math.sqrt(lp[0] * lp[0] + lp[1] * lp[1] + lp[2] * lp[2]);
-    const ld = lightDirUniform.value as Float32Array;
-    ld[0] = lp[0] / ll;
-    ld[1] = lp[1] / ll;
-    ld[2] = lp[2] / ll;
+    lightDirVector[0] = lp[0] / ll;
+    lightDirVector[1] = lp[1] / ll;
+    lightDirVector[2] = lp[2] / ll;
 
     controls.update();
 
     // Pass 1: shadow map (depth-only render into shadowRT)
     // Hide the frustum helper so it doesn't write into the shadow map
     frustumMesh.visible = false;
-    renderer.renderTarget = shadowRT;
-    renderer.overrideMaterial = shadowMaterial;
-    renderer.render(scene, lightCamera, 'shadow');
-    renderer.overrideMaterial = null;
-    renderer.renderTarget = null;
+
+    const f = frame(renderer);
+
+    const shadowPass = f.pass({ target: shadowRT, camera: lightCamera, label: 'shadow' });
+    // Every caster draws with the depth material, which shares the scene material's vertex node.
+    scene.traverse((object) => {
+        const mesh = object as Mesh;
+        if (mesh.isMesh && mesh.visible) shadowPass.draw(mesh, { material: shadowMaterial });
+    });
+    shadowPass.end();
+
     frustumMesh.visible = true;
 
-    // Pass 2: scene with shadow sampling
-    renderer.render(scene, camera);
+    const scenePass = f.pass({ target: view, camera, label: 'scene' });
+    drawScene(renderer, scenePass, scene, camera);
+    scenePass.end();
 
-    requestAnimationFrame(frame);
+    f.submit();
+
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

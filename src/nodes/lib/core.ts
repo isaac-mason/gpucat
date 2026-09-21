@@ -289,7 +289,7 @@ export enum NodeKind {
     DepthTexture,
     ArrayTexture,
     // display
-    Pass,
+    RenderTexture,
     // misc
     Inspector,
     SubBuild,
@@ -2108,7 +2108,8 @@ export function If(condition: Node<Any>, thenBody: () => void): IfChain {
     return chain;
 }
 
-export type LoopVars = Record<string, Node<Any>>;
+/** The loop variable is a scalar; `i32` unless a `LoopParam` names another `type`. */
+export type LoopVars = Record<string, Node<d.i32>>;
 
 export function Loop(range: number, callback: (vars: LoopVars) => void): LoopNode;
 export function Loop(o: LoopParam, callback: (vars: LoopVars) => void): LoopNode;

@@ -1,17 +1,9 @@
-/**
- * pass-context.ts, GPU pass configuration and caching.
- *
- * Contains context types for both render and compute passes:
- * - RenderContext: Configuration for render passes (framebuffer, clear state, viewport, etc.)
- * - ComputeContext: Configuration for compute passes (currently minimal, used for bind group caching)
- *
- * Functional pattern: state object + functions.
- */
-
-import type { Camera } from '../../camera/camera';
 import type { RenderTarget } from '../../core/render-target';
 import type { MRTNode } from '../../nodes/lib/mrt';
+import type { CanvasTarget } from './canvas-target';
 import type { BackendTexture } from './render-types';
+import { isRenderTarget, type Target } from './target';
+import type { View } from './view';
 
 // RenderContext ID counter
 
@@ -19,19 +11,7 @@ let renderContextIdCounter = 0;
 
 // Types
 
-/**
- * RGBA clear color value.
- */
-export type ClearColorValue = {
-    r: number;
-    g: number;
-    b: number;
-    a: number;
-};
-
-/**
- * Viewport configuration in physical pixels.
- */
+/** Physical pixels, so no pixel-ratio scaling applies. */
 export type ViewportValue = {
     x: number;
     y: number;
@@ -41,9 +21,7 @@ export type ViewportValue = {
     maxDepth: number;
 };
 
-/**
- * Scissor rectangle in physical pixels.
- */
+/** Physical pixels, so no pixel-ratio scaling applies. */
 export type ScissorValue = {
     x: number;
     y: number;
@@ -51,36 +29,13 @@ export type ScissorValue = {
     height: number;
 };
 
-/**
- * RenderContext - Configuration state for a render pass.
- *
- * This is the internal representation of render pass state that gets
- * translated into GPURenderPassDescriptor by the backend.
- */
+/** What a backend turns into a `GPURenderPassDescriptor`, or into framebuffer and GL state. */
 export type RenderContext = {
     /** Unique identifier for this context. */
     readonly id: number;
 
     /** MRT node if multiple render targets are in use. */
     mrt: MRTNode | null;
-
-    /** Whether to clear color attachment(s). */
-    clearColor: boolean;
-
-    /** Color clear value. */
-    clearColorValue: ClearColorValue;
-
-    /** Whether to clear depth attachment. */
-    clearDepth: boolean;
-
-    /** Depth clear value (0-1, typically 1). */
-    clearDepthValue: number;
-
-    /** Whether to clear stencil attachment. */
-    clearStencil: boolean;
-
-    /** Stencil clear value. */
-    clearStencilValue: number;
 
     /** Whether color attachment(s) are present. */
     color: boolean;
@@ -109,8 +64,11 @@ export type RenderContext = {
     /** Framebuffer height in physical pixels. */
     height: number;
 
-    /** The render target, or null for default framebuffer. */
+    /** The render target, or null when the pass draws to a canvas. */
     renderTarget: RenderTarget | null;
+
+    /** The canvas target, or null when the pass draws to a render target. */
+    canvasTarget: CanvasTarget | null;
 
     /** Backend color texture handles (populated by renderer). Opaque to core. */
     textures: BackendTexture[] | null;
@@ -118,17 +76,11 @@ export type RenderContext = {
     /** Backend depth texture handle (populated by renderer). Opaque to core. */
     depthTexture: BackendTexture | null;
 
-    /** Active cube face for cube render targets (0-5). */
-    activeCubeFace: number;
-
-    /** Active mipmap level for render targets. */
-    activeMipmapLevel: number;
-
     /** MSAA sample count (1 = no MSAA). */
     sampleCount: number;
 
     /** Camera for this render pass (used for uniform updates). */
-    camera: Camera | null;
+    camera: View | null;
 
     /** Type flag for runtime checking. */
     readonly isRenderContext: true;
@@ -138,13 +90,7 @@ export type RenderContext = {
 
 let computeContextIdCounter = 0;
 
-/**
- * ComputeContext - Configuration state for compute passes.
- *
- * Analogous to RenderContext for render passes. Currently minimal,
- * but provides a proper cache key for shared bind groups and can be
- * extended with dispatch configuration, timing, etc.
- */
+/** A compute pass's identity, which is all a shared bind group needs to be keyed by. */
 export type ComputeContext = {
     /** Unique identifier for this context. */
     readonly id: number;
@@ -153,9 +99,6 @@ export type ComputeContext = {
     readonly isComputeContext: true;
 };
 
-/**
- * Create a new ComputeContext.
- */
 export function createComputeContext(): ComputeContext {
     return {
         id: computeContextIdCounter++,
@@ -167,22 +110,10 @@ export function createComputeContext(): ComputeContext {
  * RenderContextsState - manages render context caching.
  */
 export type RenderContextsState = {
-    /**
-     * Cache of render contexts keyed by configuration string.
-     * Key format: `{attachmentState}-{mrtId}-{callDepth}`
-     */
+    /** Keyed by attachment shape and MRT id; see `buildCacheKey`. */
     contexts: Map<string, RenderContext>;
-
-    /**
-     * Default clear values from renderer settings.
-     */
-    defaultClearDepth: number;
-    defaultClearStencil: number;
 };
 
-/**
- * Create a new RenderContext with default values.
- */
 export function createRenderContext(): RenderContext {
     return {
         id: renderContextIdCounter++,
@@ -191,12 +122,6 @@ export function createRenderContext(): RenderContext {
         mrt: null,
 
         // Clear state
-        clearColor: true,
-        clearColorValue: { r: 0, g: 0, b: 0, a: 1 },
-        clearDepth: true,
-        clearDepthValue: 1,
-        clearStencil: true,
-        clearStencilValue: 0,
 
         // Attachments
         color: true,
@@ -215,10 +140,9 @@ export function createRenderContext(): RenderContext {
 
         // Render target
         renderTarget: null,
+        canvasTarget: null,
         textures: null,
         depthTexture: null,
-        activeCubeFace: 0,
-        activeMipmapLevel: 0,
 
         // MSAA
         sampleCount: 1,
@@ -231,42 +155,27 @@ export function createRenderContext(): RenderContext {
     };
 }
 
-/**
- * Create a new RenderContexts state.
- */
 export function createRenderContextsState(): RenderContextsState {
-    return {
-        contexts: new Map(),
-        defaultClearDepth: 1,
-        defaultClearStencil: 0,
-    };
+    return { contexts: new Map() };
 }
 
 // Cache Key Computation
 
-/**
- * Build the attachment state portion of the cache key.
- *
- * For default framebuffer, returns 'default'.
- * For render targets, returns: `{count}:{format}:{type}:{samples}:{depth}:{stencil}`
- */
-function buildAttachmentState(renderTarget: RenderTarget | null): string {
-    if (renderTarget === null) {
-        return 'default';
+/** Texture names are in the shape because MRT resolves its outputs by name against this target. */
+function buildAttachmentState(target: Target): string {
+    if (!isRenderTarget(target)) {
+        return `canvas:${target.samples}:${target.depthFormat}`;
     }
 
-    const formats = renderTarget.textures.map((t) => t.format).join(',');
-    const count = renderTarget.textures.length;
-    const samples = renderTarget.samples;
-    const depth = renderTarget._depthAttachment !== null;
-    const stencil = renderTarget._depthAttachment !== null && renderTarget._depthAttachment.format.includes('stencil');
+    let formats = '';
+    for (const texture of target.textures) formats += `${texture.name}:${texture.format},`;
 
-    return `${count}:${formats}:${samples}:${depth}:${stencil}`;
+    const depthAttachment = target._depthAttachment;
+    const stencil = depthAttachment !== null && depthAttachment.format.includes('stencil');
+
+    return `${target.textures.length}:${formats}:${target.samples}:${depthAttachment !== null}:${stencil}`;
 }
 
-/**
- * Build the MRT state portion of the cache key.
- */
 function buildMrtState(mrt: MRTNode | null): string {
     if (mrt === null) {
         return 'default';
@@ -274,54 +183,35 @@ function buildMrtState(mrt: MRTNode | null): string {
     return String(mrt.id);
 }
 
-/**
- * Build the full cache key for a render context.
- */
-function buildCacheKey(renderTarget: RenderTarget | null, mrt: MRTNode | null, callDepth: number): string {
-    const attachmentState = buildAttachmentState(renderTarget);
-    const mrtState = buildMrtState(mrt);
-    return `${attachmentState}-${mrtState}-${callDepth}`;
+function buildCacheKey(target: Target, mrt: MRTNode | null): string {
+    return `${buildAttachmentState(target)}-${buildMrtState(mrt)}`;
 }
 
-/**
- * Get or create a RenderContext for the given configuration.
- *
- * - Returns cached context if configuration matches
- * - Creates new context if not found
- * - Updates dynamic values (clear values, sample count) on each access
- *
- * @param state - The RenderContexts state
- * @param renderTarget - The render target, or null for default framebuffer
- * @param mrt - The MRT node, or null
- * @param callDepth - Nesting depth for recursive render calls
- * @returns The render context for this configuration
- */
-export function getRenderContext(
-    state: RenderContextsState,
-    renderTarget: RenderTarget | null,
-    mrt: MRTNode | null,
-    callDepth: number,
-): RenderContext {
-    const cacheKey = buildCacheKey(renderTarget, mrt, callDepth);
+/** Refreshed on every access: a target can be resized or reallocated under a key that has not changed. */
+export function getRenderContext(state: RenderContextsState, target: Target, mrt: MRTNode | null): RenderContext {
+    const cacheKey = buildCacheKey(target, mrt);
 
     let context = state.contexts.get(cacheKey);
 
     if (context === undefined) {
         context = createRenderContext();
         context.mrt = mrt;
-        context.renderTarget = renderTarget;
         state.contexts.set(cacheKey, context);
     }
 
-    // Update dynamic values on each access
-    if (renderTarget !== null) {
-        context.sampleCount = renderTarget.samples === 0 ? 1 : renderTarget.samples;
-        context.depth = renderTarget._depthAttachment !== null;
-        context.stencil = renderTarget._depthAttachment !== null && renderTarget._depthAttachment.format.includes('stencil');
+    if (isRenderTarget(target)) {
+        context.renderTarget = target;
+        context.canvasTarget = null;
+        context.sampleCount = target.samples === 0 ? 1 : target.samples;
+        context.depth = target._depthAttachment !== null;
+        context.stencil = target._depthAttachment !== null && target._depthAttachment.format.includes('stencil');
+    } else {
+        context.renderTarget = null;
+        context.canvasTarget = target;
+        context.sampleCount = target.samples === 0 ? 1 : target.samples;
+        context.depth = true;
+        context.stencil = target.depthFormat.includes('stencil');
     }
-
-    context.clearDepthValue = state.defaultClearDepth;
-    context.clearStencilValue = state.defaultClearStencil;
 
     return context;
 }

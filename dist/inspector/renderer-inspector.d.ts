@@ -80,7 +80,7 @@ export type PassRecord = RenderEntry | ComputeEntry;
 export type SceneRecord = {
     /** Pass ID that owns this scene render (matches PassRecord.id). */
     passId: string;
-    /** The scene/object being rendered (Scene or QuadMesh). */
+    /** The object tree this pass walked. */
     scene: Object3D;
     /** MSAA sample count used for pipeline key lookup. */
     samples: number;
@@ -95,19 +95,6 @@ export type FrameRecord = {
     gpuMs: number | null;
     /** Hierarchical timeline of all entries (markers, render passes, compute passes) */
     timeline: TimelineEntry[];
-    /** Snapshot of buffer/pipeline stats at frame end */
-    bufferStats: {
-        bufferCount: number;
-        rawCount: number;
-    };
-    pipelineStats: {
-        renderCount: number;
-        computeCount: number;
-        bindGroupLayoutCount: number;
-    };
-    renderObjectStats: {
-        total: number;
-    };
     /** Inspectable nodes encountered this frame */
     inspectableNodes: InspectorNode<Any>[];
     /** Scene render calls encountered this frame, one entry per renderScene() call. */
@@ -201,15 +188,15 @@ export declare class RendererInspector extends InspectorBase {
      * change invalidated the timing) are discarded. Called each frame from finish().
      */
     private _glPollQueries;
-    begin(frameId: number): void;
+    begin(_frameId: number): void;
     finish(frameId: number): void;
-    beginRender(passId: string, _frameId: number): void;
-    finishRender(passId: string, _frameId: number): void;
+    beginRender(passId: string): void;
+    finishRender(passId: string): void;
     getTimestampWrites(passId: string): GPURenderPassTimestampWrites | undefined;
-    beginCompute(node: ComputeNode, _frameId: number): void;
-    finishCompute(nodeId: string, _frameId: number): void;
+    beginCompute(node: ComputeNode): void;
+    finishCompute(nodeId: string): void;
     inspect(node: InspectorNode<Any>): void;
-    beginRenderScene(passId: string, scene: Object3D, samples: number, colorFormat: string, _frameId: number): void;
+    beginRenderScene(passId: string, scene: Object3D, samples: number, colorFormat: string): void;
     /** Public API for adding performance markers from user code */
     readonly perf: {
         /**

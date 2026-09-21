@@ -1,114 +1,77 @@
 import { expect, test } from 'vitest';
-import { RenderTarget, WebGPURenderer } from '../src/index';
-import { createRenderContext, type RenderContext } from '../src/renderer/core/pass-context';
-import { resolveViewportScissor } from '../src/renderer/core/renderer-ops';
+import { Renderer } from '../src/renderer/core/renderer';
+import { createRenderTarget, WebGPUBackend } from '../src/index';
+import type { PassDesc } from '../src/renderer/core/frame';
+import type { RenderContext } from '../src/renderer/core/pass-context';
+import { resolvePassContext } from '../src/renderer/core/pass-desc';
 import { installWebGPUPolyfills } from './stub-gpu';
 
 installWebGPUPolyfills();
 
-// A headless renderer needs a device but never touches it during construction, so a stub is enough.
-// With no canvas target the pixelRatio resolves to 1, keeping the resolved rects easy to assert on.
-function makeRenderer(): WebGPURenderer {
-    return new WebGPURenderer({ headless: true, device: {} as unknown as GPUDevice });
+// The pass-context cache is the renderer's, and a fresh one needs no device at all.
+function contexts(): Renderer<WebGPUBackend>['_renderContexts'] {
+    return new Renderer(new WebGPUBackend())._renderContexts;
 }
 
-function resolve(renderer: WebGPURenderer, width: number, height: number): RenderContext {
-    const ctx = createRenderContext();
-    ctx.width = width;
-    ctx.height = height;
-    // resolveViewportScissor is the neutral render-loop helper; exercise it directly on a hand-built context.
-    resolveViewportScissor(renderer, ctx);
-    return ctx;
+/** Resolve one pass over a `width` x `height` target with whatever rects the desc names. */
+function resolve(width: number, height: number, desc: Pick<PassDesc, 'viewport' | 'scissor'>): RenderContext {
+    return resolvePassContext(contexts(), {
+        target: createRenderTarget(width, height, { depthBuffer: false }),
+        ...desc,
+    });
 }
 
-test('scissor is skipped when the test is disabled', () => {
-    const r = makeRenderer();
-    r.setScissor(10, 10, 100, 100);
-    const ctx = resolve(r, 800, 600);
-    expect(ctx.scissor).toBe(false);
+test('a pass with no scissor leaves the scissor off', () => {
+    expect(resolve(800, 600, {}).scissor).toBe(false);
 });
 
 test('an in-bounds sub-rect resolves and enables the scissor', () => {
-    const r = makeRenderer();
-    r.setScissorTest(true);
-    r.setScissor(10, 20, 100, 200);
-    const ctx = resolve(r, 800, 600);
+    const ctx = resolve(800, 600, { scissor: { x: 10, y: 20, width: 100, height: 200 } });
     expect(ctx.scissor).toBe(true);
     expect(ctx.scissorValue).toMatchObject({ x: 10, y: 20, width: 100, height: 200 });
 });
 
 test('a full-framebuffer scissor clips nothing and is skipped', () => {
-    const r = makeRenderer();
-    r.setScissorTest(true);
-    r.setScissor(0, 0, 800, 600);
-    const ctx = resolve(r, 800, 600);
-    expect(ctx.scissor).toBe(false);
+    expect(resolve(800, 600, { scissor: { x: 0, y: 0, width: 800, height: 600 } }).scissor).toBe(false);
 });
 
 test('an oversized scissor is clamped to the framebuffer', () => {
-    const r = makeRenderer();
-    r.setScissorTest(true);
-    r.setScissor(700, 500, 400, 400); // extends past 800x600
-    const ctx = resolve(r, 800, 600);
+    const ctx = resolve(800, 600, { scissor: { x: 700, y: 500, width: 400, height: 400 } });
     expect(ctx.scissor).toBe(true);
     expect(ctx.scissorValue).toMatchObject({ x: 700, y: 500, width: 100, height: 100 });
 });
 
 test('a negative origin is pulled to zero and its extent shrunk', () => {
-    const r = makeRenderer();
-    r.setScissorTest(true);
-    r.setScissor(-30, -40, 200, 200);
-    const ctx = resolve(r, 800, 600);
+    const ctx = resolve(800, 600, { scissor: { x: -30, y: -40, width: 200, height: 200 } });
     expect(ctx.scissorValue).toMatchObject({ x: 0, y: 0, width: 170, height: 160 });
 });
 
-test('viewport is resolved independently of the scissor test', () => {
-    const r = makeRenderer();
-    r.setViewport(5, 6, 320, 240, 0, 1);
-    const ctx = resolve(r, 800, 600);
+test('a viewport resolves without enabling the scissor', () => {
+    const ctx = resolve(800, 600, { viewport: { x: 5, y: 6, width: 320, height: 240, minDepth: 0, maxDepth: 1 } });
     expect(ctx.viewport).toBe(true);
     expect(ctx.viewportValue).toMatchObject({ x: 5, y: 6, width: 320, height: 240, minDepth: 0, maxDepth: 1 });
     expect(ctx.scissor).toBe(false);
 });
 
-test('a render target uses its own viewport/scissor, not the swapchain state', () => {
-    const r = makeRenderer();
-    // Swapchain compositing state that must NOT leak into the render-target pass.
-    r.setViewport(0, 0, 100, 100);
-    r.setScissorTest(true);
-    r.setScissor(0, 0, 100, 100);
-
-    const rt = new RenderTarget(256, 256, { depthBuffer: false });
-    rt.scissorTest = true;
-    rt.scissor = [32, 48, 64, 80];
-    r.renderTarget = rt;
-
-    const ctx = resolve(r, 256, 256); // render-target framebuffer dims
-    expect(ctx.scissor).toBe(true);
-    expect(ctx.scissorValue).toMatchObject({ x: 32, y: 48, width: 64, height: 80 });
-    // The swapchain viewport must not appear; the target left its own viewport null (full target).
-    expect(ctx.viewport).toBe(false);
+test('a viewport omitting its depth range spans the full range', () => {
+    const ctx = resolve(800, 600, { viewport: { x: 5, y: 6, width: 320, height: 240 } });
+    expect(ctx.viewportValue).toMatchObject({ minDepth: 0, maxDepth: 1 });
 });
 
-test('setScissor/setViewport accept a Vec4 tuple', () => {
-    const r = makeRenderer();
-    r.setScissorTest(true);
-    r.setScissor([10, 20, 100, 200]);
-    r.setViewport([5, 6, 320, 240]);
-    const ctx = resolve(r, 800, 600);
-    expect(ctx.scissorValue).toMatchObject({ x: 10, y: 20, width: 100, height: 200 });
-    expect(ctx.viewportValue).toMatchObject({ x: 5, y: 6, width: 320, height: 240, minDepth: 0, maxDepth: 1 });
-});
+test('a target is clipped only by what its own pass desc asks for', () => {
+    const state = contexts();
+    const target = createRenderTarget(256, 256, { depthBuffer: false });
 
-test('a render target with no scissor set leaves the pass scissor off', () => {
-    const r = makeRenderer();
-    r.setScissorTest(true);
-    r.setScissor(0, 0, 50, 50); // swapchain scissor — irrelevant to the target
+    const clipped = resolvePassContext(state, {
+        target,
+        viewport: { x: 8, y: 8, width: 64, height: 64 },
+        scissor: { x: 32, y: 48, width: 64, height: 80 },
+    });
+    expect(clipped.viewport).toBe(true);
+    expect(clipped.scissor).toBe(true);
 
-    const rt = new RenderTarget(256, 256, { depthBuffer: false });
-    r.renderTarget = rt;
-
-    const ctx = resolve(r, 256, 256);
-    expect(ctx.scissor).toBe(false);
-    expect(ctx.viewport).toBe(false);
+    // Same target, a desc that names neither: the previous pass's rects must not carry over.
+    const plain = resolvePassContext(state, { target });
+    expect(plain.viewport).toBe(false);
+    expect(plain.scissor).toBe(false);
 });

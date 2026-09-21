@@ -1,10 +1,53 @@
 import {
-    d, createStorageBuffer, storage, Fn, Var, If, Loop, index, globalId, instanceIndex,
-    f32, u32, vec3, vec4, mul, floor, clamp, min, max, dot, length, normalize, select,
-    atomicStore, atomicAdd, atomicLoad, attribute, varying, uniform, Uniform,
-    cameraViewMatrix, cameraProjectionMatrix, Material, Mesh, Scene, PerspectiveCamera,
-    WebGPURenderer, OrbitControls, createSphereGeometry, pass, renderOutput, RenderPipeline,
-    unproject, Inspector, type Node,
+    atomicAdd,
+    atomicLoad,
+    atomicStore,
+    attribute,
+    cameraProjectionMatrix,
+    cameraViewMatrix,
+    clamp,
+    compileCompute,
+    createCanvasTarget,
+    createMaterial,
+    createSphereGeometry,
+    createStorageBuffer,
+    d,
+    dot,
+    Fn,
+    f32,
+    floor,
+    frame,
+    fullscreen,
+    globalId,
+    If,
+    Inspector,
+    index,
+    init,
+    instanceIndex,
+    Loop,
+    length,
+    Mesh,
+    max,
+    min,
+    mul,
+    type Node,
+    normalize,
+    OrbitControls,
+    PerspectiveCamera,
+    renderOutput,
+    renderTexture,
+    Scene,
+    select,
+    storage,
+    Uniform,
+    u32,
+    uniform,
+    unproject,
+    Var,
+    varying,
+    vec3,
+    vec4,
+    webgpu,
 } from 'gpucat';
 import { vec3 as v3 } from 'math';
 
@@ -27,19 +70,19 @@ import { vec3 as v3 } from 'math';
 const N = 1000;
 const WG = 64;
 const BALL_RADIUS = 0.5;
-const CELL = 2 * BALL_RADIUS;     // a ball only touches balls in adjacent cells
-const GRID_MIN = -16;             // world-space corner of the grid
+const CELL = 2 * BALL_RADIUS; // a ball only touches balls in adjacent cells
+const GRID_MIN = -16; // world-space corner of the grid
 const GRID_DIM = Math.ceil((-2 * GRID_MIN) / CELL); // cells per axis
 const NUM_CELLS = GRID_DIM * GRID_DIM * GRID_DIM;
-const MAX_PER_CELL = 32;          // fixed per-cell capacity (overflow is dropped)
+const MAX_PER_CELL = 32; // fixed per-cell capacity (overflow is dropped)
 // DEM (spring-dashpot) contact coefficients. Tune these for feel.
-const KN = 500;                   // normal stiffness: push out of overlaps (high = snappy collisions)
-const GN = 6;                     // normal damping: lower = bouncier (restitution)
-const GT = 3;                     // tangential damping: higher = more friction / grip
-const COHESION = 5.0;             // pull toward the origin — high = fast, energetic gather
-const GLOBAL_DAMP = 0.994;        // light air drag (closer to 1 = livelier, keeps energy)
-const MOUSE_RADIUS = 6.0;         // cursor repulsion sphere
-const MOUSE_STRENGTH = 110;       // how hard the cursor shoves balls
+const KN = 500; // normal stiffness: push out of overlaps (high = snappy collisions)
+const GN = 6; // normal damping: lower = bouncier (restitution)
+const GT = 3; // tangential damping: higher = more friction / grip
+const COHESION = 5.0; // pull toward the origin — high = fast, energetic gather
+const GLOBAL_DAMP = 0.994; // light air drag (closer to 1 = livelier, keeps energy)
+const MOUSE_RADIUS = 6.0; // cursor repulsion sphere
+const MOUSE_STRENGTH = 110; // how hard the cursor shoves balls
 const DT = 1 / 60;
 
 /* storage buffers */
@@ -80,7 +123,10 @@ const mouseActive = uniform(uMouseActive);
 const clampCoord = (v: Node<d.f32>) => clamp(floor(v), f32(0), f32(GRID_DIM - 1)).toU32();
 const cellOf = (p: Node<d.vec3f>): Node<d.u32> => {
     const l = p.sub(vec3(GRID_MIN, GRID_MIN, GRID_MIN)).mul(f32(1 / CELL));
-    return clampCoord(l.z).mul(u32(GRID_DIM * GRID_DIM)).add(clampCoord(l.y).mul(u32(GRID_DIM))).add(clampCoord(l.x));
+    return clampCoord(l.z)
+        .mul(u32(GRID_DIM * GRID_DIM))
+        .add(clampCoord(l.y).mul(u32(GRID_DIM)))
+        .add(clampCoord(l.x));
 };
 
 /* pass 1: clear the grid counts */
@@ -134,10 +180,10 @@ const simulate = Fn(() => {
                                 const dist = Var('dist', length(delta));
                                 If(dist.greaterThan(f32(1e-4)), () => {
                                     If(dist.lessThan(f32(2 * BALL_RADIUS)), () => {
-                                        const n = Var('n', normalize(delta));            // contact normal
+                                        const n = Var('n', normalize(delta)); // contact normal
                                         const overlap = f32(2 * BALL_RADIUS).sub(dist);
                                         const vRel = Var('vRel', selfV.sub(index(velPrev, j).xyz));
-                                        const vn = Var('vn', dot(vRel, n));               // normal relative speed
+                                        const vn = Var('vn', dot(vRel, n)); // normal relative speed
                                         // normal spring + dashpot (restitution)
                                         force.addAssign(n.mul(f32(KN).mul(overlap).sub(f32(GN).mul(vn))));
                                         // tangential dashpot (friction)
@@ -189,26 +235,30 @@ const lightDir = normalize(vec3(0.4, 0.8, 0.45));
 const diff = max(dot(normalize(vNormal), lightDir), f32(0));
 const fragColor = vec4(vColor.mul(diff.mul(f32(0.75)).add(f32(0.25))), f32(1));
 
-const material = new Material({ vertex: clipPos, fragment: fragColor });
+const material = createMaterial({ vertex: clipPos, fragment: fragColor });
 
 /* renderer + scene */
 
-const renderer = new WebGPURenderer({ antialias: true });
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
+
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
 const inspector = new Inspector();
 renderer.inspector = inspector;
-await renderer.init();
-document.body.appendChild(renderer.domElement);
 document.body.appendChild(inspector.domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.clearColor = [0.04, 0.04, 0.06, 1];
+view.clearColor = [0.04, 0.04, 0.06, 1];
 
 const scene = new Scene();
 const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.position[2] = 22;
 scene.add(camera);
 
-const controls = new OrbitControls(camera, renderer.domElement);
+const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 
 const mesh = new Mesh(createSphereGeometry(BALL_RADIUS, 12, 8), material);
@@ -217,7 +267,7 @@ mesh.frustumCulled = false;
 scene.add(mesh);
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
@@ -232,13 +282,15 @@ const far: [number, number, number] = [0, 0, 0];
 const dir: [number, number, number] = [0, 0, 0];
 const mouseWorld: [number, number, number] = [0, 0, 0];
 
-renderer.domElement.addEventListener('pointermove', (e) => {
-    const rect = renderer.domElement.getBoundingClientRect();
+canvas.addEventListener('pointermove', (e) => {
+    const rect = canvas.getBoundingClientRect();
     ndcX.v = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     ndcY.v = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     mouseOver = true;
 });
-renderer.domElement.addEventListener('pointerleave', () => { mouseOver = false; });
+canvas.addEventListener('pointerleave', () => {
+    mouseOver = false;
+});
 
 function updateMouse() {
     if (!mouseOver) {
@@ -259,30 +311,32 @@ function updateMouse() {
 
 /* pre-warm pipelines, then run */
 
-await renderer.compileCompute(clearGrid);
-await renderer.compileCompute(bin);
-await renderer.compileCompute(simulate);
+await compileCompute(renderer, [clearGrid, bin, simulate]);
 
-const scenePass = pass(scene, camera);
-const renderPipeline = new RenderPipeline(renderer, renderOutput(scenePass.getTextureNode()));
-
+const scenePass = renderTexture(scene, camera);
+const composite = fullscreen(renderOutput(scenePass.getTextureNode()));
 const dispatchN = Math.ceil(N / WG);
 const dispatchCells = Math.ceil(NUM_CELLS / WG);
 
-function frame() {
+function update() {
     controls.update();
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
     updateMouse();
 
-    renderer.compute([
-        { node: clearGrid, dispatch: [dispatchCells, 1, 1] },
-        { node: bin, dispatch: [dispatchN, 1, 1] },
-        { node: simulate, dispatch: [dispatchN, 1, 1] },
-    ]);
-    renderPipeline.render();
+    const f = frame(renderer);
 
-    requestAnimationFrame(frame);
+    const simPass = f.compute();
+    simPass.dispatch(clearGrid, [dispatchCells, 1, 1]);
+    simPass.dispatch(bin, [dispatchN, 1, 1]);
+    simPass.dispatch(simulate, [dispatchN, 1, 1]);
+    simPass.end();
+
+    const compositePass = f.pass({ target: view });
+    compositePass.draw(composite);
+    compositePass.end();
+    f.submit();
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

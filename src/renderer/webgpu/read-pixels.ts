@@ -1,6 +1,6 @@
 import type { RenderTarget } from '../../core/render-target';
-import type { WebGPURenderer } from './renderer';
 import { getTextureData } from './textures';
+import type { WebGPUBackend } from './webgpu-backend';
 
 /**
  * Read pixels from a RenderTarget color attachment back to a tightly-packed Uint8Array.
@@ -16,7 +16,7 @@ import { getTextureData } from './textures';
  * to read a specific array layer / cube face (0..5 = +X,-X,+Y,-Y,+Z,-Z).
  */
 export async function readPixels(
-    renderer: WebGPURenderer,
+    backend: WebGPUBackend,
     renderTarget: RenderTarget,
     attachmentIndex = 0,
     layer = 0,
@@ -32,7 +32,7 @@ export async function readPixels(
         );
     }
 
-    const textureData = getTextureData(renderer.textures, tex._gpuTexture);
+    const textureData = getTextureData(backend.textures, tex._gpuTexture);
     if (!textureData) {
         throw new Error('[readPixels] render target has not been rendered to yet.');
     }
@@ -43,7 +43,7 @@ export async function readPixels(
     const bytesPerRow = Math.ceil((width * bytesPerPixel) / 256) * 256;
     const bufferSize = bytesPerRow * height;
 
-    const device = renderer.device;
+    const device = backend.device;
     const stagingBuffer = device.createBuffer({
         size: bufferSize,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,

@@ -1,4 +1,4 @@
-import { mat4, mat3, type Quat, type Vec3 } from 'math';
+import { mat3, mat4, type Quat, type Vec3 } from 'math';
 export declare class Object3D {
     readonly isObject3D = true;
     /** Brand set true on Mesh (+ subclasses); declared here so `obj.isMesh` checks type on a base ref. */
@@ -34,3 +34,5 @@ export declare class Object3D {
      */
     raycast(_raycaster: any, _intersects: any[]): void;
 }
+/** The factory form; an `Object3D` is the bare transform node other objects attach to. */
+export declare function createObject3D(): Object3D;

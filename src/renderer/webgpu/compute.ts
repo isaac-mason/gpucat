@@ -2,14 +2,14 @@ import type { GpuTexture } from '../../core/gpu-texture';
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { ComputeNode } from '../../nodes/nodes';
 import type * as d from '../../schema/schema';
+import type { DispatchRecord } from '../core/frame';
 import type { NodeManagerState } from '../core/node-manager';
 import * as NodeManager from '../core/node-manager';
 import type { ComputeContext } from '../core/pass-context';
-import type { BackendComputeEntry } from '../core/render-types';
+import type { BackendState } from './backend-state';
 import * as Bindings from './bindings';
 import * as Buffers from './buffers';
 import * as Pipelines from './pipelines';
-import * as Samplers from './samplers';
 import * as Textures from './textures';
 
 /**
@@ -37,33 +37,25 @@ export function compileComputePipeline(
     Pipelines.getForCompute(pipelines, device, nodes, computeNode, computeContext, promises);
 }
 
-/**
- * Encode and submit a batch of compute dispatches in one command encoder + one submit, then
- * regenerate mips for any written storage textures that opted in. Each entry gets its own compute
- * pass so per-node inspector hooks still work. Compute is a self-contained top-level op — it owns
- * a local encoder rather than the render-frame encoder, so it never interferes with an in-flight
- * render.
- */
-export function dispatchCompute(
-    device: GPUDevice,
-    bindings: Bindings.BindingsState,
-    buffers: Buffers.BufferCache,
-    textures: Textures.TextureCache,
-    samplers: Samplers.SamplerCache,
-    pipelines: Pipelines.PipelinesState,
+/** An inspector splits the batch one pass per entry: `timestampWrites` is a pass-descriptor field. */
+export function encodeDispatches(
+    b: BackendState,
     nodes: NodeManagerState,
     computeContext: ComputeContext,
-    entries: BackendComputeEntry[],
+    encoder: GPUCommandEncoder,
+    entries: readonly DispatchRecord[],
+    count: number,
+    label: string,
     inspector: InspectorBase | null,
+    mipDirty: Set<GpuTexture<d.StorageTexture>>,
 ): void {
+    const { device, pipelines, buffers } = b;
     const frame = nodes.nodeFrame;
+    const sharedPass = inspector === null ? encoder.beginComputePass({ label }) : null;
+    let currentPipeline: GPUComputePipeline | null = null;
 
-    const encoder = device.createCommandEncoder();
-
-    // Storage textures written this batch that want their mips regenerated after submit.
-    const mipDirty = new Set<GpuTexture<d.StorageTexture>>();
-
-    for (const entry of entries) {
+    for (let i = 0; i < count; i++) {
+        const entry = entries[i];
         const { node } = entry;
         const pipelineEntry = Pipelines.getForCompute(pipelines, device, nodes, node, computeContext);
         const { nodeBuilderState } = pipelineEntry;
@@ -82,64 +74,64 @@ export function dispatchCompute(
             inspector.perf.start(`compute: ${node.id}`);
             inspector.perf.start('updateForCompute');
         }
-        // Update node uniforms
         NodeManager.updateForCompute(nodes, node);
         if (inspector) inspector.perf.end('updateForCompute');
 
-        // Update all bindings and get GPUBindGroups
-        const gpuBindGroups = Bindings.updateComputeBindings(
-            bindings,
-            nodeBuilderState,
-            frame,
-            device,
-            buffers,
-            textures,
-            samplers,
-            entryBuffers,
-        );
+        const gpuBindGroups = Bindings.updateComputeBindings(b, nodeBuilderState, frame, entryBuffers);
 
         // Notify inspector before creating pass (so timestamp writes are available)
         let timestampWrites: GPUComputePassTimestampWrites | undefined;
         if (inspector) {
-            inspector.beginCompute(node, frame.frameId);
+            inspector.beginCompute(node);
             // key must match beginCompute's entry name (node.name ?? id) so the
             // timestamp writes land on the right slot for labelled compute nodes.
             timestampWrites = inspector.getTimestampWrites(node.name ?? node.id);
         }
 
-        const computePass = encoder.beginComputePass({ timestampWrites });
-        computePass.setPipeline(pipelineEntry.pipeline!);
+        let computePass = sharedPass;
+        if (computePass === null) {
+            computePass = encoder.beginComputePass({ label, timestampWrites });
+            currentPipeline = null;
+        }
 
-        for (let i = 0; i < gpuBindGroups.length; i++) {
-            computePass.setBindGroup(i, gpuBindGroups[i]);
+        if (currentPipeline !== pipelineEntry.pipeline) {
+            currentPipeline = pipelineEntry.pipeline!;
+            computePass.setPipeline(currentPipeline);
+        }
+
+        for (let group = 0; group < gpuBindGroups.length; group++) {
+            computePass.setBindGroup(group, gpuBindGroups[group]);
         }
 
         if (entry.indirect) {
             const gpuBuf = Buffers.ensureUploaded(buffers, device, entry.indirect, 'indirect');
             computeDispatchWorkgroupsIndirect(computePass, inspector, gpuBuf, entry.indirectOffset ?? 0);
         } else {
-            const [dx, dy, dz] = entry.dispatch!;
+            const [dx, dy, dz] = entry.counts!;
             computeDispatchWorkgroups(computePass, inspector, dx, dy, dz);
         }
 
-        computePass.end();
+        if (sharedPass === null) computePass.end();
         if (inspector) {
-            inspector.finishCompute(node.name ?? node.id, frame.frameId);
+            inspector.finishCompute(node.name ?? node.id);
             inspector.perf.end(`compute: ${node.id}`);
         }
     }
 
-    device.queue.submit([encoder.finish()]);
+    sharedPass?.end();
+}
 
-    // Regenerate mips for written storage textures so a later render pass can sample
-    // them mipmapped. Render-pass mip-gen samples through a filtering sampler, so only
-    // filterable renderable formats are supported (others would need a compute downsample).
+export function regenerateComputeMips(
+    device: GPUDevice,
+    textures: Textures.TextureCache,
+    mipDirty: Set<GpuTexture<d.StorageTexture>>,
+): void {
     for (const tex of mipDirty) {
         if (isFilterableStorageFormat(tex.format)) {
             Textures.generateTextureMipmaps(textures, device, tex as unknown as GpuTexture);
         } else {
             console.warn(
-                `[WebGPURenderer] mipmapsAutoUpdate skipped: storage format '${tex.format}' is not ` +
+                `[webgpu] mipmapsAutoUpdate skipped: storage format '${tex.format}' is not ` +
                     `filterable, so render-pass mip generation can't sample it. Set mipmapsAutoUpdate=false ` +
                     `and generate mips manually, or use a filterable format (rgba8unorm/rgba16float).`,
             );

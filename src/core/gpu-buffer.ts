@@ -501,9 +501,9 @@ export function createIndirectBuffer<T extends Any>(schema: T, data: TypedArrayF
  * const indices = createIndexBuffer(new Uint16Array([0, 1, 2, 2, 3, 0]));
  */
 export function createIndexBuffer(data: Uint16Array | Uint32Array): GpuBuffer<Any> {
+    // WGSL has no u16, so the schema is a placeholder: `getIndexFormat` reads the format off the array.
     return new GpuBuffer(u32Schema, {
-        // Cast is safe: we're storing uint16/uint32 indices, itemSize=1 matches
-        data: data as unknown as Uint32Array,
+        data: data as Uint32Array,
         usage: 'index',
         lifecycle: BufferLifecycle.REF_COUNTED,
     });

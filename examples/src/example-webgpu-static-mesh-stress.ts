@@ -2,56 +2,58 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
-    rgb,
     createBoxGeometry,
+    createCanvasTarget,
+    createMaterial,
     d,
     f32,
+    frame,
+    fullscreen,
     Inspector,
-    Material,
+    init,
     Mesh,
     modelNormalMatrix,
     modelWorldMatrix,
     mul,
     normalize,
     OrbitControls,
-    pass,
     PerspectiveCamera,
+    renderOutput,
+    renderTexture,
+    rgb,
     Scene,
     varying,
     vec3,
     vec4,
-    WebGPURenderer,
-    RenderPipeline,
-    renderOutput,
+    webgpu,
 } from 'gpucat';
 
 async function main() {
-    const renderer = new WebGPURenderer({ antialias: true });
-    renderer.inspector = new Inspector();
-    await renderer.init();
+    const canvas = document.createElement('canvas');
+    canvas.style.display = 'block';
+    document.body.appendChild(canvas);
 
-    document.body.appendChild(renderer.domElement);
+    const view = createCanvasTarget(canvas, { samples: 4 });
+    view.setPixelRatio(devicePixelRatio);
+    view.setSize(window.innerWidth, window.innerHeight);
+
+    const renderer = await init(webgpu());
+    renderer.inspector = new Inspector();
+
     document.body.appendChild((renderer.inspector as Inspector).domElement);
-    renderer.setPixelRatio(devicePixelRatio);
-    renderer.setSize(window.innerWidth, window.innerHeight);
 
     const scene = new Scene();
 
-    const camera = new PerspectiveCamera(
-        Math.PI / 4,
-        window.innerWidth / window.innerHeight,
-        0.1,
-        100,
-    );
+    const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 100);
     camera.position[2] = 50;
     scene.add(camera);
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    const controls = new OrbitControls(camera, renderer.domElement);
+    const controls = new OrbitControls(camera, canvas);
 
     window.addEventListener('resize', () => {
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        view.setSize(window.innerWidth, window.innerHeight);
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
     });
@@ -65,7 +67,7 @@ async function main() {
     const clipPosition = mul(cameraProjectionMatrix, viewPosition).toVar('clipPos');
 
     const worldNormal = mul(modelNormalMatrix, vec3(normal.x, normal.y, normal.z)).toVar('worldNormal');
-    
+
     const vNormal = varying(normalize(worldNormal), 'v_norm');
 
     const lightDirection = vec3(f32(0.6), f32(1.0), f32(0.8)).normalize().toVar('lightDir').inspect('light direction');
@@ -74,7 +76,7 @@ async function main() {
     const baseColor = rgb('#f60').toVar('baseColor');
     const litColor = vec3(baseColor.x, baseColor.y, baseColor.z).mul(diffuse).toVar('litColor');
 
-    const material = new Material({
+    const material = createMaterial({
         vertex: clipPosition,
         fragment: vec4(litColor, f32(1)),
     });
@@ -95,17 +97,20 @@ async function main() {
     // Update world matrices once - meshes are static
     scene.updateWorldMatrix();
 
-    const scenePass = pass(scene, camera);
+    const scenePass = renderTexture(scene, camera);
     const outputNode = renderOutput(scenePass.getTextureNode());
-    const renderPipeline = new RenderPipeline(renderer, outputNode);
-
-    function frame() {
-        renderPipeline.render();
+    const composite = fullscreen(outputNode);
+    function update() {
+        const f = frame(renderer);
+        const compositePass = f.pass({ target: view });
+        compositePass.draw(composite);
+        compositePass.end();
+        f.submit();
         controls.update();
-        requestAnimationFrame(frame);
+        requestAnimationFrame(update);
     }
 
-    requestAnimationFrame(frame);
+    requestAnimationFrame(update);
 }
 
 main().catch(console.error);

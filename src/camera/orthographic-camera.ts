@@ -1,8 +1,9 @@
 import { mat4 } from 'math';
-import { Camera } from './camera';
 import { CoordinateSystem } from '../core/coordinate-system';
+import { Camera } from './camera';
 
-type ViewOffset = {
+/** A sub-rectangle of a larger frustum, for tiled rendering. Set it with `setViewOffset`. */
+export type ViewOffset = {
     enabled: boolean;
     fullWidth: number;
     fullHeight: number;

@@ -6,3 +6,8 @@ export class Scene extends Object3D {
         this.name = 'Scene';
     }
 }
+
+/** The factory form; a `Scene` is the root `Object3D` a walk starts from. */
+export function createScene(): Scene {
+    return new Scene();
+}

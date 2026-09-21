@@ -13,6 +13,9 @@
 
 import type { Geometry } from '../../geometry/geometry';
 
+/** `DrawOpts.range` and `Geometry.drawRange` share this shape; the former overrides the latter. */
+export type DrawRange = { start: number; count: number };
+
 /** A draw range resolved against what the geometry actually holds. */
 export type ResolvedDrawRange = {
     /** First index (indexed draws) or first vertex (non-indexed). */
@@ -26,11 +29,12 @@ export type ResolvedDrawRange = {
  * clamping against the whole buffer lets `start + count` overrun it, which reads garbage on WebGPU and
  * is an "insufficient buffer" validation error on WebGL.
  */
-export function resolveIndexedDrawRange(geometry: Geometry): ResolvedDrawRange {
-    const first = geometry.drawRange.start;
+export function resolveIndexedDrawRange(geometry: Geometry, override?: DrawRange): ResolvedDrawRange {
+    const range = override ?? geometry.drawRange;
+    const first = range.start;
     const total = geometry.index?.array?.length ?? 0;
     const remaining = Math.max(0, total - first);
-    return { first, count: Math.min(geometry.drawRange.count, remaining) };
+    return { first, count: Math.min(range.count, remaining) };
 }
 
 /**
@@ -39,10 +43,11 @@ export function resolveIndexedDrawRange(geometry: Geometry): ResolvedDrawRange {
  * nothing to size against; 3 (one triangle) is the historical fallback rather than a meaningful
  * answer, and is kept so behaviour does not change.
  */
-export function resolveVertexDrawRange(geometry: Geometry): ResolvedDrawRange {
-    const first = geometry.drawRange.start;
+export function resolveVertexDrawRange(geometry: Geometry, override?: DrawRange): ResolvedDrawRange {
+    const range = override ?? geometry.drawRange;
+    const first = range.start;
     const positionCount = geometry.buffers.get('position')?.count;
-    const total = positionCount ?? (geometry.drawRange.count === Infinity ? 3 : geometry.drawRange.count);
+    const total = positionCount ?? (range.count === Infinity ? 3 : range.count);
     const remaining = Math.max(0, total - first);
-    return { first, count: Math.min(geometry.drawRange.count, remaining) };
+    return { first, count: Math.min(range.count, remaining) };
 }

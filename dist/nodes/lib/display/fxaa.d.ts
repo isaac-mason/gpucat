@@ -15,10 +15,10 @@ import type { TextureNode } from '../texture';
  * @returns A vec4f node containing the anti-aliased color
  *
  * @example
- * const scenePass = pass(scene, camera);
+ * const scenePass = renderTexture(scene, camera);
  * const fxaaOutput = fxaa(scenePass.getTextureNode());
  *
- * const postMaterial = new Material({
+ * const postMaterial = createMaterial({
  *     vertex: fullscreenQuadVertex,
  *     fragment: fxaaOutput,
  * });

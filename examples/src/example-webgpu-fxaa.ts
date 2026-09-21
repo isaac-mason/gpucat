@@ -3,24 +3,27 @@ import {
     cameraProjectionMatrix,
     cameraViewMatrix,
     createBoxGeometry,
+    createCanvasTarget,
+    createMaterial,
     d,
     f32,
+    frame,
+    fullscreen,
     fxaa,
     Inspector,
-    Material,
+    init,
     Mesh,
     modelWorldMatrix,
     mul,
-    pass,
     PerspectiveCamera,
-    RenderPipeline,
+    renderTexture,
     Scene,
     varying,
     vec3,
     vec4,
-    WebGPURenderer,
+    webgpu,
 } from 'gpucat';
-import { quat, type Euler } from 'math';
+import { type Euler, quat } from 'math';
 
 /**
  * FXAA Example
@@ -33,30 +36,29 @@ import { quat, type Euler } from 'math';
  * the smoothed edges with FXAA enabled.
  */
 
-const renderer = new WebGPURenderer({ antialias: false }); // Disable native AA to see FXAA effect
-renderer.inspector = new Inspector();
-await renderer.init();
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
 
-document.body.appendChild(renderer.domElement);
+const view = createCanvasTarget(canvas);
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
+renderer.inspector = new Inspector();
+
 document.body.appendChild((renderer.inspector as Inspector).domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
 
 const scene = new Scene();
 
-const camera = new PerspectiveCamera(
-    Math.PI / 4,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    100,
-);
+const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 100);
 camera.position[2] = 4;
 scene.add(camera);
 scene.updateWorldMatrix();
 camera.updateViewMatrix();
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
@@ -74,13 +76,12 @@ const clipPos = mul(cameraProjectionMatrix, viewPos);
 const vWorldPos = varying(worldPos);
 
 // fragment: use world position as color for high contrast edges
-const outputColor = vec4(vec3(
-    vWorldPos.x.add(f32(1)).mul(f32(0.5)),
-    vWorldPos.y.add(f32(1)).mul(f32(0.5)),
-    vWorldPos.z.add(f32(1)).mul(f32(0.5)),
-), f32(1));
+const outputColor = vec4(
+    vec3(vWorldPos.x.add(f32(1)).mul(f32(0.5)), vWorldPos.y.add(f32(1)).mul(f32(0.5)), vWorldPos.z.add(f32(1)).mul(f32(0.5))),
+    f32(1),
+);
 
-const mat = new Material({
+const mat = createMaterial({
     vertex: clipPos,
     fragment: outputColor,
     cullMode: 'back',
@@ -96,31 +97,33 @@ scene.add(mesh);
 /* post-processing with FXAA */
 
 // scene pass renders to texture
-const scenePass = pass(scene, camera);
+const scenePass = renderTexture(scene, camera);
 const sceneTexture = scenePass.getTextureNode();
 
 // apply FXAA to the scene texture
 const fxaaOutput = fxaa(sceneTexture).inspect('FXAA Output');
 
 // create render pipeline
-const renderPipeline = new RenderPipeline(renderer, fxaaOutput);
-
+const composite = fullscreen(fxaaOutput);
 /* inspector: FXAA toggle */
 
 const inspector = renderer.inspector as Inspector;
 const params = inspector.createParameters('FXAA');
 const state = { enabled: true };
-params.add(state, 'enabled').name('Enabled').onChange(() => {
-    renderPipeline.outputNode = state.enabled ? fxaaOutput : scenePass;
-    renderPipeline.needsUpdate = true;
-});
+params
+    .add(state, 'enabled')
+    .name('Enabled')
+    .onChange(() => {
+        composite.material.fragment = state.enabled ? fxaaOutput : scenePass;
+        composite.material.needsUpdate = true;
+    });
 
 /* animation loop */
 
 let angle = 0;
 let prevTime = performance.now() / 1000;
 
-function frame() {
+function update() {
     const now = performance.now() / 1000;
     const dt = now - prevTime;
     prevTime = now;
@@ -130,8 +133,16 @@ function frame() {
     quat.fromEuler(mesh.quaternion, [angle * 0.3, angle, 0, 'yxz'] as Euler);
     mesh.updateWorldMatrix();
 
-    renderPipeline.render();
-    requestAnimationFrame(frame);
+    const f = frame(renderer);
+
+    const compositePass = f.pass({ target: view });
+
+    compositePass.draw(composite);
+
+    compositePass.end();
+
+    f.submit();
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

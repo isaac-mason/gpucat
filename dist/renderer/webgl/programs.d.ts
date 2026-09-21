@@ -1,9 +1,8 @@
 /**
  * programs.ts (webgl) - GLSL program compile/link + cache.
  *
- * Ports the reference renderer's `compile()` program half: create+compile a vertex and fragment
- * shader, attach + link, and check COMPILE_STATUS/LINK_STATUS (throwing with the info log on
- * failure). The GLSL emitter returns a single combined `code` string with the two stages separated
+ * Create and compile a vertex and fragment shader, attach and link, and check
+ * COMPILE_STATUS/LINK_STATUS, throwing with the info log on failure. The GLSL emitter returns a single combined `code` string with the two stages separated
  * by a `// ---- fragment stage ----` marker (see builder.ts `compileGlsl`); we split on it.
  *
  * gpucat's GLSL emitter declares uniforms as `layout(std140) uniform <Block> { … } <inst>;` and

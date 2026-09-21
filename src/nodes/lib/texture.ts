@@ -1540,7 +1540,7 @@ export function textureSampleCompareLevel(
 export type StorageCoord = Node<d.u32> | Node<d.i32> | Node<d.vec2u> | Node<d.vec2i> | Node<d.vec3u> | Node<d.vec3i>;
 
 /** vec4 value node accepted by storage textureStore. */
-export type StorageValue = Node<d.vec4f> | Node<d.vec4i> | Node<d.vec4u>;
+export type StorageValue = Node<d.vec4f | d.vec4i | d.vec4u>;
 
 /**
  * textureLoad - Load a texel directly without filtering.

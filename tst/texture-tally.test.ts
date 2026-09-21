@@ -11,6 +11,7 @@ import {
     tallySetTexture,
 } from '../src/renderer/core/info';
 import { bytesPerTexel, gpuTextureBytes } from '../src/renderer/core/texture-size';
+import type { Source } from '../src/texture/source';
 
 /** The fields `gpuTextureBytes` reads; a real GpuTexture needs a device to construct. */
 function texture(o: Partial<Parameters<typeof gpuTextureBytes>[0]> = {}) {
@@ -62,7 +63,8 @@ describe('byte estimation', () => {
 
     test('explicit mip images win over the auto chain', () => {
         // level 0 plus the supplied levels: 16x16 + 8x8, not the full chain to 1x1.
-        const bytes = gpuTextureBytes(texture({ width: 16, height: 16, mipmaps: [{}], generateMipmaps: true }));
+        // The tally counts levels, never reads them, so an empty stand-in is enough for one explicit level.
+        const bytes = gpuTextureBytes(texture({ width: 16, height: 16, mipmaps: [{} as Source], generateMipmaps: true }));
         expect(bytes).toBe((16 * 16 + 8 * 8) * 4);
     });
 

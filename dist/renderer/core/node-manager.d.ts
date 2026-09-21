@@ -26,15 +26,6 @@ export declare function createNodeManagerState(): NodeManagerState;
  */
 export declare function getNodeFrameForRender(state: NodeManagerState, renderObject: RenderObject): NodeFrame;
 /**
- * Get the NodeFrame with minimal context (for compute or non-object renders).
- */
-export declare function getNodeFrame(state: NodeManagerState): NodeFrame;
-/**
- * Get the NodeBuilderState for a RenderObject.
- * Returns null if not compiled yet.
- */
-export declare function getNodeBuilderState(state: NodeManagerState, renderObject: RenderObject): NodeBuilderState | null;
-/**
  * Set the NodeBuilderState for a RenderObject.
  */
 export declare function setNodeBuilderState(state: NodeManagerState, renderObject: RenderObject, nodeState: NodeBuilderState): void;

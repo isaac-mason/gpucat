@@ -2,12 +2,11 @@ import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
 import type { StorageNode } from '../../nodes/nodes';
 import type { Any } from '../../schema/schema';
-import type { RendererInfo } from '../core/info';
-import { primaryBufferUsage, recordBufferWrite } from '../core/info';
-
 /** the one usage worth reporting, most specific first. A buffer often carries several
  *  flags (`storage` + `vertex`), and the specific one is what identifies it. */
 import { BufferUpload, planBufferUpload } from '../core/buffer-upload';
+import type { RendererInfo } from '../core/info';
+import { primaryBufferUsage, recordBufferWrite } from '../core/info';
 
 type CacheEntry = { buf: GPUBuffer; version: number };
 
@@ -44,17 +43,18 @@ export function createBufferCache(info: RendererInfo): BufferCache {
 }
 
 /**
- * Set up the _onDispose callback on a GpuBuffer to destroy its GPU buffer.
- * Only sets the callback once (idempotent).
+ * Chained, not assigned: another module may already hang a callback on this buffer's dispose, and
+ * whichever registers second must not drop the first. Mirrors `webgl/buffers.ts`.
  */
 function setupDispose(cache: BufferCache, buffer: GpuBuffer): void {
-    if (buffer._onDispose) return;
-
+    const previous = buffer._onDispose;
     buffer._onDispose = () => {
+        previous?.();
         const entry = cache.bufferMap.get(buffer);
-        if (entry) {
-            entry.buf.destroy();
-        }
+        if (!entry) return;
+        entry.buf.destroy();
+        cache.bufferCount--;
+        cache.bufferMap.delete(buffer);
     };
 }
 
@@ -103,7 +103,11 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
         entry?.buf.destroy();
         // 4-byte alignment is a device requirement, so the size is decided here, not in the plan.
         const buf = device.createBuffer({ size: alignTo4(arr.byteLength), usage: deriveGPUUsage(buffer) });
-        if (!entry) cache.bufferCount++;
+        // Both under the same guard: a reallocation must not count twice, nor hook dispose twice.
+        if (!entry) {
+            cache.bufferCount++;
+            setupDispose(cache, buffer);
+        }
 
         device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
         recordBufferWrite(cache.info, arr.byteLength, usage, true, label);
@@ -112,7 +116,6 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
         // the allocate path wrote everything, so pending ranges are already covered; dropping them
         // stops the next frame replaying them as a redundant partial write.
         buffer.clearUpdateRanges();
-        setupDispose(cache, buffer);
         buffer.onUpload?.();
         return buf;
     }

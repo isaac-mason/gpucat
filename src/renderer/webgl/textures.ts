@@ -24,6 +24,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
+import type { ResolvedStorageBufferTexture } from '../../nodes/lib/texture';
 import {
     createTextureTally,
     createTextureTallyEntry,
@@ -35,7 +36,6 @@ import {
 } from '../core/info';
 import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
 import { gpuTextureBytes, mipLevelCountFor } from '../core/texture-size';
-import type { ResolvedStorageBufferTexture } from '../../nodes/lib/texture';
 import { mergeUpdateRanges } from '../core/update-ranges';
 
 /** GL format triple for a color/depth texture: the sized internal format + upload format + type. */
@@ -70,7 +70,7 @@ function glFormat(gl: WebGL2RenderingContext, format: string): GlFormat {
             // WebGL2 core has no BGRA internal format. Uploading as RGBA8 would silently reorder the
             // B and R channels (wrong colors), so reject rather than corrupt the result.
             throw new Error(
-                '[WebGLRenderer] bgra8unorm is not supported on the WebGL2 backend (no BGRA internal format); ' +
+                '[webgl] bgra8unorm is not supported on the WebGL2 backend (no BGRA internal format); ' +
                     "use 'rgba8unorm' instead.",
             );
         case 'rg8unorm':
@@ -151,7 +151,7 @@ function glFormat(gl: WebGL2RenderingContext, format: string): GlFormat {
             };
 
         default:
-            throw new Error(`[WebGLRenderer] texture format '${format}' is not supported on the WebGL2 backend.`);
+            throw new Error(`[webgl] texture format '${format}' is not supported on the WebGL2 backend.`);
     }
 }
 
@@ -219,7 +219,7 @@ function canGenerateMipmap(gl: WebGL2RenderingContext, format: string): boolean 
         if (!mipmapWarned.has(format)) {
             mipmapWarned.add(format);
             console.warn(
-                `[WebGLRenderer] skipping generateMipmap for '${format}': 32-bit float linear filtering ` +
+                `[webgl] skipping generateMipmap for '${format}': 32-bit float linear filtering ` +
                     `(OES_texture_float_linear) is unavailable, so mip generation would error.`,
             );
         }
@@ -228,7 +228,7 @@ function canGenerateMipmap(gl: WebGL2RenderingContext, format: string): boolean 
     // integer
     if (!mipmapWarned.has(format)) {
         mipmapWarned.add(format);
-        console.warn(`[WebGLRenderer] skipping generateMipmap for integer format '${format}': not texture-filterable.`);
+        console.warn(`[webgl] skipping generateMipmap for integer format '${format}': not texture-filterable.`);
     }
     return false;
 }
@@ -240,7 +240,7 @@ function glTarget(gl: WebGL2RenderingContext, texture: GpuTexture): number {
             return gl.TEXTURE_CUBE_MAP;
         case 'cube-array':
             // WebGL2 core has no cube-array texture target (no GL_TEXTURE_CUBE_MAP_ARRAY).
-            throw new Error('[WebGLRenderer] cube-array textures are not supported on the WebGL2 backend.');
+            throw new Error('[webgl] cube-array textures are not supported on the WebGL2 backend.');
         case '2d-array':
             return gl.TEXTURE_2D_ARRAY;
         case '3d':
@@ -443,7 +443,7 @@ export function updateStorageBufferTexture(
     const arr = buffer.array;
     if (arr == null) {
         throw new Error(
-            '[WebGLRenderer] storage() read-lowering: the storage buffer has no CPU `array` to reinterpret ' +
+            '[webgl] storage() read-lowering: the storage buffer has no CPU `array` to reinterpret ' +
                 '(its data was released after upload); keep it resident to sample it on WebGL2.',
         );
     }
@@ -456,7 +456,7 @@ export function updateStorageBufferTexture(
     const max = state.maxTextureSize;
     if (width > max || height > max) {
         throw new Error(
-            `[WebGLRenderer] storage() read-lowering: the buffer needs a ${width}×${height} texel grid, which ` +
+            `[webgl] storage() read-lowering: the buffer needs a ${width}×${height} texel grid, which ` +
                 `exceeds this device's MAX_TEXTURE_SIZE=${max}; split or reshape the buffer.`,
         );
     }
@@ -468,7 +468,7 @@ export function updateStorageBufferTexture(
     let data = state.bufferData.get(buffer);
     if (!data) {
         const texture = gl.createTexture();
-        if (!texture) throw new Error('[WebGLRenderer] gl.createTexture returned null (storage buffer texture).');
+        if (!texture) throw new Error('[webgl] gl.createTexture returned null (storage buffer texture).');
         state.all.add(texture);
         gl.bindTexture(gl.TEXTURE_2D, texture);
         // Allocate the full (possibly padded) grid, then fill from the buffer's bytes.
@@ -552,7 +552,7 @@ function ensureGlTexture(gl: WebGL2RenderingContext, state: TextureCache, textur
     let data = state.data.get(texture);
     if (!data) {
         const glTexture = gl.createTexture();
-        if (!glTexture) throw new Error('[WebGLRenderer] gl.createTexture returned null.');
+        if (!glTexture) throw new Error('[webgl] gl.createTexture returned null.');
         state.all.add(glTexture);
         setupTextureDispose(gl, state, texture);
         data = {
@@ -694,7 +694,16 @@ function uploadPartialRegion(gl: WebGL2RenderingContext, texture: GpuTexture, da
                 const typed = typedArrayOf(texture.sources[layer]?.data);
                 if (!typed) continue;
                 gl.texSubImage3D(
-                    gl.TEXTURE_2D_ARRAY, r.level, r.x, r.y, layer, r.width, r.height, 1, format, type,
+                    gl.TEXTURE_2D_ARRAY,
+                    r.level,
+                    r.x,
+                    r.y,
+                    layer,
+                    r.width,
+                    r.height,
+                    1,
+                    format,
+                    type,
                     typed as ArrayBufferView,
                 );
             }
@@ -706,7 +715,16 @@ function uploadPartialRegion(gl: WebGL2RenderingContext, texture: GpuTexture, da
         if (!typed) return;
         setUnpackWindow(gl, levelWidth, levelHeight, r.x, r.y, r.z);
         gl.texSubImage3D(
-            gl.TEXTURE_2D_ARRAY, r.level, r.x, r.y, r.z, r.width, r.height, r.depth, format, type,
+            gl.TEXTURE_2D_ARRAY,
+            r.level,
+            r.x,
+            r.y,
+            r.z,
+            r.width,
+            r.height,
+            r.depth,
+            format,
+            type,
             typed as ArrayBufferView,
         );
         return;
@@ -797,7 +815,7 @@ function upload3D(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTextu
     if (texture.mipmaps.length > 0) {
         // Per-level 3D mip upload isn't wired here; texStorage3D + a single level-0 fill is the
         // supported path. (No current caller supplies explicit 3D mips.)
-        throw new Error('[WebGLRenderer] explicit mipmaps for 3D textures are not supported on the WebGL2 backend.');
+        throw new Error('[webgl] explicit mipmaps for 3D textures are not supported on the WebGL2 backend.');
     }
 
     // 3D storage is immutable; allocate then fill with texSubImage3D. Filterable formats only for
@@ -848,7 +866,7 @@ function uploadExplicitMips(gl: WebGL2RenderingContext, texture: GpuTexture, dat
             // not expressible in a single call and has no current caller.
         } else if (dim === 'cube') {
             // One face image per Source is ambiguous for cube mips; not supported.
-            throw new Error('[WebGLRenderer] explicit mipmaps for cube textures are not supported on the WebGL2 backend.');
+            throw new Error('[webgl] explicit mipmaps for cube textures are not supported on the WebGL2 backend.');
         } else {
             const { internalFormat } = data.fmt;
             if (typed) {
@@ -918,12 +936,12 @@ export function updateTexture(gl: WebGL2RenderingContext, state: TextureCache, t
     // same GL object — a second `texStorage2D` errors with INVALID_OPERATION and leaves the OLD size in
     // place, giving a size-mismatched FBO attachment (FRAMEBUFFER_INCOMPLETE_ATTACHMENT on strict
     // drivers). Delete the stale GL texture and mint a fresh one so the new storage is specified cleanly.
-    // (This is the path a resized PassNode render target — e.g. a 4× rgba16float MRT pass — takes.)
+    // (This is the path a resized RenderTextureNode render target — e.g. a 4× rgba16float MRT pass — takes.)
     if (data.allocated) {
         gl.deleteTexture(data.texture);
         state.all.delete(data.texture);
         const fresh = gl.createTexture();
-        if (!fresh) throw new Error('[WebGLRenderer] gl.createTexture returned null.');
+        if (!fresh) throw new Error('[webgl] gl.createTexture returned null.');
         state.all.add(fresh);
         data.texture = fresh;
         data.allocated = false;
@@ -1028,9 +1046,4 @@ export function disposeTextureCache(gl: WebGL2RenderingContext, state: TextureCa
     for (const tex of state.all) gl.deleteTexture(tex);
     state.all.clear();
     resetTextureTally(state.tally);
-}
-
-/** Number of GL textures currently allocated. */
-export function getTextureCacheStats(state: TextureCache): { textureCount: number } {
-    return { textureCount: state.tally.count };
 }

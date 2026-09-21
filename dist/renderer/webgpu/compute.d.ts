@@ -1,23 +1,18 @@
+import type { GpuTexture } from '../../core/gpu-texture';
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { ComputeNode } from '../../nodes/nodes';
+import type * as d from '../../schema/schema';
+import type { DispatchRecord } from '../core/frame';
 import type { NodeManagerState } from '../core/node-manager';
 import type { ComputeContext } from '../core/pass-context';
-import type { BackendComputeEntry } from '../core/render-types';
-import * as Bindings from './bindings';
-import * as Buffers from './buffers';
+import type { BackendState } from './backend-state';
 import * as Pipelines from './pipelines';
-import * as Samplers from './samplers';
 import * as Textures from './textures';
 /**
  * Pre-compile a compute pipeline for the renderer's `compileCompute()`: build (or fetch) the compute
  * pipeline for `computeNode`, pushing any async compilation promise onto `promises`.
  */
 export declare function compileComputePipeline(device: GPUDevice, pipelines: Pipelines.PipelinesState, nodes: NodeManagerState, computeNode: ComputeNode, computeContext: ComputeContext, promises: Promise<void>[]): void;
-/**
- * Encode and submit a batch of compute dispatches in one command encoder + one submit, then
- * regenerate mips for any written storage textures that opted in. Each entry gets its own compute
- * pass so per-node inspector hooks still work. Compute is a self-contained top-level op — it owns
- * a local encoder rather than the render-frame encoder, so it never interferes with an in-flight
- * render.
- */
-export declare function dispatchCompute(device: GPUDevice, bindings: Bindings.BindingsState, buffers: Buffers.BufferCache, textures: Textures.TextureCache, samplers: Samplers.SamplerCache, pipelines: Pipelines.PipelinesState, nodes: NodeManagerState, computeContext: ComputeContext, entries: BackendComputeEntry[], inspector: InspectorBase | null): void;
+/** An inspector splits the batch one pass per entry: `timestampWrites` is a pass-descriptor field. */
+export declare function encodeDispatches(b: BackendState, nodes: NodeManagerState, computeContext: ComputeContext, encoder: GPUCommandEncoder, entries: readonly DispatchRecord[], count: number, label: string, inspector: InspectorBase | null, mipDirty: Set<GpuTexture<d.StorageTexture>>): void;
+export declare function regenerateComputeMips(device: GPUDevice, textures: Textures.TextureCache, mipDirty: Set<GpuTexture<d.StorageTexture>>): void;

@@ -1,6 +1,6 @@
+import type { Uniform } from '../core/uniform';
 import type { Node } from '../nodes/nodes';
 import type { Any } from '../schema/schema';
-import type { Uniform } from '../core/uniform';
 /**
  * Back-face stencil op overrides. WebGPU applies stencil ops per face; by default gpucat uses the
  * material's stencil ops for both faces. Set `stencilBack` to give back faces different ops (e.g.
@@ -158,3 +158,5 @@ export declare class Material {
      */
     dispose(): void;
 }
+/** The factory form, matching `createBoxGeometry` and the other resource constructors. */
+export declare function createMaterial(opts: MaterialOptions): Material;

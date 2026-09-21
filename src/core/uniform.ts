@@ -1,16 +1,21 @@
-import type { Any, Infer, TypedArrayFor } from '../schema/schema';
+import { type Any, type Infer, type TypedArrayFor, typedArrayCtorOf } from '../schema/schema';
 
-export type UniformValue<T extends Any = Any> =
-    Any extends T
-        ? number | number[] | Float32Array | Int32Array | Uint32Array
-        : Infer<T> | number[] | TypedArrayFor<T>;
+/** What may be assigned to a uniform: the schema's own shape, a plain array, or a matching typed array. */
+export type UniformValue<T extends Any = Any> = Any extends T
+    ? number | number[] | Float32Array | Int32Array | Uint32Array
+    : Infer<T> | number[] | TypedArrayFor<T>;
+
+/** What a uniform holds: no `number[]`, since a plain array is packed on write into the schema's own array. */
+export type UniformStored<T extends Any = Any> = Any extends T
+    ? number | Float32Array | Int32Array | Uint32Array
+    : Infer<T> | TypedArrayFor<T>;
 
 /**
  * Update frequency for uniform groups.
  */
 export const UniformUpdateType = {
-    NONE:   'none',
-    FRAME:  'frame',
+    NONE: 'none',
+    FRAME: 'frame',
     RENDER: 'render',
     OBJECT: 'object',
 } as const;
@@ -25,12 +30,7 @@ export class UniformGroup {
     readonly order: number;
     readonly updateType: UniformUpdateType;
 
-    constructor(
-        name: string,
-        shared: boolean,
-        order: number,
-        updateType: UniformUpdateType = UniformUpdateType.NONE
-    ) {
+    constructor(name: string, shared: boolean, order: number, updateType: UniformUpdateType = UniformUpdateType.NONE) {
         this.name = name;
         this.shared = shared;
         this.order = order;
@@ -39,18 +39,12 @@ export class UniformGroup {
 }
 
 /** Create a per-object (non-shared) uniform group. */
-export const uniformGroup = (
-    name: string,
-    order = 1,
-    updateType: UniformUpdateType = UniformUpdateType.NONE
-) => new UniformGroup(name, false, order, updateType);
+export const uniformGroup = (name: string, order = 1, updateType: UniformUpdateType = UniformUpdateType.NONE) =>
+    new UniformGroup(name, false, order, updateType);
 
 /** Create a shared uniform group. */
-export const sharedUniformGroup = (
-    name: string,
-    order = 0,
-    updateType: UniformUpdateType = UniformUpdateType.NONE
-) => new UniformGroup(name, true, order, updateType);
+export const sharedUniformGroup = (name: string, order = 0, updateType: UniformUpdateType = UniformUpdateType.NONE) =>
+    new UniformGroup(name, true, order, updateType);
 
 /**
  * frameGroup, shared uniforms updated once per frame.
@@ -95,7 +89,7 @@ export class Uniform<T extends Any = Any> {
     /** Determines @group index, update cadence, and packing. Mutable, but only
      *  read at compile time, set it before the owning node is first rendered. */
     group: UniformGroup;
-    value: UniformValue<T> | null = null;
+    private _value: UniformStored<T> | null = null;
 
     constructor(schema: T, initialValue?: UniformValue<T>, group: UniformGroup = objectGroup) {
         this.schema = schema;
@@ -103,5 +97,23 @@ export class Uniform<T extends Any = Any> {
         if (initialValue !== undefined) {
             this.value = initialValue;
         }
+    }
+
+    get value(): UniformStored<T> | null {
+        return this._value;
+    }
+
+    /** A typed array is adopted by reference, so writing through it keeps updating this uniform. */
+    set value(next: UniformValue<T> | null) {
+        // Only a flat run of numbers packs. An array of vectors or matrices is already `Infer<T>`, and
+        // `set` would flatten it to NaN at the wrong length.
+        if (!Array.isArray(next) || typeof next[0] !== 'number') {
+            this._value = next as UniformStored<T> | null;
+            return;
+        }
+        const ArrayCtor = typedArrayCtorOf(this.schema);
+        const packed = new ArrayCtor(next.length);
+        packed.set(next as number[]);
+        this._value = packed as UniformStored<T>;
     }
 }

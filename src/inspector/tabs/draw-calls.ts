@@ -17,8 +17,8 @@
 import { getIndexFormat } from '../../core/gpu-buffer';
 import type { NodeBuilderState } from '../../renderer/core/node-builder-state';
 import type { RenderObject } from '../../renderer/core/render-object';
-import type { InspectableRenderer } from '../inspector-base';
 import type { Inspector } from '../inspector';
+import type { InspectableRenderer } from '../inspector-base';
 import { Item } from '../ui/item';
 import { List } from '../ui/list';
 import { Tab } from '../ui/tab';
@@ -152,7 +152,7 @@ export class DrawCalls extends Tab {
         const passBuckets = new Map<string, RenderObject[]>();
         for (const ro of liveROs) {
             if (_isInternalMesh(ro)) continue;
-            const passId = ro.passId || 'default';
+            const passId = ro.lastPassLabel || 'default';
             let bucket = passBuckets.get(passId);
             if (!bucket) {
                 bucket = [];

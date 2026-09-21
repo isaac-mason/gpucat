@@ -2,26 +2,29 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    compile,
+    createCanvasTarget,
+    createMaterial,
     createPlaneGeometry,
     d,
     f32,
+    frame,
+    fullscreen,
     Inspector,
-    Material,
+    init,
     Mesh,
     modelWorldMatrix,
     mul,
-    type Node,
     OrbitControls,
     PerspectiveCamera,
-    pass,
-    RenderPipeline,
     renderOutput,
+    renderTexture,
     Scene,
     Texture,
     texture,
     varying,
     vec4,
-    WebGPURenderer,
+    webgpu,
 } from 'gpucat';
 import { quat } from 'math';
 
@@ -47,14 +50,18 @@ async function createCheckerboardTexture(size = 512, squares = 64): Promise<Imag
 }
 
 async function main() {
-    const renderer = new WebGPURenderer({ antialias: true });
-    renderer.inspector = new Inspector();
-    await renderer.init();
+    const canvas = document.createElement('canvas');
+    canvas.style.display = 'block';
+    document.body.appendChild(canvas);
 
-    document.body.appendChild(renderer.domElement);
+    const view = createCanvasTarget(canvas, { samples: 4 });
+    view.setPixelRatio(devicePixelRatio);
+    view.setSize(window.innerWidth, window.innerHeight);
+
+    const renderer = await init(webgpu());
+    renderer.inspector = new Inspector();
+
     document.body.appendChild((renderer.inspector as Inspector).domElement);
-    renderer.setPixelRatio(devicePixelRatio);
-    renderer.setSize(window.innerWidth, window.innerHeight);
 
     const scene = new Scene();
 
@@ -68,11 +75,11 @@ async function main() {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    const controls = new OrbitControls(camera, renderer.domElement);
+    const controls = new OrbitControls(camera, canvas);
     controls.target = [0, 0, 0];
 
     window.addEventListener('resize', () => {
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        view.setSize(window.innerWidth, window.innerHeight);
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
     });
@@ -101,7 +108,7 @@ async function main() {
     textureNoMipmaps.needsUpdate = true;
 
     // Helper to create material for a texture
-    function createMaterial(tex: Texture) {
+    function materialForTexture(tex: Texture) {
         const position = attribute('position', d.vec3f);
         const uvAttr = attribute('uv', d.vec2f);
 
@@ -116,16 +123,16 @@ async function main() {
         const vUv = varying(scaledUv, `v_uv_${tex.id}`);
 
         const texNode = texture(tex);
-        const texColor = texNode.sample(vUv as unknown as Node<d.vec2f>);
+        const texColor = texNode.sample(vUv);
 
-        return new Material({
+        return createMaterial({
             vertex: clipPosition,
             fragment: vec4(texColor.xyz, f32(1)),
         });
     }
 
-    const materialMipmapped = createMaterial(textureMipmapped);
-    const materialNoMipmaps = createMaterial(textureNoMipmaps);
+    const materialMipmapped = materialForTexture(textureMipmapped);
+    const materialNoMipmaps = materialForTexture(textureNoMipmaps);
 
     // Create two floor planes side by side
     // rotate XY plane to XZ orientation for floor
@@ -149,12 +156,11 @@ async function main() {
 
     scene.updateWorldMatrix();
 
-    await renderer.compile(scene, camera);
+    await compile(renderer, [meshMipmapped, meshNoMipmaps], view, camera);
 
-    const scenePass = pass(scene, camera);
+    const scenePass = renderTexture(scene, camera);
     const outputNode = renderOutput(scenePass.getTextureNode());
-    const renderPipeline = new RenderPipeline(renderer, outputNode);
-
+    const composite = fullscreen(outputNode);
     // Add UI overlay
     const overlay = document.createElement('div');
     overlay.style.cssText = `
@@ -187,15 +193,23 @@ async function main() {
     `;
     document.body.appendChild(overlay);
 
-    function frame() {
+    function update() {
         controls.update();
         camera.updateViewMatrix();
 
-        renderPipeline.render();
-        requestAnimationFrame(frame);
+        const f = frame(renderer);
+
+        const compositePass = f.pass({ target: view });
+
+        compositePass.draw(composite);
+
+        compositePass.end();
+
+        f.submit();
+        requestAnimationFrame(update);
     }
 
-    requestAnimationFrame(frame);
+    requestAnimationFrame(update);
 }
 
 main().catch(console.error);

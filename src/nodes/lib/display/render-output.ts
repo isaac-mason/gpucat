@@ -31,7 +31,7 @@ export type RenderOutputOptions = {
  * Wrap `inputNode` in tone-mapping and color-space conversion.
  *
  * Returns a `Node<d.vec4f>` suitable for final output:
- * `renderer.render(renderOutput(scenePass.getTextureNode()))`.
+ * `fullscreen(renderOutput(scenePass.getTextureNode()))`, drawn in a pass to the canvas.
  */
 export function renderOutput(inputNode: Node<d.vec4f>, options: RenderOutputOptions = {}): Node<d.vec4f> {
     const toneMapping = options.toneMapping ?? 'aces';

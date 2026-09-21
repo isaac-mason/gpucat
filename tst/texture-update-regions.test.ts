@@ -1,28 +1,27 @@
 import { describe, expect, test } from 'vitest';
+import { GpuTexture } from '../src/core/gpu-texture';
 import {
     addRegion,
     deriveMipRegion,
     normalizeRegion,
-    regionTexelCount,
     regionsFromLinearRun,
-    tryMergeRegions,
+    regionTexelCount,
     type TextureRegion,
+    tryMergeRegions,
 } from '../src/core/texture-region';
-import { createStructTexture, DataTexture } from '../src/texture/data-texture';
-import { ArrayTexture } from '../src/texture/array-texture';
-import { CubeTexture } from '../src/texture/cube-texture';
-import { GpuTexture } from '../src/core/gpu-texture';
-import { Source } from '../src/texture/source';
 import { struct } from '../src/nodes/lib/core';
 import { structFieldLayout } from '../src/schema/pack';
 import * as d from '../src/schema/schema';
+import { ArrayTexture } from '../src/texture/array-texture';
+import { CubeTexture } from '../src/texture/cube-texture';
+import { createStructTexture, DataTexture } from '../src/texture/data-texture';
+import { Source } from '../src/texture/source';
 
 // Texture dirty tracking is a list of boxes, merged exactly on insert. The two properties that matter:
 // a merge never picks up a clean texel (no bounding-boxing), and a small write never dirties more than
 // it touched. Both are what the old linear-range + covering-row-span model could not give.
 
-const region = (r: Partial<TextureRegion>): TextureRegion =>
-    normalizeRegion(r, { width: 1024, height: 1024, depth: 8 });
+const region = (r: Partial<TextureRegion>): TextureRegion => normalizeRegion(r, { width: 1024, height: 1024, depth: 8 });
 
 describe('regionsFromLinearRun - linear run to exact boxes', () => {
     test('a run inside one row is a single 1-row box, NOT the whole row', () => {
@@ -163,7 +162,7 @@ describe('addRegion - insertion and coalescing', () => {
 describe('DataTexture.packAtIndex - the producer', () => {
     const Rec = struct('Rec', { color: d.vec4f, id: d.u32 });
     const { texelStride } = structFieldLayout(Rec as never);
-    const value = { color: [0.25, 0.5, 0.75, 1], id: 7 };
+    const value: { color: [number, number, number, number]; id: number } = { color: [0.25, 0.5, 0.75, 1], id: 7 };
 
     test('a small record does not dirty the whole row', () => {
         const tex = createStructTexture(Rec, 4096);
@@ -271,9 +270,7 @@ describe('wrapper surface - each class in its own vocabulary', () => {
     test('ArrayTexture.addUpdateLayer lowers to a z region', () => {
         const tex = new ArrayTexture(new Uint8Array(4 * 4 * 3 * 4), 4, 4, 3, { format: 'rgba8unorm' });
         tex.addUpdateLayer(2);
-        expect(tex._gpuTexture.updateRegions).toEqual([
-            { x: 0, y: 0, z: 2, width: 4, height: 4, depth: 1, level: 0 },
-        ]);
+        expect(tex._gpuTexture.updateRegions).toEqual([{ x: 0, y: 0, z: 2, width: 4, height: 4, depth: 1, level: 0 }]);
     });
 
     test('ArrayTexture.addUpdateLayer takes a sub-rect of that layer', () => {

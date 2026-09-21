@@ -5,7 +5,7 @@
  *
  *  - `bufferMap` keys by `GpuBuffer` identity, for anything a GpuBuffer backs: vertex attributes,
  *    indices, transform-feedback IO. One GpuBuffer therefore means exactly one GL buffer, no matter
- *    how many geometries or passes reach it. `webgl/renderer.ts` `readBufferAsync` has always
+ *    how many geometries or passes reach it. `readBufferAsync` in `webgl-backend.ts` has always
  *    documented that invariant; before this module there was nothing to enforce it.
  *  - `rawMap` keys by an arbitrary object, for device buffers with no GpuBuffer behind them. Uniform
  *    blocks are the only case: a block is a byte blob packed from many uniform nodes through a
@@ -136,7 +136,7 @@ export function ensureUploaded(
     usageHint?: number,
 ): WebGLBuffer {
     const array = buffer.array;
-    if (!array) throw new Error(`[WebGLRenderer] buffer '${buffer.label ?? name}' has no CPU array to upload.`);
+    if (!array) throw new Error(`[webgl] buffer '${buffer.label ?? name}' has no CPU array to upload.`);
 
     const label = buffer.label ?? name;
     let entry = cache.bufferMap.get(buffer);
@@ -146,7 +146,7 @@ export function ensureUploaded(
     if (plan === BufferUpload.Allocate) {
         if (!entry) {
             const created = gl.createBuffer();
-            if (!created) throw new Error('[WebGLRenderer] gl.createBuffer returned null.');
+            if (!created) throw new Error('[webgl] gl.createBuffer returned null.');
             entry = { glBuffer: created, version: -1, byteLength: -1 };
             cache.bufferMap.set(buffer, entry);
             cache.all.add(created);
@@ -212,7 +212,7 @@ export function uploadUniformBlock(
     if (!entry || entry.byteLength !== data.byteLength) {
         if (!entry) {
             const glBuffer = gl.createBuffer();
-            if (!glBuffer) throw new Error('[WebGLRenderer] gl.createBuffer returned null (uniform block).');
+            if (!glBuffer) throw new Error('[webgl] gl.createBuffer returned null (uniform block).');
             entry = { glBuffer, byteLength: data.byteLength };
             cache.rawMap.set(key, entry);
             cache.all.add(glBuffer);

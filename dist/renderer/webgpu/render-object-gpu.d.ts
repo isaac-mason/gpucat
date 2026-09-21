@@ -7,11 +7,9 @@
  * mirroring how GpuBuffer/GpuTexture keep their GPU handles in renderer-side
  * caches (see buffers.ts BufferCache).
  *
- * The cache is a per-renderer instance (held on WebGPURenderer as
+ * The cache is a per-renderer instance (held on WebGPUBackend as
  * `_renderObjectGpu`), not a module-global.
  */
-import type { GpuBuffer } from '../../core/gpu-buffer';
-import type { Any } from '../../schema/schema';
 import type { RenderObject } from '../core/render-object';
 /**
  * The WebGPU device payload for a single RenderObject.
@@ -31,16 +29,6 @@ export type RenderObjectGpu = {
      * null until bindings are created.
      */
     bindGroups: GPUBindGroup[] | null;
-    /**
-     * Vertex buffers used by this draw.
-     * null until buffers are resolved.
-     */
-    vertexBuffers: GpuBuffer<Any>[] | null;
-    /**
-     * Index buffer (if indexed draw).
-     * null for non-indexed draws.
-     */
-    indexBuffer: GpuBuffer<Any> | null;
 };
 /**
  * Per-renderer cache mapping RenderObject -> its WebGPU device payload.
@@ -65,5 +53,3 @@ export declare function peekRenderObjectGpu(cache: RenderObjectGpuCache, renderO
  * Used on disposal / invalidation.
  */
 export declare function clearRenderObjectGpu(cache: RenderObjectGpuCache, renderObject: RenderObject): void;
-/** Delete the device payload entry for a RenderObject entirely. */
-export declare function deleteRenderObjectGpu(cache: RenderObjectGpuCache, renderObject: RenderObject): void;

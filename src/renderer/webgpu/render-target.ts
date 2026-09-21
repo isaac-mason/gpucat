@@ -13,8 +13,8 @@
 import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
-import { createTextureTallyEntry, tallyClearTexture, tallySetTexture } from '../core/info';
-import { fullMipChainLength, gpuTextureBytes } from '../core/texture-size';
+import { createTextureTallyEntry, tallySetTexture } from '../core/info';
+import { gpuTextureBytes, mipLevelCountFor } from '../core/texture-size';
 import { setupTextureDispose, type TextureCache, type TextureData } from './textures';
 
 /**
@@ -92,20 +92,6 @@ export function setRenderTargetTexture(
 
     texture.disposed = false;
     setupTextureDispose(cache, texture);
-}
-
-/**
- * Remove a render target texture from the cache.
- * Called when render target is disposed/resized.
- * Does NOT destroy the GPUTexture - caller is responsible for that.
- */
-export function removeRenderTargetTexture(cache: TextureCache, texture: GpuTexture): void {
-    const data = cache.textureMap.get(texture);
-    if (data) {
-        // Don't destroy - caller handles that
-        tallyClearTexture(cache.tally, data.tally);
-        cache.textureMap.delete(texture);
-    }
 }
 
 function hasRenderTargetTextureAllocation(
@@ -235,7 +221,9 @@ export function ensureRenderTargetTexturesAllocated(cache: TextureCache, device:
 }
 
 function ensureCubeRenderTargetTexturesAllocated(cache: TextureCache, device: GPUDevice, renderTarget: CubeRenderTarget): void {
-    const cubeMipCount = renderTarget.texture.generateMipmaps ? fullMipChainLength(renderTarget.size, renderTarget.size) : 1;
+    // `mipLevelCountFor`, not the live `generateMipmaps`: `CubeCamera` flips that off mid-render, and
+    // asking for one level while the texture holds a chain reallocates it under the open frame.
+    const cubeMipCount = mipLevelCountFor(renderTarget.texture._gpuTexture);
 
     const cubeReady = hasRenderTargetTextureAllocation(
         cache,

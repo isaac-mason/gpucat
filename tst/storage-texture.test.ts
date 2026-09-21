@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import {
     attribute,
-    compile,
-    compileCompute,
+    compileComputeWgsl,
+    compileWgsl,
     createStorageTexture,
     createStorageTexture3d,
     createStorageTextureArray,
@@ -34,7 +34,7 @@ describe('storage textures — WGSL emission', () => {
             textureStore(st, coord, vec4(f32(1), f32(0), f32(0), f32(1)));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [8, 8, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [8, 8, 1] }));
 
         expect(result.code).toContain('var st');
         expect(result.code).toMatch(/var st\d+: texture_storage_2d<rgba8unorm, write>;/);
@@ -54,7 +54,7 @@ describe('storage textures — WGSL emission', () => {
             textureStore(st, coord, vec4(f32(0.5), f32(0.5), f32(0.5), f32(1)));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [4, 4, 4] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [4, 4, 4] }));
         expect(result.code).toMatch(/var st\d+: texture_storage_3d<rgba16float, write>;/);
         expect(result.storageTextures[0].dim).toBe('3d');
         expect(result.storageTextures[0].format).toBe('rgba16float');
@@ -69,7 +69,7 @@ describe('storage textures — WGSL emission', () => {
             textureStore(st, coord, vec4(f32(1), f32(1), f32(1), f32(1)), i32(2));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [8, 8, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [8, 8, 1] }));
         expect(result.code).toMatch(/var st\d+: texture_storage_2d_array<rgba8unorm, write>;/);
         // textureStore(tex, coord, layer, value) — 4 args
         expect(result.code).toMatch(/textureStore\([^,]+,[^,]+,[^,]+,[^)]+\)/);
@@ -85,7 +85,7 @@ describe('storage textures — WGSL emission', () => {
             textureStore(st, coord, prev);
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [8, 8, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [8, 8, 1] }));
         expect(result.code).toMatch(/var st\d+: texture_storage_2d<r32float, read_write>;/);
         expect(result.code).toContain('textureLoad(');
         expect(result.code).toContain('textureStore(');
@@ -101,7 +101,7 @@ describe('storage textures — WGSL emission', () => {
             const v = textureLoad(st, coord);
             textureStore(st, coord, v); // round-trips the loaded vec4u
         });
-        const result = compileCompute(fn.compute({ workgroupSize: [8, 8, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [8, 8, 1] }));
         expect(result.code).toMatch(/var st\d+: texture_storage_2d<r32uint, read_write>;/);
     });
 
@@ -175,7 +175,7 @@ describe('storage textures — sampling a storage texture in a render pass (dual
             vertex: vec4(attribute('position', d.vec3f), f32(1)),
             fragment: color,
         });
-        return compile({ vertex: material.vertex, fragment: material.fragment, depth: undefined });
+        return compileWgsl({ vertex: material.vertex, fragment: material.fragment, depth: undefined });
     }
 
     test('emits a SAMPLED texture_2d<f32> binding, not a storage binding', () => {
@@ -207,7 +207,7 @@ describe('storage textures — sampling a storage texture in a render pass (dual
         const computeFn = Fn(() => {
             textureStore(write, vec2u(globalId.x, globalId.y), vec4(f32(1), f32(0), f32(0), f32(1)));
         });
-        const computeResult = compileCompute(computeFn.compute({ workgroupSize: [8, 8, 1] }));
+        const computeResult = compileComputeWgsl(computeFn.compute({ workgroupSize: [8, 8, 1] }));
         expect(computeResult.storageTextures.length).toBe(1);
         expect(computeResult.code).toContain('texture_storage_2d<rgba8unorm, write>');
 

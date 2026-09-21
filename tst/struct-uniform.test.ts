@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { attribute, compile, d, f32, struct, uniform, vec4 } from '../src/index';
+import { attribute, compileWgsl, d, f32, struct, uniform, vec4 } from '../src/index';
 import { fields, frameGroup, Uniform, UniformNode } from '../src/nodes/nodes';
 import { packToView } from '../src/schema/pack';
 
@@ -13,7 +13,7 @@ describe('struct-typed uniform declares its struct on the WGSL path', () => {
         const env = uniform('env', EnvConfig);
         const fragment = vec4(env.tint.mul(env.intensity), f32(1));
 
-        const result = compile({
+        const result = compileWgsl({
             vertex: vec4(attribute('position', d.vec3f), f32(1)),
             fragment,
             depth: undefined,
@@ -41,7 +41,7 @@ describe('struct-typed uniform declares its struct on the WGSL path', () => {
 
         const fragment = vec4(config.fogColor.mul(time.elapsed), f32(1));
 
-        const result = compile({
+        const result = compileWgsl({
             vertex: vec4(attribute('position', d.vec3f), f32(1)),
             fragment,
             depth: undefined,
@@ -70,7 +70,7 @@ describe('struct-typed uniform declares its struct on the WGSL path', () => {
             new UniformNode(new Uniform(EnvConfig, undefined, frameGroup), 'uniform_310') as never,
         ) as never as { fogColor: { mul: (x: unknown) => ReturnType<typeof f32> } };
 
-        const result = compile({
+        const result = compileWgsl({
             vertex: vec4(attribute('position', d.vec3f), f32(1)),
             fragment: vec4(config.fogColor.mul(time.elapsed), f32(1)),
             depth: undefined,

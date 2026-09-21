@@ -1,12 +1,14 @@
 import type { Geometry } from '../../geometry/geometry';
 import type { Material } from '../../material/material';
+import type { VertexBufferGroup } from '../../nodes/builder';
 import type { MRTNode } from '../../nodes/lib/mrt';
 import { type ComputeNode, type Node, NodeKind, type OutputStructNode } from '../../nodes/nodes';
 import type { Any } from '../../schema/schema';
 import type { NodeBuilderState } from '../core/node-builder-state';
+import { assertVertexBuffers } from '../core/node-builder-state';
 import type { NodeManagerState } from '../core/node-manager';
 import * as NodeManager from '../core/node-manager';
-import type { ComputeContext } from '../core/pass-context';
+import type { ComputeContext, RenderContext } from '../core/pass-context';
 import type { RenderObject } from '../core/render-object';
 import * as RenderState from '../core/render-state';
 import { type BindGroupLayoutCache, buildComputeBindGroupLayouts } from './bind-group-layout';
@@ -24,7 +26,6 @@ export type RenderPipelineEntry = {
 export type PipelinesStats = {
     renderCount: number;
     computeCount: number;
-    bindGroupLayoutCount: number;
 };
 
 /**
@@ -50,18 +51,7 @@ export type PipelinesState = {
      * Set by the renderer once the canvas format is known.
      */
     canvasFormat: GPUTextureFormat;
-
-    /**
-     * Fallback depth format used when rendering to the swapchain (renderTarget === null).
-     * Set by the renderer to match the swapchain depth texture format.
-     */
-    canvasDepthFormat: GPUTextureFormat;
 };
-
-export const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
-
-/** Depth format carrying a stencil aspect. Used when a target requests a stencil buffer. */
-export const DEPTH_STENCIL_FORMAT: GPUTextureFormat = 'depth24plus-stencil8';
 
 /** Whether a depth format includes a stencil aspect (depth24plus-stencil8, depth32float-stencil8, stencil8). */
 export function formatHasStencil(format: GPUTextureFormat): boolean {
@@ -92,7 +82,6 @@ export function createPipelinesState(bindGroupLayoutCache: BindGroupLayoutCache)
         renderPipelines: new Map(),
         computePipelines: new Map(),
         canvasFormat: 'bgra8unorm',
-        canvasDepthFormat: DEPTH_FORMAT,
     };
 }
 
@@ -111,29 +100,21 @@ export function getRenderContextColorFormats(
     return out;
 }
 
-/**
- * Depth-stencil format for a render context, or null if the target has no depth attachment.
- * Reads the always-present depth ATTACHMENT (`_depthAttachment`), not the sampling-gated
- * `depthTexture` getter — a target's pipeline needs the depth format whether or not it's sampled.
- * Falls back to the swapchain depth format.
- */
-export function getRenderContextDepthFormat(
-    renderContext: { renderTarget: { _depthAttachment: { format: GPUTextureFormat } | null } | null },
-    canvasDepthFormat: GPUTextureFormat,
-): GPUTextureFormat | null {
+/** The depth ATTACHMENT's format, not the sampling-gated `depthTexture` getter: a pipeline needs it
+ *  whether or not the depth is sampled. */
+export function getRenderContextDepthFormat(renderContext: RenderContext): GPUTextureFormat | null {
     const rt = renderContext.renderTarget;
-    if (rt === null) return canvasDepthFormat;
+    if (rt === null) return renderContext.canvasTarget!.depthFormat as GPUTextureFormat;
     return rt._depthAttachment ? rt._depthAttachment.format : null;
 }
 
 /**
  * Get cache statistics.
  */
-export function getStats(state: PipelinesState): PipelinesStats {
+export function getPipelineCacheStats(state: PipelinesState): PipelinesStats {
     return {
         renderCount: state.renderPipelines.size,
         computeCount: state.computePipelines.size,
-        bindGroupLayoutCount: state.bindGroupLayoutCache.cache.size,
     };
 }
 
@@ -156,7 +137,7 @@ export function getForRender(
     promises: Promise<void>[] | null = null,
 ): RenderPipelineEntry {
     const colorFormats = getRenderContextColorFormats(renderObject.renderContext, state.canvasFormat);
-    const depthFormat = getRenderContextDepthFormat(renderObject.renderContext, state.canvasDepthFormat);
+    const depthFormat = getRenderContextDepthFormat(renderObject.renderContext);
     const cacheKey = getCachedPipelineKey(renderObject, renderObject.renderContext.sampleCount, colorFormats, depthFormat);
 
     let entry = state.renderPipelines.get(cacheKey);
@@ -198,17 +179,6 @@ export function getForRender(
     return entry;
 }
 
-/**
- * Check if a render pipeline is ready for rendering.
- */
-export function isReady(state: PipelinesState, renderObject: RenderObject): boolean {
-    const colorFormats = getRenderContextColorFormats(renderObject.renderContext, state.canvasFormat);
-    const depthFormat = getRenderContextDepthFormat(renderObject.renderContext, state.canvasDepthFormat);
-    const cacheKey = getCachedPipelineKey(renderObject, renderObject.renderContext.sampleCount, colorFormats, depthFormat);
-    const entry = state.renderPipelines.get(cacheKey);
-    return entry !== undefined && entry.pipeline !== null;
-}
-
 function buildRenderPipelineDescriptor(
     device: GPUDevice,
     renderObject: RenderObject,
@@ -222,7 +192,7 @@ function buildRenderPipelineDescriptor(
     const renderContext = renderObject.renderContext;
 
     // Build vertex buffer layouts from geometry attributes
-    const vertexBufferLayouts = buildVertexBufferLayouts(geometry, nodeState);
+    const vertexBufferLayouts = buildVertexBufferLayouts(geometry, nodeState, renderObject.mesh.name || 'mesh');
 
     // Create pipeline layout
     const pipelineLayout = device.createPipelineLayout({
@@ -382,14 +352,6 @@ export function getForCompute(
 }
 
 /**
- * Check if a compute pipeline is ready.
- */
-export function isComputeReady(state: PipelinesState, node: ComputeNode): boolean {
-    const entry = state.computePipelines.get(node.id);
-    return entry !== undefined && entry.pipeline !== null;
-}
-
-/**
  * Look up an existing compute pipeline entry without compiling.
  * Returns null if the pipeline hasn't been created yet.
  *
@@ -437,14 +399,28 @@ function getCachedPipelineKey(
     depthFormat: GPUTextureFormat | null,
 ): string {
     const currentVersion = renderObject.material.version;
+    const geometryVersion = renderObject.geometry.version;
 
-    if (renderObject._cachedPipelineKey !== null && renderObject._pipelineKeyVersion === currentVersion) {
+    if (
+        renderObject._cachedPipelineKey !== null &&
+        renderObject._pipelineKeyVersion === currentVersion &&
+        renderObject._pipelineKeyGeometryVersion === geometryVersion
+    ) {
         return renderObject._cachedPipelineKey;
     }
 
-    const key = makeRenderPipelineKey(renderObject.material, samples, colorFormats, depthFormat, renderObject.renderContext.mrt);
+    const layout = vertexLayoutKey(renderObject.geometry, renderObject.nodeBuilderState!);
+    const key = makeRenderPipelineKey(
+        renderObject.material,
+        layout,
+        samples,
+        colorFormats,
+        depthFormat,
+        renderObject.renderContext.mrt,
+    );
     renderObject._cachedPipelineKey = key;
     renderObject._pipelineKeyVersion = currentVersion;
+    renderObject._pipelineKeyGeometryVersion = geometryVersion;
 
     return key;
 }
@@ -456,10 +432,13 @@ export function disposePipelines(state: PipelinesState): void {
 }
 
 /**
- * Stable cache key for a material + MSAA sample count + color format + optional depth format.
+ * Stable cache key for a material + vertex layout + MSAA sample count + color format + optional depth
+ * format. `vertexLayout` comes from {@link vertexLayoutKey}; without it two geometries that supply the
+ * same attribute name with different buffer formats share a pipeline whose arrayStride suits only one.
  */
 export function makeRenderPipelineKey(
     material: Material,
+    vertexLayout: string,
     samples: number,
     formats: GPUTextureFormat[],
     depthFormat: GPUTextureFormat | null,
@@ -495,16 +474,57 @@ export function makeRenderPipelineKey(
         depthFormat ?? 'none',
         material.blend ? JSON.stringify(material.blend) : 'none',
         mrt ? `mrt${mrt.id}` : 'none',
+        vertexLayout,
     ].join('|');
 
     return `${posId}::${colId}::${depId}::${rs}`;
 }
 
 /**
+ * The arrayStride a vertex group resolves to, or null when it names a geometry buffer that is absent
+ * and the group is skipped. Shared by the layout builder and the pipeline key: a stride that comes
+ * from the geometry rather than the graph has to reach the key, or two geometries whose buffers have
+ * different formats share one pipeline with the wrong stride.
+ */
+function resolveVertexGroupStride(group: VertexBufferGroup, geometry: Geometry): number | null {
+    if (group.stride > 0) return group.stride;
+
+    if (group.name !== null) {
+        const buffer = geometry.buffers.get(group.name);
+        if (!buffer) return null;
+        if (!buffer.format) {
+            throw new Error(
+                `[pipeline] vertex buffer '${group.name}' has no vertex format: its usage must include 'vertex', and WebGPU has no format for ${buffer.array?.constructor.name ?? 'this array'} at itemSize ${buffer.itemSize}.`,
+            );
+        }
+        return getBytesPerElement(buffer.format);
+    }
+
+    return wgslTypeItemSize(group.attributes[0].type) * 4;
+}
+
+/** The part of a pipeline's vertex layout that comes from the geometry, not from the node graph. */
+export function vertexLayoutKey(geometry: Geometry, nodeState: NodeBuilderState): string {
+    let key = '';
+
+    for (const group of nodeState.vertexBufferGroups) {
+        const stride = resolveVertexGroupStride(group, geometry);
+        key += stride === null ? 'skip|' : `${stride}:${group.instanced ? 'i' : 'v'}|`;
+    }
+
+    return key;
+}
+
+/**
  * Build vertex buffer layouts from geometry and NodeBuilderState.
  * Uses vertexBufferGroups to produce one GPUVertexBufferLayout per unique buffer.
  */
-export function buildVertexBufferLayouts(geometry: Geometry, nodeState: NodeBuilderState): GPUVertexBufferLayout[] {
+export function buildVertexBufferLayouts(
+    geometry: Geometry,
+    nodeState: NodeBuilderState,
+    label = 'geometry',
+): GPUVertexBufferLayout[] {
+    assertVertexBuffers(geometry, nodeState, label);
     const layouts: GPUVertexBufferLayout[] = [];
 
     for (const group of nodeState.vertexBufferGroups) {
@@ -520,18 +540,8 @@ export function buildVertexBufferLayouts(geometry: Geometry, nodeState: NodeBuil
             });
         }
 
-        // Compute arrayStride, use explicit stride if set, otherwise derive from buffer or first attribute
-        let arrayStride: number;
-        if (group.stride > 0) {
-            arrayStride = group.stride;
-        } else if (group.name !== null) {
-            const buffer = geometry.buffers.get(group.name);
-            if (!buffer) continue;
-            arrayStride = getBytesPerElement(buffer.format);
-        } else {
-            const firstAttr = group.attributes[0];
-            arrayStride = wgslTypeItemSize(firstAttr.type) * 4;
-        }
+        const arrayStride = resolveVertexGroupStride(group, geometry);
+        if (arrayStride === null) continue;
 
         layouts.push({
             arrayStride,
@@ -546,9 +556,7 @@ export function buildVertexBufferLayouts(geometry: Geometry, nodeState: NodeBuil
 /**
  * Get bytes per element for a vertex format.
  */
-function getBytesPerElement(format: GPUVertexFormat | undefined): number {
-    if (!format) return 16; // Default to vec4
-
+export function getBytesPerElement(format: GPUVertexFormat): number {
     const formatSizes: Record<string, number> = {
         float32: 4,
         float32x2: 8,
@@ -572,7 +580,9 @@ function getBytesPerElement(format: GPUVertexFormat | undefined): number {
         uint8x4: 4,
     };
 
-    return formatSizes[format] ?? 16;
+    const size = formatSizes[format];
+    if (size === undefined) throw new Error(`[pipeline] no byte size recorded for vertex format '${format}'.`);
+    return size;
 }
 
 /**
@@ -612,7 +622,7 @@ function wgslTypeToVertexFormat(type: string): GPUVertexFormat {
 /**
  * Get the item size (number of components) for a WGSL type.
  */
-function wgslTypeItemSize(type: string): number {
+export function wgslTypeItemSize(type: string): number {
     switch (type) {
         case 'f32':
         case 'i32':
@@ -631,6 +641,6 @@ function wgslTypeItemSize(type: string): number {
         case 'vec4u':
             return 4;
         default:
-            return 4;
+            throw new Error(`[pipeline] no component count for attribute type '${type}'; its vertex stride cannot be derived.`);
     }
 }

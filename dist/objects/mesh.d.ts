@@ -53,3 +53,5 @@ export declare class Mesh extends Object3D {
     constructor(geometry: Geometry, material: Material);
     raycast(raycaster: Raycaster, intersects: Intersection[]): void;
 }
+/** The factory form, matching `createGeometry` and `createMaterial`. */
+export declare function createMesh(geometry: Geometry, material: Material): Mesh;

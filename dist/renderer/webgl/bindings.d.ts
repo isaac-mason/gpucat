@@ -19,9 +19,6 @@
  *     backends share from `core/bind-group.ts`,
  *   - reading each member's value from `m.node.uniform.value`, falling back to the material's named
  *     uniforms, then packing it with `packToView(schema, view, offset, value, 'std140')`.
- * We deliberately reuse that value logic rather than the reference renderer's per-name loose-uniform
- * path.
- *
  * Per-BindGroup GL state (the UBO + a CPU staging buffer + change tracking) is cached in a WeakMap
  * keyed by the `UniformBinding` object, which lives on the RenderObject's cloned bind groups — so
  * shared groups (camera) share one entry and per-object groups get their own, exactly as WebGPU.

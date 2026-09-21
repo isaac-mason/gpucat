@@ -1,6 +1,6 @@
-import { type Vec3, type Quat } from 'math';
+import { type Quat, type Vec3 } from 'math';
+import type { Camera } from '../camera/camera';
 import { Object3D } from '../core/object3d';
-import { Camera } from '../camera/camera';
 import { Raycaster } from '../math/raycaster';
 import { type Topic } from '../utils/topic';
 export type TransformMode = 'translate' | 'rotate' | 'scale';

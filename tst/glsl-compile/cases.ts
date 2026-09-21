@@ -751,7 +751,7 @@ export const cases: Case[] = [
             const loopy = Fn(
                 () => {
                     const sum = Var('sum', f32(0));
-                    Loop(4, ({ i }: { i: Node<d.i32> }) => {
+                    Loop(4, ({ i }) => {
                         const t = i.toF32().mul(f32(2.0)).add(f32(1.0));
                         sum.assign(sum.add(t).add(t.mul(f32(0.5))));
                     });

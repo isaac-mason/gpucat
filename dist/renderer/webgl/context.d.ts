@@ -2,7 +2,7 @@
  * context.ts (webgl) - WebGL2 context acquisition.
  *
  * A single free device function that acquires the WebGL2 rendering context from a canvas with the
- * requested context attributes. Called by `WebGLRenderer.init()`. WebGL2 is immediate mode — there is
+ * requested context attributes. Called by `WebGLBackend.init()`. WebGL2 is immediate mode — there is
  * no device object or swapchain to configure, so this is the whole of "device bring-up".
  */
 /** Context attributes forwarded to `canvas.getContext('webgl2', ...)`. */

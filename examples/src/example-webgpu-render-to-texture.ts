@@ -3,33 +3,40 @@ import {
     cameraProjectionMatrix,
     cameraViewMatrix,
     createBoxGeometry,
+    createCanvasTarget,
+    createMaterial,
     d,
+    drawScene,
     f32,
-    Material,
+    frame,
+    init,
     Mesh,
     modelNormalMatrix,
     modelWorldMatrix,
     mul,
     normalize,
     OrbitControls,
-    pass,
     PerspectiveCamera,
+    renderTexture,
     Scene,
-    texture,
     Texture,
+    texture,
     varying,
     vec3,
     vec4,
-    WebGPURenderer,
+    webgpu,
 } from 'gpucat';
-import { quat, type Euler } from 'math';
+import { type Euler, quat } from 'math';
 
-const renderer = new WebGPURenderer({ antialias: true });
-await renderer.init();
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
 
-document.body.appendChild(renderer.domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
 
 // ── Shared geometry & vertex transform ───────────────────────────────────
 
@@ -47,7 +54,7 @@ const vUv = varying(uvAttr, 'vUv');
 
 const lightDir = vec3(0.6, 1.0, 0.8).normalize();
 
-// ── Inner scene (rendered to texture via pass()) ─────────────────────────
+// ── Inner scene (rendered to texture via renderTexture()) ─────────────────────────
 
 const pixels = new Uint8Array([191, 25, 54, 255, 96, 18, 54, 255, 96, 18, 54, 255, 37, 13, 53, 255]);
 const imgData = new ImageData(new Uint8ClampedArray(pixels.buffer), 2, 2);
@@ -64,7 +71,7 @@ const innerDiffuse = worldNormal.dot(lightDir).max(f32(0));
 const innerLighting = f32(0.2).add(innerDiffuse);
 const innerLitColor = texColor.xyz.mul(innerLighting);
 
-const innerMaterial = new Material({
+const innerMaterial = createMaterial({
     vertex: clipPos,
     fragment: vec4(innerLitColor, f32(1)),
 });
@@ -81,8 +88,8 @@ innerScene.add(innerMesh);
 innerScene.updateWorldMatrix();
 innerCamera.updateViewMatrix();
 
-// pass() renders the inner scene to an offscreen render target automatically
-const innerPass = pass(innerScene, innerCamera, {
+// renderTexture() renders the inner scene to an offscreen render target automatically
+const innerPass = renderTexture(innerScene, innerCamera, {
     clearColor: [0.15, 0.05, 0.2, 1],
 });
 const passTextureNode = innerPass.getTextureNode();
@@ -98,23 +105,18 @@ const outerLighting = f32(0.2).mul(outerDiffuse);
 const uvTint = vec3(vUv.x.sub(f32(0.5)), vUv.y.sub(f32(0.5)), f32(0)).mul(f32(0.1));
 const outerColor = sampledRT.xyz.add(outerLighting).add(uvTint);
 
-const outerMaterial = new Material({
+const outerMaterial = createMaterial({
     vertex: clipPos,
     fragment: vec4(outerColor, f32(1)),
 });
 
 const outerScene = new Scene();
 
-const outerCamera = new PerspectiveCamera(
-    Math.PI / 4,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    100,
-);
+const outerCamera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 100);
 outerCamera.position[2] = 5;
 outerScene.add(outerCamera);
 
-const controls = new OrbitControls(outerCamera, renderer.domElement);
+const controls = new OrbitControls(outerCamera, canvas);
 
 const outerMesh = new Mesh(geometry, outerMaterial);
 outerScene.add(outerMesh);
@@ -123,7 +125,7 @@ outerScene.updateWorldMatrix();
 outerCamera.updateViewMatrix();
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     const aspect = window.innerWidth / window.innerHeight;
     outerCamera.aspect = aspect;
     outerCamera.updateProjectionMatrix();
@@ -135,7 +137,7 @@ let prevTime = performance.now() / 1000;
 let innerAngle = 0;
 let outerAngle = 0;
 
-function frame() {
+function update() {
     const now = performance.now() / 1000;
     const dt = now - prevTime;
     prevTime = now;
@@ -152,14 +154,15 @@ function frame() {
 
     controls.update();
 
+    // One pass — the inner scene's RenderTextureNode records its own pass on this frame, before this one
+    // encodes, because preparing a draw evaluates the graph it depends on.
+    const f = frame(renderer);
+    const outerPass = f.pass({ target: view, camera: outerCamera, clear: [1, 1, 1, 1] });
+    drawScene(renderer, outerPass, outerScene, outerCamera);
+    outerPass.end();
+    f.submit();
 
-    // Single render call — PassNode.updateBefore() automatically renders
-    // the inner scene to its offscreen target before the outer scene draws.
-    renderer.clearColor = [1, 1, 1, 1];
-    renderer.render(outerScene, outerCamera);
-
-
-    requestAnimationFrame(frame);
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

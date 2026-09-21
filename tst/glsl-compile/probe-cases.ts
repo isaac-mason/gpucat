@@ -8,20 +8,7 @@
  * WGSL probe (which is exercised interactively); here we assert the GLSL patcher's output is valid.
  */
 
-import {
-    attribute,
-    compileGlsl,
-    d,
-    f32,
-    i32,
-    Let,
-    u32,
-    varying,
-    vec2,
-    vec3,
-    vec4,
-    vec3b,
-} from '../../src/index';
+import { attribute, compileGlsl, d, f32, i32, Let, u32, varying, vec3, vec3b, vec4 } from '../../src/index';
 import { buildProbeGLSL, coerceToVec4, inferGlslType } from '../../src/inspector/probe-glsl';
 import type { Slots } from './cases';
 
@@ -89,7 +76,11 @@ export const probeCases: ProbeCase[] = [
         expectedKind: 'int',
         build: () => {
             const n = Let('n', i32(3).add(i32(4)));
-            return { vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment: vec4(vec3(n.toF32()), f32(1)), depth: undefined };
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: vec4(vec3(n.toF32()), f32(1)),
+                depth: undefined,
+            };
         },
     },
     {
@@ -98,7 +89,11 @@ export const probeCases: ProbeCase[] = [
         expectedKind: 'uint',
         build: () => {
             const un = Let('un', u32(3).add(u32(4)));
-            return { vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment: vec4(vec3(un.toF32()), f32(1)), depth: undefined };
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: vec4(vec3(un.toF32()), f32(1)),
+                depth: undefined,
+            };
         },
     },
     {
@@ -108,10 +103,7 @@ export const probeCases: ProbeCase[] = [
         build: () => {
             const position = attribute('position', d.vec3f);
             const uv = varying(position, 'vPos');
-            const mask = Let(
-                'mask',
-                vec3b(uv.x.greaterThan(f32(0.5)), uv.y.greaterThan(f32(0.5)), uv.z.greaterThan(f32(0.5))),
-            );
+            const mask = Let('mask', vec3b(uv.x.greaterThan(f32(0.5)), uv.y.greaterThan(f32(0.5)), uv.z.greaterThan(f32(0.5))));
             const chosen = vec3(mask.x.select(f32(1), f32(0)), f32(0), f32(0));
             return { vertex: vec4(position, f32(1)), fragment: vec4(chosen, f32(1)), depth: undefined };
         },

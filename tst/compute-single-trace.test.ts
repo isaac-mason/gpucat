@@ -11,7 +11,7 @@
 // generateComputeShader.
 
 import { describe, expect, test } from 'vitest';
-import { compileCompute, Fn, globalId, index, storage, struct } from '../src/index';
+import { compileComputeWgsl, Fn, globalId, index, storage, struct } from '../src/index';
 import * as d from '../src/schema/schema';
 
 describe('compileCompute — single-trace invariant', () => {
@@ -30,7 +30,7 @@ describe('compileCompute — single-trace invariant', () => {
             index(out, slot).assign(v.add(plane0.x.toU32()));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
         // no phantom binding and no undefined refs in body
         expect(result.code).not.toContain('undefined');
@@ -55,7 +55,7 @@ describe('compileCompute — single-trace invariant', () => {
             index(b, slot).assign(index(a, slot));
         });
 
-        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
         const [bindings, body] = result.code.split('// Compute Shader');
 
         const declared = new Set([...bindings.matchAll(/var<storage,[^>]+>\s+(\w+):/g)].map((m) => m[1]));

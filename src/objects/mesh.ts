@@ -165,3 +165,8 @@ export class Mesh extends Object3D {
         }
     }
 }
+
+/** The factory form, matching `createGeometry` and `createMaterial`. */
+export function createMesh(geometry: Geometry, material: Material): Mesh {
+    return new Mesh(geometry, material);
+}

@@ -1,21 +1,22 @@
 import type { CubeRenderTarget } from '../../core/cube-render-target';
 import { getIndexFormat } from '../../core/gpu-buffer';
 import type { RenderTarget } from '../../core/render-target';
-import { resolveIndexedDrawRange, resolveVertexDrawRange } from '../core/draw-range';
-import type { RendererInfo } from '../core/info';
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { IndexedMeshDraw, NonIndexedMeshDraw } from '../../objects/mesh';
 import type { CanvasTarget } from '../core/canvas-target';
+import { resolveIndexedDrawRange, resolveVertexDrawRange } from '../core/draw-range';
+import type { DrawOpts, RenderBundle } from '../core/frame';
+import type { RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import * as NodeManager from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
-import type { PreparedRenderObject, RenderPassParams } from '../core/render-types';
-import { type BindGroupLayoutCache, disposeBindGroupLayoutCache } from './bind-group-layout';
-import * as Bindings from './bindings';
+import { pipelineLabel } from '../core/render-object';
+import type { PreparedRenderObject, PreparedSegment, RenderPassParams } from '../core/render-types';
+import type { BackendState } from './backend-state';
+import { disposeBindGroupLayoutCache } from './bind-group-layout';
 import * as Buffers from './buffers';
-import * as Geometries from './geometries';
-import { DEPTH_FORMAT, formatHasStencil } from './pipelines';
 import * as Pipelines from './pipelines';
+import { formatHasStencil } from './pipelines';
 import * as RenderObjectGpu from './render-object-gpu';
 import * as RenderObjects from './render-objects';
 import * as RenderTargets from './render-target';
@@ -41,9 +42,10 @@ export function getContext(
     if (!ctx) {
         const acquired = canvasTarget.canvas.getContext('webgpu');
         if (!acquired) {
-            throw new Error('[WebGPURenderer] Failed to get WebGPU context from canvas.');
+            throw new Error('[webgpu] Failed to get WebGPU context from canvas.');
         }
         acquired.configure({ device, format, alphaMode: alphaMode ?? canvasTarget.alphaMode });
+        canvasTarget.colorFormat = format;
         ctx = acquired;
         contexts.set(canvasTarget, ctx);
     }
@@ -68,6 +70,7 @@ export function reconfigureContext(
     const ctx = contexts.get(canvasTarget);
     if (!ctx) return;
     ctx.configure({ device, format, alphaMode: alphaMode ?? canvasTarget.alphaMode });
+    canvasTarget.colorFormat = format;
 }
 
 /**
@@ -89,16 +92,24 @@ export function releaseContext(contexts: WeakMap<CanvasTarget, GPUCanvasContext>
  * depth/msaa attachment textures (+ their cached views). Read when resolving swapchain
  * (renderTarget === null) attachments and recreated on `resize`.
  */
-export type SwapchainState = {
-    canvasTarget: CanvasTarget | null;
-    samples: number;
-    depthFormat: GPUTextureFormat;
+/** One canvas target's own depth and MSAA attachments, sized and sampled to that target. */
+export type CanvasAttachments = {
+    /** Backing-store size this target's context was last configured against. */
+    configuredWidth: number;
+    configuredHeight: number;
     /** Swapchain depth texture (recreated on resize). */
     depthTexture: GPUTexture | null;
     depthTextureView: GPUTextureView | null;
     /** MSAA color texture (null when samples <= 1). */
     msaaTexture: GPUTexture | null;
     msaaTextureView: GPUTextureView | null;
+};
+
+export type SwapchainState = {
+    /** Every canvas this renderer has allocated attachments for, so `dispose` can reach all of them. */
+    targets: Set<CanvasTarget>;
+    /** Per-target attachments, because a frame may draw to several canvases of differing size. */
+    byTarget: WeakMap<CanvasTarget, CanvasAttachments>;
 };
 
 /**
@@ -135,17 +146,36 @@ export function createSwapchainMsaaTexture(
     });
 }
 
-/** Create the initial (empty) swapchain state for the given sample count + depth format. */
-export function createSwapchainState(samples: number, depthFormat: GPUTextureFormat): SwapchainState {
+export function createSwapchainState(): SwapchainState {
     return {
-        canvasTarget: null,
-        samples: samples <= 1 ? 0 : samples,
-        depthFormat: depthFormat ?? DEPTH_FORMAT,
-        depthTexture: null,
-        depthTextureView: null,
-        msaaTexture: null,
-        msaaTextureView: null,
+        targets: new Set(),
+        byTarget: new WeakMap(),
     };
+}
+
+export function attachmentsFor(sc: SwapchainState, target: CanvasTarget): CanvasAttachments {
+    let entry = sc.byTarget.get(target);
+    if (entry === undefined) {
+        sc.targets.add(target);
+        entry = {
+            configuredWidth: 0,
+            configuredHeight: 0,
+            depthTexture: null,
+            depthTextureView: null,
+            msaaTexture: null,
+            msaaTextureView: null,
+        };
+        sc.byTarget.set(target, entry);
+    }
+    return entry;
+}
+
+export function samplesFor(target: CanvasTarget): number {
+    return target.samples <= 1 ? 0 : target.samples;
+}
+
+export function depthFormatFor(target: CanvasTarget): GPUTextureFormat {
+    return target.depthFormat as GPUTextureFormat;
 }
 
 /**
@@ -159,17 +189,20 @@ export function recreateSwapchainTextures(
     format: GPUTextureFormat,
     width: number,
     height: number,
+    target: CanvasTarget,
 ): void {
-    const sampleCount = sc.samples > 1 ? sc.samples : 1;
+    const entry = attachmentsFor(sc, target);
+    const samples = samplesFor(target);
+    const sampleCount = samples > 1 ? samples : 1;
 
-    sc.depthTexture?.destroy();
-    sc.depthTexture = createSwapchainDepthTexture(device, width, height, sampleCount, sc.depthFormat);
-    sc.depthTextureView = sc.depthTexture.createView();
+    entry.depthTexture?.destroy();
+    entry.depthTexture = createSwapchainDepthTexture(device, width, height, sampleCount, depthFormatFor(target));
+    entry.depthTextureView = entry.depthTexture.createView();
 
-    if (sc.samples > 1) {
-        sc.msaaTexture?.destroy();
-        sc.msaaTexture = createSwapchainMsaaTexture(device, width, height, format, sc.samples);
-        sc.msaaTextureView = sc.msaaTexture.createView();
+    if (samples > 1) {
+        entry.msaaTexture?.destroy();
+        entry.msaaTexture = createSwapchainMsaaTexture(device, width, height, format, samples);
+        entry.msaaTextureView = entry.msaaTexture.createView();
     }
 }
 
@@ -187,12 +220,11 @@ type ResolvedAttachments = {
  */
 function stencilAttachmentOps(
     format: GPUTextureFormat,
-    autoClearing: boolean,
     params: RenderPassParams,
 ): Pick<GPURenderPassDepthStencilAttachment, 'stencilLoadOp' | 'stencilStoreOp' | 'stencilClearValue'> | undefined {
     if (!formatHasStencil(format)) return undefined;
     return {
-        stencilLoadOp: autoClearing && params.autoClearStencil ? 'clear' : 'load',
+        stencilLoadOp: params.autoClearStencil ? 'clear' : 'load',
         stencilStoreOp: 'store',
         stencilClearValue: params.clearStencilValue,
     };
@@ -208,15 +240,14 @@ function resolveRenderTargetAttachments(
 ): ResolvedAttachments {
     RenderTargets.ensureRenderTargetTexturesAllocated(textures, device, renderTarget);
 
-    // autoClear=false preserves prior contents so several viewport/scissor views can composite
-    // into one render target (e.g. a grid of previews + one FXAA pass). MSAA can't 'load' a
-    // resolve-only target, so it always clears.
+    // `clear: false` loads, which is how several viewport/scissor passes composite into one target.
+    // MSAA cannot 'load' a resolve-only target, so it always clears.
     const loadOp: GPULoadOp = params.autoClear ? 'clear' : 'load';
     const colorAttachments: GPURenderPassColorAttachment[] = [];
     for (const tex of renderTarget.textures) {
         const textureData = Textures.getTextureData(textures, tex._gpuTexture);
         if (!textureData) {
-            throw new Error('[WebGPURenderer] Render target texture not found in cache');
+            throw new Error('[webgpu] Render target texture not found in cache');
         }
         // MSAA: render into the multisampled texture and resolve into the sampled
         // single-sample texture. Otherwise render directly into the single texture.
@@ -245,10 +276,10 @@ function resolveRenderTargetAttachments(
         if (depthTextureData) {
             depthAttachment = {
                 view: RenderTargets.getRenderTargetView(depthTextureData),
-                depthClearValue: 1.0,
-                depthLoadOp: loadOp,
+                depthClearValue: params.clearDepthValue,
+                depthLoadOp: params.autoClearDepth ? 'clear' : 'load',
                 depthStoreOp: 'store',
-                ...stencilAttachmentOps(renderTarget._depthAttachment.format, params.autoClear, params),
+                ...stencilAttachmentOps(renderTarget._depthAttachment.format, params),
             };
         }
     }
@@ -265,32 +296,43 @@ function resolveSwapchainAttachments(
     clearColor: GPUColorDict,
     params: RenderPassParams,
 ): ResolvedAttachments {
-    const ctx = getContext(contexts, device, sc.canvasTarget!, format);
+    const target = params.canvasTarget!;
+    const ctx = getContext(contexts, device, target, format);
+    const entry = attachmentsFor(sc, target);
+
+    // Safari drops the context's configuration on every backing-store resize, and getCurrentTexture()
+    // on an unconfigured context throws, so reconfigure before touching it rather than after.
+    const size = target.getDrawingBufferSize();
+    if (entry.configuredWidth !== size.width || entry.configuredHeight !== size.height) {
+        reconfigureContext(contexts, device, target, format);
+        entry.configuredWidth = size.width;
+        entry.configuredHeight = size.height;
+    }
+
     const currentTexture = ctx.getCurrentTexture();
+    const samples = samplesFor(target);
 
     // The current swapchain texture is the size authority for this pass: it's what the MSAA resolve
-    // target (and the non-MSAA color view) is created from. The cached depth/MSAA textures are a single
-    // shared pair, but the renderer can drive multiple canvas targets of differing size/pixelRatio, so a
-    // target swap or resize race can leave them a frame stale. Reconcile against the live texture here so
-    // the color/depth attachments always match — WebGPU rejects a render pass whose attachments differ in
-    // size (the failure this guards against: "resolve target size … does not match the other attachments").
+    // target (and the non-MSAA color view) is created from. Reconcile the target's cached depth/MSAA
+    // pair against the live texture, since a resize can leave it a frame stale — WebGPU rejects a
+    // render pass whose attachments differ in size ("resolve target size ... does not match").
     if (
-        !sc.depthTexture ||
-        sc.depthTexture.width !== currentTexture.width ||
-        sc.depthTexture.height !== currentTexture.height
+        !entry.depthTexture ||
+        entry.depthTexture.width !== currentTexture.width ||
+        entry.depthTexture.height !== currentTexture.height
     ) {
-        recreateSwapchainTextures(device, sc, format, currentTexture.width, currentTexture.height);
+        recreateSwapchainTextures(device, sc, format, currentTexture.width, currentTexture.height, target);
     }
 
     const swapchainView = currentTexture.createView();
 
-    // autoClear=false preserves prior contents so several viewport/scissor views can composite
-    // into one canvas. (MSAA can't 'load' a resolve-only target, so it always clears.)
+    // `clear: false` loads, which is how several viewport/scissor passes composite into one canvas.
+    // MSAA cannot 'load' a resolve-only target, so it always clears.
     const loadOp: GPULoadOp = params.autoClear ? 'clear' : 'load';
     const colorAttachments: GPURenderPassColorAttachment[] = [];
-    if (sc.samples > 1 && sc.msaaTextureView) {
+    if (samples > 1 && entry.msaaTextureView) {
         colorAttachments.push({
-            view: sc.msaaTextureView,
+            view: entry.msaaTextureView,
             resolveTarget: swapchainView,
             clearValue: clearColor,
             loadOp: 'clear',
@@ -308,11 +350,11 @@ function resolveSwapchainAttachments(
     return {
         colorAttachments,
         depthAttachment: {
-            view: sc.depthTextureView!,
-            depthClearValue: 1.0,
-            depthLoadOp: loadOp,
+            view: entry.depthTextureView!,
+            depthClearValue: params.clearDepthValue,
+            depthLoadOp: params.autoClearDepth ? 'clear' : 'load',
             depthStoreOp: 'store',
-            ...stencilAttachmentOps(sc.depthFormat, params.autoClear, params),
+            ...stencilAttachmentOps(depthFormatFor(target), params),
         },
     };
 }
@@ -323,12 +365,13 @@ function resolveCubeAttachments(
     textures: Textures.TextureCache,
     renderTarget: CubeRenderTarget,
     clearColor: GPUColorDict,
+    params: RenderPassParams,
 ): ResolvedAttachments {
     RenderTargets.ensureRenderTargetTexturesAllocated(textures, device, renderTarget);
 
     const cubeData = Textures.getTextureData(textures, renderTarget.texture._gpuTexture);
     if (!cubeData) {
-        throw new Error('[WebGPURenderer] Cube render target texture not found in cache');
+        throw new Error('[webgpu] Cube render target texture not found in cache');
     }
 
     // A 2D view of the single selected face (layer) of the cube texture.
@@ -353,13 +396,10 @@ function resolveCubeAttachments(
         if (depthData) {
             depthAttachment = {
                 view: RenderTargets.getRenderTargetView(depthData),
-                depthClearValue: 1.0,
-                depthLoadOp: 'clear',
+                depthClearValue: params.clearDepthValue,
+                depthLoadOp: params.autoClearDepth ? 'clear' : 'load',
                 depthStoreOp: 'store',
-                ...stencilAttachmentOps(renderTarget._depthAttachment.format, true, {
-                    autoClearStencil: true,
-                    clearStencilValue: 0,
-                } as RenderPassParams),
+                ...stencilAttachmentOps(renderTarget._depthAttachment.format, params),
             };
         }
     }
@@ -371,128 +411,45 @@ function resolveCubeAttachments(
  * Build GPU color and depth attachments, dispatching on the target kind. Shared by `executeRenderPass`
  * and `clear()` (which then overrides the load ops for the manual clear).
  */
-function resolveAttachments(
-    contexts: WeakMap<CanvasTarget, GPUCanvasContext>,
-    device: GPUDevice,
-    textures: Textures.TextureCache,
-    sc: SwapchainState,
-    format: GPUTextureFormat,
-    params: RenderPassParams,
-): ResolvedAttachments {
+export function resolveAttachments(b: BackendState, params: RenderPassParams): ResolvedAttachments {
+    const { device, textures } = b;
     const { renderTarget, clearColor } = params;
     if (renderTarget?.isCubeRenderTarget) {
-        return resolveCubeAttachments(device, textures, renderTarget as CubeRenderTarget, clearColor);
+        return resolveCubeAttachments(device, textures, renderTarget as CubeRenderTarget, clearColor, params);
     }
     if (renderTarget) return resolveRenderTargetAttachments(device, textures, renderTarget, clearColor, params);
-    return resolveSwapchainAttachments(contexts, device, sc, format, clearColor, params);
+    return resolveSwapchainAttachments(b.canvasContexts, device, b.swapchain, b.format, clearColor, params);
 }
 
 // Manual clear — a clear-only render pass honoring the clear flags.
 
-/**
- * Manually clear the current framebuffer (color and/or depth and/or stencil). Resolves the
- * attachments for `params` with autoClear=true so they come back as 'clear', then overrides each
- * load op per the color/depth/stencil flags, and submits a single empty render pass.
- */
-export function clear(
-    contexts: WeakMap<CanvasTarget, GPUCanvasContext>,
-    device: GPUDevice,
-    textures: Textures.TextureCache,
-    sc: SwapchainState,
-    format: GPUTextureFormat,
-    params: RenderPassParams,
-    color: boolean,
-    depth: boolean,
-    stencil: boolean,
-): void {
-    const { colorAttachments, depthAttachment } = resolveAttachments(contexts, device, textures, sc, format, params);
-    // honor the color/depth/stencil flags independently.
-    for (const a of colorAttachments) a.loadOp = color ? 'clear' : 'load';
-    if (depthAttachment) {
-        depthAttachment.depthLoadOp = depth ? 'clear' : 'load';
-        // stencilLoadOp is only present when the attachment format carries a stencil aspect.
-        if (depthAttachment.stencilLoadOp !== undefined) depthAttachment.stencilLoadOp = stencil ? 'clear' : 'load';
-    }
-    const encoder = device.createCommandEncoder();
-    encoder.beginRenderPass({ label: 'clear', colorAttachments, depthStencilAttachment: depthAttachment }).end();
-    device.queue.submit([encoder.finish()]);
-}
-
 // Render pass — attachment resolution + inner draw loop.
 
-/**
- * Resolve attachments and run the whole inner draw loop into the current command stream (created by
- * the top-level frame, reused by nested renders). Calls neutral update helpers per object.
- */
-export function executeRenderPass(
-    contexts: WeakMap<CanvasTarget, GPUCanvasContext>,
-    device: GPUDevice,
-    bindings: Bindings.BindingsState,
-    geometries: Geometries.GeometriesState,
-    buffers: Buffers.BufferCache,
-    textures: Textures.TextureCache,
-    samplers: Samplers.SamplerCache,
-    renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache,
-    sc: SwapchainState,
-    format: GPUTextureFormat,
-    encoder: GPUCommandEncoder,
-    nodes: NodeManagerState,
-    passCtx: RenderContext,
-    prepared: PreparedRenderObject[],
-    params: RenderPassParams,
-    inspector: InspectorBase | null,
-    info: RendererInfo,
-): void {
-    const { colorAttachments, depthAttachment } = resolveAttachments(contexts, device, textures, sc, format, params);
-    draw(
-        device,
-        bindings,
-        geometries,
-        buffers,
-        textures,
-        samplers,
-        renderObjectGpu,
-        encoder,
-        nodes,
-        passCtx,
-        prepared,
-        colorAttachments,
-        depthAttachment,
-        params.passId,
-        inspector,
-        info,
-    );
-}
-
 /** Begin the GPU render pass, issue all draw calls, and end the pass. */
-function draw(
-    device: GPUDevice,
-    bindings: Bindings.BindingsState,
-    geometries: Geometries.GeometriesState,
-    buffers: Buffers.BufferCache,
-    textures: Textures.TextureCache,
-    samplers: Samplers.SamplerCache,
-    renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache,
+/** What the draw loop needs: a bundle encoder offers the same surface as a pass encoder. */
+export type DrawEncoder = GPURenderPassEncoder | GPURenderBundleEncoder;
+
+export type PassScope = { gpuPass: GPURenderPassEncoder; currentSets: CurrentSets };
+
+/** The draw loop's own scope, which a bundle recording satisfies with a bundle encoder. */
+export type DrawScope = { gpuPass: DrawEncoder; currentSets: CurrentSets };
+
+export function beginPass(
     encoder: GPUCommandEncoder,
-    nodes: NodeManagerState,
     passCtx: RenderContext,
-    preparedObjects: PreparedRenderObject[],
     colorAttachments: GPURenderPassColorAttachment[],
     depthAttachment: GPURenderPassDepthStencilAttachment | undefined,
     passId: string,
     inspector: InspectorBase | null,
-    info: RendererInfo,
-): void {
-    const timestampWrites = inspector ? inspector.getTimestampWrites(passId) : undefined;
+): PassScope {
     const gpuPass = encoder.beginRenderPass({
         label: passId,
         colorAttachments,
         depthStencilAttachment: depthAttachment,
-        timestampWrites,
+        timestampWrites: inspector ? inspector.getTimestampWrites(passId) : undefined,
     });
 
-    // Optional viewport / scissor for compositing multiple views into one canvas. Resolved into
-    // physical-pixel, framebuffer-clamped rects on the pass context by resolveViewportScissor.
+    // Physical-pixel, framebuffer-clamped rects, already resolved onto the pass context.
     if (passCtx.viewport) {
         const v = passCtx.viewportValue;
         gpuPass.setViewport(v.x, v.y, v.width, v.height, v.minDepth, v.maxDepth);
@@ -502,56 +459,155 @@ function draw(
         gpuPass.setScissorRect(s.x, s.y, s.width, s.height);
     }
 
-    const currentSets: CurrentSets = {
-        bindingGroups: [],
-        attributes: [],
-        index: null,
-        pipeline: null,
-        stencilRef: null,
+    return {
+        gpuPass,
+        currentSets: createCurrentSets(),
     };
+}
 
+export function endPass(scope: PassScope): void {
+    scope.gpuPass.end();
+}
+
+/** Everything a draw needs that is fixed for the whole pass, so only a range and an encoder vary. */
+type EncodeContext = {
+    b: BackendState;
+    nodes: NodeManagerState;
+    passCtx: RenderContext;
+    preparedObjects: readonly PreparedRenderObject[];
+    preparedOpts: readonly (DrawOpts | null)[];
+    inspector: InspectorBase | null;
+    info: RendererInfo;
+};
+
+export function encodeDraws(
+    b: BackendState,
+    nodes: NodeManagerState,
+    passCtx: RenderContext,
+    preparedObjects: readonly PreparedRenderObject[],
+    preparedOpts: readonly (DrawOpts | null)[],
+    count: number,
+    inspector: InspectorBase | null,
+    info: RendererInfo,
+    scope: PassScope,
+    segments: readonly PreparedSegment[],
+): void {
     if (inspector) inspector.perf.start('drawCalls');
 
-    for (const { renderObject, item } of preparedObjects) {
-        const mesh = item.mesh!;
-        const material = item.material!;
-        const geometry = item.geometry!;
+    const ctx: EncodeContext = { b, nodes, passCtx, preparedObjects, preparedOpts, inspector, info };
+
+    if (segments.length === 0) {
+        encodeDrawRange(ctx, 0, count, scope);
+    } else {
+        for (const segment of segments) {
+            const { bundle, start } = segment;
+            const end = start + segment.count;
+            if (bundle === null) {
+                encodeDrawRange(ctx, start, end, scope);
+                continue;
+            }
+            // Before the cache check: the refresh is what discovers a rebuilt bind group.
+            refreshBundledRange(ctx, start, end);
+            scope.gpuPass.executeBundles([getOrRecordBundle(ctx, start, end, bundle)]);
+            // A bundle sets its own pipeline and bindings, so what the pass had set no longer holds.
+            resetCurrentSets(scope.currentSets);
+        }
+    }
+
+    if (inspector) inspector.perf.end('drawCalls');
+}
+
+/** A pass with no camera still needs a key at the camera level, and every such pass shares this one. */
+const CAMERALESS: object = {};
+
+/** Re-recorded on a miss or a version change. Camera is in the key because a recording bakes its view bindings in. */
+function getOrRecordBundle(ctx: EncodeContext, from: number, to: number, bundle: RenderBundle): GPURenderBundle {
+    const { b, passCtx } = ctx;
+    let byCamera = b.renderBundles.get(bundle);
+    if (byCamera === undefined) {
+        byCamera = new WeakMap();
+        b.renderBundles.set(bundle, byCamera);
+    }
+    const cameraKey = passCtx.camera ?? CAMERALESS;
+    let byContext = byCamera.get(cameraKey);
+    if (byContext === undefined) {
+        byContext = new Map();
+        byCamera.set(cameraKey, byContext);
+    }
+
+    const cached = byContext.get(passCtx.id);
+    const rebuilds = b.bindings.bindGroupRebuilds;
+    if (cached !== undefined && cached.version === bundle.version && cached.rebuilds === rebuilds) return cached.gpu;
+
+    const encoder = b.device.createRenderBundleEncoder({
+        label: bundle.label,
+        colorFormats: Pipelines.getRenderContextColorFormats(passCtx, b.format),
+        depthStencilFormat: Pipelines.getRenderContextDepthFormat(passCtx) ?? undefined,
+        sampleCount: passCtx.sampleCount,
+    });
+    encodeDrawRange(ctx, from, to, { gpuPass: encoder, currentSets: createCurrentSets() });
+    const gpu = encoder.finish({ label: bundle.label });
+
+    byContext.set(passCtx.id, { gpu, version: bundle.version, rebuilds: b.bindings.bindGroupRebuilds });
+    return gpu;
+}
+
+/** Replaying a bundle saves the encoding and not this, so both paths run it and it has one implementation. */
+function refreshDraw(ctx: EncodeContext, index: number): boolean {
+    const { b, nodes, preparedObjects, preparedOpts, inspector } = ctx;
+    const renderObject = preparedObjects[index];
+    const { mesh, material } = renderObject;
+
+    const opts = preparedOpts[index];
+    if ((opts?.instances ?? mesh.count) === 0 && (opts?.draws ?? mesh.draws) === undefined) return false;
+
+    const frame = nodes.nodeFrame;
+    frame.object = mesh;
+    frame.material = material;
+    frame.camera = renderObject.camera;
+
+    NodeManager.updateForRender(nodes, renderObject);
+
+    if (inspector) inspector.perf.start('updateForRender');
+    RenderObjects.updateRenderObject(b, renderObject, frame);
+    if (inspector) inspector.perf.end('updateForRender');
+    return true;
+}
+
+/** What a replayed bundle still owes its draws, since `executeBundles` runs none of their update. */
+function refreshBundledRange(ctx: EncodeContext, from: number, to: number): void {
+    for (let index = from; index < to; index++) refreshDraw(ctx, index);
+}
+
+/** A range, not the whole array, because a bundle is a contiguous slice of it recorded against its own encoder. */
+function encodeDrawRange(ctx: EncodeContext, from: number, to: number, { gpuPass, currentSets }: DrawScope): void {
+    const { b, nodes, passCtx, preparedObjects, preparedOpts, inspector, info } = ctx;
+    for (let index = from; index < to; index++) {
+        const renderObject = preparedObjects[index];
+        const { mesh, material, geometry } = renderObject;
         const nodeState = renderObject.nodeBuilderState!;
 
-        if (mesh.count === 0 && mesh.draws === undefined) continue;
+        const opts = preparedOpts[index];
+        const draws = opts?.draws ?? mesh.draws;
+        const instances = opts?.instances ?? mesh.count;
+        const range = opts?.range;
 
-        const frame = nodes.nodeFrame;
-        frame.object = mesh;
-        frame.material = material;
-        frame.camera = renderObject.camera;
-        frame.scene = renderObject.scene;
+        if (!refreshDraw(ctx, index)) continue;
 
-        NodeManager.updateForRender(nodes, renderObject);
-
-        if (inspector) inspector.perf.start('updateForRender');
-        RenderObjects.updateRenderObject(
-            bindings,
-            geometries,
-            device,
-            buffers,
-            textures,
-            samplers,
-            renderObjectGpu,
-            renderObject,
-            frame,
-        );
-        if (inspector) inspector.perf.end('updateForRender');
-
-        const gpu = RenderObjectGpu.getRenderObjectGpu(renderObjectGpu, renderObject);
+        const gpu = RenderObjectGpu.getRenderObjectGpu(b.renderObjectGpu, renderObject);
 
         if (gpu.pipeline !== currentSets.pipeline) {
-            passSetPipeline(gpuPass, inspector, gpu.pipeline!, mesh.name || material.constructor.name);
+            passSetPipeline(gpuPass, inspector, gpu.pipeline!, pipelineLabel(mesh, material));
             currentSets.pipeline = gpu.pipeline;
         }
 
         // The stencil reference is dynamic pass state (not baked into the pipeline); set it when a
         // stencil-testing material's ref changes. Only meaningful on a stencil-capable attachment.
+        // A bundle encoder rejects it, which is why a stencil-ref material cannot be bundled.
         if (passCtx.stencil && material.stencilTest && currentSets.stencilRef !== material.stencilRef) {
+            if (!('setStencilReference' in gpuPass)) {
+                throw new Error(`[bundle] "${mesh.name || 'mesh'}" sets a stencil reference, which a render bundle cannot`);
+            }
             gpuPass.setStencilReference(material.stencilRef);
             currentSets.stencilRef = material.stencilRef;
         }
@@ -578,7 +634,7 @@ function draw(
                     slot++;
                     continue;
                 }
-                gpuBuf = Buffers.ensureUploaded(buffers, device, bufAttr, group.name);
+                gpuBuf = Buffers.ensureUploaded(b.buffers, b.device, bufAttr, group.name);
             } else {
                 // Direct buffer group
                 const gpuBuffer = group.buffer;
@@ -589,7 +645,7 @@ function draw(
                 if (!arr) {
                     throw new Error(`[gpucat] VertexBufferGroup buffer array is null`);
                 }
-                gpuBuf = Buffers.ensureUploaded(buffers, device, gpuBuffer, group.name ?? 'vertex');
+                gpuBuf = Buffers.ensureUploaded(b.buffers, b.device, gpuBuffer, group.name ?? 'vertex');
             }
             if (currentSets.attributes[slot] !== gpuBuf) {
                 passSetVertexBuffer(gpuPass, inspector, slot, gpuBuf);
@@ -599,21 +655,30 @@ function draw(
         }
 
         if (geometry.index) {
-            const idxBuf = Buffers.ensureUploaded(buffers, device, geometry.index, 'index');
+            const idxBuf = Buffers.ensureUploaded(b.buffers, b.device, geometry.index, 'index');
             if (currentSets.index !== idxBuf) {
                 passSetIndexBuffer(gpuPass, inspector, idxBuf, getIndexFormat(geometry.index.array)!);
                 currentSets.index = idxBuf;
             }
-            if (mesh.draws !== undefined) {
+            if (draws !== undefined) {
                 // Batched: one instanced drawIndexed per entry, each carrying its own firstInstance
                 // (native — instance_index is base-inclusive on WebGPU).
-                for (const d of mesh.draws as IndexedMeshDraw[]) {
+                for (const d of draws as IndexedMeshDraw[]) {
                     if (d.instanceCount <= 0) continue;
-                    passDrawIndexed(gpuPass, inspector, info, d.indexCount, d.instanceCount, d.firstIndex, d.firstInstance, d.baseVertex ?? 0);
+                    passDrawIndexed(
+                        gpuPass,
+                        inspector,
+                        info,
+                        d.indexCount,
+                        d.instanceCount,
+                        d.firstIndex,
+                        d.firstInstance,
+                        d.baseVertex ?? 0,
+                    );
                 }
             } else if (geometry.indirect) {
                 const indirect = geometry.indirect;
-                const indBuf = Buffers.ensureUploaded(buffers, device, indirect, 'indirect');
+                const indBuf = Buffers.ensureUploaded(b.buffers, b.device, indirect, 'indirect');
                 const byteStride = indirect.itemSize * 4;
                 const baseOffset = geometry.indirectOffset;
                 const drawCount = geometry.indirectDrawCount ?? indirect.count;
@@ -621,19 +686,19 @@ function draw(
                     passDrawIndexedIndirect(gpuPass, inspector, info, indBuf, baseOffset + d * byteStride);
                 }
             } else {
-                const { first, count } = resolveIndexedDrawRange(geometry);
-                passDrawIndexed(gpuPass, inspector, info, count, mesh.count, first);
+                const { first, count } = resolveIndexedDrawRange(geometry, range);
+                passDrawIndexed(gpuPass, inspector, info, count, instances, first);
             }
         } else {
-            if (mesh.draws !== undefined) {
+            if (draws !== undefined) {
                 // Batched non-indexed: one instanced draw per entry, each carrying its own firstInstance.
-                for (const d of mesh.draws as NonIndexedMeshDraw[]) {
+                for (const d of draws as NonIndexedMeshDraw[]) {
                     if (d.instanceCount <= 0) continue;
                     passDraw(gpuPass, inspector, info, d.vertexCount, d.instanceCount, d.firstVertex, d.firstInstance);
                 }
             } else if (geometry.indirect) {
                 const indirect = geometry.indirect;
-                const indBuf = Buffers.ensureUploaded(buffers, device, indirect, 'indirect');
+                const indBuf = Buffers.ensureUploaded(b.buffers, b.device, indirect, 'indirect');
                 const byteStride = indirect.itemSize * 4;
                 const baseOffset = geometry.indirectOffset;
                 const drawCount = geometry.indirectDrawCount ?? indirect.count;
@@ -641,8 +706,8 @@ function draw(
                     passDrawIndirect(gpuPass, inspector, info, indBuf, baseOffset + d * byteStride);
                 }
             } else {
-                const { first, count } = resolveVertexDrawRange(geometry);
-                passDraw(gpuPass, inspector, info, count, mesh.count, first);
+                const { first, count } = resolveVertexDrawRange(geometry, range);
+                passDraw(gpuPass, inspector, info, count, instances, first);
             }
         }
 
@@ -650,11 +715,6 @@ function draw(
         NodeManager.updateAfter(nodes, renderObject);
         if (inspector) inspector.perf.end('updateAfter');
     }
-
-    if (inspector) inspector.perf.end('drawCalls');
-
-    gpuPass.end();
-    if (inspector) inspector.finishRender(passId, nodes.nodeFrame.frameId);
 }
 
 // Teardown — release every device resource the renderer owns.
@@ -664,27 +724,19 @@ function draw(
  * textures + samplers, mipmap state, pipeline caches, and (unless the device was pre-created) the
  * device itself. After this the renderer is unusable.
  */
-export function disposeDevice(
-    contexts: WeakMap<CanvasTarget, GPUCanvasContext>,
-    device: GPUDevice | null,
-    deviceProvided: boolean,
-    textures: Textures.TextureCache,
-    samplers: Samplers.SamplerCache,
-    buffers: Buffers.BufferCache,
-    pipelines: Pipelines.PipelinesState,
-    bindGroupLayoutCache: BindGroupLayoutCache,
-    sc: SwapchainState,
-): void {
-    // Unconfigure and release the swapchain canvas context (no-op in headless mode).
-    if (sc.canvasTarget) releaseContext(contexts, sc.canvasTarget);
-
-    // Destroy swapchain textures
-    sc.depthTexture?.destroy();
-    sc.msaaTexture?.destroy();
-    sc.depthTexture = null;
-    sc.depthTextureView = null;
-    sc.msaaTexture = null;
-    sc.msaaTextureView = null;
+export function disposeDevice(b: BackendState, deviceProvided: boolean): void {
+    const { canvasContexts: contexts, device, textures, samplers, buffers, pipelines, bindGroupLayoutCache, swapchain: sc } = b;
+    for (const target of sc.targets) {
+        releaseContext(contexts, target);
+        const entry = attachmentsFor(sc, target);
+        entry.depthTexture?.destroy();
+        entry.msaaTexture?.destroy();
+        entry.depthTexture = null;
+        entry.depthTextureView = null;
+        entry.msaaTexture = null;
+        entry.msaaTextureView = null;
+    }
+    sc.targets.clear();
 
     // Each cache tears itself down: whoever owns a cache owns its teardown, so this function sequences
     // them rather than reaching into their internals.
@@ -701,6 +753,19 @@ export function disposeDevice(
 }
 
 /** tracks currently set GPU state to avoid redundant setBindGroup/setVertexBuffer/setIndexBuffer calls */
+function createCurrentSets(): CurrentSets {
+    return { bindingGroups: [], attributes: [], index: null, pipeline: null, stencilRef: null };
+}
+
+/** After a bundle replays, nothing the pass had set still holds. */
+function resetCurrentSets(sets: CurrentSets): void {
+    sets.bindingGroups.length = 0;
+    sets.attributes.length = 0;
+    sets.index = null;
+    sets.pipeline = null;
+    sets.stencilRef = null;
+}
+
 type CurrentSets = {
     bindingGroups: number[];
     attributes: (GPUBuffer | null)[];
@@ -713,18 +778,13 @@ type CurrentSets = {
 // in one place so neither call sites nor the inspector interface accumulate
 // per-command boilerplate.
 
-function passSetPipeline(
-    pass: GPURenderPassEncoder,
-    inspector: InspectorBase | null,
-    pipeline: GPURenderPipeline,
-    label: string,
-): void {
+function passSetPipeline(pass: DrawEncoder, inspector: InspectorBase | null, pipeline: GPURenderPipeline, label: string): void {
     pass.setPipeline(pipeline);
     if (inspector) inspector.setPipeline(label);
 }
 
 function passSetBindGroup(
-    pass: GPURenderPassEncoder,
+    pass: DrawEncoder,
     inspector: InspectorBase | null,
     index: number,
     bindGroup: GPUBindGroup,
@@ -734,23 +794,18 @@ function passSetBindGroup(
     if (inspector) inspector.setBindGroup(index, label);
 }
 
-function passSetVertexBuffer(pass: GPURenderPassEncoder, inspector: InspectorBase | null, slot: number, buffer: GPUBuffer): void {
+function passSetVertexBuffer(pass: DrawEncoder, inspector: InspectorBase | null, slot: number, buffer: GPUBuffer): void {
     pass.setVertexBuffer(slot, buffer);
     if (inspector) inspector.setVertexBuffer(slot);
 }
 
-function passSetIndexBuffer(
-    pass: GPURenderPassEncoder,
-    inspector: InspectorBase | null,
-    buffer: GPUBuffer,
-    format: GPUIndexFormat,
-): void {
+function passSetIndexBuffer(pass: DrawEncoder, inspector: InspectorBase | null, buffer: GPUBuffer, format: GPUIndexFormat): void {
     pass.setIndexBuffer(buffer, format);
     if (inspector) inspector.setIndexBuffer();
 }
 
 function passDraw(
-    pass: GPURenderPassEncoder,
+    pass: DrawEncoder,
     inspector: InspectorBase | null,
     info: RendererInfo,
     vertexCount: number,
@@ -765,7 +820,7 @@ function passDraw(
 }
 
 function passDrawIndexed(
-    pass: GPURenderPassEncoder,
+    pass: DrawEncoder,
     inspector: InspectorBase | null,
     info: RendererInfo,
     indexCount: number,
@@ -783,7 +838,7 @@ function passDrawIndexed(
 // Indirect draws count the CALL but not the triangles: the vertex/instance counts live in a GPU
 // buffer the CPU never reads back, so `info.render.triangles` is a floor rather than a guess.
 function passDrawIndirect(
-    pass: GPURenderPassEncoder,
+    pass: DrawEncoder,
     inspector: InspectorBase | null,
     info: RendererInfo,
     indirectBuffer: GPUBuffer,
@@ -795,7 +850,7 @@ function passDrawIndirect(
 }
 
 function passDrawIndexedIndirect(
-    pass: GPURenderPassEncoder,
+    pass: DrawEncoder,
     inspector: InspectorBase | null,
     info: RendererInfo,
     indirectBuffer: GPUBuffer,

@@ -11,6 +11,11 @@
  * optional: handing `Infinity` to a draw call is not a clamp the API does for you.
  */
 import type { Geometry } from '../../geometry/geometry';
+/** `DrawOpts.range` and `Geometry.drawRange` share this shape; the former overrides the latter. */
+export type DrawRange = {
+    start: number;
+    count: number;
+};
 /** A draw range resolved against what the geometry actually holds. */
 export type ResolvedDrawRange = {
     /** First index (indexed draws) or first vertex (non-indexed). */
@@ -23,11 +28,11 @@ export type ResolvedDrawRange = {
  * clamping against the whole buffer lets `start + count` overrun it, which reads garbage on WebGPU and
  * is an "insufficient buffer" validation error on WebGL.
  */
-export declare function resolveIndexedDrawRange(geometry: Geometry): ResolvedDrawRange;
+export declare function resolveIndexedDrawRange(geometry: Geometry, override?: DrawRange): ResolvedDrawRange;
 /**
  * The vertex range to draw, sized from the `position` attribute, which is the only buffer every
  * non-indexed geometry is guaranteed to have. A geometry with no position and no explicit count has
  * nothing to size against; 3 (one triangle) is the historical fallback rather than a meaningful
  * answer, and is kept so behaviour does not change.
  */
-export declare function resolveVertexDrawRange(geometry: Geometry): ResolvedDrawRange;
+export declare function resolveVertexDrawRange(geometry: Geometry, override?: DrawRange): ResolvedDrawRange;

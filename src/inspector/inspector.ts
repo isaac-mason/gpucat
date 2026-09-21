@@ -11,6 +11,7 @@
 
 import type { FrameRecord } from './renderer-inspector';
 import { RendererInspector } from './renderer-inspector';
+import type { TreelessPass } from './tabs/scene-hierarchy';
 
 export type {
     ComputeEntry,
@@ -24,16 +25,15 @@ export type {
 
 import { getIndexFormat } from '../core/gpu-buffer';
 import type { ComputeNode, InspectorNode } from '../nodes/nodes';
-import { QuadMesh } from '../objects/quad-mesh';
-import { CanvasTarget } from '../renderer/core/canvas-target';
+import { type CanvasTarget, createCanvasTarget } from '../renderer/core/canvas-target';
 import type { RenderObject } from '../renderer/core/render-object';
 import * as Bindings from '../renderer/webgpu/bindings';
 import * as Buffers from '../renderer/webgpu/buffers';
 import { buildVertexBufferLayouts } from '../renderer/webgpu/pipelines';
 import * as RenderObjectGpu from '../renderer/webgpu/render-object-gpu';
 import type { Any } from '../schema/schema';
-import type { InspectableRenderer } from './inspector-base';
 import type { GUI } from './gui/GUI';
+import type { InspectableRenderer } from './inspector-base';
 import { buildProbeGLSL, componentCount, type GlslKind } from './probe-glsl';
 import type { ProbeTarget } from './probe-wgsl';
 import { buildProbeWGSL } from './probe-wgsl';
@@ -47,7 +47,7 @@ import { PerformanceTimeline } from './tabs/performance-timeline';
 import { SceneHierarchy } from './tabs/scene-hierarchy';
 import { Settings } from './tabs/settings';
 import { Timeline } from './tabs/timeline';
-import { type CanvasData, createPreviewMaterial, splitCamelCase, splitPath, Viewer } from './tabs/viewer';
+import { type CanvasData, createPreviewMesh, splitCamelCase, splitPath, Viewer } from './tabs/viewer';
 import { Profiler } from './ui/profiler';
 import { injectStyle } from './ui/style';
 import { setText } from './ui/utils';
@@ -80,7 +80,7 @@ type ProbeEntry = {
 type GlProbeEntry = {
     /** The probed expression. */
     expr: string;
-    /** The patched fragment GLSL source (fed to renderer.renderProbe each frame). */
+    /** The patched fragment GLSL source (fed to renderer.backend.renderProbe each frame). */
     patchedFragment: string;
     /** The inferred GLSL kind of the probed value (drives readback decode). */
     kind: GlslKind;
@@ -97,17 +97,30 @@ type GlProbeEntry = {
 };
 
 export class Inspector extends RendererInspector {
+    // The panel's own tabs. Public so the tabs can reach each other; not a surface to build against.
+    /** @internal */
     readonly profiler: Profiler;
+    /** @internal */
     readonly performance: Performance;
+    /** @internal */
     readonly performanceTimeline: PerformanceTimeline;
+    /** @internal */
     readonly memory: Memory;
+    /** @internal */
     readonly console: Console;
+    /** @internal */
     readonly parameters: Parameters;
+    /** @internal */
     readonly viewer: Viewer;
+    /** @internal */
     readonly timeline: Timeline;
+    /** @internal */
     readonly settings: Settings;
+    /** @internal */
     readonly sceneHierarchy: SceneHierarchy;
+    /** @internal */
     readonly drawCalls: DrawCalls;
+    /** @internal */
     readonly computeCalls: ComputeCalls;
 
     private _displayCycle: { text: DisplayCycleEntry; graph: DisplayCycleEntry };
@@ -219,6 +232,7 @@ export class Inspector extends RendererInspector {
         },
     };
 
+    /** @internal */
     override setRenderer(renderer: InspectableRenderer | null): void {
         if (renderer === null) {
             this.dispose();
@@ -228,26 +242,11 @@ export class Inspector extends RendererInspector {
 
         super.setRenderer(renderer);
         this.timeline.setRenderer(renderer);
-        this.log.info(
-            renderer.backend === 'webgpu'
-                ? 'gpucat WebGPU Renderer [ "WebGPU" ]'
-                : 'gpucat WebGL Renderer [ "WebGL2" ]',
-        );
+        this.log.info(renderer.api === 'webgpu' ? 'gpucat WebGPU Renderer [ "WebGPU" ]' : 'gpucat WebGL Renderer [ "WebGL2" ]');
 
         // Compute is WebGPU-only; hide the Compute Calls tab on WebGL so it never appears.
-        if (renderer.backend === 'webgl') {
+        if (renderer.api === 'webgl') {
             this.computeCalls.hide();
-        }
-
-        // Self-attach the panel to the canvas parent, if there is one. Callers
-        // that don't mount the WebGPURenderer's implicit canvas (e.g. engines
-        // rendering to per-room canvases via render targets) should append
-        // `inspector.domElement` to the DOM themselves.
-        // The inspector is a DOM tool; a worker/headless renderer draws to an OffscreenCanvas (no DOM
-        // parent), so read `canvas` (not `domElement`, which throws there) and skip self-attach.
-        const rendererCanvas = renderer.canvas;
-        if (this.domElement.parentElement === null && 'parentElement' in rendererCanvas && rendererCanvas.parentElement) {
-            rendererCanvas.parentElement.appendChild(this.domElement);
         }
     }
 
@@ -282,29 +281,29 @@ export class Inspector extends RendererInspector {
         }
     }
 
-    override beginRender(passId: string, frameId: number): void {
-        super.beginRender(passId, frameId);
+    override beginRender(passId: string): void {
+        super.beginRender(passId);
         if (this.timeline.isRecording) {
             this.timeline.onCall('beginRender', passId);
         }
     }
 
-    override finishRender(passId: string, frameId: number): void {
-        super.finishRender(passId, frameId);
+    override finishRender(passId: string): void {
+        super.finishRender(passId);
         if (this.timeline.isRecording) {
             this.timeline.onCall('finishRender', passId);
         }
     }
 
-    override beginCompute(node: ComputeNode, frameId: number): void {
-        super.beginCompute(node, frameId);
+    override beginCompute(node: ComputeNode): void {
+        super.beginCompute(node);
         if (this.timeline.isRecording) {
             this.timeline.onCall('beginCompute', node.id);
         }
     }
 
-    override finishCompute(nodeId: string, frameId: number): void {
-        super.finishCompute(nodeId, frameId);
+    override finishCompute(nodeId: string): void {
+        super.finishCompute(nodeId);
         if (this.timeline.isRecording) {
             this.timeline.onCall('finishCompute', nodeId);
         }
@@ -378,6 +377,7 @@ export class Inspector extends RendererInspector {
 
     // createParameters, expose dat.GUI-style groups via the Parameters tab
 
+    /** @internal */
     createParameters(name: string): GUI {
         // Activate the mini-panel (top-right floating panel) without showing
         // the Parameters tab inside the main profiler panel.  showBuiltin()
@@ -399,18 +399,19 @@ export class Inspector extends RendererInspector {
      * Returns the probe canvas element so the caller can display it, or null
      * if patching / pipeline creation fails.
      */
+    /** @internal */
     setProbe(target: ProbeTarget, sourceRO: RenderObject): HTMLElement | null {
         const renderer = this.getRenderer();
         if (!renderer) return null;
 
-        // WebGL backend: patch the fragment GLSL and read back the value via renderer.renderProbe
+        // WebGL backend: patch the fragment GLSL and read back the value via renderer.backend.renderProbe
         // (never touches `device`). Returns a swatch/text element instead of a live canvas.
-        if (renderer.backend === 'webgl') {
+        if (renderer.api === 'webgl') {
             return this._setGlProbe(target, sourceRO);
         }
 
         // The probe patches WGSL and builds a WebGPU render pipeline — WebGPU-only.
-        if (renderer.backend !== 'webgpu') return null;
+        if (renderer.api !== 'webgpu') return null;
 
         const code = sourceRO.nodeBuilderState?.vertexCode;
         if (!code) return null;
@@ -434,7 +435,7 @@ export class Inspector extends RendererInspector {
         console.groupEnd();
 
         // Build probe pipeline: same bind group layouts, patched shader
-        const bindGroupLayouts = Bindings.getRenderBindGroupLayouts(renderer.bindings, sourceRO);
+        const bindGroupLayouts = Bindings.getRenderBindGroupLayouts(renderer.backend.bindings, sourceRO);
         if (bindGroupLayouts.length === 0) {
             this.log.warn(
                 '[gpucat probe] bind group layouts not yet initialised, try clicking again after the first frame renders',
@@ -442,8 +443,8 @@ export class Inspector extends RendererInspector {
             return null;
         }
 
-        const pipelineLayout = renderer.device.createPipelineLayout({ bindGroupLayouts });
-        const shaderModule = renderer.device.createShaderModule({ code: patchedCode });
+        const pipelineLayout = renderer.backend.device.createPipelineLayout({ bindGroupLayouts });
+        const shaderModule = renderer.backend.device.createShaderModule({ code: patchedCode });
 
         // Log WGSL compilation errors asynchronously (same pattern as render-objects.ts)
         shaderModule.getCompilationInfo().then((info) => {
@@ -461,7 +462,7 @@ export class Inspector extends RendererInspector {
 
         let pipeline: GPURenderPipeline;
         try {
-            pipeline = renderer.device.createRenderPipeline({
+            pipeline = renderer.backend.device.createRenderPipeline({
                 layout: pipelineLayout,
                 vertex: {
                     module: shaderModule,
@@ -488,10 +489,10 @@ export class Inspector extends RendererInspector {
         // Create preview canvas + depth texture
         const canvas = document.createElement('canvas');
         canvas.style.display = 'block';
-        const canvasTarget = new CanvasTarget(canvas);
-        canvasTarget.setSize(140, 140);
+        const probeTarget = createCanvasTarget(canvas);
+        probeTarget.setSize(140, 140);
 
-        const depthTexture = renderer.device.createTexture({
+        const depthTexture = renderer.backend.device.createTexture({
             size: [140, 140, 1],
             format: depthFormat,
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
@@ -501,7 +502,7 @@ export class Inspector extends RendererInspector {
             expr: target.expr,
             patchedCode,
             pipeline,
-            canvasTarget,
+            canvasTarget: probeTarget,
             canvas,
             sourceRO,
             depthTexture,
@@ -513,7 +514,7 @@ export class Inspector extends RendererInspector {
 
     /**
      * WebGL probe: patch the fragment GLSL to output the probed value, build a small popover element
-     * (color swatch + numeric readback), and wire it to read back each frame via renderer.renderProbe.
+     * (color swatch + numeric readback), and wire it to read back each frame via renderer.backend.renderProbe.
      * Returns the element, or null if patching fails. Never touches `device`.
      */
     private _setGlProbe(target: ProbeTarget, sourceRO: RenderObject): HTMLElement | null {
@@ -597,13 +598,14 @@ export class Inspector extends RendererInspector {
         if (this._activeGlProbe) {
             this._activeGlProbe = null;
             const renderer = this.getRenderer();
-            if (renderer && renderer.backend === 'webgl') renderer.clearProbe();
+            if (renderer && renderer.api === 'webgl') renderer.backend.clearProbe();
         }
         return drained;
     }
 
     // navigateToRO, jump to a RenderObject in the Draw Calls tab
 
+    /** @internal */
     navigateToRO(ro: RenderObject): void {
         this.profiler.setActiveTab(this.drawCalls.id);
         if (!this.drawCalls.isVisible) this.drawCalls.show();
@@ -668,9 +670,10 @@ export class Inspector extends RendererInspector {
             this.resolveViewer(record.inspectableNodes);
         }
 
-        if (record.scenes.length > 0) {
+        const treeless = treelessPasses(record, this.getRenderer());
+        if (record.scenes.length > 0 || treeless.length > 0) {
             this.sceneHierarchy.show();
-            this.sceneHierarchy.update(this, record.scenes);
+            this.sceneHierarchy.update(this, record.scenes, treeless);
         }
 
         const renderer = this.getRenderer();
@@ -681,10 +684,10 @@ export class Inspector extends RendererInspector {
 
         // Update compute calls tab if compute passes were dispatched this frame. Compute is
         // WebGPU-only, so this never fires on WebGL (computeNodes stays empty); the backend check also
-        // narrows `renderer` to WebGPURenderer for the WebGPU-typed update().
-        if (renderer && renderer.backend === 'webgpu' && this.computeNodes.size > 0) {
+        // narrows `renderer` to WebGPUBackend for the WebGPU-typed update().
+        if (renderer && renderer.api === 'webgpu' && this.computeNodes.size > 0) {
             this.computeCalls.show();
-            this.computeCalls.update(this, renderer);
+            this.computeCalls.update(this, renderer.backend);
         }
 
         // Render probe canvas (if active) using a fresh command encoder so we
@@ -697,6 +700,7 @@ export class Inspector extends RendererInspector {
     /**
      * Build canvasData for each inspectable node and call viewer.update().
      */
+    /** @internal */
     resolveViewer(nodes: InspectorNode<Any>[]): void {
         const renderer = this.getRenderer();
         if (!renderer) return;
@@ -710,6 +714,7 @@ export class Inspector extends RendererInspector {
      * Creates a 140×140 CanvasTarget, wraps the node as vec4(vec3(node), 1),
      * and builds a fullscreen Material. Cached per node, never recreated.
      */
+    /** @internal */
     getCanvasDataByNode(node: InspectorNode<Any>): CanvasData {
         let canvasData = this._canvasNodes.get(node);
 
@@ -717,25 +722,24 @@ export class Inspector extends RendererInspector {
             const canvas = document.createElement('canvas');
             canvas.style.display = 'block';
 
-            const canvasTarget = new CanvasTarget(canvas);
-            canvasTarget.setPixelRatio(window.devicePixelRatio);
-            canvasTarget.setSize(140, 140);
+            const previewTarget = createCanvasTarget(canvas);
+            previewTarget.setPixelRatio(window.devicePixelRatio);
+            previewTarget.setSize(140, 140);
 
             const id = node.id;
             const rawName = node.getName();
             const { path, name } = splitPath(splitCamelCase(rawName));
 
-            const material = createPreviewMaterial(node.wrappedNode);
-            const quadMesh = new QuadMesh(material);
-            quadMesh.name = 'Viewer - ' + name;
+            const mesh = createPreviewMesh(node.wrappedNode);
+            mesh.name = `Viewer - ${name}`;
 
             canvasData = {
                 id,
                 name,
                 path,
                 node,
-                quadMesh,
-                canvasTarget,
+                mesh,
+                canvasTarget: previewTarget,
             };
 
             this._canvasNodes.set(node, canvasData);
@@ -765,15 +769,15 @@ export class Inspector extends RendererInspector {
         const renderer = this.getRenderer();
         if (!renderer) return;
         // Probe pipelines are WebGPU-only; _activeProbe is never set on WebGL (setProbe returns null),
-        // so this is belt-and-braces — and it narrows `renderer` to WebGPURenderer for the device access.
-        if (renderer.backend !== 'webgpu') return;
+        // so this is belt-and-braces — and it narrows `renderer` to WebGPUBackend for the device access.
+        if (renderer.api !== 'webgpu') return;
 
         const ro = probe.sourceRO;
         if (ro.mesh.count === 0) return;
 
         // Bind groups updated this frame by the main render loop (camera at [0]).
         // These live in the WebGPU device side table keyed by RenderObject.
-        const bindGroups = RenderObjectGpu.peekRenderObjectGpu(renderer.renderObjectGpu, ro)?.bindGroups;
+        const bindGroups = RenderObjectGpu.peekRenderObjectGpu(renderer.backend.renderObjectGpu, ro)?.bindGroups;
         if (!bindGroups || bindGroups.length === 0) return;
 
         // Vertex buffers must be uploaded already (main render loop does this)
@@ -781,10 +785,10 @@ export class Inspector extends RendererInspector {
         if (!nodeState) return;
 
         const format = navigator.gpu.getPreferredCanvasFormat();
-        const ctx = renderer.getContext(probe.canvasTarget, format, 'opaque');
+        const ctx = renderer.backend.getContext(probe.canvasTarget, format, 'opaque');
         const targetTexture = ctx.getCurrentTexture();
 
-        const encoder = renderer.device.createCommandEncoder();
+        const encoder = renderer.backend.device.createCommandEncoder();
         const pass = encoder.beginRenderPass({
             colorAttachments: [
                 {
@@ -812,13 +816,13 @@ export class Inspector extends RendererInspector {
         // Vertex buffers, look up uploaded GPU buffers from the geometry
         let slot = 0;
         const geometry = ro.geometry;
-        const bufferCache = renderer.buffers;
+        const bufferCache = renderer.backend.buffers;
         for (const group of nodeState.vertexBufferGroups) {
             if (group.name !== null) {
                 // Geometry-based group - resolve buffer by name
                 const bufAttr = geometry.buffers.get(group.name);
                 if (bufAttr) {
-                    const gpuBuf = Buffers.ensureUploaded(bufferCache, renderer.device, bufAttr, group.name);
+                    const gpuBuf = Buffers.ensureUploaded(bufferCache, renderer.backend.device, bufAttr, group.name);
                     pass.setVertexBuffer(slot, gpuBuf);
                 }
             } else {
@@ -829,7 +833,12 @@ export class Inspector extends RendererInspector {
                 }
                 const arr = gpuBuffer.array;
                 if (arr) {
-                    const gpuBuf = Buffers.ensureUploaded(bufferCache, renderer.device, gpuBuffer, group.name ?? 'vertex');
+                    const gpuBuf = Buffers.ensureUploaded(
+                        bufferCache,
+                        renderer.backend.device,
+                        gpuBuffer,
+                        group.name ?? 'vertex',
+                    );
                     pass.setVertexBuffer(slot, gpuBuf);
                 }
             }
@@ -840,7 +849,7 @@ export class Inspector extends RendererInspector {
         // indirect draw support.  The indirect GPU buffer was already written by
         // the compute pass this frame; getUploaded() does a non-uploading lookup.
         if (geometry.index) {
-            const idxBuf = Buffers.ensureUploaded(bufferCache, renderer.device, geometry.index, 'index');
+            const idxBuf = Buffers.ensureUploaded(bufferCache, renderer.backend.device, geometry.index, 'index');
             pass.setIndexBuffer(idxBuf, getIndexFormat(geometry.index.array)!);
             if (geometry.indirect) {
                 const indBuf = Buffers.getUploaded(bufferCache, geometry.indirect);
@@ -872,12 +881,12 @@ export class Inspector extends RendererInspector {
         }
 
         pass.end();
-        renderer.device.queue.submit([encoder.finish()]);
+        renderer.backend.device.queue.submit([encoder.finish()]);
     }
 
     /**
      * WebGL probe readback: re-render the probed mesh with the patched fragment into a 1×1 FBO via
-     * renderer.renderProbe, then decode the pixel per the coerced type and update the swatch + text.
+     * renderer.backend.renderProbe, then decode the pixel per the coerced type and update the swatch + text.
      * Runs each frame while a WebGL probe is active. Never touches `device`.
      */
     private _renderGlProbe(): void {
@@ -885,11 +894,11 @@ export class Inspector extends RendererInspector {
         if (!probe) return;
 
         const renderer = this.getRenderer();
-        if (!renderer || renderer.backend !== 'webgl') return;
+        if (!renderer || renderer.api !== 'webgl') return;
 
         let pixel: Uint8Array | null;
         try {
-            pixel = renderer.renderProbe(probe.sourceRO, probe.patchedFragment);
+            pixel = renderer.backend.renderProbe(probe.sourceRO, probe.patchedFragment);
         } catch (e) {
             this.log.error(`[gpucat probe] WebGL probe failed: ${e}`);
             this.clearProbe();
@@ -907,4 +916,21 @@ export class Inspector extends RendererInspector {
         const comps = [r, g, b, a].slice(0, n).map((v) => (v / 255).toFixed(3));
         probe.label.textContent = `${probe.kind}\n(${comps.join(', ')})`;
     }
+}
+
+/**
+ * Render passes in the frame that produced no `SceneRecord`, with the draw count Draw Calls buckets
+ * under the same label. `drawScene` is the only producer of scene records, so a pass whose draws were
+ * recorded directly has nothing for the hierarchy tab to walk.
+ */
+function treelessPasses(record: FrameRecord, renderer: InspectableRenderer | null): TreelessPass[] {
+    const walked = new Set(record.scenes.map((s) => s.passId));
+    const drawn = new Map<string, number>();
+    if (renderer) {
+        for (const ro of renderer._renderObjects.renderObjects) {
+            const label = ro.lastPassLabel;
+            if (label !== '' && !walked.has(label)) drawn.set(label, (drawn.get(label) ?? 0) + 1);
+        }
+    }
+    return [...drawn].map(([passId, drawCount]) => ({ passId, drawCount }));
 }

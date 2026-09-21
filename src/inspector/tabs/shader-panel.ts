@@ -375,7 +375,7 @@ export class ShaderPanel {
 
     /** True when the attached renderer is WebGL (drives GLSL vs WGSL probe target extraction). */
     private _isWebGL(): boolean {
-        return this._inspector?.getRenderer()?.backend === 'webgl';
+        return this._inspector?.getRenderer()?.api === 'webgl';
     }
 
     /** Parse a hovered fragment line into a probe target, using the backend-appropriate extractor. */

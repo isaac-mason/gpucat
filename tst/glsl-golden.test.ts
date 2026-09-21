@@ -7,8 +7,8 @@ import {
     comparisonSampler,
     compileGlsl,
     createStorageTexture,
-    d,
     DepthTexture,
+    d,
     depthTexture,
     Fn,
     f32,
@@ -31,6 +31,7 @@ import {
     vec3,
     vec4,
 } from '../src/index';
+import type { Node } from '../src/nodes/lib/core';
 
 /**
  * Golden GLSL regression net for the first GLSL-emitter vertical slice.
@@ -142,7 +143,7 @@ describe('golden GLSL — render path', () => {
     });
 
     test('user function: define an Fn and call it in the fragment', () => {
-        const luminance = Fn((c: ReturnType<typeof vec3>) => c.dot(vec3(0.299, 0.587, 0.114)), {
+        const luminance = Fn((c: Node<d.vec3f>) => c.dot(vec3(0.299, 0.587, 0.114)), {
             name: 'luminance',
             params: [{ name: 'c', type: d.vec3f }] as const,
             return: d.f32,

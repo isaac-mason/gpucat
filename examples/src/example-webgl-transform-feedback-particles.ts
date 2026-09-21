@@ -28,30 +28,36 @@ const BOUND = 8;
 // the transform-feedback kernel calls it here; a WebGPU compute() kernel would call the exact same Fn.
 // ---------------------------------------------------------------------------------------------------
 
-const wrap = g.Fn((x: g.Node<typeof d.f32>) => {
-    // ((x + BOUND) mod 2*BOUND) - BOUND, using fract to fold the axis back into range.
-    const span = g.f32(2 * BOUND);
-    const t = x.add(g.f32(BOUND)).div(span);
-    return t.sub(t.floor()).mul(span).sub(g.f32(BOUND));
-}, {
-    name: 'wrap',
-    params: [{ name: 'x', type: d.f32 }],
-    return: d.f32,
-});
+const wrap = g.Fn(
+    (x: g.Node<typeof d.f32>) => {
+        // ((x + BOUND) mod 2*BOUND) - BOUND, using fract to fold the axis back into range.
+        const span = g.f32(2 * BOUND);
+        const t = x.add(g.f32(BOUND)).div(span);
+        return t.sub(t.floor()).mul(span).sub(g.f32(BOUND));
+    },
+    {
+        name: 'wrap',
+        params: [{ name: 'x', type: d.f32 }],
+        return: d.f32,
+    },
+);
 
-const particleStep = g.Fn((pos: g.Node<typeof d.vec4f>, vel: g.Node<typeof d.vec4f>, dt: g.Node<typeof d.f32>) => {
-    const next = pos.add(vel.mul(dt));
-    // xyz = wrapped position, w = passthrough (carries a per-particle hue seed for the fragment).
-    return g.vec4(wrap(next.x), wrap(next.y), wrap(next.z), pos.w);
-}, {
-    name: 'particleStep',
-    params: [
-        { name: 'pos', type: d.vec4f },
-        { name: 'vel', type: d.vec4f },
-        { name: 'dt', type: d.f32 },
-    ],
-    return: d.vec4f,
-});
+const particleStep = g.Fn(
+    (pos: g.Node<typeof d.vec4f>, vel: g.Node<typeof d.vec4f>, dt: g.Node<typeof d.f32>) => {
+        const next = pos.add(vel.mul(dt));
+        // xyz = wrapped position, w = passthrough (carries a per-particle hue seed for the fragment).
+        return g.vec4(wrap(next.x), wrap(next.y), wrap(next.z), pos.w);
+    },
+    {
+        name: 'particleStep',
+        params: [
+            { name: 'pos', type: d.vec4f },
+            { name: 'vel', type: d.vec4f },
+            { name: 'dt', type: d.f32 },
+        ],
+        return: d.vec4f,
+    },
+);
 
 // ---------------------------------------------------------------------------------------------------
 // Buffers. Two position buffers to ping-pong between (bufA/bufB), one velocity buffer, and a separate
@@ -86,14 +92,11 @@ const renderPos = new g.GpuBuffer(d.vec4f, { count: N, usage: 'vertex' });
 const dt = g.uniform('dt', d.f32);
 
 // The transform-feedback kernel: attribute-in (pos, vel) → captured-varying-out (pos), body = shared Fn.
-const kernel = g.transformFeedback(
-    (io) => ({ pos: particleStep(io.pos, io.vel, dt) }),
-    {
-        inputs: { pos: d.vec4f, vel: d.vec4f },
-        outputs: { pos: d.vec4f },
-        name: 'particles-step',
-    },
-);
+const kernel = g.transformFeedback((io) => ({ pos: particleStep(io.pos, io.vel, dt) }), {
+    inputs: { pos: d.vec4f, vel: d.vec4f },
+    outputs: { pos: d.vec4f },
+    name: 'particles-step',
+});
 
 // ---------------------------------------------------------------------------------------------------
 // Render material: a tiny instanced quad per particle, offset by its world position (an instanced
@@ -103,12 +106,7 @@ const kernel = g.transformFeedback(
 const instancePos = g.attribute(renderPos, { instanced: true });
 
 const vtx = g.attribute('position', d.vec3f);
-const worldPos = g.vec4(
-    vtx.x.add(instancePos.x),
-    vtx.y.add(instancePos.y),
-    vtx.z.add(instancePos.z),
-    g.f32(1),
-);
+const worldPos = g.vec4(vtx.x.add(instancePos.x), vtx.y.add(instancePos.y), vtx.z.add(instancePos.z), g.f32(1));
 const clipPos = g.mul(g.cameraProjectionMatrix, g.mul(g.cameraViewMatrix, worldPos));
 
 // Per-particle hue from w, interpolated into the fragment stage.
@@ -128,13 +126,16 @@ const material = new g.Material({ vertex: clipPos, fragment: color });
 // ---------------------------------------------------------------------------------------------------
 
 async function main() {
-    const renderer = new g.WebGLRenderer({ antialias: true });
-    await renderer.init();
+    const canvas = document.createElement('canvas');
+    canvas.style.display = 'block';
+    document.body.appendChild(canvas);
 
-    document.body.appendChild(renderer.domElement);
-    renderer.setPixelRatio(devicePixelRatio);
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.clearColor = [0.04, 0.04, 0.08, 1];
+    const view = g.createCanvasTarget(canvas, { samples: 4 });
+    view.setPixelRatio(devicePixelRatio);
+    view.setSize(window.innerWidth, window.innerHeight);
+
+    const renderer = await g.init(g.webgl({ target: view }));
+    view.clearColor = [0.04, 0.04, 0.08, 1];
 
     const scene = new g.Scene();
     const camera = new g.PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 200);
@@ -144,7 +145,7 @@ async function main() {
     camera.updateViewMatrix();
 
     window.addEventListener('resize', () => {
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        view.setSize(window.innerWidth, window.innerHeight);
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
     });
@@ -152,31 +153,29 @@ async function main() {
     // A small quad per particle (a 0.12-unit square).
     const S = 0.06;
     const quad = new g.Geometry();
-    quad.setBuffer('position', g.createVertexBuffer(d.vec3f, new Float32Array([
-        -S, -S, 0, S, -S, 0, S, S, 0, -S, S, 0,
-    ])));
+    quad.setBuffer('position', g.createVertexBuffer(d.vec3f, new Float32Array([-S, -S, 0, S, -S, 0, S, S, 0, -S, S, 0])));
     quad.index = g.createIndexBuffer(new Uint16Array([0, 1, 2, 0, 2, 3]));
 
     const mesh = new g.Mesh(quad, material);
     mesh.count = N;
     scene.add(mesh);
 
-    const scenePass = g.pass(scene, camera);
-    const renderPipeline = new g.RenderPipeline(renderer, g.renderOutput(scenePass.getTextureNode()));
-
+    const scenePass = g.renderTexture(scene, camera);
+    const composite = g.fullscreen(g.renderOutput(scenePass.getTextureNode()));
     let last = performance.now();
 
-    async function frame() {
+    async function update() {
         const now = performance.now();
         dt.value = Math.min((now - last) / 1000, 0.05); // seconds, clamped for tab-switch spikes
         last = now;
 
         // 1. Advance the sim on the GPU: cur (+ vel) → next, own-index, one draw under RASTERIZER_DISCARD.
-        renderer.transformFeedback(kernel, {
-            inputs: { pos: cur, vel: velBuf },
-            outputs: { pos: next },
-            count: N,
-        });
+        // Its own frame: the readback below needs these results on the CPU before the draw can use them.
+        const simFrame = g.frame(renderer);
+        const sim = simFrame.transformFeedback();
+        sim.dispatch(kernel, { inputs: { pos: cur, vel: velBuf }, outputs: { pos: next }, count: N });
+        sim.end();
+        simFrame.submit();
 
         // 2. Explicit ping-pong — no auto-swap. `next` now holds this frame's positions.
         [cur, next] = [next, cur];
@@ -184,15 +183,23 @@ async function main() {
         // 3. Honest native readback of the current positions, then upload them as the instanced draw
         //    attribute. (transform feedback and the render path hold separate GL buffers, so the hop
         //    through the CPU is explicit rather than a hidden buffer↔attribute mirror.)
-        const positions = await renderer.readBufferAsync(cur);
+        const positions = await g.readBuffer(renderer, cur);
         renderPos.array!.set(positions as Float32Array);
         renderPos.needsUpdate = true;
 
-        renderPipeline.render();
-        requestAnimationFrame(() => void frame());
+        const f = g.frame(renderer);
+
+        const compositePass = f.pass({ target: view });
+
+        compositePass.draw(composite);
+
+        compositePass.end();
+
+        f.submit();
+        requestAnimationFrame(() => void update());
     }
 
-    requestAnimationFrame(() => void frame());
+    requestAnimationFrame(() => void update());
 }
 
 main();

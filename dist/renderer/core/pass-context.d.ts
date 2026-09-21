@@ -1,28 +1,10 @@
-/**
- * pass-context.ts, GPU pass configuration and caching.
- *
- * Contains context types for both render and compute passes:
- * - RenderContext: Configuration for render passes (framebuffer, clear state, viewport, etc.)
- * - ComputeContext: Configuration for compute passes (currently minimal, used for bind group caching)
- *
- * Functional pattern: state object + functions.
- */
-import type { Camera } from '../../camera/camera';
 import type { RenderTarget } from '../../core/render-target';
 import type { MRTNode } from '../../nodes/lib/mrt';
+import type { CanvasTarget } from './canvas-target';
 import type { BackendTexture } from './render-types';
-/**
- * RGBA clear color value.
- */
-export type ClearColorValue = {
-    r: number;
-    g: number;
-    b: number;
-    a: number;
-};
-/**
- * Viewport configuration in physical pixels.
- */
+import { type Target } from './target';
+import type { View } from './view';
+/** Physical pixels, so no pixel-ratio scaling applies. */
 export type ViewportValue = {
     x: number;
     y: number;
@@ -31,38 +13,19 @@ export type ViewportValue = {
     minDepth: number;
     maxDepth: number;
 };
-/**
- * Scissor rectangle in physical pixels.
- */
+/** Physical pixels, so no pixel-ratio scaling applies. */
 export type ScissorValue = {
     x: number;
     y: number;
     width: number;
     height: number;
 };
-/**
- * RenderContext - Configuration state for a render pass.
- *
- * This is the internal representation of render pass state that gets
- * translated into GPURenderPassDescriptor by the backend.
- */
+/** What a backend turns into a `GPURenderPassDescriptor`, or into framebuffer and GL state. */
 export type RenderContext = {
     /** Unique identifier for this context. */
     readonly id: number;
     /** MRT node if multiple render targets are in use. */
     mrt: MRTNode | null;
-    /** Whether to clear color attachment(s). */
-    clearColor: boolean;
-    /** Color clear value. */
-    clearColorValue: ClearColorValue;
-    /** Whether to clear depth attachment. */
-    clearDepth: boolean;
-    /** Depth clear value (0-1, typically 1). */
-    clearDepthValue: number;
-    /** Whether to clear stencil attachment. */
-    clearStencil: boolean;
-    /** Stencil clear value. */
-    clearStencilValue: number;
     /** Whether color attachment(s) are present. */
     color: boolean;
     /** Whether depth attachment is present. */
@@ -81,74 +44,37 @@ export type RenderContext = {
     width: number;
     /** Framebuffer height in physical pixels. */
     height: number;
-    /** The render target, or null for default framebuffer. */
+    /** The render target, or null when the pass draws to a canvas. */
     renderTarget: RenderTarget | null;
+    /** The canvas target, or null when the pass draws to a render target. */
+    canvasTarget: CanvasTarget | null;
     /** Backend color texture handles (populated by renderer). Opaque to core. */
     textures: BackendTexture[] | null;
     /** Backend depth texture handle (populated by renderer). Opaque to core. */
     depthTexture: BackendTexture | null;
-    /** Active cube face for cube render targets (0-5). */
-    activeCubeFace: number;
-    /** Active mipmap level for render targets. */
-    activeMipmapLevel: number;
     /** MSAA sample count (1 = no MSAA). */
     sampleCount: number;
     /** Camera for this render pass (used for uniform updates). */
-    camera: Camera | null;
+    camera: View | null;
     /** Type flag for runtime checking. */
     readonly isRenderContext: true;
 };
-/**
- * ComputeContext - Configuration state for compute passes.
- *
- * Analogous to RenderContext for render passes. Currently minimal,
- * but provides a proper cache key for shared bind groups and can be
- * extended with dispatch configuration, timing, etc.
- */
+/** A compute pass's identity, which is all a shared bind group needs to be keyed by. */
 export type ComputeContext = {
     /** Unique identifier for this context. */
     readonly id: number;
     /** Type flag for runtime checking. */
     readonly isComputeContext: true;
 };
-/**
- * Create a new ComputeContext.
- */
 export declare function createComputeContext(): ComputeContext;
 /**
  * RenderContextsState - manages render context caching.
  */
 export type RenderContextsState = {
-    /**
-     * Cache of render contexts keyed by configuration string.
-     * Key format: `{attachmentState}-{mrtId}-{callDepth}`
-     */
+    /** Keyed by attachment shape and MRT id; see `buildCacheKey`. */
     contexts: Map<string, RenderContext>;
-    /**
-     * Default clear values from renderer settings.
-     */
-    defaultClearDepth: number;
-    defaultClearStencil: number;
 };
-/**
- * Create a new RenderContext with default values.
- */
 export declare function createRenderContext(): RenderContext;
-/**
- * Create a new RenderContexts state.
- */
 export declare function createRenderContextsState(): RenderContextsState;
-/**
- * Get or create a RenderContext for the given configuration.
- *
- * - Returns cached context if configuration matches
- * - Creates new context if not found
- * - Updates dynamic values (clear values, sample count) on each access
- *
- * @param state - The RenderContexts state
- * @param renderTarget - The render target, or null for default framebuffer
- * @param mrt - The MRT node, or null
- * @param callDepth - Nesting depth for recursive render calls
- * @returns The render context for this configuration
- */
-export declare function getRenderContext(state: RenderContextsState, renderTarget: RenderTarget | null, mrt: MRTNode | null, callDepth: number): RenderContext;
+/** Refreshed on every access: a target can be resized or reallocated under a key that has not changed. */
+export declare function getRenderContext(state: RenderContextsState, target: Target, mrt: MRTNode | null): RenderContext;

@@ -1,6 +1,6 @@
+import type { Uniform } from '../core/uniform';
 import type { Node } from '../nodes/nodes';
 import type { Any } from '../schema/schema';
-import type { Uniform } from '../core/uniform';
 
 /**
  * Back-face stencil op overrides. WebGPU applies stencil ops per face; by default gpucat uses the
@@ -214,7 +214,7 @@ export class Material {
      * Incremented whenever the material's node graph configuration changes in a
      * way that requires a shader recompile.  The renderer includes this in the
      * RenderObject cache key so that bumping it triggers recompilation on the
-     * next frame. 
+     * next frame.
      */
     version: number = 0;
 
@@ -247,4 +247,9 @@ export class Material {
         this.disposed = true;
         this._onDispose?.();
     }
+}
+
+/** The factory form, matching `createBoxGeometry` and the other resource constructors. */
+export function createMaterial(opts: MaterialOptions): Material {
+    return new Material(opts);
 }

@@ -2,55 +2,57 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    createCanvasTarget,
     createBoxGeometry,
     createSphereGeometry,
     d,
     f32,
+    frame,
+    fullscreen,
+    init,
     Material,
+    createMaterial,
     Mesh,
     modelNormalMatrix,
     modelWorldMatrix,
     mul,
     normalize,
     OrbitControls,
-    pass,
     PerspectiveCamera,
-    RenderPipeline,
+    renderTexture,
     renderOutput,
     Scene,
     TransformControls,
     varying,
     vec3,
     vec4,
-    WebGPURenderer,
+    webgpu,
 } from 'gpucat';
 import { plane3 } from 'math/shapes';
 
 /* renderer, scene, camera */
 
-const renderer = new WebGPURenderer({ antialias: true });
-await renderer.init();
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
 
-document.body.appendChild(renderer.domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
 
 const scene = new Scene();
 
-const camera = new PerspectiveCamera(
-    Math.PI / 4,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    100,
-);
+const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 100);
 camera.position[2] = 5;
 camera.position[1] = 2;
 scene.add(camera);
 
-const orbitControls = new OrbitControls(camera, renderer.domElement);
+const orbitControls = new OrbitControls(camera, canvas);
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
@@ -75,7 +77,7 @@ function makeMaterial(r: number, g: number, b: number): Material {
     const baseColor = vec3(r, g, b);
     const litColor = baseColor.mul(lighting);
     const fragment = vec4(litColor, f32(1));
-    return new Material({ vertex, fragment });
+    return createMaterial({ vertex, fragment });
 }
 
 /* meshes */
@@ -97,11 +99,11 @@ scene.add(floor);
 
 /* transform controls */
 
-const transformControls = new TransformControls(camera, renderer.domElement);
+const transformControls = new TransformControls(camera, canvas);
 transformControls.attach(box);
 scene.add(transformControls.getHelper());
 
-console.log({ transform: plane3.transform, box })
+console.log({ transform: plane3.transform, box });
 
 // disable orbit controls while dragging
 transformControls.onMouseDown.add(() => {
@@ -143,7 +145,8 @@ window.addEventListener('keydown', (e) => {
 /* HUD */
 
 const hud = document.createElement('div');
-hud.style.cssText = 'position:fixed;bottom:12px;left:12px;color:#fff;font:13px/1.5 monospace;background:rgba(0,0,0,0.6);padding:8px 12px;border-radius:4px;pointer-events:none;';
+hud.style.cssText =
+    'position:fixed;bottom:12px;left:12px;color:#fff;font:13px/1.5 monospace;background:rgba(0,0,0,0.6);padding:8px 12px;border-radius:4px;pointer-events:none;';
 hud.innerHTML = `
 <b>T</b> translate &nbsp; <b>R</b> rotate &nbsp; <b>S</b> scale<br>
 <b>Q</b> toggle world/local &nbsp; <b>Tab</b> switch object &nbsp; <b>Esc</b> reset
@@ -155,16 +158,23 @@ document.body.appendChild(hud);
 scene.updateWorldMatrix();
 camera.updateViewMatrix();
 
-const scenePass = pass(scene, camera);
+const scenePass = renderTexture(scene, camera);
 const outputNode = renderOutput(scenePass.getTextureNode());
-const renderPipeline = new RenderPipeline(renderer, outputNode);
-
-function frame() {
+const composite = fullscreen(outputNode);
+function update() {
     orbitControls.update();
     scene.updateWorldMatrix();
 
-    renderPipeline.render();
-    requestAnimationFrame(frame);
+    const f = frame(renderer);
+
+    const compositePass = f.pass({ target: view });
+
+    compositePass.draw(composite);
+
+    compositePass.end();
+
+    f.submit();
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

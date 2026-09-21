@@ -17,25 +17,21 @@ import {
     f32,
     modelWorldMatrix,
     mul,
-    pass,
+    renderTexture,
     renderOutput,
     vec4,
 } from '../src/nodes/nodes';
+import { fullscreen } from '../src/objects/fullscreen';
 import { Mesh } from '../src/objects/mesh';
-import { RenderPipeline } from '../src/renderer/core/render-pipeline';
-import { WebGPURenderer } from '../src/renderer/webgpu/renderer';
+import { createCanvasTarget } from '../src/renderer/core/canvas-target';
+import { Renderer } from '../src/renderer/core/renderer';
+import { WebGPUBackend } from '../src/renderer/webgpu/webgpu-backend';
+import { drawScene } from '../src/scene/draw-scene';
 import { Scene } from '../src/scene/scene';
 import * as d from '../src/schema/schema';
+import { frame } from '../src/renderer/core/frame';
 
-/**
- * Render-path safety net for the Phase-2 encoder internalization.
- *
- * Invariant: a top-level render() (or compute()) owns exactly one command encoder and issues exactly
- * one queue.submit(); a nested render (PassNode.updateBefore) must REUSE the parent's encoder — so a
- * frame that contains a nested pass still produces one encoder + one submit, not two. The upcoming
- * change moves encoder ownership from a threaded param onto the renderer; this test locks the current
- * behavior so that change stays faithful.
- */
+/** One frame owns one encoder and one submit, including the pass a `RenderTextureNode` records inside it. */
 
 function basicMaterial(): Material {
     const position = attribute('position', d.vec3f);
@@ -58,40 +54,45 @@ function makeScene(): { scene: Scene; camera: PerspectiveCamera } {
 
 async function makeRenderer() {
     const stub = createStubGPU();
-    const renderer = new WebGPURenderer(stub.getRendererOptions());
+    const renderer = new Renderer(new WebGPUBackend(stub.getRendererOptions()));
     await renderer.init();
-    renderer.setSize(800, 600);
-    return { stub, renderer };
+    return { stub, renderer, view: createCanvasTarget(stub.canvas) };
 }
 
 describe('render encoder ownership', () => {
-    test('a top-level render creates one encoder and submits once', async () => {
-        const { stub, renderer } = await makeRenderer();
+    test('a frame of one scene pass creates one encoder and submits once', async () => {
+        const { stub, renderer, view } = await makeRenderer();
         const { scene, camera } = makeScene();
 
         stub.stats.reset();
-        renderer.render(scene, camera);
+        const f = frame(renderer);
+        const scenePass = f.pass({ target: view, camera });
+        drawScene(renderer, scenePass, scene, camera);
+        scenePass.end();
+        f.submit();
 
         expect(stub.stats.encoderCreations).toBe(1);
         expect(stub.stats.submits).toBe(1);
     });
 
-    test('a nested PassNode render reuses the parent encoder (1 encoder, 1 submit)', async () => {
-        const { stub, renderer } = await makeRenderer();
+    test('a RenderTextureNode records its pass on the open frame (1 encoder, 1 submit)', async () => {
+        const { stub, renderer, view } = await makeRenderer();
         const { scene, camera } = makeScene();
 
-        const scenePass = pass(scene, camera);
+        const scenePass = renderTexture(scene, camera);
         const output = renderOutput(scenePass.getTextureNode());
-        const renderPipeline = new RenderPipeline(renderer, output);
+        const composite = fullscreen(output);
 
         stub.stats.reset();
-        renderPipeline.render();
+        const f = frame(renderer);
+        const compositePass = f.pass({ target: view });
+        compositePass.draw(composite);
+        compositePass.end();
+        f.submit();
 
-        // Guard: the nested pass must actually have fired — the inner scene's box draws AND the
-        // composite quad draws, so >= 2 draw calls (otherwise the 1-encoder assertion is vacuous).
+        // Guard: the beauty pass must actually have fired — its box draws AND the composite draws, so
+        // >= 2 draw calls, otherwise the one-encoder assertion is vacuous.
         expect(stub.stats.drawCalls).toBeGreaterThanOrEqual(2);
-        // The RenderPipeline's fullscreen quad render is the top-level frame; the PassNode's nested
-        // scene render must reuse the parent encoder — so exactly one encoder and one submit.
         expect(stub.stats.encoderCreations).toBe(1);
         expect(stub.stats.submits).toBe(1);
     });

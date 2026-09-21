@@ -3,40 +3,42 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    compileCompute,
+    createCanvasTarget,
     createIndirectBuffer,
+    createMaterial,
     createVertexBuffer,
     cross,
-    d,
     DrawIndirect,
-    f32,
+    d,
     Fn,
+    f32,
+    frame,
+    fullscreen,
     Geometry,
     globalId,
     If,
     Inspector,
-    Material,
+    init,
     Mesh,
     mix,
     mul,
-    pass,
     PerspectiveCamera,
     pow,
     renderGroup,
+    renderOutput,
+    renderTexture,
     Scene,
     storage,
     u32,
     uniform,
     varying,
     vec4,
-    WebGPURenderer,
-    RenderPipeline,
-    renderOutput,
-} from "gpucat";
+    webgpu,
+} from 'gpucat';
 
 // positions: three verts of a flat equilateral triangle in XY plane
-const positions = new Float32Array([
-    0.025, -0.025, 0, -0.025, 0.025, 0, 0, 0, 0.025,
-]);
+const positions = new Float32Array([0.025, -0.025, 0, -0.025, 0.025, 0, 0, 0, 0.025]);
 
 /* per instance attributes */
 const INSTANCES = 100_000;
@@ -59,12 +61,7 @@ for (let i = 0; i < INSTANCES; i++) {
     colorData[i * 4 + 3] = Math.random();
 
     // random unit quaternion — orientationStart
-    let [x, y, z, w] = [
-        Math.random() * 2 - 1,
-        Math.random() * 2 - 1,
-        Math.random() * 2 - 1,
-        Math.random() * 2 - 1,
-    ];
+    let [x, y, z, w] = [Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1];
     let len = Math.sqrt(x * x + y * y + z * z + w * w);
     orientationStartData[i * 4 + 0] = x / len;
     orientationStartData[i * 4 + 1] = y / len;
@@ -72,12 +69,7 @@ for (let i = 0; i < INSTANCES; i++) {
     orientationStartData[i * 4 + 3] = w / len;
 
     // random unit quaternion — orientationEnd
-    [x, y, z, w] = [
-        Math.random() * 2 - 1,
-        Math.random() * 2 - 1,
-        Math.random() * 2 - 1,
-        Math.random() * 2 - 1,
-    ];
+    [x, y, z, w] = [Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1];
     len = Math.sqrt(x * x + y * y + z * z + w * w);
     orientationEndData[i * 4 + 0] = x / len;
     orientationEndData[i * 4 + 1] = y / len;
@@ -87,16 +79,8 @@ for (let i = 0; i < INSTANCES; i++) {
 
 const attrOffset = attribute(offsetData, d.vec3f, { stride: 12, offset: 0, instanced: true });
 const attrColor = attribute(colorData, d.vec4f, { stride: 16, offset: 0, instanced: true });
-const attrOrientationStart = attribute(
-    orientationStartData,
-    d.vec4f,
-    { stride: 16, offset: 0, instanced: true },
-);
-const attrOrientationEnd = attribute(
-    orientationEndData,
-    d.vec4f,
-    { stride: 16, offset: 0, instanced: true },
-);
+const attrOrientationStart = attribute(orientationStartData, d.vec4f, { stride: 16, offset: 0, instanced: true });
+const attrOrientationEnd = attribute(orientationEndData, d.vec4f, { stride: 16, offset: 0, instanced: true });
 
 /* indirect draw buffer */
 // non-indexed DrawIndirect, struct-typed
@@ -109,7 +93,7 @@ const attrOrientationEnd = attribute(
 // non-indexed, 1 draw. GpuBuffer with storage + indirect usage
 const drawBuffer = createIndirectBuffer(DrawIndirect, new Uint32Array(4));
 
-const drawStorage = storage(drawBuffer, "read_write");
+const drawStorage = storage(drawBuffer, 'read_write');
 const drawStorageInstance = drawStorage.fields();
 
 /* compute shaders */
@@ -154,7 +138,7 @@ const computeUpdate = Fn(() => {
 /* render node graph */
 
 // built-in per-vertex position.
-const vtxPos = attribute("position", d.vec3f);
+const vtxPos = attribute('position', d.vec3f);
 
 // per-instance attributes.
 const offset = attrOffset;
@@ -171,20 +155,14 @@ const sphereOsc = offset.mul(oscRange).add(vtxPos);
 
 // quaternion rotation: v' = v + 2w(q×v) + 2(q×(q×v))
 //   orientation = normalize(mix(orientationStart, orientationEnd, halfTime))
-const orientation = mix(
-    orientationStart,
-    orientationEnd,
-    halfTime.add(f32(1)).mul(f32(0.5)),
-).normalize();
+const orientation = mix(orientationStart, orientationEnd, halfTime.add(f32(1)).mul(f32(0.5))).normalize();
 const vcV = cross(orientation.xyz, sphereOsc);
 const crossvcV = cross(orientation.xyz, vcV);
-const rotated = vcV
-    .mul(orientation.w.mul(f32(2)))
-    .add(crossvcV.mul(f32(2)).add(sphereOsc));
+const rotated = vcV.mul(orientation.w.mul(f32(2))).add(crossvcV.mul(f32(2)).add(sphereOsc));
 
 // varyings
-const vPosition = varying(rotated, "vPosition");
-const vColor = varying(color, "vColor");
+const vPosition = varying(rotated, 'vPosition');
+const vColor = varying(color, 'vColor');
 
 // project to clip space (no model matrix — instances live in camera space units)
 const worldPos4 = vec4(rotated, f32(1));
@@ -192,52 +170,46 @@ const viewPos = mul(cameraViewMatrix, worldPos4);
 const clipPos = mul(cameraProjectionMatrix, viewPos);
 
 // fragment: base color + sin ripple on x and time
-const fragColor = vec4(
-    vColor.x.add(vPosition.x.mul(f32(10)).add(time).sin().mul(f32(0.5))),
-    vColor.y,
-    vColor.z,
-    vColor.w,
-);
+const fragColor = vec4(vColor.x.add(vPosition.x.mul(f32(10)).add(time).sin().mul(f32(0.5))), vColor.y, vColor.z, vColor.w);
 
-const material = new Material({
+const material = createMaterial({
     vertex: clipPos,
     fragment: fragColor,
     transparent: true,
-    cullMode: "none",
+    cullMode: 'none',
 });
 
-const renderer = new WebGPURenderer({ antialias: true });
-renderer.inspector = new Inspector();
-await renderer.init();
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
 
-document.body.appendChild(renderer.domElement);
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
+renderer.inspector = new Inspector();
+
 document.body.appendChild((renderer.inspector as Inspector).domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.clearColor = [0, 0, 0.12, 1];
+view.clearColor = [0, 0, 0.12, 1];
 
 const scene = new Scene();
-const camera = new PerspectiveCamera(
-    50 * (Math.PI / 180),
-    window.innerWidth / window.innerHeight,
-    0.1,
-    10_000,
-);
+const camera = new PerspectiveCamera(50 * (Math.PI / 180), window.innerWidth / window.innerHeight, 0.1, 10_000);
 camera.position[0] = 1;
 camera.position[1] = 1;
 camera.position[2] = 1;
 camera.lookAt([0, 0, 0]);
 scene.add(camera);
 
-window.addEventListener("resize", () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+window.addEventListener('resize', () => {
+    view.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
 
 // geometry — non-indexed triangle, per-instance vertex buffers
 const geo = new Geometry();
-geo.setBuffer("position", createVertexBuffer(d.vec3f, positions));
+geo.setBuffer('position', createVertexBuffer(d.vec3f, positions));
 geo.indirect = drawBuffer; // use drawIndirect
 
 const mesh = new Mesh(geo, material);
@@ -246,25 +218,28 @@ scene.add(mesh);
 scene.updateWorldMatrix();
 camera.updateViewMatrix();
 
-const scenePass = pass(scene, camera);
+const scenePass = renderTexture(scene, camera);
 const outputNode = renderOutput(scenePass.getTextureNode());
-const renderPipeline = new RenderPipeline(renderer, outputNode);
+const composite = fullscreen(outputNode);
+await compileCompute(renderer, computeInit);
+await compileCompute(renderer, computeUpdate);
 
-await renderer.compileCompute(computeInit);
-await renderer.compileCompute(computeUpdate);
-
-function frame() {
+function update() {
     time.value = performance.now() / 1000;
-    // seed draw args
-    // seed draw args + GPU writes instanceCount — batched into one submit
-    renderer.compute([
-        { node: computeInit,   dispatch: [1, 1, 1] },
-        { node: computeUpdate, dispatch: [Math.ceil(INSTANCES / 64), 1, 1] },
-    ]);
-    // render — drawIndirect reads GPU-written instanceCount
-    renderPipeline.render();
+    const f = frame(renderer);
 
-    requestAnimationFrame(frame);
+    // seed the draw args, then let the GPU write instanceCount into them
+    const cullPass = f.compute();
+    cullPass.dispatch(computeInit, [1, 1, 1]);
+    cullPass.dispatch(computeUpdate, [Math.ceil(INSTANCES / 64), 1, 1]);
+    cullPass.end();
+
+    // drawIndirect reads that instanceCount on the same encoder, so this is one submit
+    const compositePass = f.pass({ target: view });
+    compositePass.draw(composite);
+    compositePass.end();
+    f.submit();
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

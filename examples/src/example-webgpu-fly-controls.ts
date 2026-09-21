@@ -3,54 +3,56 @@ import {
     cameraProjectionMatrix,
     cameraViewMatrix,
     createBoxGeometry,
-    createSphereGeometry,
+    createCanvasTarget,
     createCylinderGeometry,
+    createMaterial,
     createPlaneGeometry,
+    createSphereGeometry,
     d,
-    f32,
     FlyControls,
-    Material,
+    f32,
+    frame,
+    fullscreen,
+    init,
+    type Material,
     Mesh,
     modelNormalMatrix,
     modelWorldMatrix,
     mul,
     normalize,
-    pass,
     PerspectiveCamera,
-    RenderPipeline,
     renderOutput,
+    renderTexture,
     Scene,
     varying,
     vec3,
     vec4,
-    WebGPURenderer,
+    webgpu,
 } from 'gpucat';
 
 /* renderer, scene, camera */
 
-const renderer = new WebGPURenderer({ antialias: true });
-await renderer.init();
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
 
-document.body.appendChild(renderer.domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
 
 const scene = new Scene();
 
-const camera = new PerspectiveCamera(
-    Math.PI / 4,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    500,
-);
+const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 500);
 camera.position[1] = 2;
 camera.position[2] = 8;
 scene.add(camera);
 
-const flyControls = new FlyControls(camera, renderer.domElement);
+const flyControls = new FlyControls(camera, canvas);
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
@@ -75,7 +77,7 @@ function makeMaterial(r: number, g: number, b: number): Material {
     const baseColor = vec3(r, g, b);
     const litColor = baseColor.mul(lighting);
     const fragment = vec4(litColor, f32(1));
-    return new Material({ vertex, fragment });
+    return createMaterial({ vertex, fragment });
 }
 
 /* ground plane */
@@ -131,7 +133,8 @@ for (let i = 0; i < 60; i++) {
 /* HUD */
 
 const hud = document.createElement('div');
-hud.style.cssText = 'position:fixed;bottom:12px;left:12px;color:#fff;font:13px/1.5 monospace;background:rgba(0,0,0,0.6);padding:8px 12px;border-radius:4px;pointer-events:none;';
+hud.style.cssText =
+    'position:fixed;bottom:12px;left:12px;color:#fff;font:13px/1.5 monospace;background:rgba(0,0,0,0.6);padding:8px 12px;border-radius:4px;pointer-events:none;';
 hud.innerHTML = `
 <b>WASD</b> move &nbsp; <b>Space</b> up &nbsp; <b>Shift</b> down<br>
 <b>Right-click + drag</b> look &nbsp; <b>Scroll</b> adjust speed
@@ -143,13 +146,12 @@ document.body.appendChild(hud);
 scene.updateWorldMatrix();
 camera.updateViewMatrix();
 
-const scenePass = pass(scene, camera);
+const scenePass = renderTexture(scene, camera);
 const outputNode = renderOutput(scenePass.getTextureNode());
-const renderPipeline = new RenderPipeline(renderer, outputNode);
-
+const composite = fullscreen(outputNode);
 let prevTime = performance.now() / 1000;
 
-function frame() {
+function update() {
     const now = performance.now() / 1000;
     const delta = now - prevTime;
     prevTime = now;
@@ -157,8 +159,16 @@ function frame() {
     flyControls.update(delta);
     scene.updateWorldMatrix();
 
-    renderPipeline.render();
-    requestAnimationFrame(frame);
+    const f = frame(renderer);
+
+    const compositePass = f.pass({ target: view });
+
+    compositePass.draw(composite);
+
+    compositePass.end();
+
+    f.submit();
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

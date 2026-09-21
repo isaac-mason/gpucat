@@ -801,7 +801,7 @@ export type Infer<D extends Any> = D extends {
 } ? Infer<E>[] : D extends {
     type: 'array';
     element: infer E extends Any;
-} ? Infer<E>[] : never;
+} ? Infer<E>[] : D extends unorm8x4 | snorm8x4 ? [number, number, number, number] : D extends half2x16 | unorm2x16 | snorm2x16 ? [number, number] : never;
 export type StructFields<D extends Any> = D extends {
     type: 'struct';
     fields: infer S extends Record<string, Any>;

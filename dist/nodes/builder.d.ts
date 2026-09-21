@@ -11,7 +11,7 @@ import type { TransformFeedbackNode } from './lib/transform-feedback';
 import type { UniformGroup, UniformNode } from './lib/uniform';
 import type { InterpolationSampling, InterpolationType } from './lib/varying';
 import type { WgslFunctionNode } from './lib/wgsl-fn';
-export declare function compile(slots: CompileSlots): CompileResult;
+export declare function compileWgsl(slots: CompileSlots): CompileResult;
 /**
  * GLSL ES 3.00 sibling of {@link compile}. Reuses the shared, backend-neutral {@link discover} pass
  * and node graph, then drives the GLSL emitter instead of the WGSL one. First vertical slice: a "lit
@@ -41,7 +41,7 @@ export type CompileGlslOptions = {
     maxTextureSize?: number;
 };
 export declare function compileGlsl(slots: CompileSlots, opts?: CompileGlslOptions): CompileResult;
-export declare function compileCompute(node: ComputeNode): ComputeCompileResult;
+export declare function compileComputeWgsl(node: ComputeNode): ComputeCompileResult;
 /**
  * GLSL compile path for a transform-feedback kernel (Phase 1 of the WebGL transform-feedback plan).
  * Sibling to {@link compileCompute}: reuses the shared, backend-neutral {@link discover} pass and the

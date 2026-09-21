@@ -1,5 +1,5 @@
 import { expectTypeOf, test } from 'vitest';
-import { f32, struct, vec3 } from '../src/index';
+import { struct } from '../src/index';
 import type { Node } from '../src/nodes/lib/core';
 import * as d from '../src/schema/schema';
 import { vec3f } from '../src/schema/schema';

@@ -21,7 +21,9 @@ export declare class Geometry {
      * `count` is the number of vertices/indices. Defaults to `Infinity` (full buffer).
      */
     drawRange: DrawRange;
-    /** Geometry ersion counter. Auto-incremented when buffers are added/removed */
+    /** Bumped when any buffer is set or removed, which is what forces a rebind. */
+    bindingsVersion: number;
+    /** Bumped when the buffer set or an attribute's format changes, which is what forces a recompile. */
     version: number;
     /**
      * Optional indirect draw buffer. When set, the renderer calls
@@ -112,3 +114,5 @@ export declare class Geometry {
      */
     dispose(): void;
 }
+/** The factory form, matching `createBoxGeometry` and the other resource constructors. */
+export declare function createGeometry(): Geometry;

@@ -1,5 +1,5 @@
 import * as g from 'gpucat';
-import { d, GpuBuffer } from 'gpucat'; 
+import { d, GpuBuffer } from 'gpucat';
 import { mat4, quat, vec3 } from 'math';
 
 const COLS = 7;
@@ -9,8 +9,8 @@ const SPACING = 2.4;
 
 /* per instance cpu data */
 
-const matrixData  = new Float32Array(N * 16);  // mat4x4f per instance (column-major)
-const colorData   = new Float32Array(N * 4);   // vec4f per instance (rgba)
+const matrixData = new Float32Array(N * 16); // mat4x4f per instance (column-major)
+const colorData = new Float32Array(N * 4); // vec4f per instance (rgba)
 
 const _mat4 = mat4.create();
 const _translation = vec3.create();
@@ -41,13 +41,13 @@ for (let i = 0; i < N; i++) {
 // storage buffer nodes: wrap data in GpuBuffer, renderer auto-uploads.
 // no manual device.createBuffer / device.queue.writeBuffer / material.uniforms.set needed.
 const matrixBuffer = new GpuBuffer(d.array(d.mat4x4f), { data: matrixData, usage: 'storage' });
-const colorBuffer  = new GpuBuffer(d.array(d.vec4f), { data: colorData, usage: 'storage' });
+const colorBuffer = new GpuBuffer(d.array(d.vec4f), { data: colorData, usage: 'storage' });
 const instanceMatrices = g.storage(matrixBuffer);
-const instanceColors   = g.storage(colorBuffer);
+const instanceColors = g.storage(colorBuffer);
 
 // index into the storage arrays.
-const modelMat   = g.index(instanceMatrices, g.instanceIndex);
-const rawColor   = g.index(instanceColors,   g.instanceIndex);
+const modelMat = g.index(instanceMatrices, g.instanceIndex);
+const rawColor = g.index(instanceColors, g.instanceIndex);
 
 // also demo attribute() with instanced option for the spin offset — shows both APIs together.
 // each instance gets a unique starting angle (in radians) baked into a vertex buffer.
@@ -62,102 +62,122 @@ const spinOffset = g.attribute(spinOffsets, d.f32, { stride: 4, offset: 0, insta
 // we fold it into the final clip position rather than modifying the storage matrix.
 // rotation angle = elapsed * speed + spinOffset
 // `time` is a user-driven uniform (seconds), updated each frame in the loop.
-const time    = g.uniform(g.f32(0), 'time');
-const speed   = g.f32(0.8);
-const angle   = time.mul(speed).add(spinOffset);
-const cosA    = angle.cos();
-const sinA    = angle.sin();
+const time = g.uniform(g.f32(0), 'time');
+const speed = g.f32(0.8);
+const angle = time.mul(speed).add(spinOffset);
+const cosA = angle.cos();
+const sinA = angle.sin();
 
 // build a Y-axis rotation matrix from scalar nodes.
 // mat4x4f column-major: col0..col3
-const zero  = g.f32(0);
-const one   = g.f32(1);
-const rotY  = g.mat4(
-    g.vec4(cosA,  zero, sinA.negate(), zero),
-    g.vec4(zero,  one,  zero,          zero),
-    g.vec4(sinA,  zero, cosA,          zero),
-    g.vec4(zero,  zero, zero,          one),
+const zero = g.f32(0);
+const one = g.f32(1);
+const rotY = g.mat4(
+    g.vec4(cosA, zero, sinA.negate(), zero),
+    g.vec4(zero, one, zero, zero),
+    g.vec4(sinA, zero, cosA, zero),
+    g.vec4(zero, zero, zero, one),
 );
 
-const pos       = g.attribute('position', d.vec3f);
-const localPos  = g.vec4(pos, g.f32(1));
+const pos = g.attribute('position', d.vec3f);
+const localPos = g.vec4(pos, g.f32(1));
 
 // final transform: camera * storageMatrix * rotY * localPos
-const worldPos  = g.mul(modelMat, g.mul(rotY, localPos));
-const viewPos   = g.mul(g.cameraViewMatrix, worldPos);
-const clipPos   = g.mul(g.cameraProjectionMatrix, viewPos);
+const worldPos = g.mul(modelMat, g.mul(rotY, localPos));
+const viewPos = g.mul(g.cameraViewMatrix, worldPos);
+const clipPos = g.mul(g.cameraProjectionMatrix, viewPos);
 
 // pass color to fragment via varying.
-const vColor    = g.varying(rawColor, 'v_color');
+const vColor = g.varying(rawColor, 'v_color');
 
 // pulse brightness with time
-const pulse     = g.f32(0.08).mul(g.f32(1).add(time.mul(g.f32(3)).sin()));
-const finalColor = g.vec4(
-    vColor.rgb.add(g.vec3f(1, 1, 1).mul(pulse)),
-    g.f32(1),
-);
+const pulse = g.f32(0.08).mul(g.f32(1).add(time.mul(g.f32(3)).sin()));
+const finalColor = g.vec4(vColor.rgb.add(g.vec3f(1, 1, 1).mul(pulse)), g.f32(1));
 
 const material = new g.Material({ vertex: clipPos, fragment: finalColor });
 
 /* setup renderer and scene */
 
-const renderer = new g.WebGPURenderer({ antialias: true });
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
+
+const view = g.createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await g.init(g.webgpu());
 renderer.inspector = new g.Inspector();
-await renderer.init();
 
-document.body.appendChild(renderer.domElement);
 document.body.appendChild((renderer.inspector as g.Inspector).domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
 
-const scene   = new g.Scene();
-const camera  = new g.PerspectiveCamera(
-    Math.PI / 4,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    200,
-);
+const scene = new g.Scene();
+const camera = new g.PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.position[2] = 20;
 scene.add(camera);
 scene.updateWorldMatrix();
 camera.updateViewMatrix();
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
 
-const mesh  = new g.Mesh(g.createBoxGeometry(1, 1, 1), material);
-mesh.count  = N;
+const mesh = new g.Mesh(g.createBoxGeometry(1, 1, 1), material);
+mesh.count = N;
 scene.add(mesh);
 
-const scenePass = g.pass(scene, camera);
+const scenePass = g.renderTexture(scene, camera);
 const outputNode = g.renderOutput(scenePass.getTextureNode());
-const renderPipeline = new g.RenderPipeline(renderer, outputNode);
-
-function frame() {
+const composite = g.fullscreen(outputNode);
+function update() {
     time.value = performance.now() / 1000;
-    renderPipeline.render();
-    requestAnimationFrame(frame);
+    const f = g.frame(renderer);
+    const compositePass = f.pass({ target: view });
+    compositePass.draw(composite);
+    compositePass.end();
+    f.submit();
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);
 
 // ---------------------------------------------------------------------------
 // HSV → RGB helper
 // ---------------------------------------------------------------------------
 
 function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
-    const c  = v * s;
-    const x  = c * (1 - Math.abs((h / 60) % 2 - 1));
-    const m  = v - c;
-    let r = 0, g = 0, b = 0;
-    if      (h < 60)  { r = c; g = x; b = 0; }
-    else if (h < 120) { r = x; g = c; b = 0; }
-    else if (h < 180) { r = 0; g = c; b = x; }
-    else if (h < 240) { r = 0; g = x; b = c; }
-    else if (h < 300) { r = x; g = 0; b = c; }
-    else              { r = c; g = 0; b = x; }
+    const c = v * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = v - c;
+    let r = 0,
+        g = 0,
+        b = 0;
+    if (h < 60) {
+        r = c;
+        g = x;
+        b = 0;
+    } else if (h < 120) {
+        r = x;
+        g = c;
+        b = 0;
+    } else if (h < 180) {
+        r = 0;
+        g = c;
+        b = x;
+    } else if (h < 240) {
+        r = 0;
+        g = x;
+        b = c;
+    } else if (h < 300) {
+        r = x;
+        g = 0;
+        b = c;
+    } else {
+        r = c;
+        g = 0;
+        b = x;
+    }
     return [r + m, g + m, b + m];
 }

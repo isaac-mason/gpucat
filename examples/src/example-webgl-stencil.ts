@@ -1,7 +1,7 @@
 // Stencil masking (WebGL): a moving, invisible "window" writes stencil=1 into the stencil buffer,
 // then the scene is drawn only where stencil==1 — so a grid of spinning cubes shows through the window.
 //
-// Two render() calls composite into one frame (autoClear=false, one clear() per frame):
+// Two passes composite into one frame: the first clears, the second preserves.
 //   1. mask pass  — a colorWrite:false material stamps stencil=1 under a rotating plane without
 //                   touching color or depth.
 //   2. scene pass — cubes with stencilFunc:'equal' + stencilRef:1, so only fragments inside the
@@ -12,10 +12,15 @@ import {
     cameraProjectionMatrix,
     cameraViewMatrix,
     createBoxGeometry,
+    createCanvasTarget,
+    createMaterial,
     createPlaneGeometry,
     d,
+    drawScene,
     f32,
-    Material,
+    frame,
+    init,
+    type Material,
     Mesh,
     modelNormalMatrix,
     modelWorldMatrix,
@@ -26,19 +31,22 @@ import {
     varying,
     vec3,
     vec4,
-    WebGLRenderer,
+    webgl,
 } from 'gpucat';
 import { quat } from 'math';
 
 // `stencil: true` allocates a depth24plus-stencil8 depth buffer.
-const renderer = new WebGLRenderer({ stencil: true, antialias: true });
-await renderer.init();
-document.body.appendChild(renderer.domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.clearColor = [0.05, 0.05, 0.08, 1];
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
+
+const view = createCanvasTarget(canvas, { samples: 4, depthFormat: 'depth24plus-stencil8' });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgl({ target: view }));
+view.clearColor = [0.05, 0.05, 0.08, 1];
 // We clear once per frame (incl. stencil) then composite the mask + scene passes.
-renderer.autoClear = false;
 
 const camera = new PerspectiveCamera(Math.PI / 4, 1, 0.1, 100);
 camera.position[2] = 9;
@@ -51,7 +59,7 @@ function syncCamera(): void {
 }
 syncCamera();
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     syncCamera();
 });
 
@@ -78,7 +86,7 @@ function litMaterial(color: [number, number, number]): Material {
     const lightDir = vec3(0.5, 0.85, 0.6).normalize();
     const lighting = f32(0.22).add(vNormal.dot(lightDir).max(f32(0)).mul(f32(0.85)));
     const base = vec3(color[0], color[1], color[2]);
-    return new Material({
+    return createMaterial({
         vertex: clipPosition,
         fragment: vec4(base.mul(lighting), f32(1)),
         // Only draw where the mask stamped stencil=1; ops default to 'keep' so the test is read-only.
@@ -107,7 +115,7 @@ const maskScene = new Scene();
 maskScene.add(camera);
 const maskPosition = attribute('position', d.vec3f);
 const maskClip = mul(cameraProjectionMatrix, mul(cameraViewMatrix, mul(modelWorldMatrix, vec4(maskPosition, f32(1)))));
-const maskMaterial = new Material({
+const maskMaterial = createMaterial({
     vertex: maskClip,
     // A color target is required to match the swapchain pass, but colorWrite:false discards it —
     // so the mask writes stencil only and stays invisible. depth off so it doesn't occlude.
@@ -124,7 +132,7 @@ const maskMaterial = new Material({
 const maskMesh = new Mesh(createPlaneGeometry(5, 5), maskMaterial);
 maskScene.add(maskMesh);
 
-function frame(): void {
+function update(): void {
     const now = performance.now() / 1000;
 
     // Orbit the mask window (kept camera-facing) so different cubes reveal over time.
@@ -138,12 +146,27 @@ function frame(): void {
         mesh.updateWorldMatrix();
     }
 
-    // One clear (color + depth + stencil), then mask → scene.
-    renderer.clear(true, true, true);
-    renderer.render(maskScene, camera); // stamps stencil=1 under the moving window
-    renderer.render(scene, camera); // cubes appear only inside the window
+    const f = frame(renderer);
 
-    requestAnimationFrame(frame);
+    // The first pass clears colour, depth and stencil; the second preserves all three.
+    const maskPass = f.pass({ target: view, camera, clearStencil: 0, label: 'mask' });
+    drawScene(renderer, maskPass, maskScene, camera); // stamps stencil=1 under the moving window
+    maskPass.end();
+
+    const scenePass = f.pass({
+        target: view,
+        camera,
+        clear: false,
+        clearDepth: false,
+        clearStencil: false,
+        label: 'scene',
+    });
+    drawScene(renderer, scenePass, scene, camera); // cubes appear only inside the window
+    scenePass.end();
+
+    f.submit();
+
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

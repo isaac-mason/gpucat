@@ -22,8 +22,8 @@
  */
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
-import { type TextureTally, type TextureTallyEntry } from '../core/info';
 import type { ResolvedStorageBufferTexture } from '../../nodes/lib/texture';
+import { type TextureTally, type TextureTallyEntry } from '../core/info';
 /** GL format triple for a color/depth texture: the sized internal format + upload format + type. */
 type GlFormat = {
     /** Sized internal format for texStorage/texImage (e.g. gl.RGBA8, gl.RGBA16F, gl.DEPTH_COMPONENT24). */
@@ -137,8 +137,4 @@ export declare function updateTexture(gl: WebGL2RenderingContext, state: Texture
 export declare function generateTextureMipmaps(gl: WebGL2RenderingContext, state: TextureCache, texture: GpuTexture): void;
 /** Delete all GL textures (called on renderer dispose). */
 export declare function disposeTextureCache(gl: WebGL2RenderingContext, state: TextureCache): void;
-/** Number of GL textures currently allocated. */
-export declare function getTextureCacheStats(state: TextureCache): {
-    textureCount: number;
-};
 export {};

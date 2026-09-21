@@ -1,9 +1,9 @@
-import type { Camera } from '../../camera/camera';
-import type { Object3D } from '../../core/object3d';
 import type { Material } from '../../material/material';
 import type { UpdateAfterNode, UpdateBeforeNode, UpdateNode } from '../../nodes/builder';
 import type { Mesh } from '../../objects/mesh';
-import type { Renderer } from './renderer-interface';
+import type { DeviceBackend } from './device-backend';
+import type { Renderer } from './renderer';
+import type { View } from './view';
 /**
  * Update tracking maps for deduplication.
  * Tracks when a node was last updated to prevent redundant updates.
@@ -19,10 +19,7 @@ type UpdateMaps = {
  * Nodes access whatever context they need from the frame.
  */
 export declare class NodeFrame {
-    /**
-     * Frame ID, incremented once per top-level render()/compute() call.
-     * Used for FRAME-level update deduplication.
-     */
+    /** Incremented once per frame, by `beginFrame`. Deduplicates FRAME-scope updates. */
     frameId: number;
     /**
      * Render ID — a globally-unique id for the current render() call.
@@ -37,35 +34,26 @@ export declare class NodeFrame {
      */
     renderIdCounter: number;
     /**
-     * Begin a render scope: assign a fresh, globally-unique `renderId` and return the
-     * previous one. A nested render passes the returned value to {@link endRender} to
-     * restore its parent's scope on exit.
-     *
-     * Using a monotonic counter (rather than `renderId++`) is what keeps ids unique
-     * across the save/restore: after a nested render restores the parent id, the next
-     * render still gets a brand-new id instead of colliding with the nested one — a
-     * collision would wrongly dedup-skip that render's RENDER-scope updates.
+     * Opens a pass's scope with a fresh id, returning the caller's to restore. The counter is
+     * monotonic rather than `renderId++` so a pass that nests inside another cannot, on exit, hand
+     * the outer one an id a later pass will reuse and dedup-skip.
      */
     beginRender(): number;
-    /** End a nested render scope, restoring the parent render's `renderId`. */
+    /** Closes a pass's scope, restoring the one it opened inside. */
     endRender(previousRenderId: number): void;
     /**
      * The current renderer (backend-neutral contract).
      */
-    renderer: Renderer | null;
+    renderer: Renderer<DeviceBackend> | null;
     /**
      * The current camera being rendered from.
      */
-    camera: Camera | null;
+    camera: View | null;
     /**
      * The current object (mesh) being rendered.
      * Set for OBJECT-level updates.
      */
     object: Mesh | null;
-    /**
-     * The current scene/object being rendered.
-     */
-    scene: Object3D | null;
     /**
      * The current material being rendered.
      */

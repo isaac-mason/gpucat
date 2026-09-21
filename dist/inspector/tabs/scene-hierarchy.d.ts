@@ -15,6 +15,11 @@
  */
 import type { Inspector } from '../inspector';
 import type { SceneRecord } from '../renderer-inspector';
+/** A pass that recorded its draws directly, so the hierarchy has nothing to walk for it. */
+export type TreelessPass = {
+    passId: string;
+    drawCount: number;
+};
 import { List } from '../ui/list';
 import { Tab } from '../ui/tab';
 export declare class SceneHierarchy extends Tab {
@@ -34,7 +39,13 @@ export declare class SceneHierarchy extends Tab {
      * Called by Inspector._processFrame() whenever scenes are present.
      * Diffs the tree against the current DOM state and updates in-place.
      */
-    update(inspector: Inspector, scenes: SceneRecord[]): void;
+    update(inspector: Inspector, scenes: SceneRecord[], treeless?: TreelessPass[]): void;
+    /**
+     * A pass whose draws were recorded directly has no tree to walk, so it gets a leaf naming itself
+     * and pointing at Draw Calls. Showing nothing is the failure this fixes: the tab reads as if the
+     * pass never ran.
+     */
+    private _syncTreelessPass;
     private _syncScene;
     /** Recursively diff children of `parent` against `parentItem`. */
     private _syncChildren;

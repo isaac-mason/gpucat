@@ -32,10 +32,4 @@ export declare function getRenderTargetMsaaView(data: TextureData): GPUTextureVi
  * have their GPUTexture created externally and registered here.
  */
 export declare function setRenderTargetTexture(cache: TextureCache, texture: GpuTexture, gpuTextureResource: GPUTexture, msaaTexture?: GPUTexture | null): void;
-/**
- * Remove a render target texture from the cache.
- * Called when render target is disposed/resized.
- * Does NOT destroy the GPUTexture - caller is responsible for that.
- */
-export declare function removeRenderTargetTexture(cache: TextureCache, texture: GpuTexture): void;
 export declare function ensureRenderTargetTexturesAllocated(cache: TextureCache, device: GPUDevice, renderTarget: RenderTarget): void;

@@ -1,5 +1,5 @@
 import type { RenderTarget } from '../../core/render-target';
-import type { WebGPURenderer } from './renderer';
+import type { WebGPUBackend } from './webgpu-backend';
 /**
  * Read pixels from a RenderTarget color attachment back to a tightly-packed Uint8Array.
  *
@@ -13,4 +13,4 @@ import type { WebGPURenderer } from './renderer';
  * For a layered attachment (e.g. a CubeRenderTarget's cube texture), pass `layer`
  * to read a specific array layer / cube face (0..5 = +X,-X,+Y,-Y,+Z,-Z).
  */
-export declare function readPixels(renderer: WebGPURenderer, renderTarget: RenderTarget, attachmentIndex?: number, layer?: number): Promise<Uint8Array>;
+export declare function readPixels(backend: WebGPUBackend, renderTarget: RenderTarget, attachmentIndex?: number, layer?: number): Promise<Uint8Array>;

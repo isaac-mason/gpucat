@@ -1,18 +1,24 @@
-import { vec3, quat, mat4, euler, type Vec3, type Quat, type Mat4 } from 'math';
+import { euler, type Mat4, mat4, type Quat, quat, type Vec3, vec3 } from 'math';
+import type { Camera } from '../camera/camera';
+import type { OrthographicCamera } from '../camera/orthographic-camera';
+import { createIndexBuffer, createVertexBuffer } from '../core/gpu-buffer';
 import { Object3D } from '../core/object3d';
-import { Mesh } from '../objects/mesh';
-import { Geometry } from '../geometry/geometry';
-import { Material } from '../material/material';
 import { Uniform } from '../core/uniform';
+import { Geometry } from '../geometry/geometry';
+import {
+    createBoxGeometry,
+    createCylinderGeometry,
+    createOctahedronGeometry,
+    createPlaneGeometry,
+    createSphereGeometry,
+    createTorusGeometry,
+} from '../geometry/geometry-helpers';
+import { createMaterial, type Material } from '../material/material';
+import { type Intersection, Raycaster } from '../math/raycaster';
+import { positionClip, uniform } from '../nodes/nodes';
+import { Mesh } from '../objects/mesh';
 import * as d from '../schema/schema';
-import { Camera } from '../camera/camera';
-import { Raycaster, type Intersection } from '../math/raycaster';
-import { topic, type Topic } from '../utils/topic';
-import { createBoxGeometry, createCylinderGeometry, createTorusGeometry, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry } from '../geometry/geometry-helpers';
-import { positionClip } from '../nodes/nodes';
-import { uniform } from '../nodes/nodes';
-import { createVertexBuffer, createIndexBuffer } from '../core/gpu-buffer';
-import { OrthographicCamera } from '../camera/orthographic-camera';
+import { type Topic, topic } from '../utils/topic';
 
 // Types
 
@@ -32,7 +38,7 @@ function createGizmoMaterial(options: {
     const colorUniform = uniform('color', d.vec4f);
     const fragment = colorUniform;
 
-    const mat = new Material({
+    const mat = createMaterial({
         vertex: positionClip,
         fragment,
         transparent: true,
@@ -53,9 +59,7 @@ function createGizmoMaterial(options: {
         },
     });
 
-    mat.uniforms.set('color', new Uniform(d.vec4f, [
-        options.color[0], options.color[1], options.color[2], opacity,
-    ]));
+    mat.uniforms.set('color', new Uniform(d.vec4f, [options.color[0], options.color[1], options.color[2], opacity]));
 
     return mat;
 }
@@ -79,8 +83,12 @@ function applyMatrix4ToGeometry(geometry: Geometry, matrix: Mat4): void {
     mat4.invert(normalMat, matrix);
     mat4.transpose(normalMat, normalMat);
 
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    let minX = Infinity,
+        minY = Infinity,
+        minZ = Infinity;
+    let maxX = -Infinity,
+        maxY = -Infinity,
+        maxZ = -Infinity;
 
     const v: Vec3 = [0, 0, 0];
     for (let i = 0; i < positions.length; i += 3) {
@@ -92,9 +100,12 @@ function applyMatrix4ToGeometry(geometry: Geometry, matrix: Mat4): void {
         positions[i + 1] = v[1];
         positions[i + 2] = v[2];
 
-        if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
-        if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
-        if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
+        if (v[0] < minX) minX = v[0];
+        if (v[0] > maxX) maxX = v[0];
+        if (v[1] < minY) minY = v[1];
+        if (v[1] > maxY) maxY = v[1];
+        if (v[2] < minZ) minZ = v[2];
+        if (v[2] > maxZ) maxZ = v[2];
     }
 
     if (normals) {
@@ -134,11 +145,7 @@ function applyMatrix4ToGeometry(geometry: Geometry, matrix: Mat4): void {
 
 // Raycaster helper, intersect including invisible objects
 
-function intersectObjectWithRay(
-    object: Object3D,
-    raycaster: Raycaster,
-    includeInvisible = false,
-): Intersection | null {
+function intersectObjectWithRay(object: Object3D, raycaster: Raycaster, includeInvisible = false): Intersection | null {
     const allIntersections = intersectObjectRecursive(object, raycaster, [], true, includeInvisible);
     allIntersections.sort((a, b) => a.distance - b.distance);
 
@@ -394,15 +401,9 @@ class TransformControlsGizmo extends Object3D {
                 [new Mesh(arrowGeometry, matBlue), [0, 0, -0.5], [-Math.PI / 2, 0, 0], null],
                 [new Mesh(lineGeometry2, matBlue), null, [Math.PI / 2, 0, 0], null],
             ],
-            XYZ: [
-                [new Mesh(createOctahedronGeometry(0.1, 0), matWhiteTransparent), [0, 0, 0], null, null],
-            ],
-            XY: [
-                [new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matBlueTransparent), [0.15, 0.15, 0], null, null],
-            ],
-            YZ: [
-                [new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matRedTransparent), [0, 0.15, 0.15], [0, Math.PI / 2, 0], null],
-            ],
+            XYZ: [[new Mesh(createOctahedronGeometry(0.1, 0), matWhiteTransparent), [0, 0, 0], null, null]],
+            XY: [[new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matBlueTransparent), [0.15, 0.15, 0], null, null]],
+            YZ: [[new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matRedTransparent), [0, 0.15, 0.15], [0, Math.PI / 2, 0], null]],
             XZ: [
                 [new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matGreenTransparent), [0.15, 0, 0.15], [-Math.PI / 2, 0, 0], null],
             ],
@@ -421,54 +422,26 @@ class TransformControlsGizmo extends Object3D {
                 [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, 0, 0.3], [Math.PI / 2, 0, 0], null],
                 [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, 0, -0.3], [-Math.PI / 2, 0, 0], null],
             ],
-            XYZ: [
-                [new Mesh(createOctahedronGeometry(0.2, 0), matInvisible), null, null, null],
-            ],
-            XY: [
-                [new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0.15, 0.15, 0], null, null],
-            ],
-            YZ: [
-                [new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0, 0.15, 0.15], [0, Math.PI / 2, 0], null],
-            ],
-            XZ: [
-                [new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0.15, 0, 0.15], [-Math.PI / 2, 0, 0], null],
-            ],
+            XYZ: [[new Mesh(createOctahedronGeometry(0.2, 0), matInvisible), null, null, null]],
+            XY: [[new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0.15, 0.15, 0], null, null]],
+            YZ: [[new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0, 0.15, 0.15], [0, Math.PI / 2, 0], null]],
+            XZ: [[new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0.15, 0, 0.15], [-Math.PI / 2, 0, 0], null]],
         };
 
         const gizmoRotate: GizmoMap = {
-            XYZE: [
-                [new Mesh(CircleGeometry(0.5, 1), matGray), null, [0, Math.PI / 2, 0], null],
-            ],
-            X: [
-                [new Mesh(CircleGeometry(0.5, 0.5), matRed), null, null, null],
-            ],
-            Y: [
-                [new Mesh(CircleGeometry(0.5, 0.5), matGreen), null, [0, 0, -Math.PI / 2], null],
-            ],
-            Z: [
-                [new Mesh(CircleGeometry(0.5, 0.5), matBlue), null, [0, Math.PI / 2, 0], null],
-            ],
-            E: [
-                [new Mesh(CircleGeometry(0.75, 1), matYellowTransparent), null, [0, Math.PI / 2, 0], null],
-            ],
+            XYZE: [[new Mesh(CircleGeometry(0.5, 1), matGray), null, [0, Math.PI / 2, 0], null]],
+            X: [[new Mesh(CircleGeometry(0.5, 0.5), matRed), null, null, null]],
+            Y: [[new Mesh(CircleGeometry(0.5, 0.5), matGreen), null, [0, 0, -Math.PI / 2], null]],
+            Z: [[new Mesh(CircleGeometry(0.5, 0.5), matBlue), null, [0, Math.PI / 2, 0], null]],
+            E: [[new Mesh(CircleGeometry(0.75, 1), matYellowTransparent), null, [0, Math.PI / 2, 0], null]],
         };
 
         const pickerRotate: GizmoMap = {
-            XYZE: [
-                [new Mesh(createSphereGeometry(0.25, 10, 8), matInvisible), null, null, null],
-            ],
-            X: [
-                [new Mesh(createTorusGeometry(0.5, 0.1, 4, 24), matInvisible), [0, 0, 0], [0, -Math.PI / 2, -Math.PI / 2], null],
-            ],
-            Y: [
-                [new Mesh(createTorusGeometry(0.5, 0.1, 4, 24), matInvisible), [0, 0, 0], [Math.PI / 2, 0, 0], null],
-            ],
-            Z: [
-                [new Mesh(createTorusGeometry(0.5, 0.1, 4, 24), matInvisible), [0, 0, 0], [0, 0, -Math.PI / 2], null],
-            ],
-            E: [
-                [new Mesh(createTorusGeometry(0.75, 0.1, 2, 24), matInvisible), null, null, null],
-            ],
+            XYZE: [[new Mesh(createSphereGeometry(0.25, 10, 8), matInvisible), null, null, null]],
+            X: [[new Mesh(createTorusGeometry(0.5, 0.1, 4, 24), matInvisible), [0, 0, 0], [0, -Math.PI / 2, -Math.PI / 2], null]],
+            Y: [[new Mesh(createTorusGeometry(0.5, 0.1, 4, 24), matInvisible), [0, 0, 0], [Math.PI / 2, 0, 0], null]],
+            Z: [[new Mesh(createTorusGeometry(0.5, 0.1, 4, 24), matInvisible), [0, 0, 0], [0, 0, -Math.PI / 2], null]],
+            E: [[new Mesh(createTorusGeometry(0.75, 0.1, 2, 24), matInvisible), null, null, null]],
         };
 
         const gizmoScale: GizmoMap = {
@@ -487,18 +460,12 @@ class TransformControlsGizmo extends Object3D {
                 [new Mesh(lineGeometry2, matBlue), [0, 0, 0], [Math.PI / 2, 0, 0], null],
                 [new Mesh(scaleHandleGeometry, matBlue), [0, 0, -0.5], [-Math.PI / 2, 0, 0], null],
             ],
-            XY: [
-                [new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matBlueTransparent), [0.15, 0.15, 0], null, null],
-            ],
-            YZ: [
-                [new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matRedTransparent), [0, 0.15, 0.15], [0, Math.PI / 2, 0], null],
-            ],
+            XY: [[new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matBlueTransparent), [0.15, 0.15, 0], null, null]],
+            YZ: [[new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matRedTransparent), [0, 0.15, 0.15], [0, Math.PI / 2, 0], null]],
             XZ: [
                 [new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matGreenTransparent), [0.15, 0, 0.15], [-Math.PI / 2, 0, 0], null],
             ],
-            XYZ: [
-                [new Mesh(createBoxGeometry(0.1, 0.1, 0.1), matWhiteTransparent), null, null, null],
-            ],
+            XYZ: [[new Mesh(createBoxGeometry(0.1, 0.1, 0.1), matWhiteTransparent), null, null, null]],
         };
 
         const pickerScale: GizmoMap = {
@@ -514,18 +481,10 @@ class TransformControlsGizmo extends Object3D {
                 [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, 0, 0.3], [Math.PI / 2, 0, 0], null],
                 [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, 0, -0.3], [-Math.PI / 2, 0, 0], null],
             ],
-            XY: [
-                [new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0.15, 0.15, 0], null, null],
-            ],
-            YZ: [
-                [new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0, 0.15, 0.15], [0, Math.PI / 2, 0], null],
-            ],
-            XZ: [
-                [new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0.15, 0, 0.15], [-Math.PI / 2, 0, 0], null],
-            ],
-            XYZ: [
-                [new Mesh(createBoxGeometry(0.2, 0.2, 0.2), matInvisible), [0, 0, 0], null, null],
-            ],
+            XY: [[new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0.15, 0.15, 0], null, null]],
+            YZ: [[new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0, 0.15, 0.15], [0, Math.PI / 2, 0], null]],
+            XZ: [[new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0.15, 0, 0.15], [-Math.PI / 2, 0, 0], null]],
+            XYZ: [[new Mesh(createBoxGeometry(0.2, 0.2, 0.2), matInvisible), [0, 0, 0], null, null]],
         };
 
         // setupGizmo: bake transforms into geometry
@@ -543,9 +502,10 @@ class TransformControlsGizmo extends Object3D {
                     // Copy uniforms from source material
                     const srcColor = sourceMesh.material.uniforms.get('color');
                     if (srcColor) {
-                        clonedMat.uniforms.set('color', new Uniform(d.vec4f,
-                            srcColor.value ? (srcColor.value as number[]).slice() : [1, 1, 1, 1]
-                        ));
+                        // Copied, not shared: the clone must not write through to the source's colour.
+                        const source = srcColor.value;
+                        const copied = source instanceof Float32Array ? source.slice() : null;
+                        clonedMat.uniforms.set('color', new Uniform(d.vec4f, copied ?? [1, 1, 1, 1]));
                     }
                     // Copy material properties
                     clonedMat.transparent = sourceMesh.material.transparent;
@@ -566,17 +526,19 @@ class TransformControlsGizmo extends Object3D {
                         }
                     }
                     if (srcGeom.index?.array) {
-                        const newIdx = srcGeom.index.array instanceof Uint32Array
-                            ? new Uint32Array(srcGeom.index.array)
-                            : new Uint16Array(srcGeom.index.array as Uint16Array);
+                        const newIdx =
+                            srcGeom.index.array instanceof Uint32Array
+                                ? new Uint32Array(srcGeom.index.array)
+                                : new Uint16Array(srcGeom.index.array as Uint16Array);
                         clonedGeom.setIndex(createIndexBuffer(newIdx as Uint16Array));
                     }
                     clonedGeom.drawRange = { ...srcGeom.drawRange };
                     if (srcGeom.boundingBox) clonedGeom.boundingBox = [...srcGeom.boundingBox] as any;
-                    if (srcGeom.boundingSphere) clonedGeom.boundingSphere = {
-                        center: [...srcGeom.boundingSphere.center] as Vec3,
-                        radius: srcGeom.boundingSphere.radius,
-                    };
+                    if (srcGeom.boundingSphere)
+                        clonedGeom.boundingSphere = {
+                            center: [...srcGeom.boundingSphere.center] as Vec3,
+                            radius: srcGeom.boundingSphere.radius,
+                        };
 
                     const obj = new GizmoMesh(clonedGeom, clonedMat);
                     obj.name = name;
@@ -627,8 +589,8 @@ class TransformControlsGizmo extends Object3D {
     }
 
     override updateWorldMatrix(): void {
-        const space: TransformSpace = (this.mode === 'scale') ? 'local' : this.space;
-        const quaternion = (space === 'local') ? this.worldQuaternion : _identityQuat;
+        const space: TransformSpace = this.mode === 'scale' ? 'local' : this.space;
+        const quaternion = space === 'local' ? this.worldQuaternion : _identityQuat;
 
         // Show only gizmos for current transform mode
         this.gizmo['translate'].visible = this.mode === 'translate';
@@ -653,14 +615,15 @@ class TransformControlsGizmo extends Object3D {
                 factor = (ortho.top - ortho.bottom) / ortho.zoom;
             } else if (this.camera) {
                 const cam = this.camera as any;
-                const fov = cam.fov ?? (Math.PI / 4);
-                factor = vec3.distance(this.worldPosition, this.cameraPosition)
-                    * Math.min(1.9 * Math.tan(fov / 2) / (cam.zoom ?? 1), 7);
+                const fov = cam.fov ?? Math.PI / 4;
+                factor =
+                    vec3.distance(this.worldPosition, this.cameraPosition) *
+                    Math.min((1.9 * Math.tan(fov / 2)) / (cam.zoom ?? 1), 7);
             } else {
                 factor = 1;
             }
 
-            const s = factor * this.size / 4;
+            const s = (factor * this.size) / 4;
             vec3.set(handle.scale, s, s, s);
 
             // skip helper processing (deferred per plan)
@@ -723,7 +686,6 @@ class TransformControlsGizmo extends Object3D {
                         handle.visible = false;
                     }
                 }
-
             } else if (this.mode === 'rotate') {
                 quat.copy(_tempQuat2, quaternion);
                 // alignVector = eye in local space
@@ -774,7 +736,7 @@ class TransformControlsGizmo extends Object3D {
             if (this.enabled && this.axis) {
                 if (handle.name === this.axis) {
                     handle.setColor(this._activeColor[0], this._activeColor[1], this._activeColor[2], 1.0);
-                } else if (this.axis.split('').some(a => handle.name === a)) {
+                } else if (this.axis.split('').some((a) => handle.name === a)) {
                     handle.setColor(this._activeColor[0], this._activeColor[1], this._activeColor[2], 1.0);
                 }
             }
@@ -812,24 +774,14 @@ class TransformControlsRoot extends Object3D {
                 );
             }
 
-            mat4.decompose(
-                controls.worldQuaternion,
-                controls.worldPosition,
-                controls._worldScale,
-                controls.object.matrixWorld,
-            );
+            mat4.decompose(controls.worldQuaternion, controls.worldPosition, controls._worldScale, controls.object.matrixWorld);
 
             quat.invert(controls._parentQuaternionInv, controls._parentQuaternion);
             quat.invert(controls._worldQuaternionInv, controls.worldQuaternion);
         }
 
         controls.camera.updateWorldMatrix();
-        mat4.decompose(
-            controls.cameraQuaternion,
-            controls.cameraPosition,
-            controls._cameraScale,
-            controls.camera.matrixWorld,
-        );
+        mat4.decompose(controls.cameraQuaternion, controls.cameraPosition, controls._cameraScale, controls.camera.matrixWorld);
 
         if (controls.camera?.isOrthographicCamera) {
             controls.camera.getWorldDirection(controls.eye);
@@ -862,8 +814,8 @@ function getPointer(domElement: HTMLElement, event: PointerEvent): { x: number; 
 
     const rect = domElement.getBoundingClientRect();
     return {
-        x: (event.clientX - rect.left) / rect.width * 2 - 1,
-        y: -(event.clientY - rect.top) / rect.height * 2 + 1,
+        x: ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        y: (-(event.clientY - rect.top) / rect.height) * 2 + 1,
         button: event.button,
     };
 }
@@ -893,9 +845,12 @@ export class TransformControls {
     scaleSnap: number | null = null;
 
     // position clamping
-    minX = -Infinity; maxX = Infinity;
-    minY = -Infinity; maxY = Infinity;
-    minZ = -Infinity; maxZ = Infinity;
+    minX = -Infinity;
+    maxX = Infinity;
+    minY = -Infinity;
+    maxY = Infinity;
+    minZ = -Infinity;
+    maxZ = Infinity;
 
     // derived world-space state
     worldPosition: Vec3 = [0, 0, 0];
@@ -1055,12 +1010,22 @@ export class TransformControls {
         this.onChange.emit();
     }
 
-    setTranslationSnap(snap: number | null): void { this.translationSnap = snap; }
-    setRotationSnap(snap: number | null): void { this.rotationSnap = snap; }
-    setScaleSnap(snap: number | null): void { this.scaleSnap = snap; }
+    setTranslationSnap(snap: number | null): void {
+        this.translationSnap = snap;
+    }
+    setRotationSnap(snap: number | null): void {
+        this.rotationSnap = snap;
+    }
+    setScaleSnap(snap: number | null): void {
+        this.scaleSnap = snap;
+    }
 
-    getRaycaster(): Raycaster { return _raycaster; }
-    getMode(): TransformMode { return this.mode; }
+    getRaycaster(): Raycaster {
+        return _raycaster;
+    }
+    getMode(): TransformMode {
+        return this.mode;
+    }
 
     reset(): void {
         if (!this.enabled) return;
@@ -1214,7 +1179,6 @@ export class TransformControls {
             object.position[0] = Math.max(this.minX, Math.min(this.maxX, object.position[0]));
             object.position[1] = Math.max(this.minY, Math.min(this.maxY, object.position[1]));
             object.position[2] = Math.max(this.minZ, Math.min(this.maxZ, object.position[2]));
-
         } else if (mode === 'scale') {
             if (axis.indexOf('XYZ') !== -1) {
                 let dd = vec3.length(this.pointEnd) / vec3.length(this.pointStart);
@@ -1242,7 +1206,6 @@ export class TransformControls {
                 if (axis.indexOf('Y') !== -1) object.scale[1] = Math.round(object.scale[1] / snap) * snap || snap;
                 if (axis.indexOf('Z') !== -1) object.scale[2] = Math.round(object.scale[2] / snap) * snap || snap;
             }
-
         } else if (mode === 'rotate') {
             vec3.subtract(this._offset, this.pointEnd, this.pointStart);
 
@@ -1284,7 +1247,7 @@ export class TransformControls {
                 vec3.normalize(this._endNorm, this.pointEnd);
 
                 vec3.cross(_tempVec, this._endNorm, this._startNorm);
-                this.rotationAngle *= (vec3.dot(_tempVec, this.eye) < 0 ? 1 : -1);
+                this.rotationAngle *= vec3.dot(_tempVec, this.eye) < 0 ? 1 : -1;
             }
 
             // snap

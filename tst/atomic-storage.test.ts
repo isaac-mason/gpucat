@@ -3,7 +3,7 @@ import {
     atomicAdd,
     atomicLoad,
     atomicStore,
-    compileCompute,
+    compileComputeWgsl,
     createStorageBuffer,
     d,
     Fn,
@@ -17,6 +17,7 @@ import {
     WorkgroupVar,
     workgroupBarrier,
 } from '../src/index';
+import type { Node } from '../src/nodes/lib/core';
 
 // Regression: a storage buffer of `array<atomic<u32>>` must size and compile
 // (itemSizeOf previously threw on 'atomic<u32>').
@@ -33,7 +34,7 @@ test('atomic storage array sizes and compiles', () => {
         index(items, c).assign(i);
     }).compute({ workgroupSize: [64, 1, 1] });
 
-    const wgsl = compileCompute(kernel).code;
+    const wgsl = compileComputeWgsl(kernel).code;
     expect(wgsl).toContain('array<atomic<u32>>');
     expect(wgsl).toContain('atomicAdd');
     expect(wgsl).toContain('atomicLoad');
@@ -56,11 +57,11 @@ test('workgroup atomic declares and compiles', () => {
         workgroupBarrier();
         const slot = Var('slot', atomicAdd(wgCount, u32(1)));
         workgroupBarrier();
-        const total = Var('total', atomicLoad(wgCount));
+        const total = Var('total', atomicLoad(wgCount) as Node<d.u32>);
         index(out, slot).assign(total);
     }).compute({ workgroupSize: [64, 1, 1] });
 
-    const wgsl = compileCompute(kernel).code;
+    const wgsl = compileComputeWgsl(kernel).code;
     expect(wgsl).toContain('var<workgroup> wgCount: atomic<u32>');
     expect(wgsl).toMatch(/atomicAdd\(&wgCount/);
     expect(wgsl).toMatch(/atomicStore\(&wgCount/);

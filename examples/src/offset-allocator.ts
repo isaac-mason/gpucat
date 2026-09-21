@@ -16,8 +16,8 @@
 // offset.
 
 const MANTISSA_BITS = 3;
-const MANTISSA_VALUE = 1 << MANTISSA_BITS;          // 8
-const MANTISSA_MASK = MANTISSA_VALUE - 1;           // 0x7
+const MANTISSA_VALUE = 1 << MANTISSA_BITS; // 8
+const MANTISSA_MASK = MANTISSA_VALUE - 1; // 0x7
 
 const NUM_TOP_BINS = 32;
 const BINS_PER_LEAF = 8;
@@ -100,8 +100,8 @@ export type OffsetAllocator = {
     // bin tier — usedBinsTop is a single u32 stored as a JS number (bits, not
     // value-comparable when bit 31 is set; only used with bitwise ops).
     usedBinsTop: number;
-    usedBins: Uint8Array;          // length NUM_TOP_BINS
-    binIndices: Uint32Array;       // length NUM_LEAF_BINS — head node per bin
+    usedBins: Uint8Array; // length NUM_TOP_BINS
+    binIndices: Uint32Array; // length NUM_LEAF_BINS — head node per bin
 
     // node pool (SoA). `nodeUsed` is a flag, not packed into the index space
     // (kept simple — the C++ has the same TODO comment).
@@ -115,9 +115,9 @@ export type OffsetAllocator = {
 
     // freelist stack of unused node indices
     freeNodes: Uint32Array;
-    freeOffset: number;            // top of stack; -1 == empty (out of nodes)
+    freeOffset: number; // top of stack; -1 == empty (out of nodes)
 
-    freeStorage: number;           // sum of all free-node sizes
+    freeStorage: number; // sum of all free-node sizes
 };
 
 export function createOffsetAllocator(capacity: number, maxAllocs: number): OffsetAllocator {

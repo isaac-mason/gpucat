@@ -41,8 +41,31 @@ jobs:
         with:
           path: ./examples/dist
 
+      - name: Typecheck src and tests
+        run: |
+          pnpm run typecheck
+          pnpm run typecheck:tst
+
+      # The examples build with vite, which transpiles without typechecking, so they need their own pass.
+      - name: Typecheck examples against dist
+        run: pnpm run typecheck:examples
+
       - name: Run tests
         run: pnpm test
+
+      # A real ANGLE/SwiftShader driver, which is the only thing that proves the emitted GLSL links.
+      - name: Install Chromium for the GLSL gate
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Compile and link emitted GLSL
+        run: pnpm run test:glsl
+
+      - name: One-backend bundles shake the other out
+        run: pnpm run test:shake
+
+      # Fails on a module the reference cannot resolve, which is how the frame API went undocumented.
+      - name: Docs build
+        run: pnpm run docs
 
       - name: Install naga-cli
         run: cargo install naga-cli

@@ -26,7 +26,10 @@ export class Geometry {
      */
     drawRange: DrawRange = { start: 0, count: Infinity };
 
-    /** Geometry ersion counter. Auto-incremented when buffers are added/removed */
+    /** Bumped when any buffer is set or removed, which is what forces a rebind. */
+    bindingsVersion: number = 0;
+
+    /** Bumped when the buffer set or an attribute's format changes, which is what forces a recompile. */
     version: number = 0;
 
     /**
@@ -48,7 +51,7 @@ export class Geometry {
     /**
      * Number of indirect draws to issue from `indirect`. Defaults to `undefined`,
      * meaning "use the full buffer" (`indirect.count`). Set this when the buffer
-     * is pre-sized to a capacity and only a prefix of entries are active, 
+     * is pre-sized to a capacity and only a prefix of entries are active,
      * avoids padding unused slots with zero-instance entries.
      *
      * When stable WebGPU multi-draw lands, this is the natural place to map to
@@ -108,14 +111,15 @@ export class Geometry {
             existing.decreaseUsages();
         }
 
-        const isNew = !existing;
         this.buffers.set(name, buffer);
 
         if (existing !== buffer) {
             buffer.increaseUsages();
+            this.bindingsVersion++;
         }
 
-        if (isNew) {
+        // A replacement of a different format changes arrayStride, so it is a new shape, not an update.
+        if (existing === undefined || existing.format !== buffer.format) {
             this.version++;
         }
         return this;
@@ -131,6 +135,7 @@ export class Geometry {
         if (buffer) {
             buffer.decreaseUsages();
             this.buffers.delete(name);
+            this.bindingsVersion++;
             this.version++;
         }
         return this;
@@ -198,4 +203,9 @@ export class Geometry {
 
         this._onDispose?.();
     }
+}
+
+/** The factory form, matching `createBoxGeometry` and the other resource constructors. */
+export function createGeometry(): Geometry {
+    return new Geometry();
 }

@@ -4,7 +4,7 @@
  *
  * This is the GL sibling of the WebGPU probe re-render in inspector.ts. It reuses the SAME device
  * layer the normal draw uses — `programs.ts` to compile+link a patched program (real vertex GLSL +
- * the probe's patched fragment GLSL), `geometries.ts` to bind the object's VAO, `uniforms.ts` to
+ * the probe's patched fragment GLSL), `geometries.ts` to bind the object's VAO, `bindings.ts` to
  * update+bind its std140 UBOs (camera/model, already valid this frame), and `texture-bindings.ts`
  * for its textures — so the probe renders the same mesh with the same inputs, only the fragment
  * output changes. It renders to a 1×1 RGBA8 FBO and `gl.readPixels` the single pixel, returning the
@@ -56,14 +56,14 @@ function extractVertexSrc(code: string): string {
 
 function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
     const shader = gl.createShader(type);
-    if (!shader) throw new Error('[WebGLRenderer] createShader returned null.');
+    if (!shader) throw new Error('[webgl] createShader returned null.');
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
         const log = gl.getShaderInfoLog(shader);
         gl.deleteShader(shader);
         const stage = type === gl.VERTEX_SHADER ? 'vertex' : 'fragment';
-        throw new Error(`[WebGLRenderer] ${stage} shader compile failed:\n${log}\n---- source ----\n${source}`);
+        throw new Error(`[webgl] ${stage} shader compile failed:\n${log}\n---- source ----\n${source}`);
     }
     return shader;
 }
@@ -84,7 +84,7 @@ function buildProbeGl(
 
     const nodeState = ro.nodeBuilderState;
     if (!nodeState || !nodeState.vertexCode) {
-        throw new Error('[WebGLRenderer] RenderObject has no compiled GLSL.');
+        throw new Error('[webgl] RenderObject has no compiled GLSL.');
     }
 
     const vertexSrc = extractVertexSrc(nodeState.vertexCode);
@@ -92,7 +92,7 @@ function buildProbeGl(
     const vs = compileShader(gl, gl.VERTEX_SHADER, vertexSrc);
     const fs = compileShader(gl, gl.FRAGMENT_SHADER, patchedFragment);
     const program = gl.createProgram();
-    if (!program) throw new Error('[WebGLRenderer] createProgram returned null.');
+    if (!program) throw new Error('[webgl] createProgram returned null.');
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
     gl.linkProgram(program);
@@ -101,7 +101,7 @@ function buildProbeGl(
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
         const log = gl.getProgramInfoLog(program);
         gl.deleteProgram(program);
-        throw new Error(`[WebGLRenderer] program link failed:\n${log}`);
+        throw new Error(`[webgl] program link failed:\n${log}`);
     }
 
     // Resolve + bind each std140 UBO block to a fresh binding point (same scheme as programs.ts).

@@ -358,3 +358,20 @@ export function createBindings(state: NodeBuilderState): BindGroup[] {
 
     return bindings;
 }
+
+/**
+ * The shader's attributes name the buffers a geometry owes it. A missing one is silent in both
+ * backends — WebGPU drops the layout and Dawn blames an anonymous vertex slot, WebGL skips the upload
+ * and draws whatever the attribute last held — so it is named here instead, once, for both.
+ */
+export function assertVertexBuffers(geometry: { buffers: Map<string, unknown> }, state: NodeBuilderState, label: string): void {
+    for (const group of state.vertexBufferGroups) {
+        if (group.stride > 0 || group.name === null) continue;
+        if (geometry.buffers.has(group.name)) continue;
+        const locations = group.attributes.map((a) => `@location(${a.shaderLocation}) ${a.type}`).join(', ');
+        throw new Error(
+            `[geometry] '${label}' reads vertex buffer '${group.name}' (${locations}), which this geometry does not set. ` +
+                `Call geometry.setBuffer('${group.name}', ...), or stop the shader reading it.`,
+        );
+    }
+}

@@ -1,7 +1,8 @@
-import { createIndexBuffer, type GpuBuffer } from '../../core/gpu-buffer';
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
 import type { Any } from '../../schema/schema';
 import type { RenderObject } from '../core/render-object';
+import type { BackendState } from './backend-state';
 import type { BufferCache } from './buffers';
 import * as Buffers from './buffers';
 
@@ -82,7 +83,7 @@ export function incrementCallId(state: GeometriesState): void {
  *
  * Version tracking is delegated to buffers.ts, we only track per-frame deduplication here.
  */
-export function updateBuffer(
+function updateBuffer(
     state: GeometriesState,
     bufferCache: BufferCache,
     device: GPUDevice,
@@ -115,7 +116,7 @@ export function updateBuffer(
 /**
  * Update an index buffer, uploading to GPU if needed.
  */
-export function updateIndex(state: GeometriesState, bufferCache: BufferCache, device: GPUDevice, index: GpuBuffer<Any>): void {
+function updateIndex(state: GeometriesState, bufferCache: BufferCache, device: GPUDevice, index: GpuBuffer<Any>): void {
     const callId = state.currentCallId;
 
     // Check if already updated this frame
@@ -128,14 +129,6 @@ export function updateIndex(state: GeometriesState, bufferCache: BufferCache, de
     state.bufferCall.set(index, callId);
 
     Buffers.ensureUploaded(bufferCache, device, index, 'index');
-}
-
-/**
- * Get the GPU buffer for an indirect buffer.
- * Returns undefined if not uploaded yet.
- */
-export function getIndirectBuffer(bufferCache: BufferCache, buffer: GpuBuffer<Any>): GPUBuffer | undefined {
-    return Buffers.getUploaded(bufferCache, buffer);
 }
 
 /**
@@ -152,7 +145,7 @@ export function deleteBuffer(state: GeometriesState, buffer: GpuBuffer<Any>): vo
  * This uploads all vertex buffers and the index buffer (if present).
  * Called once when a geometry is first encountered.
  */
-export function initGeometry(state: GeometriesState, bufferCache: BufferCache, device: GPUDevice, geometry: Geometry): void {
+function initGeometry(state: GeometriesState, bufferCache: BufferCache, device: GPUDevice, geometry: Geometry): void {
     let data = state.geometryData.get(geometry);
 
     if (data && data.initialized) {
@@ -205,12 +198,8 @@ export function initGeometry(state: GeometriesState, bufferCache: BufferCache, d
  * Note: Version tracking is handled by buffers.ts. We just ensure each
  * buffer goes through the upload path (with per-frame deduplication).
  */
-export function updateForRender(
-    state: GeometriesState,
-    bufferCache: BufferCache,
-    device: GPUDevice,
-    renderObject: RenderObject,
-): void {
+export function updateForRender(b: BackendState, renderObject: RenderObject): void {
+    const { geometries: state, buffers: bufferCache, device } = b;
     const geometry = renderObject.geometry;
     const data = state.geometryData.get(geometry);
 
@@ -236,94 +225,6 @@ export function updateForRender(
     if (geometry.indirect) {
         updateBuffer(state, bufferCache, device, geometry.indirect, 'indirect', 'indirect');
     }
-}
-
-/**
- * Get the index buffer for a RenderObject.
- *
- * For wireframe rendering, this returns a generated wireframe index buffer.
- * Otherwise, returns the geometry's index buffer.
- *
- * @returns the index buffer or null for non-indexed geometry
- */
-export function getIndex(
-    state: GeometriesState,
-    bufferCache: BufferCache,
-    device: GPUDevice,
-    renderObject: RenderObject,
-    wireframe: boolean = false,
-): GpuBuffer<Any> | null {
-    const geometry = renderObject.geometry;
-
-    if (wireframe) {
-        // get or generate wireframe indices
-        let wireframeIndex = state.wireframes.get(geometry);
-        if (!wireframeIndex) {
-            wireframeIndex = generateWireframeIndices(geometry);
-            state.wireframes.set(geometry, wireframeIndex);
-
-            // upload wireframe index buffer
-            updateIndex(state, bufferCache, device, wireframeIndex);
-        }
-        return wireframeIndex;
-    }
-
-    return geometry.index ?? null;
-}
-
-/**
- * Generate wireframe indices for a geometry.
- *
- * Converts triangles to line segments:
- * - Triangle (a, b, c) becomes lines (a,b), (b,c), (c,a)
- *
- * For indexed geometry, processes the index buffer.
- * For non-indexed geometry, generates indices from vertex count.
- */
-function generateWireframeIndices(geometry: Geometry): GpuBuffer<Any> {
-    const index = geometry.index;
-    const position = geometry.buffers.get('position');
-
-    if (!position) {
-        throw new Error('[Geometries] Cannot generate wireframe: no position buffer');
-    }
-
-    // determine number of triangles
-    let numTriangles: number;
-    let getIdx: (i: number) => number;
-
-    if (index && index.array) {
-        const arr = index.array as Uint16Array | Uint32Array;
-        numTriangles = Math.floor(arr.length / 3);
-        getIdx = (i: number) => arr[i];
-    } else {
-        numTriangles = Math.floor(position.count / 3);
-        getIdx = (i: number) => i;
-    }
-
-    // each triangle produces 3 lines = 6 indices
-    const wireframeIndices = new Uint32Array(numTriangles * 6);
-
-    let wireframeI = 0;
-    for (let i = 0; i < numTriangles; i++) {
-        const a = getIdx(i * 3);
-        const b = getIdx(i * 3 + 1);
-        const c = getIdx(i * 3 + 2);
-
-        // line a-b
-        wireframeIndices[wireframeI++] = a;
-        wireframeIndices[wireframeI++] = b;
-
-        // line b-c
-        wireframeIndices[wireframeI++] = b;
-        wireframeIndices[wireframeI++] = c;
-
-        // line c-a
-        wireframeIndices[wireframeI++] = c;
-        wireframeIndices[wireframeI++] = a;
-    }
-
-    return createIndexBuffer(wireframeIndices);
 }
 
 /**

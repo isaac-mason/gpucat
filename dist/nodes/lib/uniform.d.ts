@@ -51,7 +51,7 @@ export { Uniform, UniformGroup, UniformUpdateType, objectGroup, renderGroup, fra
  *   uniform(vec4f(1, 0, 0, 1), 'baseColor')
  */
 export declare function uniform<D extends Any>(u: Uniform<D>): UniformNode<D>;
-export declare function uniform<D extends Any>(name: string, schema: D): UniformNode<D>;
 export declare function uniform<S extends StructSchema>(name: string, def: StructDef<S>): StructInstance<S>;
+export declare function uniform<D extends Any>(name: string, schema: D): UniformNode<D>;
 export declare function uniform<D extends Any>(init: ConstructNode<D>, name?: string): UniformNode<D>;
 export declare function uniform<D extends Any>(init: LiteralNode<D>, name?: string): UniformNode<D>;

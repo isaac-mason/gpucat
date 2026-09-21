@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { RenderTarget } from '../src/index';
+import { createRenderTarget } from '../src/index';
 import { ensureRenderTargetTexturesAllocated, getRenderTargetMsaaView } from '../src/renderer/webgpu/render-target';
 import { createTextureCache, getTextureData } from '../src/renderer/webgpu/textures';
 import { installWebGPUPolyfills } from './stub-gpu';
@@ -36,7 +36,7 @@ function recordingDevice() {
 test('non-MSAA render target allocates a single single-sample color texture, no MSAA sibling', () => {
     const { device, created } = recordingDevice();
     const cache = createTextureCache();
-    const rt = new RenderTarget(64, 32); // samples defaults to 1
+    const rt = createRenderTarget(64, 32); // samples defaults to 1
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);
 
@@ -52,7 +52,7 @@ test('non-MSAA render target allocates a single single-sample color texture, no 
 test('MSAA render target allocates a single-sample resolve texture plus a multisampled sibling', () => {
     const { device, created } = recordingDevice();
     const cache = createTextureCache();
-    const rt = new RenderTarget(64, 32, { samples: 4 });
+    const rt = createRenderTarget(64, 32, { samples: 4 });
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);
 
@@ -79,7 +79,7 @@ test('MSAA render target allocates a single-sample resolve texture plus a multis
 test('depth-only render target (count: 0) is allocated once and is idempotent', () => {
     const { device, created } = recordingDevice();
     const cache = createTextureCache();
-    const rt = new RenderTarget(1024, 1024, { count: 0, depthFormat: 'depth32float' });
+    const rt = createRenderTarget(1024, 1024, { count: 0, depthFormat: 'depth32float' });
 
     expect(rt.textures).toHaveLength(0);
     expect(rt._depthAttachment).not.toBeNull();
@@ -103,7 +103,7 @@ test('depth-only render target (count: 0) is allocated once and is idempotent', 
 test('allocation is idempotent: a second ensure call creates no new textures', () => {
     const { device, created } = recordingDevice();
     const cache = createTextureCache();
-    const rt = new RenderTarget(64, 32, { samples: 4 });
+    const rt = createRenderTarget(64, 32, { samples: 4 });
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);
     const countAfterFirst = created.length;
@@ -115,7 +115,7 @@ test('allocation is idempotent: a second ensure call creates no new textures', (
 test('resizing reallocates and bumps generation so sampling bind groups rebuild', () => {
     const { device, created } = recordingDevice();
     const cache = createTextureCache();
-    const rt = new RenderTarget(64, 32, { samples: 4 });
+    const rt = createRenderTarget(64, 32, { samples: 4 });
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);
     const genBefore = getTextureData(cache, rt.textures[0]._gpuTexture)!.generation;

@@ -3,29 +3,31 @@ import {
     cameraProjectionMatrix,
     cameraViewMatrix,
     createBoxGeometry,
+    createCanvasTarget,
+    createMaterial,
     d,
     f32,
-    Material,
+    frame,
+    fullscreen,
+    init,
     Mesh,
     modelNormalMatrix,
     modelWorldMatrix,
     mul,
     normalize,
     OrbitControls,
-    pass,
     PerspectiveCamera,
     renderOutput,
-    RenderPipeline,
+    renderTexture,
     Scene,
-    texture,
     Texture,
+    texture,
     varying,
     vec3,
     vec4,
-    WebGLRenderer,
-    type Node,
+    webgl,
 } from 'gpucat';
-import { quat, type Euler } from 'math';
+import { type Euler, quat } from 'math';
 
 /* build a checkerboard image on a 2D canvas */
 
@@ -47,28 +49,26 @@ function createCheckerboard(size = 256, squares = 8): Promise<ImageBitmap> {
 
 /* create the WebGL2 renderer, scene, camera */
 
-const renderer = new WebGLRenderer({ antialias: true });
-await renderer.init();
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
 
-document.body.appendChild(renderer.domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgl({ target: view }));
 
 const scene = new Scene();
 
-const camera = new PerspectiveCamera(
-    Math.PI / 4,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    100,
-);
+const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 100);
 camera.position[2] = 4;
 scene.add(camera);
 
-const controls = new OrbitControls(camera, renderer.domElement);
+const controls = new OrbitControls(camera, canvas);
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
@@ -98,13 +98,13 @@ const vUv = varying(uvAttr, 'vUv');
 /* fragment: sample the texture and apply simple lighting */
 
 const texNode = texture(checkerTexture);
-const texColor = texNode.sample(vUv as unknown as Node<d.vec2f>);
+const texColor = texNode.sample(vUv);
 
 const lightDirection = vec3(0.6, 1.0, 0.8).normalize();
 const diffuse = vNormal.dot(lightDirection).max(f32(0.25));
 const litColor = texColor.xyz.mul(diffuse);
 
-const material = new Material({
+const material = createMaterial({
     vertex: clipPosition,
     fragment: vec4(litColor, f32(1)),
 });
@@ -118,14 +118,13 @@ camera.updateViewMatrix();
 
 /* render loop */
 
-const scenePass = pass(scene, camera);
+const scenePass = renderTexture(scene, camera);
 const outputNode = renderOutput(scenePass.getTextureNode());
-const renderPipeline = new RenderPipeline(renderer, outputNode);
-
+const composite = fullscreen(outputNode);
 let angle = 0;
 let prevTime = performance.now() / 1000;
 
-function frame() {
+function update() {
     const now = performance.now() / 1000;
     const dt = now - prevTime;
     prevTime = now;
@@ -135,8 +134,12 @@ function frame() {
     mesh.updateWorldMatrix();
 
     controls.update();
-    renderPipeline.render();
-    requestAnimationFrame(frame);
+    const f = frame(renderer);
+    const compositePass = f.pass({ target: view });
+    compositePass.draw(composite);
+    compositePass.end();
+    f.submit();
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

@@ -1,10 +1,9 @@
 /**
  * render-target.ts (webgl) - FBO (framebuffer object) cache for render-to-texture.
  *
- * The GL analogue of the WebGPU render-target attachment path. When `renderer.renderTarget` is
- * non-null (a `PassNode` render-to-texture, a `CubeCamera` face, etc.), the pass must render into
- * the target's color texture(s) + depth instead of the default framebuffer. This module ports the
- * reference renderer's `setRenderTarget`: get/create one FBO per `RenderTarget`, allocate each color
+ * The GL analogue of the WebGPU render-target attachment path. When a pass names a `RenderTarget`
+ * (a `RenderTextureNode` render-to-texture, a `CubeCamera` face, etc.), it renders into that target's color
+ * texture(s) + depth instead of the default framebuffer. One FBO per `RenderTarget`: allocate each color
  * `GpuTexture` at the target size/format (via `textures.ts`), attach it as
  * `COLOR_ATTACHMENT0 + i`, call `drawBuffers([...])` for MRT, and attach depth. Depth is always a
  * sampleable depth *texture*: `RenderTarget` auto-creates a `depthTexture` unless `depthBuffer:false`,
@@ -28,9 +27,9 @@
  * un-antialiased result) with a one-time warning.
  */
 
-import type { RenderTarget } from '../../core/render-target';
 import type { CubeRenderTarget } from '../../core/cube-render-target';
-import { getTextureData, updateTexture, type TextureCache } from './textures';
+import type { RenderTarget } from '../../core/render-target';
+import { getTextureData, type TextureCache, updateTexture } from './textures';
 
 /** Per-RenderTarget GL framebuffer + the color-texture generations it was built against. */
 type FboData = {
@@ -124,7 +123,7 @@ function ensureColorRenderable(gl: WebGL2RenderingContext, format: string): void
 
     const ext = is32f ? 'EXT_color_buffer_float' : 'EXT_color_buffer_float / EXT_color_buffer_half_float';
     throw new Error(
-        `[WebGLRenderer] float render target format '${format}' requires ${ext}, which is not available; ` +
+        `[webgl] float render target format '${format}' requires ${ext}, which is not available; ` +
             `float-renderable render targets are not supported on the WebGL2 backend without it.`,
     );
 }
@@ -198,7 +197,12 @@ export function bindRenderTargetFramebuffer(
 }
 
 /** Attach the cube target's `activeFace` as the FBO's `COLOR_ATTACHMENT0`. */
-function attachCubeFace(gl: WebGL2RenderingContext, textures: TextureCache, renderTarget: CubeRenderTarget, fboData: FboData): void {
+function attachCubeFace(
+    gl: WebGL2RenderingContext,
+    textures: TextureCache,
+    renderTarget: CubeRenderTarget,
+    fboData: FboData,
+): void {
     const data = getTextureData(textures, renderTarget.texture._gpuTexture);
     if (!data) return;
     gl.bindFramebuffer(gl.FRAMEBUFFER, fboData.fbo);
@@ -208,7 +212,7 @@ function attachCubeFace(gl: WebGL2RenderingContext, textures: TextureCache, rend
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
         throw new Error(
-            `[WebGLRenderer] cube framebuffer is incomplete (face ${renderTarget.activeFace}, status 0x${status.toString(16)}); ` +
+            `[webgl] cube framebuffer is incomplete (face ${renderTarget.activeFace}, status 0x${status.toString(16)}); ` +
                 `rendering into an incomplete framebuffer is not supported on the WebGL2 backend.`,
         );
     }
@@ -228,7 +232,7 @@ function rebuildFbo(
     let fbo = existing?.fbo;
     if (!fbo) {
         const created = gl.createFramebuffer();
-        if (!created) throw new Error('[WebGLRenderer] gl.createFramebuffer returned null.');
+        if (!created) throw new Error('[webgl] gl.createFramebuffer returned null.');
         fbo = created;
         state.fbos.add(fbo);
     }
@@ -247,7 +251,13 @@ function rebuildFbo(
         if (cube) {
             // Attach the currently-selected cube face (attachment 0 only — a cube target has one color).
             const faceTarget = gl.TEXTURE_CUBE_MAP_POSITIVE_X + (renderTarget as CubeRenderTarget).activeFace;
-            gl.framebufferTexture2D(gl.FRAMEBUFFER, attachment, faceTarget, data.texture, (renderTarget as CubeRenderTarget).activeMipmapLevel);
+            gl.framebufferTexture2D(
+                gl.FRAMEBUFFER,
+                attachment,
+                faceTarget,
+                data.texture,
+                (renderTarget as CubeRenderTarget).activeMipmapLevel,
+            );
             attachedFace = (renderTarget as CubeRenderTarget).activeFace;
         } else {
             gl.framebufferTexture2D(gl.FRAMEBUFFER, attachment, gl.TEXTURE_2D, data.texture, 0);
@@ -287,7 +297,7 @@ function rebuildFbo(
         const internalFormat = depthRenderbufferInternalFormat(gl, renderTarget._depthAttachment.format);
         if (!depthRenderbuffer) {
             const created = gl.createRenderbuffer();
-            if (!created) throw new Error('[WebGLRenderer] gl.createRenderbuffer returned null (depth).');
+            if (!created) throw new Error('[webgl] gl.createRenderbuffer returned null (depth).');
             depthRenderbuffer = created;
             state.renderbuffers.add(depthRenderbuffer);
         }
@@ -304,7 +314,7 @@ function rebuildFbo(
     // as UNSUPPORTED (0x8cdd), so check for loss FIRST, or a dead context masquerades as a format bug.
     if (gl.isContextLost()) {
         throw new Error(
-            '[WebGLRenderer] WebGL2 context is lost; cannot build a framebuffer. This is usually too many ' +
+            '[webgl] WebGL2 context is lost; cannot build a framebuffer. This is usually too many ' +
                 'live WebGL contexts on the page (each canvas/renderer holds one; the browser evicts the oldest) ' +
                 'or a GPU-process crash, not a render-target format problem. See the `webglcontextlost` reason.',
         );
@@ -348,7 +358,7 @@ function rebuildFbo(
             `LIVE ${liveAttachment('color0', gl.COLOR_ATTACHMENT0)} ${liveAttachment('depth', gl.DEPTH_ATTACHMENT)} ${liveAttachment('stencil', gl.STENCIL_ATTACHMENT)} ${liveAttachment('depthStencil', gl.DEPTH_STENCIL_ATTACHMENT)}`,
         ];
         throw new Error(
-            `[WebGLRenderer] framebuffer is incomplete (status 0x${status.toString(16)}); ` +
+            `[webgl] framebuffer is incomplete (status 0x${status.toString(16)}); ` +
                 `rendering into an incomplete framebuffer is not supported on the WebGL2 backend. ` +
                 `${parts.join(' | ')}`,
         );
@@ -480,7 +490,7 @@ function buildMsaaFbo(
 /** Log the MSAA-unsupported fallback once. */
 function warnMsaaFallback(state: GlRenderTargetsState): void {
     if (state.msaaWarned) return;
-    console.warn('[WebGLRenderer] MSAA render target sample count/format unsupported; rendering single-sampled.');
+    console.warn('[webgl] MSAA render target sample count/format unsupported; rendering single-sampled.');
     state.msaaWarned = true;
 }
 
@@ -529,9 +539,7 @@ export function resolveActiveRenderTarget(gl: WebGL2RenderingContext, state: GlR
     // drawBuffers, so point both at attachment i in turn (MRT-safe; single-attachment is the common case).
     for (let i = 0; i < count; i++) {
         gl.readBuffer(gl.COLOR_ATTACHMENT0 + i);
-        gl.drawBuffers(
-            Array.from({ length: count }, (_, j) => (j === i ? gl.COLOR_ATTACHMENT0 + i : gl.NONE)),
-        );
+        gl.drawBuffers(Array.from({ length: count }, (_, j) => (j === i ? gl.COLOR_ATTACHMENT0 + i : gl.NONE)));
         gl.blitFramebuffer(0, 0, w, h, 0, 0, w, h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
     }
 

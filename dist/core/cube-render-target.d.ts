@@ -1,6 +1,6 @@
-import { RenderTarget } from './render-target';
 import { CubeTexture } from '../texture/cube-texture';
 import type { DepthTextureFormat } from '../texture/depth-texture';
+import { RenderTarget } from './render-target';
 export type CubeRenderTargetOptions = {
     /** Color format of the cube faces. Default: 'rgba8unorm'. */
     colorFormat?: GPUTextureFormat;
@@ -25,7 +25,7 @@ export type CubeRenderTargetOptions = {
 };
 /**
  * A render target whose color attachment is a cube texture. Render each of the
- * six faces (set `activeFace` and call `renderer.render(scene, faceCamera)`),
+ * six faces (a pass per face, naming it with `PassDesc.layer`; see `CubeCamera`),
  * then sample the result as an environment map via `cubeTexture(rt.texture)`.
  *
  * Usually driven by a `CubeCamera`, which sets up the six face cameras and loops
@@ -50,3 +50,5 @@ export declare class CubeRenderTarget extends RenderTarget {
     /** Resize all six faces (and the shared depth). */
     setSize(size: number): void;
 }
+/** A cube render target: six square faces, drawn one pass each with `PassDesc.layer`. */
+export declare function createCubeRenderTarget(size: number, opts?: CubeRenderTargetOptions): CubeRenderTarget;

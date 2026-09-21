@@ -1,4 +1,4 @@
-import { mat4, mat3, quat, vec3, type Quat, type Vec3 } from 'math';
+import { mat3, mat4, type Quat, quat, type Vec3, vec3 } from 'math';
 
 let objectIdCounter = 0;
 
@@ -45,13 +45,13 @@ export class Object3D {
         return this;
     }
 
-	removeFromParent() {
-		const parent = this.parent;
-		if (parent !== null) {
-			parent.remove(this);
-		}
-		return this;
-	}
+    removeFromParent() {
+        const parent = this.parent;
+        if (parent !== null) {
+            parent.remove(this);
+        }
+        return this;
+    }
 
     lookAt(target: Vec3, up: Vec3 = [0, 1, 0]): void {
         mat4.targetTo(_lookAt_tmp, this.position, target, up);
@@ -103,11 +103,16 @@ export class Object3D {
     /**
      * Abstract method for raycasting. Override in subclasses (e.g., Mesh) to
      * implement intersection testing. Base implementation does nothing.
-     * 
+     *
      * @param _raycaster - The Raycaster instance
      * @param _intersects - Array to push intersection results into
      */
     raycast(_raycaster: any, _intersects: any[]): void {
         // Base Object3D does nothing - subclasses override
     }
+}
+
+/** The factory form; an `Object3D` is the bare transform node other objects attach to. */
+export function createObject3D(): Object3D {
+    return new Object3D();
 }

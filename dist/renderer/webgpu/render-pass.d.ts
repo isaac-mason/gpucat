@@ -1,17 +1,11 @@
-import type { RendererInfo } from '../core/info';
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { CanvasTarget } from '../core/canvas-target';
+import type { DrawOpts } from '../core/frame';
+import type { RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
-import type { PreparedRenderObject, RenderPassParams } from '../core/render-types';
-import { type BindGroupLayoutCache } from './bind-group-layout';
-import * as Bindings from './bindings';
-import * as Buffers from './buffers';
-import * as Geometries from './geometries';
-import * as Pipelines from './pipelines';
-import * as RenderObjectGpu from './render-object-gpu';
-import * as Samplers from './samplers';
-import * as Textures from './textures';
+import type { PreparedRenderObject, PreparedSegment, RenderPassParams } from '../core/render-types';
+import type { BackendState } from './backend-state';
 /**
  * Get (or lazily create + configure) the WebGPU canvas context for a canvas target. Safe to call
  * repeatedly; the context is cached per canvas target after first acquisition. The context is
@@ -38,10 +32,11 @@ export declare function releaseContext(contexts: WeakMap<CanvasTarget, GPUCanvas
  * depth/msaa attachment textures (+ their cached views). Read when resolving swapchain
  * (renderTarget === null) attachments and recreated on `resize`.
  */
-export type SwapchainState = {
-    canvasTarget: CanvasTarget | null;
-    samples: number;
-    depthFormat: GPUTextureFormat;
+/** One canvas target's own depth and MSAA attachments, sized and sampled to that target. */
+export type CanvasAttachments = {
+    /** Backing-store size this target's context was last configured against. */
+    configuredWidth: number;
+    configuredHeight: number;
     /** Swapchain depth texture (recreated on resize). */
     depthTexture: GPUTexture | null;
     depthTextureView: GPUTextureView | null;
@@ -49,34 +44,63 @@ export type SwapchainState = {
     msaaTexture: GPUTexture | null;
     msaaTextureView: GPUTextureView | null;
 };
+export type SwapchainState = {
+    /** Every canvas this renderer has allocated attachments for, so `dispose` can reach all of them. */
+    targets: Set<CanvasTarget>;
+    /** Per-target attachments, because a frame may draw to several canvases of differing size. */
+    byTarget: WeakMap<CanvasTarget, CanvasAttachments>;
+};
 /**
  * The swapchain's own depth and MSAA attachments. These belong to the swapchain, not to any
  * `RenderTarget`, so they live beside `SwapchainState` rather than in `render-target.ts`.
  */
 export declare function createSwapchainDepthTexture(device: GPUDevice, width: number, height: number, sampleCount: number, format?: GPUTextureFormat): GPUTexture;
 export declare function createSwapchainMsaaTexture(device: GPUDevice, width: number, height: number, format: GPUTextureFormat, sampleCount: number): GPUTexture;
-/** Create the initial (empty) swapchain state for the given sample count + depth format. */
-export declare function createSwapchainState(samples: number, depthFormat: GPUTextureFormat): SwapchainState;
+export declare function createSwapchainState(): SwapchainState;
+export declare function attachmentsFor(sc: SwapchainState, target: CanvasTarget): CanvasAttachments;
+export declare function samplesFor(target: CanvasTarget): number;
+export declare function depthFormatFor(target: CanvasTarget): GPUTextureFormat;
 /**
  * (Re)create the swapchain depth and (optional) MSAA textures and cache their views. The views
  * are stable until the next resize, so attachment resolution reuses them rather than calling
  * createView() every frame.
  */
-export declare function recreateSwapchainTextures(device: GPUDevice, sc: SwapchainState, format: GPUTextureFormat, width: number, height: number): void;
+export declare function recreateSwapchainTextures(device: GPUDevice, sc: SwapchainState, format: GPUTextureFormat, width: number, height: number, target: CanvasTarget): void;
+type ResolvedAttachments = {
+    colorAttachments: GPURenderPassColorAttachment[];
+    depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
+};
 /**
- * Manually clear the current framebuffer (color and/or depth and/or stencil). Resolves the
- * attachments for `params` with autoClear=true so they come back as 'clear', then overrides each
- * load op per the color/depth/stencil flags, and submits a single empty render pass.
+ * Build GPU color and depth attachments, dispatching on the target kind. Shared by `executeRenderPass`
+ * and `clear()` (which then overrides the load ops for the manual clear).
  */
-export declare function clear(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, device: GPUDevice, textures: Textures.TextureCache, sc: SwapchainState, format: GPUTextureFormat, params: RenderPassParams, color: boolean, depth: boolean, stencil: boolean): void;
-/**
- * Resolve attachments and run the whole inner draw loop into the current command stream (created by
- * the top-level frame, reused by nested renders). Calls neutral update helpers per object.
- */
-export declare function executeRenderPass(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, device: GPUDevice, bindings: Bindings.BindingsState, geometries: Geometries.GeometriesState, buffers: Buffers.BufferCache, textures: Textures.TextureCache, samplers: Samplers.SamplerCache, renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache, sc: SwapchainState, format: GPUTextureFormat, encoder: GPUCommandEncoder, nodes: NodeManagerState, passCtx: RenderContext, prepared: PreparedRenderObject[], params: RenderPassParams, inspector: InspectorBase | null, info: RendererInfo): void;
+export declare function resolveAttachments(b: BackendState, params: RenderPassParams): ResolvedAttachments;
+/** Begin the GPU render pass, issue all draw calls, and end the pass. */
+/** What the draw loop needs: a bundle encoder offers the same surface as a pass encoder. */
+export type DrawEncoder = GPURenderPassEncoder | GPURenderBundleEncoder;
+export type PassScope = {
+    gpuPass: GPURenderPassEncoder;
+    currentSets: CurrentSets;
+};
+/** The draw loop's own scope, which a bundle recording satisfies with a bundle encoder. */
+export type DrawScope = {
+    gpuPass: DrawEncoder;
+    currentSets: CurrentSets;
+};
+export declare function beginPass(encoder: GPUCommandEncoder, passCtx: RenderContext, colorAttachments: GPURenderPassColorAttachment[], depthAttachment: GPURenderPassDepthStencilAttachment | undefined, passId: string, inspector: InspectorBase | null): PassScope;
+export declare function endPass(scope: PassScope): void;
+export declare function encodeDraws(b: BackendState, nodes: NodeManagerState, passCtx: RenderContext, preparedObjects: readonly PreparedRenderObject[], preparedOpts: readonly (DrawOpts | null)[], count: number, inspector: InspectorBase | null, info: RendererInfo, scope: PassScope, segments: readonly PreparedSegment[]): void;
 /**
  * Release all device resources: the canvas context, swapchain textures, default placeholder
  * textures + samplers, mipmap state, pipeline caches, and (unless the device was pre-created) the
  * device itself. After this the renderer is unusable.
  */
-export declare function disposeDevice(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, device: GPUDevice | null, deviceProvided: boolean, textures: Textures.TextureCache, samplers: Samplers.SamplerCache, buffers: Buffers.BufferCache, pipelines: Pipelines.PipelinesState, bindGroupLayoutCache: BindGroupLayoutCache, sc: SwapchainState): void;
+export declare function disposeDevice(b: BackendState, deviceProvided: boolean): void;
+type CurrentSets = {
+    bindingGroups: number[];
+    attributes: (GPUBuffer | null)[];
+    index: GPUBuffer | null;
+    pipeline: GPURenderPipeline | null;
+    stencilRef: number | null;
+};
+export {};

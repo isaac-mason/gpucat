@@ -20,6 +20,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
 import type { NodeBuilderState } from '../core/node-builder-state';
+import { assertVertexBuffers } from '../core/node-builder-state';
 import * as Buffers from './buffers';
 
 /** Per-geometry GL resources. Only VAOs: the buffers themselves belong to `buffers.ts`, keyed by
@@ -27,6 +28,8 @@ import * as Buffers from './buffers';
 type GeometryBuffers = {
     /** VAOs keyed by program identity (a geometry may be drawn by several materials). */
     vaos: Map<WebGLProgram, WebGLVertexArrayObject>;
+    /** A VAO bakes in the buffers bound when it was built, so a rebind invalidates every one of them. */
+    bindingsVersion: number;
 };
 
 /** Geometries state: per-geometry VAOs, keyed by geometry identity. */
@@ -56,7 +59,7 @@ function groupBuffer(geometry: Geometry, group: NodeBuilderState['vertexBufferGr
 function getGeometryBuffers(gl: WebGL2RenderingContext, state: GeometriesState, geometry: Geometry): GeometryBuffers {
     let gb = state.data.get(geometry);
     if (!gb) {
-        gb = { vaos: new Map() };
+        gb = { vaos: new Map(), bindingsVersion: geometry.bindingsVersion };
         state.data.set(geometry, gb);
         state.memory.geometries++;
         // Release the VAOs when the Geometry goes away. The buffers release themselves through
@@ -79,7 +82,7 @@ function glIndexType(gl: WebGL2RenderingContext, array: ArrayBufferView | null |
     if (array instanceof Uint32Array) return gl.UNSIGNED_INT;
     const ctorName = (array as { constructor?: { name?: string } } | null)?.constructor?.name ?? typeof array;
     throw new Error(
-        `[WebGLRenderer] index buffer array type '${ctorName}' is not supported on the WebGL2 backend ` +
+        `[webgl] index buffer array type '${ctorName}' is not supported on the WebGL2 backend ` +
             `(expected Uint8Array, Uint16Array, or Uint32Array).`,
     );
 }
@@ -132,7 +135,7 @@ export function attribFormat(type: string): AttribFormat {
         case 'mat4x4f':
             return { glType: 'float', size: 4, slots: 4, byteSize: 64 };
         default:
-            throw new Error(`[WebGLRenderer] vertex attribute format '${type}' is not supported on the WebGL2 backend.`);
+            throw new Error(`[webgl] vertex attribute format '${type}' is not supported on the WebGL2 backend.`);
     }
 }
 
@@ -142,8 +145,13 @@ export function glComponentType(gl: WebGL2RenderingContext, glType: AttribFormat
             return gl.INT;
         case 'uint':
             return gl.UNSIGNED_INT;
-        default:
+        case 'float':
             return gl.FLOAT;
+        default: {
+            // A new `glType` variant reaches here as a type error rather than silently as gl.FLOAT.
+            const unhandled: never = glType;
+            throw new Error(`[webgl] no GL component type for '${unhandled}'.`);
+        }
     }
 }
 
@@ -172,6 +180,7 @@ export function prepareGeometry(
     geometry: Geometry,
     nodeState: NodeBuilderState,
     program: WebGLProgram,
+    label = 'geometry',
 ): GeometryDrawInfo {
     const gb = getGeometryBuffers(gl, state, geometry);
 
@@ -181,6 +190,8 @@ export function prepareGeometry(
     // draw would run against the wrong (possibly smaller) buffer. Uploads must land on the default
     // VAO 0. The caller (the draw loop) rebinds the resolved VAO after this returns.
     gl.bindVertexArray(null);
+
+    assertVertexBuffers(geometry, nodeState, label);
 
     // Upload every buffer the compiled vertex-buffer groups read from (+ any re-uploads).
     for (const group of nodeState.vertexBufferGroups) {
@@ -195,11 +206,17 @@ export function prepareGeometry(
         indexType = glIndexType(gl, geometry.index.array);
     }
 
+    if (gb.bindingsVersion !== geometry.bindingsVersion) {
+        for (const stale of gb.vaos.values()) gl.deleteVertexArray(stale);
+        gb.vaos.clear();
+        gb.bindingsVersion = geometry.bindingsVersion;
+    }
+
     // Build (or reuse) the VAO for this program.
     let vao = gb.vaos.get(program);
     if (!vao) {
         const created = gl.createVertexArray();
-        if (!created) throw new Error('[WebGLRenderer] gl.createVertexArray returned null.');
+        if (!created) throw new Error('[webgl] gl.createVertexArray returned null.');
         vao = created;
         gb.vaos.set(program, vao);
 
@@ -230,7 +247,7 @@ export function prepareGeometry(
                     }
                     if (location >= state.maxVertexAttribs) {
                         throw new Error(
-                            `[WebGLRenderer] a geometry uses vertex attribute location ${location}, but this ` +
+                            `[webgl] a geometry uses vertex attribute location ${location}, but this ` +
                                 `device's MAX_VERTEX_ATTRIBS=${state.maxVertexAttribs}; reduce the number of vertex ` +
                                 `attributes on the WebGL2 backend.`,
                         );

@@ -3,8 +3,8 @@
  *
  * WGSL binds a texture and its sampler separately; the GLSL emitter collapses each texture binding
  * into one COMBINED-sampler uniform `uniform sampler2D u_<textureId>;` and assigns it a flat texture
- * unit (the `binding` field on the compiled `TextureEntry`/`SamplerEntry`). The GL mechanics are the
- * reference renderer's: for each texture binding, `activeTexture(TEXTURE0+unit)`, bind the uploaded
+ * unit (the `binding` field on the compiled `TextureEntry`/`SamplerEntry`). Per texture binding:
+ * `activeTexture(TEXTURE0+unit)`, bind the uploaded
  * GL texture, `bindSampler(unit, glSampler)` for the paired sampler, and `uniform1i(location, unit)`
  * on the combined-sampler uniform so the shader samples through that unit.
  *
@@ -52,7 +52,7 @@ function assertFloatLinearFilterable(
     if (floatLinearSupported === null) floatLinearSupported = !!gl.getExtension('OES_texture_float_linear');
     if (!floatLinearSupported) {
         throw new Error(
-            `[WebGLRenderer] linear filtering of 32-bit float textures requires OES_texture_float_linear, ` +
+            `[webgl] linear filtering of 32-bit float textures requires OES_texture_float_linear, ` +
                 `which is not available; use a 'nearest' filter for '${textureFormat}' textures on the WebGL2 backend.`,
         );
     }
@@ -75,7 +75,7 @@ function assertIntegerNotFiltered(
         gpuSampler.minFilter === 'linear' || gpuSampler.magFilter === 'linear' || gpuSampler.mipmapFilter === 'linear';
     if (!usesLinear) return;
     throw new Error(
-        `[WebGLRenderer] integer texture format '${textureFormat}' is not texture-filterable; a 'linear' ` +
+        `[webgl] integer texture format '${textureFormat}' is not texture-filterable; a 'linear' ` +
             `sampler samples it as incomplete (black). Use a 'nearest' filter (or read it with texelFetch/.load()) ` +
             `on the WebGL2 backend.`,
     );
@@ -127,21 +127,21 @@ function resolveStorageSource(
     const buffer = renderObject.geometry.getBuffer(source.name);
     if (!buffer) {
         throw new Error(
-            `[WebGLRenderer] storage('${source.name}') read-lowering: no buffer bound for that name on the ` +
+            `[webgl] storage('${source.name}') read-lowering: no buffer bound for that name on the ` +
                 `geometry — call geometry.setBuffer('${source.name}', buffer).`,
         );
     }
     const arr = buffer.array;
     if (arr == null) {
         throw new Error(
-            `[WebGLRenderer] storage('${source.name}') read-lowering: the buffer has no CPU \`array\` to ` +
+            `[webgl] storage('${source.name}') read-lowering: the buffer has no CPU \`array\` to ` +
                 `reinterpret (released after upload); keep it resident to sample it on WebGL2.`,
         );
     }
     const bytesPerTexel = source.bytesPerTexel;
     if (arr.byteLength === 0 || arr.byteLength % bytesPerTexel !== 0) {
         throw new Error(
-            `[WebGLRenderer] storage('${source.name}') read-lowering: buffer byte length ${arr.byteLength} must ` +
+            `[webgl] storage('${source.name}') read-lowering: buffer byte length ${arr.byteLength} must ` +
                 `be a non-zero multiple of ${bytesPerTexel} (whole texels) to reinterpret as a texture.`,
         );
     }
@@ -168,7 +168,7 @@ export function bindTextures(
             if (binding.kind === 'storageTexture') {
                 // Storage textures (texture_storage_*, written via textureStore in a compute pass) are
                 // a WebGPU-only capability; WebGL2 core has no image load/store.
-                throw new Error('[WebGLRenderer] storage textures are not supported on the WebGL2 backend.');
+                throw new Error('[webgl] storage textures are not supported on the WebGL2 backend.');
             }
             if (binding.kind !== 'texture') continue;
 
@@ -184,7 +184,7 @@ export function bindTextures(
             }
             if (unit >= textures.maxTextureUnits) {
                 throw new Error(
-                    `[WebGLRenderer] a material samples more textures + storage buffers than this device's ` +
+                    `[webgl] a material samples more textures + storage buffers than this device's ` +
                         `MAX_COMBINED_TEXTURE_IMAGE_UNITS=${textures.maxTextureUnits} (needs unit ${unit}); ` +
                         `reduce the number sampled by one material on the WebGL2 backend.`,
                 );
@@ -283,7 +283,7 @@ export function bindStandaloneTextures(
         const gpuTexture = entry.node.value;
         if (!gpuTexture) {
             throw new Error(
-                `[WebGLRenderer] transform-feedback kernel samples texture '${entry.textureId}' but no ` +
+                `[webgl] transform-feedback kernel samples texture '${entry.textureId}' but no ` +
                     `GpuTexture is bound to it (set the DataTexture on the texture node before dispatch).`,
             );
         }

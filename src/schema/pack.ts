@@ -1,15 +1,16 @@
 import {
     type Any,
+    getCustomAlign,
     type Infer,
-    type StructDesc,
-    type sizedArray,
-    isStructDesc,
-    isSizedArrayDesc,
     isArrayDesc,
     isAtomicDesc,
     isBitsDesc,
     isPackedDesc,
-    getCustomAlign,
+    isSizedArrayDesc,
+    isStructDesc,
+    type StructDesc,
+    type sizedArray,
+    type TypedArrayFor,
 } from './schema';
 
 /**
@@ -111,11 +112,7 @@ function toDataView(src: BufferSource): DataView {
  * const buf = pack(Particle, { position: [1, 2, 3], health: 100 });
  * const f32 = new Float32Array(buf);
  */
-export function pack<D extends Any>(
-    schema: D,
-    value: Infer<D>,
-    memLayout: MemoryLayout = 'std430',
-): ArrayBuffer {
+export function pack<D extends Any>(schema: D, value: Infer<D>, memLayout: MemoryLayout = 'std430'): ArrayBuffer {
     const layout = getLayout<Infer<D>>(schema, memLayout);
     const buf = new ArrayBuffer(layout.totalSize);
     layout.write(new DataView(buf), 0, value);
@@ -129,11 +126,7 @@ export function pack<D extends Any>(
  * const buf = packArray(Particle, particles);
  * const f32 = new Float32Array(buf);
  */
-export function packArray<D extends Any>(
-    schema: D,
-    items: Infer<D>[],
-    memLayout: MemoryLayout = 'std430',
-): ArrayBuffer {
+export function packArray<D extends Any>(schema: D, items: Infer<D>[], memLayout: MemoryLayout = 'std430'): ArrayBuffer {
     const layout = getLayout<Infer<D>>(schema, memLayout);
     // Elements are laid out as an array, so use the array-element stride (uniform layouts round
     // element stride up to 16), not the schema's bare struct stride — otherwise a small struct
@@ -266,10 +259,7 @@ export function layoutAlignOf(schema: Any, memLayout: MemoryLayout = 'std430'): 
 /**
  * Get the compiled layout for a schema (for advanced use cases).
  */
-export function getCompiledLayout<D extends Any>(
-    schema: D,
-    memLayout: MemoryLayout = 'std430',
-): CompiledLayout<Infer<D>> {
+export function getCompiledLayout<D extends Any>(schema: D, memLayout: MemoryLayout = 'std430'): CompiledLayout<Infer<D>> {
     return getLayout<Infer<D>>(schema, memLayout);
 }
 
@@ -280,11 +270,12 @@ export function packToView<D extends Any>(
     schema: D,
     view: DataView,
     offset: number,
-    value: Infer<D>,
+    /** A typed array is accepted because the generated writer indexes positionally, as a tuple does. */
+    value: Infer<D> | TypedArrayFor<D>,
     memLayout: MemoryLayout = 'std430',
 ): void {
     const layout = getLayout<Infer<D>>(schema, memLayout);
-    layout.write(view, offset, value);
+    layout.write(view, offset, value as Infer<D>);
 }
 
 /** Unpack a value from a DataView. */
@@ -448,13 +439,13 @@ function sizeOf(schema: Any, memLayout: MemoryLayout): number {
     }
 
     // Matrices f16
-    if (t === 'mat2x2h') return 2 * 4;   // 2 cols * vec2h stride
+    if (t === 'mat2x2h') return 2 * 4; // 2 cols * vec2h stride
     if (t === 'mat3x2h') return 3 * 4;
     if (t === 'mat4x2h') return 4 * 4;
-    if (t === 'mat2x3h') return 2 * 8;   // 2 cols * vec3h padded
+    if (t === 'mat2x3h') return 2 * 8; // 2 cols * vec3h padded
     if (t === 'mat3x3h') return 3 * 8;
     if (t === 'mat4x3h') return 4 * 8;
-    if (t === 'mat2x4h') return 2 * 8;   // 2 cols * vec4h
+    if (t === 'mat2x4h') return 2 * 8; // 2 cols * vec4h
     if (t === 'mat3x4h') return 3 * 8;
     if (t === 'mat4x4h') return 4 * 8;
 
@@ -526,12 +517,18 @@ function packedWriteExpr(packedType: string, a: string): string {
     const u16 = (i: number) => `(Math.round(Math.min(Math.max(${a}[${i}],0),1)*65535)&65535)`;
     const s16 = (i: number) => `(Math.round(Math.min(Math.max(${a}[${i}],-1),1)*32767)&65535)`;
     switch (packedType) {
-        case 'unorm8x4': return `((${u8(0)}|(${u8(1)}<<8)|(${u8(2)}<<16)|(${u8(3)}<<24))>>>0)`;
-        case 'snorm8x4': return `((${s8(0)}|(${s8(1)}<<8)|(${s8(2)}<<16)|(${s8(3)}<<24))>>>0)`;
-        case 'half2x16': return `((f16(${a}[0])|(f16(${a}[1])<<16))>>>0)`;
-        case 'unorm2x16': return `((${u16(0)}|(${u16(1)}<<16))>>>0)`;
-        case 'snorm2x16': return `((${s16(0)}|(${s16(1)}<<16))>>>0)`;
-        default: throw new Error(`[gpucat] pack: unknown packed type '${packedType}'`);
+        case 'unorm8x4':
+            return `((${u8(0)}|(${u8(1)}<<8)|(${u8(2)}<<16)|(${u8(3)}<<24))>>>0)`;
+        case 'snorm8x4':
+            return `((${s8(0)}|(${s8(1)}<<8)|(${s8(2)}<<16)|(${s8(3)}<<24))>>>0)`;
+        case 'half2x16':
+            return `((f16(${a}[0])|(f16(${a}[1])<<16))>>>0)`;
+        case 'unorm2x16':
+            return `((${u16(0)}|(${u16(1)}<<16))>>>0)`;
+        case 'snorm2x16':
+            return `((${s16(0)}|(${s16(1)}<<16))>>>0)`;
+        default:
+            throw new Error(`[gpucat] pack: unknown packed type '${packedType}'`);
     }
 }
 
@@ -540,12 +537,18 @@ function packedWriteExpr(packedType: string, a: string): string {
  *  path is separate (accessor + GLSL emitter). */
 function packedReadExpr(packedType: string, u: string): string {
     switch (packedType) {
-        case 'unorm8x4': return `[(${u}&255)/255,((${u}>>>8)&255)/255,((${u}>>>16)&255)/255,((${u}>>>24)&255)/255]`;
-        case 'snorm8x4': return `[Math.max((((${u}&255)<<24)>>24)/127,-1),Math.max(((((${u}>>>8)&255)<<24)>>24)/127,-1),Math.max(((((${u}>>>16)&255)<<24)>>24)/127,-1),Math.max(((((${u}>>>24)&255)<<24)>>24)/127,-1)]`;
-        case 'half2x16': return `[f16r(${u}&0xFFFF),f16r((${u}>>>16)&0xFFFF)]`;
-        case 'unorm2x16': return `[(${u}&0xFFFF)/65535,((${u}>>>16)&0xFFFF)/65535]`;
-        case 'snorm2x16': return `[Math.max((((${u}&0xFFFF)<<16)>>16)/32767,-1),Math.max(((((${u}>>>16)&0xFFFF)<<16)>>16)/32767,-1)]`;
-        default: throw new Error(`[gpucat] pack: unknown packed type '${packedType}'`);
+        case 'unorm8x4':
+            return `[(${u}&255)/255,((${u}>>>8)&255)/255,((${u}>>>16)&255)/255,((${u}>>>24)&255)/255]`;
+        case 'snorm8x4':
+            return `[Math.max((((${u}&255)<<24)>>24)/127,-1),Math.max(((((${u}>>>8)&255)<<24)>>24)/127,-1),Math.max(((((${u}>>>16)&255)<<24)>>24)/127,-1),Math.max(((((${u}>>>24)&255)<<24)>>24)/127,-1)]`;
+        case 'half2x16':
+            return `[f16r(${u}&0xFFFF),f16r((${u}>>>16)&0xFFFF)]`;
+        case 'unorm2x16':
+            return `[(${u}&0xFFFF)/65535,((${u}>>>16)&0xFFFF)/65535]`;
+        case 'snorm2x16':
+            return `[Math.max((((${u}&0xFFFF)<<16)>>16)/32767,-1),Math.max(((((${u}>>>16)&0xFFFF)<<16)>>16)/32767,-1)]`;
+        default:
+            throw new Error(`[gpucat] pack: unknown packed type '${packedType}'`);
     }
 }
 
@@ -1050,16 +1053,9 @@ function compileLayout<T>(schema: Any, memLayout: MemoryLayout): CompiledLayout<
     const readCode = `return function(v,o){return ${readExpr}}`;
 
     // Compile functions with f16 helpers in scope
-    const write = new Function('f16', writeCode)(f32ToF16Bits) as (
-        view: DataView,
-        offset: number,
-        value: T,
-    ) => void;
+    const write = new Function('f16', writeCode)(f32ToF16Bits) as (view: DataView, offset: number, value: T) => void;
 
-    const read = new Function('f16r', readCode)(f16BitsToF32) as (
-        view: DataView,
-        offset: number,
-    ) => T;
+    const read = new Function('f16r', readCode)(f16BitsToF32) as (view: DataView, offset: number) => T;
 
     return { totalSize, stride, write, read };
 }

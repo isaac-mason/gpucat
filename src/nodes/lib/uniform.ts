@@ -109,10 +109,11 @@ export { Uniform, UniformGroup, UniformUpdateType, objectGroup, renderGroup, fra
  */
 // Value-based: pass Uniform object directly
 export function uniform<D extends Any>(u: Uniform<D>): UniformNode<D>;
+// Name-based struct: resolved from material.uniforms. Ahead of the generic-schema overload, which a
+// StructDef also satisfies.
+export function uniform<S extends StructSchema>(name: string, def: StructDef<S>): StructInstance<S>;
 // Name-based: resolved from material.uniforms
 export function uniform<D extends Any>(name: string, schema: D): UniformNode<D>;
-// Name-based struct: resolved from material.uniforms
-export function uniform<S extends StructSchema>(name: string, def: StructDef<S>): StructInstance<S>;
 // Inline scalar/vector/matrix form
 export function uniform<D extends Any>(init: ConstructNode<D>, name?: string): UniformNode<D>;
 export function uniform<D extends Any>(init: LiteralNode<D>, name?: string): UniformNode<D>;

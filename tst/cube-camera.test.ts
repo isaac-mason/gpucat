@@ -1,12 +1,12 @@
 import { expect, test } from 'vitest';
-import { CubeCamera, CubeRenderTarget } from '../src/index';
+import { CubeCamera, createCubeRenderTarget } from '../src/index';
 import { installWebGPUPolyfills } from './stub-gpu';
 
 // RenderTarget construction references GPUTextureUsage (a browser global).
 installWebGPUPolyfills();
 
 test('CubeRenderTarget wraps a sized cube texture with 6 faces', () => {
-    const rt = new CubeRenderTarget(256);
+    const rt = createCubeRenderTarget(256);
     expect(rt.isCubeRenderTarget).toBe(true);
     expect(rt.size).toBe(256);
     expect(rt.activeFace).toBe(0);
@@ -22,7 +22,7 @@ test('CubeRenderTarget wraps a sized cube texture with 6 faces', () => {
 });
 
 test('CubeCamera sets up six 90-degree face cameras', () => {
-    const rt = new CubeRenderTarget(128);
+    const rt = createCubeRenderTarget(128);
     const cam = new CubeCamera(0.1, 100, rt);
     expect(cam.cameras).toHaveLength(6);
     expect(cam.renderTarget).toBe(rt);

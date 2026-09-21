@@ -1,5 +1,6 @@
 import { Camera } from './camera';
-type ViewOffset = {
+/** A sub-rectangle of a larger frustum, for tiled rendering. Set it with `setViewOffset`. */
+export type ViewOffset = {
     enabled: boolean;
     fullWidth: number;
     fullHeight: number;
@@ -54,4 +55,3 @@ export declare class OrthographicCamera extends Camera {
     /** Recompute the projection matrix from current frustum planes, zoom, and view offset. */
     updateProjectionMatrix(): void;
 }
-export {};

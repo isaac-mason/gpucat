@@ -19,6 +19,10 @@ import type { Object3D } from '../../core/object3d';
 import type { Mesh } from '../../objects/mesh';
 import type { Inspector } from '../inspector';
 import type { SceneRecord } from '../renderer-inspector';
+
+/** A pass that recorded its draws directly, so the hierarchy has nothing to walk for it. */
+export type TreelessPass = { passId: string; drawCount: number };
+
 import { Item } from '../ui/item';
 import { List } from '../ui/list';
 import { Tab } from '../ui/tab';
@@ -134,10 +138,11 @@ export class SceneHierarchy extends Tab {
      * Called by Inspector._processFrame() whenever scenes are present.
      * Diffs the tree against the current DOM state and updates in-place.
      */
-    update(inspector: Inspector, scenes: SceneRecord[]): void {
+    update(inspector: Inspector, scenes: SceneRecord[], treeless: TreelessPass[] = []): void {
         this._inspector = inspector;
         // Build the set of passIds we expect to show
         const activePassIds = new Set(scenes.map((s) => s.passId));
+        for (const pass of treeless) activePassIds.add(pass.passId);
 
         // Remove scene roots that are no longer present
         for (const [passId, rootItem] of this._sceneRoots) {
@@ -157,6 +162,30 @@ export class SceneHierarchy extends Tab {
         for (const sr of scenes) {
             this._syncScene(inspector, sr);
         }
+        for (const pass of treeless) {
+            this._syncTreelessPass(pass);
+        }
+    }
+
+    /**
+     * A pass whose draws were recorded directly has no tree to walk, so it gets a leaf naming itself
+     * and pointing at Draw Calls. Showing nothing is the failure this fixes: the tab reads as if the
+     * pass never ran.
+     */
+    private _syncTreelessPass(pass: TreelessPass): void {
+        const label = `${pass.drawCount} draw${pass.drawCount === 1 ? '' : 's'}, see Draw Calls`;
+        const existing = this._sceneRoots.get(pass.passId);
+        if (existing) {
+            const nameEl = existing.itemRow.querySelector('.hierarchy-name') as HTMLElement | null;
+            if (nameEl) nameEl.textContent = `${pass.passId} — ${label}`;
+            return;
+        }
+        const nameEl = document.createElement('span');
+        nameEl.className = 'hierarchy-name';
+        nameEl.textContent = `${pass.passId} — ${label}`;
+        const item = new Item(nameEl, makeTypeBadge('Pass'));
+        this._sceneRoots.set(pass.passId, item);
+        this.list.add(item);
     }
 
     // Tree diffing

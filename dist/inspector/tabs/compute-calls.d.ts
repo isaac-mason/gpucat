@@ -10,7 +10,7 @@
  * Mirrors the structure of draw-calls.ts.
  */
 import type { ComputeNode } from '../../nodes/nodes';
-import type { WebGPURenderer } from '../../renderer/webgpu/renderer';
+import type { WebGPUBackend } from '../../renderer/webgpu/webgpu-backend';
 import type { Inspector } from '../inspector';
 import { List } from '../ui/list';
 import { Tab } from '../ui/tab';
@@ -32,12 +32,12 @@ export declare class ComputeCalls extends Tab {
      * Called by Inspector._processFrame() every frame when compute passes exist.
      * Diffs by node.id, only adds/removes items on structural changes.
      */
-    update(inspector: Inspector, renderer: WebGPURenderer): void;
+    update(inspector: Inspector, backend: WebGPUBackend): void;
     /**
      * Select a compute node programmatically (also called on click).
      * Highlights the item and populates the detail panel.
      */
-    selectNode(node: ComputeNode, inspector: Inspector, renderer: WebGPURenderer): void;
+    selectNode(node: ComputeNode, inspector: Inspector, backend: WebGPUBackend): void;
     private _populateDetail;
     private _refreshShaderPanel;
     private _showDetailSubTab;

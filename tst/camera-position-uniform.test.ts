@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { Object3D, PerspectiveCamera, cameraPosition, cameraViewMatrix } from '../src/index';
-import type { NodeFrame } from '../src/nodes/lib/uniform';
+import { cameraPosition, cameraViewMatrix, Object3D, PerspectiveCamera } from '../src/index';
+import type { NodeFrame } from '../src/renderer/core/node-frame';
 
 /**
  * Guards `cameraPosition` against being read off the camera's LOCAL `position`.

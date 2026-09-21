@@ -9,13 +9,9 @@ uniform usampler2D u_t0;
 uniform bool u_flipY_t0;
 ivec2 _flipY2i(bool f, ivec2 c, int h) { return f ? ivec2(c.x, h - c.y - 1) : c; }
 // Vertex shader
-layout(location = 0) in vec2 a_uv;
-layout(location = 1) in vec3 a_position;
-
-out vec2 v_107;
+layout(location = 0) in vec3 a_position;
 
 void main() {
-    v_107 = a_uv;
     gl_Position = vec4(a_position, 1.0);
 }
 
@@ -31,8 +27,6 @@ uniform usampler2D u_t0;
 uniform bool u_flipY_t0;
 ivec2 _flipY2i(bool f, ivec2 c, int h) { return f ? ivec2(c.x, h - c.y - 1) : c; }
 // Fragment shader
-in vec2 v_107;
-
 layout(location = 0) out vec4 fragColor;
 
 void main() {

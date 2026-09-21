@@ -2,41 +2,47 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
-    rgb,
+    createCanvasTarget,
+    createMaterial,
     createSphereGeometry,
     d,
     f32,
+    frame,
+    fullscreen,
     Inspector,
-    Material,
+    init,
     Mesh,
     modelNormalMatrix,
     modelWorldMatrix,
     mrt,
     mul,
     normalize,
-    pass,
     PerspectiveCamera,
-    screenUV,
+    renderOutput,
+    renderTexture,
+    rgb,
     Scene,
+    screenUV,
     varying,
     vec3,
     vec4,
-    WebGPURenderer,
-    renderOutput,
+    webgpu,
     wgslFn,
-    RenderPipeline,
 } from 'gpucat';
-import { quat, type Euler } from 'math';
+import { type Euler, quat } from 'math';
 
 /**
  * Encodes a normalized direction vector [-1,1] to RGB color [0,1].
  * Demonstrates wgslFn() for raw WGSL function definitions.
  */
-const directionToColor = wgslFn(/* wgsl */ `
+const directionToColor = wgslFn(
+    /* wgsl */ `
 fn directionToColor(dir: vec3f) -> vec3f {
     return dir * vec3f(0.5) + vec3f(0.5);
 }
-`, { output: d.vec3f });
+`,
+    { output: d.vec3f },
+);
 
 /**
  * Composite shader: selects one of 5 textures based on UV.x position.
@@ -49,7 +55,8 @@ fn directionToColor(dir: vec3f) -> vec3f {
  *   [0.6-0.8] emissive - emissive contribution
  *   [0.8-1.0] diffuse  - base material color
  */
-const selectComposite = wgslFn(/* wgsl */ `
+const selectComposite = wgslFn(
+    /* wgsl */ `
 fn selectComposite(
     uv_x: f32,
     beauty: vec4f,
@@ -69,32 +76,33 @@ fn selectComposite(
     }
     return beauty;
 }
-`, { output: d.vec4f });
+`,
+    { output: d.vec4f },
+);
 
-const renderer = new WebGPURenderer({ antialias: true });
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
+
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
 renderer.inspector = new Inspector();
-await renderer.init();
 
-document.body.appendChild(renderer.domElement);
 document.body.appendChild((renderer.inspector as Inspector).domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
 
 const scene = new Scene();
 
-const camera = new PerspectiveCamera(
-    Math.PI / 4,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    100,
-);
+const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 100);
 camera.position[2] = 4;
 scene.add(camera);
 scene.updateWorldMatrix();
 camera.updateViewMatrix();
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
@@ -129,7 +137,9 @@ const emissiveColor = rgb('#ff4400'); // orange-red emissive glow
 
 // emissive based on view angle (rim effect)
 const viewDir = vec3(f32(0), f32(0), f32(1)); // simplified: assume looking down -Z
-const rimFactor = f32(1.0).sub(vWorldNorm.dot(viewDir).max(f32(0.0))).pow(f32(3.0));
+const rimFactor = f32(1.0)
+    .sub(vWorldNorm.dot(viewDir).max(f32(0.0)))
+    .pow(f32(3.0));
 const emissive = vec3(emissiveColor.x, emissiveColor.y, emissiveColor.z).mul(rimFactor);
 
 // diffuse color (base color, no lighting)
@@ -159,7 +169,7 @@ const mrtOutput = mrt({
 });
 
 // material with MRT fragment output
-const mat = new Material({
+const mat = createMaterial({
     vertex: clipPos,
     fragment: mrtOutput,
     cullMode: 'back',
@@ -173,7 +183,7 @@ const mesh = new Mesh(geometry, mat);
 scene.add(mesh);
 
 // scene pass with MRT
-const scenePass = pass(scene, camera);
+const scenePass = renderTexture(scene, camera);
 scenePass.setMRT(mrtOutput);
 
 /* composite shader */
@@ -200,25 +210,17 @@ const tonemappedOutput = renderOutput(outputTex, { toneMapping: 'aces' }).inspec
 // screenUV provides normalized [0,1] coordinates computed from @builtin(position).
 const uvX = screenUV.x;
 
-const compositeOutput = selectComposite(
-    uvX,
-    tonemappedOutput,
-    outputTex,
-    normalTex,
-    emissiveTex,
-    diffuseTex,
-);
+const compositeOutput = selectComposite(uvX, tonemappedOutput, outputTex, normalTex, emissiveTex, diffuseTex);
 
 // final output
 const finalOutput = compositeOutput;
-const renderPipeline = new RenderPipeline(renderer, finalOutput);
-
+const composite = fullscreen(finalOutput);
 /* animation loop */
 
 let angle = 0;
 let prevTime = performance.now() / 1000;
 
-function frame() {
+function update() {
     const now = performance.now() / 1000;
     const dt = now - prevTime;
     prevTime = now;
@@ -228,8 +230,16 @@ function frame() {
     quat.fromEuler(mesh.quaternion, [angle * 0.3, angle, 0, 'yxz'] as Euler);
     mesh.updateWorldMatrix();
 
-    renderPipeline.render();
-    requestAnimationFrame(frame);
+    const f = frame(renderer);
+
+    const compositePass = f.pass({ target: view });
+
+    compositePass.draw(composite);
+
+    compositePass.end();
+
+    f.submit();
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

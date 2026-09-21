@@ -1,10 +1,9 @@
 /**
  * render-target.ts (webgl) - FBO (framebuffer object) cache for render-to-texture.
  *
- * The GL analogue of the WebGPU render-target attachment path. When `renderer.renderTarget` is
- * non-null (a `PassNode` render-to-texture, a `CubeCamera` face, etc.), the pass must render into
- * the target's color texture(s) + depth instead of the default framebuffer. This module ports the
- * reference renderer's `setRenderTarget`: get/create one FBO per `RenderTarget`, allocate each color
+ * The GL analogue of the WebGPU render-target attachment path. When a pass names a `RenderTarget`
+ * (a `RenderTextureNode` render-to-texture, a `CubeCamera` face, etc.), it renders into that target's color
+ * texture(s) + depth instead of the default framebuffer. One FBO per `RenderTarget`: allocate each color
  * `GpuTexture` at the target size/format (via `textures.ts`), attach it as
  * `COLOR_ATTACHMENT0 + i`, call `drawBuffers([...])` for MRT, and attach depth. Depth is always a
  * sampleable depth *texture*: `RenderTarget` auto-creates a `depthTexture` unless `depthBuffer:false`,

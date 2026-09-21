@@ -1,26 +1,32 @@
 import {
+    createCanvasTarget,
+    frame,
+    fullscreen,
+    init,
     Line,
     LineGeometry,
+    LineMaterial,
     LineSegments,
     LineSegmentsGeometry,
-    LineMaterial,
     OrbitControls,
-    pass,
     PerspectiveCamera,
     Raycaster,
-    RenderPipeline,
     renderOutput,
+    renderTexture,
     Scene,
     vec4f,
-    WebGPURenderer,
+    webgpu,
 } from 'gpucat';
 
-const renderer = new WebGPURenderer({ antialias: true });
-await renderer.init();
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
 
-document.body.appendChild(renderer.domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
 
 const scene = new Scene();
 
@@ -28,10 +34,10 @@ const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.inn
 camera.position[2] = 8;
 scene.add(camera);
 
-const controls = new OrbitControls(camera, renderer.domElement);
+const controls = new OrbitControls(camera, canvas);
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
@@ -43,28 +49,28 @@ for (let i = 0; i < 5; i++) {
     pentagonPoints.push(Math.cos(a) * 1.2, Math.sin(a) * 1.2 + 2.5, 0);
 }
 const pentagonGeom = new LineGeometry(pentagonPoints, true);
-const pentagonMat  = new LineMaterial({ color: vec4f(0.2, 0.8, 1.0, 1.0) as any, lineWidth: 4 });
-const pentagon     = new Line(pentagonGeom, pentagonMat);
+const pentagonMat = new LineMaterial({ color: vec4f(0.2, 0.8, 1.0, 1.0) as any, lineWidth: 4 });
+const pentagon = new Line(pentagonGeom, pentagonMat);
 scene.add(pentagon);
 
 // ── 2. Line — animated open polyline (sine wave), screen-space width ─────────
 const WAVE_SEGMENTS = 80;
 const wavePoints = new Float32Array((WAVE_SEGMENTS + 1) * 3);
 const waveGeom = new LineGeometry(wavePoints, false, WAVE_SEGMENTS + 1);
-const waveMat  = new LineMaterial({ color: vec4f(1.0, 0.4, 0.1, 1.0) as any, lineWidth: 3 });
-const wave     = new Line(waveGeom, waveMat);
+const waveMat = new LineMaterial({ color: vec4f(1.0, 0.4, 0.1, 1.0) as any, lineWidth: 3 });
+const wave = new Line(waveGeom, waveMat);
 wave.position[1] = -0.5;
 scene.add(wave);
 
 // ── 3. LineSegments — axis cross ticks, screen-space width ───────────────────
 const tickPoints: number[] = [];
 for (let i = -3; i <= 3; i++) {
-    tickPoints.push(i - 0.1, 0, 0,  i + 0.1, 0, 0);
-    tickPoints.push(i, -0.1, 0,  i,  0.1, 0);
+    tickPoints.push(i - 0.1, 0, 0, i + 0.1, 0, 0);
+    tickPoints.push(i, -0.1, 0, i, 0.1, 0);
 }
 const tickGeom = new LineSegmentsGeometry(tickPoints);
-const tickMat  = new LineMaterial({ color: vec4f(0.9, 0.9, 0.3, 1.0) as any, lineWidth: 2 });
-const ticks    = new LineSegments(tickGeom, tickMat);
+const tickMat = new LineMaterial({ color: vec4f(0.9, 0.9, 0.3, 1.0) as any, lineWidth: 2 });
+const ticks = new LineSegments(tickGeom, tickMat);
 ticks.position[1] = -2.5;
 scene.add(ticks);
 
@@ -76,32 +82,33 @@ for (let i = 0; i < CIRCLE_SEGS; i++) {
     circlePoints.push(Math.cos(a) * 1.2, Math.sin(a) * 1.2 + 2.5, 0);
 }
 const circleGeom = new LineGeometry(circlePoints, true);
-const circleMat  = new LineMaterial({ color: vec4f(0.5, 1.0, 0.5, 1.0) as any, lineWidth: 0.06, worldUnits: true });
-const circle     = new Line(circleGeom, circleMat);
+const circleMat = new LineMaterial({ color: vec4f(0.5, 1.0, 0.5, 1.0) as any, lineWidth: 0.06, worldUnits: true });
+const circle = new Line(circleGeom, circleMat);
 circle.position[0] = 3.5;
 scene.add(circle);
 
 // ── Highlight dot — a small sphere-like cross shown at the hit point ──────────
 // Built as LineSegments: 3 axis-aligned crosses of length 0.12
 const DOT_R = 0.12;
-const dotPoints = [
-    -DOT_R, 0, 0,  DOT_R, 0, 0,
-     0, -DOT_R, 0,  0, DOT_R, 0,
-     0, 0, -DOT_R,  0, 0, DOT_R,
-];
+const dotPoints = [-DOT_R, 0, 0, DOT_R, 0, 0, 0, -DOT_R, 0, 0, DOT_R, 0, 0, 0, -DOT_R, 0, 0, DOT_R];
 const dotGeom = new LineSegmentsGeometry(dotPoints);
-const dotMat  = new LineMaterial({ color: vec4f(1, 1, 1, 1) as any, lineWidth: 2 });
-const dot     = new LineSegments(dotGeom, dotMat);
+const dotMat = new LineMaterial({ color: vec4f(1, 1, 1, 1) as any, lineWidth: 2 });
+const dot = new LineSegments(dotGeom, dotMat);
 dot.visible = false;
 scene.add(dot);
 
 // ── Label overlay ─────────────────────────────────────────────────────────────
 const label = document.createElement('div');
 label.style.cssText = [
-    'position:fixed', 'top:12px', 'left:12px',
-    'color:#fff', 'font:13px/1.5 monospace',
-    'background:rgba(0,0,0,.55)', 'padding:6px 10px',
-    'border-radius:4px', 'pointer-events:none',
+    'position:fixed',
+    'top:12px',
+    'left:12px',
+    'color:#fff',
+    'font:13px/1.5 monospace',
+    'background:rgba(0,0,0,.55)',
+    'padding:6px 10px',
+    'border-radius:4px',
+    'pointer-events:none',
     'white-space:pre',
 ].join(';');
 label.textContent = 'Move mouse over a line';
@@ -109,25 +116,25 @@ document.body.appendChild(label);
 
 // ── Raycaster ─────────────────────────────────────────────────────────────────
 const raycaster = new Raycaster();
-raycaster.camera = camera;   // required for screen-space lines
+raycaster.camera = camera; // required for screen-space lines
 
 const pickables = [pentagon, wave, ticks, circle];
 const names: Map<object, string> = new Map([
     [pentagon, 'pentagon (screen-space, 4 px)'],
-    [wave,     'sine wave (screen-space, 3 px)'],
-    [ticks,    'ticks / LineSegments (screen-space, 2 px)'],
-    [circle,   'circle (world-space, 0.06 wu)'],
+    [wave, 'sine wave (screen-space, 3 px)'],
+    [ticks, 'ticks / LineSegments (screen-space, 2 px)'],
+    [circle, 'circle (world-space, 0.06 wu)'],
 ]);
 
 // threshold in pixels for the screen-space lines, world units for the circle
 pentagon.threshold = 2;
-wave.threshold     = 2;
-ticks.threshold    = 2;
-circle.threshold   = 0.02;
+wave.threshold = 2;
+ticks.threshold = 2;
+circle.threshold = 0.02;
 
 const mouse: [number, number] = [0, 0];
 window.addEventListener('mousemove', (e) => {
-    mouse[0] =  (e.clientX / window.innerWidth)  * 2 - 1;
+    mouse[0] = (e.clientX / window.innerWidth) * 2 - 1;
     mouse[1] = -(e.clientY / window.innerHeight) * 2 + 1;
 });
 
@@ -135,11 +142,10 @@ window.addEventListener('mousemove', (e) => {
 scene.updateWorldMatrix();
 camera.updateViewMatrix();
 
-const scenePass      = pass(scene, camera);
-const outputNode     = renderOutput(scenePass.getTextureNode());
-const renderPipeline = new RenderPipeline(renderer, outputNode);
-
-function frame(t: number) {
+const scenePass = renderTexture(scene, camera);
+const outputNode = renderOutput(scenePass.getTextureNode());
+const composite = fullscreen(outputNode);
+function update(t: number) {
     const time = t / 1000;
 
     for (let i = 0; i <= WAVE_SEGMENTS; i++) {
@@ -172,8 +178,12 @@ function frame(t: number) {
     }
 
     controls.update();
-    renderPipeline.render();
-    requestAnimationFrame(frame);
+    const f = frame(renderer);
+    const compositePass = f.pass({ target: view });
+    compositePass.draw(composite);
+    compositePass.end();
+    f.submit();
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

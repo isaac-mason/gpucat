@@ -1,8 +1,40 @@
 import {
-    attribute, cameraProjectionMatrix, cameraViewMatrix, createPlaneGeometry, createSphereGeometry,
-    d, f32, dot, length, max, mul, normalize, struct, storage, createStorageBuffer, packArray,
-    Fn, Var, Loop, varying, vec3, vec4, Material, Mesh, modelNormalMatrix, modelWorldMatrix,
-    Scene, PerspectiveCamera, OrbitControls, pass, renderOutput, RenderPipeline, WebGPURenderer,
+    attribute,
+    cameraProjectionMatrix,
+    cameraViewMatrix,
+    createCanvasTarget,
+    createMaterial,
+    createPlaneGeometry,
+    createSphereGeometry,
+    createStorageBuffer,
+    d,
+    dot,
+    Fn,
+    f32,
+    frame,
+    fullscreen,
+    init,
+    Loop,
+    length,
+    Mesh,
+    max,
+    modelNormalMatrix,
+    modelWorldMatrix,
+    mul,
+    normalize,
+    OrbitControls,
+    PerspectiveCamera,
+    packArray,
+    renderOutput,
+    renderTexture,
+    Scene,
+    storage,
+    struct,
+    Var,
+    varying,
+    vec3,
+    vec4,
+    webgpu,
 } from 'gpucat';
 import { quat } from 'math';
 
@@ -15,18 +47,18 @@ import { quat } from 'math';
  */
 
 const LIGHT_COUNT = 3;
-const LIGHT_RADIUS = 10;   // distance at which a light fades to zero
-const ORBIT = 5;           // how far the lights orbit from the centre
-const HEIGHT = 3;          // how high they float
+const LIGHT_RADIUS = 10; // distance at which a light fades to zero
+const ORBIT = 5; // how far the lights orbit from the centre
+const HEIGHT = 3; // how high they float
 
 /* the light buffer: an array of { position, colour } structs */
 
 const Light = struct('Light', { position: d.vec3f, color: d.vec3f });
 
 const lightData: { position: [number, number, number]; color: [number, number, number] }[] = [
-    { position: [0, HEIGHT, 0], color: [4.0, 0.5, 0.5] },   // warm
-    { position: [0, HEIGHT, 0], color: [0.5, 4.0, 0.6] },   // green
-    { position: [0, HEIGHT, 0], color: [0.5, 0.6, 4.0] },   // blue
+    { position: [0, HEIGHT, 0], color: [4.0, 0.5, 0.5] }, // warm
+    { position: [0, HEIGHT, 0], color: [0.5, 4.0, 0.6] }, // green
+    { position: [0, HEIGHT, 0], color: [0.5, 0.6, 4.0] }, // blue
 ];
 
 const lightBuffer = createStorageBuffer(d.array(Light), new Float32Array(packArray(Light, lightData)));
@@ -47,34 +79,44 @@ const baseColor = vec3(0.8, 0.8, 0.82);
 
 // the loop over lights needs control flow, so it lives in an Fn (also keeps it
 // reusable). sum each light's contribution: colour * N.L * distance falloff.
-const computeLighting = Fn((worldPos, n) => {
-    const lighting = Var('lighting', vec3(0.04, 0.04, 0.06));   // ambient
-    Loop(LIGHT_COUNT, ({ i }) => {
-        const l = lights.element(i).fields();
-        const toLight = l.position.sub(worldPos);
-        const dist = Var('dist', length(toLight));
-        const dir = normalize(toLight);
-        const ndotl = max(dot(n, dir), f32(0));
-        const falloff = max(f32(1).sub(dist.mul(f32(1 / LIGHT_RADIUS))), f32(0));
-        lighting.addAssign(l.color.mul(ndotl).mul(falloff.mul(falloff)));
-    });
-    return lighting;
-}, {
-    name: 'computeLighting',
-    params: [{ name: 'worldPos', type: d.vec3f }, { name: 'n', type: d.vec3f }],
-    return: d.vec3f,
-});
+const computeLighting = Fn(
+    (worldPos, n) => {
+        const lighting = Var('lighting', vec3(0.04, 0.04, 0.06)); // ambient
+        Loop(LIGHT_COUNT, ({ i }) => {
+            const l = lights.element(i).fields();
+            const toLight = l.position.sub(worldPos);
+            const dist = Var('dist', length(toLight));
+            const dir = normalize(toLight);
+            const ndotl = max(dot(n, dir), f32(0));
+            const falloff = max(f32(1).sub(dist.mul(f32(1 / LIGHT_RADIUS))), f32(0));
+            lighting.addAssign(l.color.mul(ndotl).mul(falloff.mul(falloff)));
+        });
+        return lighting;
+    },
+    {
+        name: 'computeLighting',
+        params: [
+            { name: 'worldPos', type: d.vec3f },
+            { name: 'n', type: d.vec3f },
+        ],
+        return: d.vec3f,
+    },
+);
 
 const fragment = vec4(baseColor.mul(computeLighting(vWorldPos, normalize(vWorldNormal))), f32(1));
-const material = new Material({ vertex: clipPosition, fragment });
+const material = createMaterial({ vertex: clipPosition, fragment });
 
 /* renderer + scene */
 
-const renderer = new WebGPURenderer({ antialias: true });
-await renderer.init();
-document.body.appendChild(renderer.domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
+
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
 
 const scene = new Scene();
 const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 100);
@@ -83,7 +125,7 @@ camera.position[1] = 8;
 camera.position[2] = 14;
 scene.add(camera);
 
-const controls = new OrbitControls(camera, renderer.domElement);
+const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 
 // ground plane, laid flat
@@ -110,17 +152,16 @@ for (let x = 0; x < GRID; x++) {
 camera.updateViewMatrix();
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
 
 /* render loop: orbit the lights by re-packing the buffer each frame */
 
-const scenePass = pass(scene, camera);
-const renderPipeline = new RenderPipeline(renderer, renderOutput(scenePass.getTextureNode()));
-
-function frame() {
+const scenePass = renderTexture(scene, camera);
+const composite = fullscreen(renderOutput(scenePass.getTextureNode()));
+function update() {
     const t = performance.now() / 1000;
     for (let i = 0; i < LIGHT_COUNT; i++) {
         const a = t * 0.6 + (i * Math.PI * 2) / LIGHT_COUNT;
@@ -132,8 +173,12 @@ function frame() {
     lightBuffer.needsUpdate = true;
 
     controls.update();
-    renderPipeline.render();
-    requestAnimationFrame(frame);
+    const f = frame(renderer);
+    const compositePass = f.pass({ target: view });
+    compositePass.draw(composite);
+    compositePass.end();
+    f.submit();
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

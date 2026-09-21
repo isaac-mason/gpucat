@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { add, attribute, compile, d, f32, mix, struct, u32, vec4 } from '../src/index';
+import { add, attribute, compileWgsl, d, f32, mix, struct, u32, vec4 } from '../src/index';
 import { fields, frameGroup, Uniform, uniform } from '../src/nodes/nodes';
 
 /**
@@ -42,7 +42,7 @@ describe('shared uniform group layout is stable across reference order', () => {
                 ? add(add(c as never, t as never) as never, s as never)
                 : add(add(s as never, t as never) as never, c as never);
 
-        const r = compile({
+        const r = compileWgsl({
             vertex: vec4(attribute('position', d.vec3f), f32(1)),
             fragment: vec4(frag as never, f32(0), f32(0), f32(1)),
             depth: undefined,

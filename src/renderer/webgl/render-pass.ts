@@ -3,8 +3,7 @@
  *
  * Mirrors `webgpu/render-pass.ts` in role (attachment binding + clear + draw loop) but in WebGL2's
  * immediate style: no command encoder, no attachment descriptors — bind the framebuffer, set the
- * viewport/scissor, clear, then draw. `WebGLRenderer.render()` calls `executeRenderPass`;
- * `WebGLRenderer.clear()` calls `clear`.
+ * viewport/scissor, clear, then draw.
  *
  * The draw loop is the WebGL2 port of the WebGPU `draw()` loop: per prepared object it runs the
  * neutral per-object node update, `useProgram` (deduped), updates + binds each uniform group's UBO,
@@ -16,30 +15,29 @@
 
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { IndexedMeshDraw, NonIndexedMeshDraw } from '../../objects/mesh';
+import { resolveIndexedDrawRange, resolveVertexDrawRange } from '../core/draw-range';
+import type { DrawOpts } from '../core/frame';
+import type { RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import * as NodeManager from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
-import { getBindings } from '../core/render-object';
-import type { PreparedRenderObject, RenderPassParams } from '../core/render-types';
-import * as Buffers from './buffers';
-import * as Geometries from './geometries';
-import { getRenderObjectGl, type RenderObjectGlCache } from './render-object-gl';
-import { bindRenderTargetFramebuffer, resolveActiveRenderTarget, type GlRenderTargetsState } from './render-target';
-import type { SamplerCache } from './samplers';
-import { resolveIndexedDrawRange, resolveVertexDrawRange } from '../core/draw-range';
-import type { RendererInfo } from '../core/info';
+import { getBindings, pipelineLabel } from '../core/render-object';
 import * as RenderState from '../core/render-state';
+import type { PreparedRenderObject, RenderPassParams } from '../core/render-types';
+import type { BackendState } from './backend-state';
+import * as Bindings from './bindings';
+import * as Geometries from './geometries';
+import { getRenderObjectGl } from './render-object-gl';
+import { bindRenderTargetFramebuffer, resolveActiveRenderTarget } from './render-target';
 import { applyMaterialState, createGlStateCache, establishPassBaseline } from './state';
 import { bindTextures } from './texture-bindings';
-import type { TextureCache } from './textures';
-import * as Bindings from './bindings';
 
 /**
  * Bind the target framebuffer for a pass: the render target's FBO (allocating + attaching its color
  * textures + depth) when `params.renderTarget` is set, else the default framebuffer (`null`).
  * Returns whether the bound target carries a stencil aspect (drives stencil clears).
  */
-function bindFramebuffer(gl: WebGL2RenderingContext, caches: DrawCaches, params: RenderPassParams): { hasStencil: boolean } {
+function bindFramebuffer(gl: WebGL2RenderingContext, caches: BackendState, params: RenderPassParams): { hasStencil: boolean } {
     if (params.renderTarget) {
         return bindRenderTargetFramebuffer(gl, caches.renderTargets, caches.textures, params.renderTarget);
     }
@@ -101,7 +99,7 @@ function clearBuffers(
         mask |= gl.COLOR_BUFFER_BIT;
     }
     if (depth) {
-        gl.clearDepth(1.0);
+        gl.clearDepth(params.clearDepthValue);
         gl.depthMask(true);
         mask |= gl.DEPTH_BUFFER_BIT;
     }
@@ -113,36 +111,6 @@ function clearBuffers(
     }
     if (mask !== 0) gl.clear(mask);
 }
-
-/**
- * Manually clear the current framebuffer (color and/or depth and/or stencil), ignoring autoClear and
- * viewport/scissor. The scissor test is disabled so the whole framebuffer clears.
- */
-export function clear(
-    gl: WebGL2RenderingContext,
-    caches: DrawCaches,
-    params: RenderPassParams,
-    color: boolean,
-    depth: boolean,
-    stencil: boolean,
-): void {
-    const { hasStencil } = bindFramebuffer(gl, caches, params);
-    gl.disable(gl.SCISSOR_TEST);
-    clearBuffers(gl, params, color, depth, stencil, hasStencil);
-    // If the cleared target is MSAA, resolve the cleared multisample buffer into its texture.
-    resolveActiveRenderTarget(gl, caches.renderTargets);
-}
-
-/** Caches the draw loop needs, bundled so `executeRenderPass` keeps a small signature. */
-export type DrawCaches = {
-    geometries: Geometries.GeometriesState;
-    buffers: Buffers.BufferCache;
-    uniforms: Bindings.BindingsState;
-    renderObjectGl: RenderObjectGlCache;
-    textures: TextureCache;
-    samplers: SamplerCache;
-    renderTargets: GlRenderTargetsState;
-};
 
 /**
  * Count one draw into `info`. Triangles come from the CPU-known vertex/index count, so like the WebGPU
@@ -197,13 +165,13 @@ function planPassBlend(passCtx: RenderContext): PassBlend {
         } else {
             const key = RenderState.blendStateKey(RenderState.blendModeState(mode));
             if (explicitKey !== null && explicitKey !== key) {
-                throw new Error('[WebGLRenderer] per-attachment blend modes are not supported on the WebGL2 backend.');
+                throw new Error('[webgl] per-attachment blend modes are not supported on the WebGL2 backend.');
             }
             explicitKey = key;
         }
     }
     if (explicitKey !== null && (sawMaterial || sawNo)) {
-        throw new Error('[WebGLRenderer] per-attachment blend modes are not supported on the WebGL2 backend.');
+        throw new Error('[webgl] per-attachment blend modes are not supported on the WebGL2 backend.');
     }
 
     return { targetName, opaqueOnly: sawMaterial && sawNo };
@@ -213,33 +181,43 @@ function planPassBlend(passCtx: RenderContext): PassBlend {
  * Run the whole render pass immediately: bind the framebuffer, apply viewport/scissor, clear on
  * autoClear, then draw the prepared objects.
  */
-export function executeRenderPass(
-    gl: WebGL2RenderingContext,
-    caches: DrawCaches,
-    nodes: NodeManagerState,
-    passCtx: RenderContext,
-    prepared: PreparedRenderObject[],
-    params: RenderPassParams,
-    inspector: InspectorBase | null,
-    info: RendererInfo,
-): void {
-    // Reject an MRT that asks for differing per-attachment blends (WebGL2 has one global blend state).
-    const passBlend = planPassBlend(passCtx);
+export type PassScope = { passBlend: PassBlend };
 
+export function beginPass(
+    gl: WebGL2RenderingContext,
+    caches: BackendState,
+    passCtx: RenderContext,
+    params: RenderPassParams,
+): PassScope {
+    const passBlend = planPassBlend(passCtx);
     const { hasStencil: targetStencil } = bindFramebuffer(gl, caches, params);
     applyViewportScissor(gl, passCtx);
 
-    if (params.autoClear) {
-        // A loadOp:'load' equivalent would skip color/depth clears; autoClear=true clears them.
-        clearBuffers(gl, params, true, true, params.autoClearStencil, targetStencil);
+    if (params.autoClear || params.autoClearDepth || params.autoClearStencil) {
+        clearBuffers(gl, params, params.autoClear, params.autoClearDepth, params.autoClearStencil, targetStencil);
     }
 
-    if (prepared.length === 0) {
-        // An MSAA target still needs its (cleared) multisample buffer resolved into the texture.
-        resolveActiveRenderTarget(gl, caches.renderTargets);
-        return;
-    }
+    return { passBlend };
+}
 
+/** Unbinds the VAO so later buffer mutations cannot record into it, then resolves an MSAA target. */
+export function endPass(gl: WebGL2RenderingContext, caches: BackendState): void {
+    gl.bindVertexArray(null);
+    resolveActiveRenderTarget(gl, caches.renderTargets);
+}
+
+export function encodeDraws(
+    gl: WebGL2RenderingContext,
+    caches: BackendState,
+    nodes: NodeManagerState,
+    passCtx: RenderContext,
+    prepared: readonly PreparedRenderObject[],
+    preparedOpts: readonly (DrawOpts | null)[],
+    count: number,
+    inspector: InspectorBase | null,
+    info: RendererInfo,
+    { passBlend }: PassScope,
+): void {
     const hasStencil = !!passCtx.stencil;
     // Pin the GL globals the fresh state cache assumes but the per-draw material state doesn't set
     // (winding, stencil write mask, rasterizer discard) — see establishPassBaseline.
@@ -250,19 +228,22 @@ export function executeRenderPass(
 
     const frame = nodes.nodeFrame;
 
-    for (const { renderObject, item } of prepared) {
-        const mesh = item.mesh!;
-        const material = item.material!;
-        const geometry = item.geometry!;
+    for (let i = 0; i < count; i++) {
+        const renderObject = prepared[i];
+        const { mesh, material, geometry } = renderObject;
         const nodeState = renderObject.nodeBuilderState!;
 
-        if (mesh.count === 0 && mesh.draws === undefined) continue;
+        const opts = preparedOpts[i];
+        const draws = opts?.draws ?? mesh.draws;
+        const instances = opts?.instances ?? mesh.count;
+        const range = opts?.range;
+
+        if (instances === 0 && draws === undefined) continue;
 
         // Per-object node frame context + neutral updates (matches the WebGPU draw loop).
         frame.object = mesh;
         frame.material = material;
         frame.camera = renderObject.camera;
-        frame.scene = renderObject.scene;
         NodeManager.updateForRender(nodes, renderObject);
 
         const payload = getRenderObjectGl(caches.renderObjectGl, renderObject);
@@ -279,7 +260,7 @@ export function executeRenderPass(
             if (programInfo.fragCoordFlipHeightLocation != null) {
                 gl.uniform1f(programInfo.fragCoordFlipHeightLocation, passCtx.height);
             }
-            if (inspector) inspector.setPipeline(mesh.name || material.constructor.name);
+            if (inspector) inspector.setPipeline(pipelineLabel(mesh, material));
         }
 
         // Uniform groups → std140 UBOs. Each of the RenderObject's uniform bind groups is updated and
@@ -303,7 +284,15 @@ export function executeRenderPass(
         // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
         // `prepareGeometry` detaches the VAO to upload buffers safely (see its note), so the GL VAO
         // is unbound on return — always rebind the resolved one here rather than deduping the GL call.
-        const drawInfo = Geometries.prepareGeometry(gl, caches.geometries, caches.buffers, geometry, nodeState, programInfo.program);
+        const drawInfo = Geometries.prepareGeometry(
+            gl,
+            caches.geometries,
+            caches.buffers,
+            geometry,
+            nodeState,
+            programInfo.program,
+            renderObject.mesh.name || 'mesh',
+        );
         gl.bindVertexArray(drawInfo.vao);
         if (currentVao !== drawInfo.vao) {
             currentVao = drawInfo.vao;
@@ -318,7 +307,7 @@ export function executeRenderPass(
         // Fixed-function GL state from the material (depth/cull/blend/colorMask/stencil).
         // A mixed 'material'/'no' MRT only agrees across attachments while the material is opaque.
         if (passBlend.opaqueOnly && material.transparent) {
-            throw new Error('[WebGLRenderer] per-attachment blend modes are not supported on the WebGL2 backend.');
+            throw new Error('[webgl] per-attachment blend modes are not supported on the WebGL2 backend.');
         }
         const blend = RenderState.resolveTargetBlend(material, passCtx.mrt, passBlend.targetName);
         applyMaterialState(gl, stateCache, material, hasStencil, blend);
@@ -327,23 +316,30 @@ export function executeRenderPass(
         // `u_drawBase` feeds instanceIndex's base-inclusive lowering (`u_drawBase + gl_InstanceID`).
         const drawBaseLoc = programInfo.drawBaseLocation ?? null;
 
-        if (mesh.draws !== undefined) {
+        if (draws !== undefined) {
             // Batched: one instanced draw per entry, each with its own firstInstance base. The VAO is
             // already bound once above, so the loop only sets u_drawBase + issues the draw. The mesh's
             // geometry selects indexed (drawElements) vs non-indexed (drawArrays) draws.
             if (geometry.index && drawInfo.indexType !== null) {
                 // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
                 // 4 (uint32) bytes.
-                const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
-                for (const d of mesh.draws as IndexedMeshDraw[]) {
+                const bytesPerIndex =
+                    drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+                for (const d of draws as IndexedMeshDraw[]) {
                     if (d.instanceCount <= 0) continue;
                     if (drawBaseLoc !== null) gl.uniform1ui(drawBaseLoc, d.firstInstance);
-                    gl.drawElementsInstanced(gl.TRIANGLES, d.indexCount, drawInfo.indexType, d.firstIndex * bytesPerIndex, d.instanceCount);
+                    gl.drawElementsInstanced(
+                        gl.TRIANGLES,
+                        d.indexCount,
+                        drawInfo.indexType,
+                        d.firstIndex * bytesPerIndex,
+                        d.instanceCount,
+                    );
                     if (inspector) inspector.drawIndexed(d.indexCount, d.instanceCount);
                     countDraw(info, d.indexCount, d.instanceCount);
                 }
             } else {
-                for (const d of mesh.draws as NonIndexedMeshDraw[]) {
+                for (const d of draws as NonIndexedMeshDraw[]) {
                     if (d.instanceCount <= 0) continue;
                     if (drawBaseLoc !== null) gl.uniform1ui(drawBaseLoc, d.firstInstance);
                     gl.drawArraysInstanced(gl.TRIANGLES, d.firstVertex, d.vertexCount, d.instanceCount);
@@ -352,22 +348,21 @@ export function executeRenderPass(
                 }
             }
         } else {
-            // Single draw. instance count is `mesh.count` (defaults to 1); drawRange gives first + count.
             // Reset u_drawBase to 0 so a prior batched draw sharing this program can't leak its
             // firstInstance into instanceIndex here.
             if (drawBaseLoc !== null) gl.uniform1ui(drawBaseLoc, 0);
-            const instances = mesh.count;
 
             if (geometry.index && drawInfo.indexType !== null) {
-                const { first, count } = resolveIndexedDrawRange(geometry);
+                const { first, count } = resolveIndexedDrawRange(geometry, range);
                 // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
                 // 4 (uint32) bytes.
-                const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+                const bytesPerIndex =
+                    drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
                 gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, first * bytesPerIndex, instances);
                 if (inspector) inspector.drawIndexed(count, instances);
                 countDraw(info, count, instances);
             } else {
-                const { first, count } = resolveVertexDrawRange(geometry);
+                const { first, count } = resolveVertexDrawRange(geometry, range);
                 gl.drawArraysInstanced(gl.TRIANGLES, first, count, instances);
                 if (inspector) inspector.draw(count, instances);
                 countDraw(info, count, instances);
@@ -376,11 +371,4 @@ export function executeRenderPass(
 
         NodeManager.updateAfter(nodes, renderObject);
     }
-
-    // Leave the VAO unbound so subsequent buffer mutations don't accidentally record into it.
-    gl.bindVertexArray(null);
-
-    // MSAA target: resolve the multisample render FBO into the sampleable texture FBO (blit). A no-op
-    // for non-MSAA targets / the default framebuffer.
-    resolveActiveRenderTarget(gl, caches.renderTargets);
 }

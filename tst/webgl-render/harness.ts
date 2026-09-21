@@ -1,38 +1,47 @@
+import type { Object3D } from '../../src/core/object3d';
 import {
     ArrayTexture,
     arrayTexture,
     attribute,
+    bundle,
+    CubeCamera,
+    CubeTexture,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    createCanvasTarget,
     createBoxGeometry,
     createFullscreenTriangleGeometry,
     createIndirectBuffer,
     createStructTexture,
-    CubeRenderTarget,
-    CubeTexture,
+    createCubeRenderTarget,
     cubeTexture,
-    d,
     DataTexture,
-    depthTexture,
     DrawIndirect,
+    d,
+    depthTexture,
+    drawScene,
     f32,
+    fullscreen,
     Geometry,
     GpuBuffer,
     i32,
+    init,
     instanceIndex,
     Material,
     Mesh,
+    type MRTNode,
     modelNormalMatrix,
     modelWorldMatrix,
     mrt,
     mul,
     normalize,
-    packArray,
-    pass,
     PerspectiveCamera,
-    RenderPipeline,
+    packArray,
+    type RenderTarget,
+    read,
     renderOutput,
-    RenderTarget,
+    createRenderTarget,
+    renderTexture,
     Scene,
     screenCoordinate,
     screenUV,
@@ -43,8 +52,8 @@ import {
     texture,
     textureDimensions,
     transformFeedback,
-    u32,
     Uniform,
+    u32,
     uniform,
     varying,
     vec2f,
@@ -52,9 +61,13 @@ import {
     vec3,
     vec4,
     vertexIndex,
-    WebGLRenderer,
+    type WebGLBackend,
+    webgl,
 } from '../../src/index';
 import { BlendMode } from '../../src/material/blend-mode';
+import { frame } from '../../src/renderer/core/frame';
+import type { Renderer } from '../../src/renderer/core/renderer';
+import * as Programs from '../../src/renderer/webgl/programs';
 
 /**
  * Browser-side harness for the WebGL2 draw path. Bundled to a single IIFE by esbuild and injected
@@ -98,22 +111,212 @@ function readCenter(gl: WebGL2RenderingContext): [number, number, number, number
 
 const u8 = (v: number): number => Math.round(v * 255);
 
-async function newRenderer(): Promise<WebGLRenderer> {
-    const canvas = document.createElement('canvas');
-    const renderer = new WebGLRenderer({ canvas });
-    await renderer.init();
-    renderer.setSize(SIZE, SIZE);
+// The ambient state `renderer.render()` used to read, kept here as harness scaffolding so the renderer
+// itself carries none. Each case sets these, then `renderScene` names them in the pass desc.
+let activeTarget: RenderTarget | null = null;
+let activeClear: [number, number, number, number] = [0, 0, 0, 1];
+let activeMrt: MRTNode | null = null;
+
+function renderScene(renderer: Renderer<WebGLBackend>, scene: Object3D, camera: PerspectiveCamera): void {
+    const f = frame(renderer);
+    const pass = f.pass({
+        target: activeTarget ?? renderer.backend.target,
+        camera,
+        clear: activeClear,
+        mrt: activeMrt ?? undefined,
+    });
+    drawScene(renderer, pass, scene, camera);
+    pass.end();
+    f.submit();
+}
+
+/** A pass with no draws: the attachments open with the load ops the desc asks for, and nothing writes. */
+function clearPass(renderer: Renderer<WebGLBackend>, desc: { clear: [number, number, number, number] | false }): void {
+    const f = frame(renderer);
+    f.pass({ target: activeTarget ?? renderer.backend.target, clear: desc.clear, label: 'clear' }).end();
+    f.submit();
+}
+
+/**
+ * compile-prewarm: WebGL2 has no async link, so `compile()` cannot overlap with anything; what it can
+ * do is link before the first frame instead of during it. The program count has to move while
+ * `compile` runs and stay put across the first draw, or the stall is still on the frame.
+ */
+async function caseCompilePrewarm(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+
+    const position = attribute('position', d.vec3f);
+    const mesh = new Mesh(
+        createFullscreenTriangleGeometry(),
+        new Material({ vertex: vec4(position, f32(1)), fragment: vec4(0, 1, 0, 1), depthTest: false }),
+    );
+    mesh.updateWorldMatrix();
+
+    const programs = () => Programs.getProgramCacheStats(renderer.backend.programs).programCount;
+    const before = programs();
+    await renderer.compile([mesh], target, new PerspectiveCamera());
+    const warmed = programs();
+
+    const f = frame(renderer);
+    const pass = f.pass({ target, clear: [0, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+    const afterDraw = programs();
+
+    const pixel = await read(renderer, target);
+    const drewGreen = pixel[1] > 200;
+    renderer.dispose();
+
+    const ok = warmed > before && afterDraw === warmed && drewGreen;
+    return {
+        name: 'compile-prewarm',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `programs ${before} -> ${warmed} after compile -> ${afterDraw} after the draw`,
+    };
+}
+
+/**
+ * tf-ordering: WebGL2 has no encoder, so a transform-feedback kernel runs the instant it is called
+ * while the frame's passes encode at each `end()`. Calling it mid-frame would land the kernel between
+ * the passes instead of before them, which `compute()` and `readPixels()` already refuse; this asserts
+ * transform feedback refuses too, and still works either side of the frame.
+ */
+async function caseTfOrdering(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+
+    const N = 4;
+    const input = new GpuBuffer(d.vec4f, { data: new Float32Array(N * 4).fill(1) });
+    const output = new GpuBuffer(d.vec4f, { count: N });
+    const kernel = transformFeedback((io) => ({ pos: io.pos.add(io.pos) }), {
+        inputs: { pos: d.vec4f },
+        outputs: { pos: d.vec4f },
+    });
+    const run = () => renderer.backend.transformFeedback(kernel, { inputs: { pos: input }, outputs: { pos: output }, count: N });
+
+    run(); // before any frame: fine
+
+    const f = frame(renderer);
+    const pass = f.pass({ target, clear: [0, 0, 0, 1] });
+    let refused = false;
+    try {
+        run();
+    } catch {
+        refused = true;
+    }
+    pass.end();
+    f.submit();
+
+    run(); // after submit: fine again
+    const doubled = readTfFloat32(renderer, output, N * 4).every((v) => Math.abs(v - 2) < 1e-5);
+    renderer.dispose();
+
+    return {
+        name: 'tf-ordering',
+        pixel: refused && doubled ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: refused ? 'refused mid-frame, ran either side' : 'ran mid-frame, out of order with the passes',
+    };
+}
+
+/** The fence must actually signal: a wait that never resolves hangs, one that resolves early is a lie. */
+async function caseFrameDone(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+
+    const mesh = new Mesh(
+        createFullscreenTriangleGeometry(),
+        new Material({ vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment: vec4(0, 1, 0, 1), depthTest: false }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(renderer);
+    const pass = f.pass({ target, camera: new PerspectiveCamera(), clear: [1, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const started = performance.now();
+    await f.done;
+    const waited = performance.now() - started;
+
+    const pixel = await read(renderer, target);
+    renderer.dispose();
+    const green = pixel[1] > 200 && pixel[0] < 60;
+    return {
+        name: 'frame-done',
+        pixel: green ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `fence signalled in ${waited.toFixed(1)}ms; red means the wait resolved before the draw landed`,
+    };
+}
+
+/** bundle-replay: with no device bundle to record, `execute` still owes the same pixels in the same order. */
+async function caseBundleReplay(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const tri = (rgb: [number, number, number]) => {
+        const m = fullscreen(vec4(rgb[0], rgb[1], rgb[2], 1));
+        m.material.depthTest = false;
+        m.updateWorldMatrix();
+        return m;
+    };
+    // Two overlapping fullscreen draws, so the visible pixel is the second one and order is observable.
+    const first = tri([1, 0, 0]);
+    const second = tri([0, 1, 0]);
+
+    const directTarget = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const df = frame(renderer);
+    const dpass = df.pass({ target: directTarget, clear: [0, 0, 1, 1] });
+    dpass.draw(first);
+    dpass.draw(second);
+    dpass.end();
+    df.submit();
+    const direct = await read(renderer, directTarget);
+
+    const encoder = bundle('replay');
+    encoder.draw(first);
+    encoder.draw(second);
+    const pair = encoder.finish();
+
+    const bundledTarget = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const bf = frame(renderer);
+    const bpass = bf.pass({ target: bundledTarget, clear: [0, 0, 1, 1] });
+    bpass.execute(pair);
+    bpass.end();
+    bf.submit();
+    const bundled = await read(renderer, bundledTarget);
+
+    renderer.dispose();
+    const same = [0, 1, 2, 3].every((i) => Math.abs((direct[i] ?? 0) - (bundled[i] ?? 0)) <= 3);
+    return {
+        name: 'bundle-replay',
+        pixel: same ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `direct=${direct.slice(0, 4).join(',')} bundled=${bundled.slice(0, 4).join(',')}`,
+    };
+}
+
+async function newRenderer(): Promise<Renderer<WebGLBackend>> {
+    const view = createCanvasTarget(document.createElement('canvas'));
+    view.setSize(SIZE, SIZE);
+    const renderer = await init(webgl({ target: view }));
+    activeTarget = null;
+    activeClear = [0, 0, 0, 1];
+    activeMrt = null;
     return renderer;
 }
 
 /** clear: empty scene renders to clearColor. */
 async function caseClear(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0.2, 0.4, 0.6, 1];
+    activeClear = [0.2, 0.4, 0.6, 1];
     const scene = new Scene();
     const camera = new PerspectiveCamera();
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'clear', pixel, expected: [u8(0.2), u8(0.4), u8(0.6), 255] };
 }
@@ -121,7 +324,7 @@ async function caseClear(): Promise<CaseResult> {
 /** solid: fullscreen triangle with a constant fragment color. */
 async function caseSolid(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const geometry = createFullscreenTriangleGeometry();
     const position = attribute('position', d.vec3f);
@@ -138,10 +341,149 @@ async function caseSolid(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'solid', pixel, expected: [u8(0.9), u8(0.3), u8(0.6), 255] };
+}
+
+/**
+ * The same draw as `solid`, routed through the explicit frame API instead of `render(scene, camera)`.
+ * Same pixel means the recorded path and the scene-walking path agree.
+ */
+async function caseFrameApi(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: vec4(0.9, 0.3, 0.6, 1),
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+    mesh.updateWorldMatrix();
+
+    const camera = new PerspectiveCamera();
+    camera.updateViewMatrix();
+
+    const target = renderer.backend.target;
+    target.clearColor = [0, 0, 0, 1];
+
+    const f = frame(renderer);
+    const pass = f.pass({ target, camera, label: 'frame-api' });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    return { name: 'frame-api', pixel, expected: [u8(0.9), u8(0.3), u8(0.6), 255] };
+}
+
+/**
+ * foreign-canvas: a WebGL2 context belongs to one canvas for its lifetime, so a pass naming a second
+ * canvas would silently draw to the first. It refuses, and the refusal costs the frame nothing: the
+ * device canvas still draws afterwards, which is what makes a viewport per view the supported answer.
+ */
+async function caseForeignCanvas(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const foreign = createCanvasTarget(document.createElement('canvas'));
+    foreign.setSize(SIZE, SIZE);
+
+    const target = renderer.backend.target;
+    target.clearColor = [0, 1, 0, 1];
+
+    const f = frame(renderer);
+    let refused = false;
+    try {
+        f.pass({ target: foreign });
+    } catch {
+        refused = true;
+    }
+    f.pass({ target }).end();
+    f.submit();
+
+    const drawn = readCenter(renderer.backend.gl!);
+    const deviceCanvasStillDraws = drawn[1] > 200 && drawn[0] < 60;
+    renderer.dispose();
+
+    return {
+        name: 'foreign-canvas',
+        pixel: refused && deviceCanvasStillDraws ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: refused ? 'refused a second canvas, device canvas unaffected' : 'accepted a canvas the context cannot present to',
+    };
+}
+
+/**
+ * `fullscreen()` draws with no vertex buffer at all: three vertices generated from vertex_index.
+ * Same colour as `solid`, which uses a real fullscreen-triangle geometry.
+ */
+async function caseDrawScene(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const clip = vec4(position, f32(1));
+
+    // Added to the scene first, but transparent, so a correct sort draws it last, over the opaque red.
+    const glass = new Mesh(
+        geometry,
+        new Material({
+            vertex: clip,
+            fragment: vec4(0, 0, 1, 0.5),
+            depthTest: false,
+            transparent: true,
+            blend: {
+                color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            },
+        }),
+    );
+    const solid = new Mesh(geometry, new Material({ vertex: clip, fragment: vec4(1, 0, 0, 1), depthTest: false }));
+
+    const scene = new Scene();
+    scene.add(glass);
+    scene.add(solid);
+    scene.updateWorldMatrix();
+
+    const camera = new PerspectiveCamera();
+    camera.updateViewMatrix();
+
+    const target = renderer.backend.target;
+    target.clearColor = [0, 0, 0, 1];
+
+    const f = frame(renderer);
+    const pass = f.pass({ target, camera, label: 'draw-scene' });
+    drawScene(renderer, pass, scene, camera);
+    pass.end();
+    f.submit();
+
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    // 0.5 blue over opaque red: opaque first proves the sort, insertion order would leave pure red.
+    return { name: 'draw-scene', pixel, expected: [u8(0.5), 0, u8(0.5), 255] };
+}
+
+async function caseFullscreen(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    const composite = fullscreen(vec4(0.2, 0.7, 0.4, 1));
+    composite.updateWorldMatrix();
+
+    const target = renderer.backend.target;
+    target.clearColor = [0, 0, 0, 1];
+
+    const f = frame(renderer);
+    const pass = f.pass({ target, label: 'fullscreen' });
+    pass.draw(composite);
+    pass.end();
+    f.submit();
+
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    return { name: 'fullscreen', pixel, expected: [u8(0.2), u8(0.7), u8(0.4), 255] };
 }
 
 /**
@@ -152,7 +494,7 @@ async function caseSolid(): Promise<CaseResult> {
  */
 async function caseTransparentDefaultBlend(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const geometry = createFullscreenTriangleGeometry();
     const position = attribute('position', d.vec3f);
@@ -178,8 +520,8 @@ async function caseTransparentDefaultBlend(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     // 0.5*green over 0.5*red. Unblended (the old bug) would read [0, 255, 0, 255].
     return { name: 'transparent-default-blend', pixel, expected: [u8(0.5), u8(0.5), 0, 255] };
@@ -198,7 +540,7 @@ async function caseTransparentDefaultBlend(): Promise<CaseResult> {
  */
 async function caseDisposeReleasesResources(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const position = attribute('position', d.vec3f);
     const camera = new PerspectiveCamera();
@@ -206,7 +548,7 @@ async function caseDisposeReleasesResources(): Promise<CaseResult> {
 
     const drawOnce = (scene: Scene): void => {
         scene.updateWorldMatrix();
-        renderer.render(scene, camera);
+        renderScene(renderer, scene, camera);
     };
 
     // Baseline: one throwaway render so the renderer's own resources are resident and counted.
@@ -227,20 +569,17 @@ async function caseDisposeReleasesResources(): Promise<CaseResult> {
     const targets: RenderTarget[] = [];
     const geometries: Geometry[] = [];
     for (let i = 0; i < 3; i++) {
-        const target = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+        const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
         // its own geometry AND its own buffers: two geometries sharing a GpuBuffer now share one GL
         // buffer, so reusing one here would leave the buffer count flat and prove nothing.
         const geometry = createFullscreenTriangleGeometry();
         const scene = new Scene();
         scene.add(
-            new Mesh(
-                geometry,
-                new Material({ vertex: vec4(position, f32(1)), fragment: vec4(0, 1, 0, 1), depthTest: false }),
-            ),
+            new Mesh(geometry, new Material({ vertex: vec4(position, f32(1)), fragment: vec4(0, 1, 0, 1), depthTest: false })),
         );
-        renderer.renderTarget = target;
+        activeTarget = target;
         drawOnce(scene);
-        renderer.renderTarget = null;
+        activeTarget = null;
         targets.push(target);
         geometries.push(geometry);
     }
@@ -278,7 +617,7 @@ async function caseDisposeReleasesResources(): Promise<CaseResult> {
 /** uniform: fullscreen triangle whose fragment reads a vec4 uniform → tests std140 UBO. */
 async function caseUniform(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const geometry = createFullscreenTriangleGeometry();
     const position = attribute('position', d.vec3f);
@@ -297,8 +636,8 @@ async function caseUniform(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'uniform', pixel, expected: [u8(0.1), u8(0.7), u8(0.5), 255] };
 }
@@ -312,7 +651,7 @@ async function caseUniform(): Promise<CaseResult> {
  */
 async function caseLit(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const geometry = createBoxGeometry(1, 1, 1);
 
@@ -345,8 +684,8 @@ async function caseLit(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
 
     // Front face fully lit: 0.4 * (0.15 + 1.0) = 0.46 → 117 per channel.
@@ -361,7 +700,7 @@ async function caseLit(): Promise<CaseResult> {
  */
 async function caseTextured(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     // A 2×2 solid magenta texture (0.6, 0.2, 0.8, 1) in rgba8unorm.
     const R = u8(0.6);
@@ -391,15 +730,15 @@ async function caseTextured(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'textured', pixel, expected: [R, G, B, 255] };
 }
 
 /**
  * render-to-texture: render a solid known color INTO a RenderTarget (the render-to-texture flow —
- * `renderer.renderTarget = rt; render(); restore`), then sample that target's color texture
+ * `activeTarget = rt; render(); restore`), then sample that target's color texture
  * fullscreen to the canvas and read back. Proves the FBO path + texture-as-input round-trip.
  */
 async function caseRenderToTexture(): Promise<CaseResult> {
@@ -408,7 +747,7 @@ async function caseRenderToTexture(): Promise<CaseResult> {
     // rgba8unorm target so the round-tripped color reads back exactly (no float precision loss).
     // depthBuffer:true exercises the FBO depth attachment + DepthTexture construction under WebGL2
     // (DepthTexture now uses spec-fixed numeric usage flags, not the WebGPU-only `GPUTextureUsage`).
-    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const rt = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
 
     // Pass 1: clear the target to a known color (an empty scene → the target's clearColor).
     const rtColor: [number, number, number, number] = [0.3, 0.8, 0.5, 1];
@@ -417,16 +756,16 @@ async function caseRenderToTexture(): Promise<CaseResult> {
     scene1.updateWorldMatrix();
     camera1.updateViewMatrix();
 
-    const savedTarget = renderer.renderTarget;
-    const savedClear = renderer.clearColor;
-    renderer.renderTarget = rt;
-    renderer.clearColor = rtColor;
-    renderer.render(scene1, camera1);
-    renderer.renderTarget = savedTarget;
-    renderer.clearColor = savedClear;
+    const savedTarget = activeTarget;
+    const savedClear = activeClear;
+    activeTarget = rt;
+    activeClear = rtColor;
+    renderScene(renderer, scene1, camera1);
+    activeTarget = savedTarget;
+    activeClear = savedClear;
 
     // Pass 2: sample the target's color texture fullscreen onto the default framebuffer.
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const geometry = createFullscreenTriangleGeometry();
     const position = attribute('position', d.vec3f);
     const material = new Material({
@@ -441,8 +780,8 @@ async function caseRenderToTexture(): Promise<CaseResult> {
     scene2.updateWorldMatrix();
     camera2.updateViewMatrix();
 
-    renderer.render(scene2, camera2);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene2, camera2);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'rtt', pixel, expected: [u8(rtColor[0]), u8(rtColor[1]), u8(rtColor[2]), 255] };
 }
@@ -458,17 +797,22 @@ async function caseRenderToTexture(): Promise<CaseResult> {
 async function caseMsaa(): Promise<CaseResult> {
     const renderer = await newRenderer();
 
-    // rgba8unorm + samples:4 so the resolved color reads back exactly. SwiftShader supports 4x MSAA
-    // renderbuffers; if a sample count degrades, the fallback still produces the same flat color.
-    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true, samples: 4 });
+    const rt = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true, samples: 4 });
 
-    // Pass 1: draw a solid fullscreen color into the MSAA target.
+    // Pass 1: a half-covering triangle whose hypotenuse runs through the read pixel. A fullscreen draw
+    // resolves to its own flat colour and cannot tell a 4-sample resolve from no resolve at all, which
+    // is what this case did until layer 6.52.
     const drawn: [number, number, number, number] = [0.2, 0.6, 0.9, 1];
-    const geometry1 = createFullscreenTriangleGeometry();
+    const geometry1 = new Geometry();
+    geometry1.setBuffer(
+        'position',
+        new GpuBuffer(d.vec3f, { data: new Float32Array([-1, -1, 0, 1, -1, 0, -1, 1, 0]), usage: 'vertex' }),
+    );
     const material1 = new Material({
         vertex: vec4(attribute('position', d.vec3f), f32(1)),
         fragment: vec4(drawn[0], drawn[1], drawn[2], 1),
         depthTest: false,
+        cullMode: 'none', // raw clip-space winding differs between the backends
     });
     const scene1 = new Scene();
     scene1.add(new Mesh(geometry1, material1));
@@ -476,16 +820,16 @@ async function caseMsaa(): Promise<CaseResult> {
     scene1.updateWorldMatrix();
     camera1.updateViewMatrix();
 
-    const savedTarget = renderer.renderTarget;
-    const savedClear = renderer.clearColor;
-    renderer.renderTarget = rt;
-    renderer.clearColor = [0, 0, 0, 1];
-    renderer.render(scene1, camera1);
-    renderer.renderTarget = savedTarget;
-    renderer.clearColor = savedClear;
+    const savedTarget = activeTarget;
+    const savedClear = activeClear;
+    activeTarget = rt;
+    activeClear = [0, 0, 0, 1];
+    renderScene(renderer, scene1, camera1);
+    activeTarget = savedTarget;
+    activeClear = savedClear;
 
     // Pass 2: sample the resolved texture fullscreen onto the default framebuffer.
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const material2 = new Material({
         vertex: vec4(attribute('position', d.vec3f), f32(1)),
         fragment: texture(rt.texture! as Texture).sample(screenUV),
@@ -497,10 +841,22 @@ async function caseMsaa(): Promise<CaseResult> {
     scene2.updateWorldMatrix();
     camera2.updateViewMatrix();
 
-    renderer.render(scene2, camera2);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene2, camera2);
+    // Scan the middle row rather than one pixel: a hard edge gives only 0 or the drawn blue, and a
+    // resolve puts at least one intermediate value somewhere along it, wherever the edge lands.
+    const gl2 = renderer.backend.gl!;
+    let blended = 0;
+    for (let x = 4; x < SIZE - 4; x++) {
+        const blue = readAt(gl2, x, CENTER)[2];
+        if (blue > 30 && blue < u8(0.9) - 20) blended++;
+    }
     renderer.dispose();
-    return { name: 'msaa', pixel, expected: [u8(drawn[0]), u8(drawn[1]), u8(drawn[2]), 255] };
+    return {
+        name: 'msaa',
+        pixel: blended > 0 ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `${blended} partially covered pixels on the middle row; a single-sampled target has none`,
+    };
 }
 
 /**
@@ -514,13 +870,13 @@ async function caseMsaa(): Promise<CaseResult> {
 async function caseCubeRtt(): Promise<CaseResult> {
     const renderer = await newRenderer();
 
-    const rt = new CubeRenderTarget(SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const rt = createCubeRenderTarget(SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
 
     const drawn: [number, number, number, number] = [0.7, 0.3, 0.5, 1];
-    const savedTarget = renderer.renderTarget;
-    const savedClear = renderer.clearColor;
-    renderer.renderTarget = rt;
-    renderer.clearColor = [drawn[0], drawn[1], drawn[2], 1];
+    const savedTarget = activeTarget;
+    const savedClear = activeClear;
+    activeTarget = rt;
+    activeClear = [drawn[0], drawn[1], drawn[2], 1];
 
     // Render each of the six faces (an empty scene → the face clears to the target's clearColor).
     for (let face = 0; face < 6; face++) {
@@ -529,14 +885,14 @@ async function caseCubeRtt(): Promise<CaseResult> {
         const camera = new PerspectiveCamera();
         scene.updateWorldMatrix();
         camera.updateViewMatrix();
-        renderer.render(scene, camera);
+        renderScene(renderer, scene, camera);
     }
-    renderer.renderTarget = savedTarget;
-    renderer.clearColor = savedClear;
+    activeTarget = savedTarget;
+    activeClear = savedClear;
 
     // Sample the cube fullscreen onto the default framebuffer. Direction is a constant per-fragment
     // vector; since every face carries the same color, any direction reads the drawn color.
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const material = new Material({
         vertex: vec4(attribute('position', d.vec3f), f32(1)),
         fragment: cubeTexture(rt.texture).sample(vec3(0, 0, 1)),
@@ -548,8 +904,8 @@ async function caseCubeRtt(): Promise<CaseResult> {
     scene2.updateWorldMatrix();
     camera2.updateViewMatrix();
 
-    renderer.render(scene2, camera2);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene2, camera2);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'cube-rtt', pixel, expected: [u8(drawn[0]), u8(drawn[1]), u8(drawn[2]), 255] };
 }
@@ -557,12 +913,12 @@ async function caseCubeRtt(): Promise<CaseResult> {
 /**
  * indirect-unsupported: indirect draw (`geometry.indirect`) is a WebGPU-only feature; on the WebGL2
  * backend even a plain CPU-authored indirect command must be rejected with a clear error. We set a
- * normal DrawIndirect command on the geometry and assert `renderer.render(...)` throws with a message
+ * normal DrawIndirect command on the geometry and assert the pass throws with a message
  * naming the WebGL2 limitation (pixel/expected are unused for pass/fail; the runner surfaces the note).
  */
 async function caseIndirectUnsupported(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const geometry = createFullscreenTriangleGeometry();
     const material = new Material({
@@ -586,7 +942,7 @@ async function caseIndirectUnsupported(): Promise<CaseResult> {
     let threw = false;
     let msg = '';
     try {
-        renderer.render(scene, camera);
+        renderScene(renderer, scene, camera);
     } catch (err) {
         threw = true;
         msg = err instanceof Error ? err.message : String(err);
@@ -602,35 +958,27 @@ async function caseIndirectUnsupported(): Promise<CaseResult> {
     };
 }
 
-/**
- * depth-bias: two coplanar fullscreen quads at the same clip-space Z. The first (red) is drawn
- * normally; the second (green) has a positive polygon offset (depthBias) pushing it *toward* the
- * camera so it wins the depth test (depthCompare 'less-equal') and the center pixel reads green.
- *
- * Without polygon offset the two quads Z-fight and the second would NOT reliably beat the first with a
- * strict 'less' compare; the bias is what makes green consistently win. This asserts gl.polygonOffset
- * is actually applied on the WebGL path (C1).
- */
+/** depth-bias: two coplanar quads; green wins only if `gl.polygonOffset` actually moved it. */
 async function caseDepthBias(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const position = attribute('position', d.vec3f);
 
-    // First quad: red, plain depth write, no bias. Occupies z = 0.
+    // z 0.5, not the triangle's 0: a negative bias at 0 clamps away, which reads as an ignored bias.
+    const coplanar = vec4(position.x, position.y, f32(0.5), f32(1));
     const redMat = new Material({
-        vertex: vec4(position, f32(1)),
+        vertex: coplanar,
         fragment: vec4(1, 0, 0, 1),
         depthWrite: true,
-        depthCompare: 'less-equal',
+        depthCompare: 'less',
     });
-    // Second quad: green, coplanar (same z), negative depthBias pulls it toward the camera so it passes
-    // the 'less-equal' test against the red quad's stored depth and overwrites it.
+    // 'less', not 'less-equal': coplanar green must be MOVED to win, so an ignored bias reads red.
     const greenMat = new Material({
-        vertex: vec4(position, f32(1)),
+        vertex: coplanar,
         fragment: vec4(0, 1, 0, 1),
         depthWrite: true,
-        depthCompare: 'less-equal',
+        depthCompare: 'less',
         depthBias: -2,
         depthBiasSlopeScale: 0,
     });
@@ -642,10 +990,9 @@ async function caseDepthBias(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
-    // Green wins because its polygon offset pulled it in front of the coplanar red quad.
     return { name: 'depth-bias', pixel, expected: [0, 255, 0, 255] };
 }
 
@@ -664,7 +1011,7 @@ async function caseDepthBias(): Promise<CaseResult> {
 async function caseAlphaToCoverage(): Promise<CaseResult> {
     const renderer = await newRenderer();
 
-    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true, samples: 4 });
+    const rt = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true, samples: 4 });
 
     const material1 = new Material({
         vertex: vec4(attribute('position', d.vec3f), f32(1)),
@@ -678,16 +1025,16 @@ async function caseAlphaToCoverage(): Promise<CaseResult> {
     scene1.updateWorldMatrix();
     camera1.updateViewMatrix();
 
-    const savedTarget = renderer.renderTarget;
-    const savedClear = renderer.clearColor;
-    renderer.renderTarget = rt;
-    renderer.clearColor = [0, 0, 0, 1];
-    renderer.render(scene1, camera1);
-    renderer.renderTarget = savedTarget;
-    renderer.clearColor = savedClear;
+    const savedTarget = activeTarget;
+    const savedClear = activeClear;
+    activeTarget = rt;
+    activeClear = [0, 0, 0, 1];
+    renderScene(renderer, scene1, camera1);
+    activeTarget = savedTarget;
+    activeClear = savedClear;
 
     // Sample the resolved texture fullscreen to the default framebuffer.
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const material2 = new Material({
         vertex: vec4(attribute('position', d.vec3f), f32(1)),
         fragment: texture(rt.texture! as Texture).sample(screenUV),
@@ -699,8 +1046,8 @@ async function caseAlphaToCoverage(): Promise<CaseResult> {
     scene2.updateWorldMatrix();
     camera2.updateViewMatrix();
 
-    renderer.render(scene2, camera2);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene2, camera2);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
 
     // With A2C on, the resolved value is a partial-coverage blend (roughly half). Encode pass/fail as a
@@ -728,7 +1075,7 @@ async function caseMrt(): Promise<CaseResult> {
     // 2-attachment target; rename attachments to the mrt() keys. Attachment 0 is named `output` so
     // this also covers (a) the default MRT blend split (output→'material', aux→'no') NOT tripping the
     // per-attachment-blend guard, and (b) `output` being a GLSL reserved word (mangled to out_output).
-    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true, count: 2 });
+    const rt = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true, count: 2 });
     rt.textures[0].name = 'output';
     rt.textures[1].name = 'colB';
 
@@ -749,18 +1096,18 @@ async function caseMrt(): Promise<CaseResult> {
     scene1.updateWorldMatrix();
     camera1.updateViewMatrix();
 
-    const savedTarget = renderer.renderTarget;
-    const savedClear = renderer.clearColor;
-    renderer.renderTarget = rt;
-    renderer.mrt = mrtNode;
-    renderer.clearColor = [0, 0, 0, 1];
-    renderer.render(scene1, camera1);
-    renderer.mrt = null;
-    renderer.renderTarget = savedTarget;
-    renderer.clearColor = savedClear;
+    const savedTarget = activeTarget;
+    const savedClear = activeClear;
+    activeTarget = rt;
+    activeMrt = mrtNode;
+    activeClear = [0, 0, 0, 1];
+    renderScene(renderer, scene1, camera1);
+    activeMrt = null;
+    activeTarget = savedTarget;
+    activeClear = savedClear;
 
     // Sample attachment 1 (colB) fullscreen to the default framebuffer.
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const material2 = new Material({
         vertex: vec4(attribute('position', d.vec3f), f32(1)),
         fragment: texture(rt.textures[1] as Texture).sample(screenUV),
@@ -772,8 +1119,8 @@ async function caseMrt(): Promise<CaseResult> {
     scene2.updateWorldMatrix();
     camera2.updateViewMatrix();
 
-    renderer.render(scene2, camera2);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene2, camera2);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'mrt', pixel, expected: [u8(colB[0]), u8(colB[1]), u8(colB[2]), 255] };
 }
@@ -782,7 +1129,7 @@ async function caseMrt(): Promise<CaseResult> {
  * Shared MRT probe: render a fullscreen triangle into an N-attachment RenderTarget writing a distinct
  * constant color per attachment, then sample the LAST attachment's texture fullscreen and read back.
  *
- * `lazy` mirrors the PassNode flow that breaks the example: create the target with a single color
+ * `lazy` mirrors the RenderTextureNode flow that breaks the example: create the target with a single color
  * attachment (`count: 1`) at a small size, then lazily `push` the extra attachments (as the pass's
  * `getTexture()` does), then `setSize()` to the render size AFTER the extras are attached. This is the
  * exact ordering the pass produces: extra attachments minted at the initial size, then everyone
@@ -815,8 +1162,8 @@ async function mrtProbe(
     // later setSize(SIZE) is a genuine re-allocation of already-allocated GL storage.
     const initial = resize ? 1 : SIZE;
     if (lazy) {
-        // Mirror PassNode: single attachment created small, extras pushed, then resized.
-        rt = new RenderTarget(initial, initial, { colorFormat: format, depthBuffer: true, count: 1 });
+        // Mirror RenderTextureNode: single attachment created small, extras pushed, then resized.
+        rt = createRenderTarget(initial, initial, { colorFormat: format, depthBuffer: true, count: 1 });
         rt.textures[0].name = names[0];
         for (let i = 1; i < count; i++) {
             const tex = new Texture({ width: rt.width, height: rt.height });
@@ -830,8 +1177,8 @@ async function mrtProbe(
         }
         if (!resize) rt.setSize(SIZE, SIZE);
     } else {
-        rt = new RenderTarget(initial, initial, { colorFormat: format, depthBuffer: true, count });
-        rt.textures.forEach((t, i) => (t.name = names[i]));
+        rt = createRenderTarget(initial, initial, { colorFormat: format, depthBuffer: true, count });
+        for (const [i, t] of rt.textures.entries()) t.name = names[i];
     }
 
     const mrtFields: Record<string, ReturnType<typeof vec4>> = {};
@@ -851,22 +1198,22 @@ async function mrtProbe(
     scene1.updateWorldMatrix();
     camera1.updateViewMatrix();
 
-    const savedTarget = renderer.renderTarget;
-    renderer.renderTarget = rt;
-    renderer.mrt = mrtNode;
-    renderer.clearColor = [0, 0, 0, 1];
+    const savedTarget = activeTarget;
+    activeTarget = rt;
+    activeMrt = mrtNode;
+    activeClear = [0, 0, 0, 1];
     if (resize) {
         // Render once at the initial 1x1 size (allocates GL storage for every attachment), then resize
-        // to SIZE and render again — the exact frame-over-frame sequence PassNode.updateBefore produces.
-        renderer.render(scene1, camera1);
+        // to SIZE and render again — the exact frame-over-frame sequence RenderTextureNode.updateBefore produces.
+        renderScene(renderer, scene1, camera1);
         rt.setSize(SIZE, SIZE);
     }
-    renderer.render(scene1, camera1);
-    renderer.mrt = null;
-    renderer.renderTarget = savedTarget;
+    renderScene(renderer, scene1, camera1);
+    activeMrt = null;
+    activeTarget = savedTarget;
 
     // Sample the last attachment's texture fullscreen to the default (rgba8) framebuffer.
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const material2 = new Material({
         vertex: vec4(attribute('position', d.vec3f), f32(1)),
         fragment: texture(rt.textures[count - 1] as Texture).sample(screenUV),
@@ -878,8 +1225,8 @@ async function mrtProbe(
     scene2.updateWorldMatrix();
     camera2.updateViewMatrix();
 
-    renderer.render(scene2, camera2);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene2, camera2);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name, pixel, expected: [u8(last[0]), u8(last[1]), u8(last[2]), 255] };
 }
@@ -901,7 +1248,7 @@ async function caseMrt4Rgba16fUpfront(): Promise<CaseResult> {
 
 /**
  * Regression: 4 rgba16float MRT attachments created LAZILY (push after construction), rendered once at
- * 1x1, then resized to SIZE and rendered again — the exact PassNode.setMRT + updateBefore(setSize) flow
+ * 1x1, then resized to SIZE and rendered again — the exact RenderTextureNode.setMRT + updateBefore(setSize) flow
  * the example uses. Fails before the fix (incomplete framebuffer / size mismatch from a re-allocation
  * that texStorage2D refuses on immutable storage), reads back the correct sampled pixel after.
  */
@@ -925,7 +1272,7 @@ async function caseRtResizeRealloc(): Promise<CaseResult> {
  */
 async function caseCubemap(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     // Six 1x1 solid-color faces. +Z (index 4) is the one we sample toward.
     const faceColors: [number, number, number][] = [
@@ -961,8 +1308,8 @@ async function caseCubemap(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     const [r, g, b] = faceColors[4];
     return { name: 'cubemap', pixel, expected: [u8(r), u8(g), u8(b), 255] };
@@ -976,7 +1323,7 @@ async function caseCubemap(): Promise<CaseResult> {
  */
 async function caseArrayLayerPartial(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     // Two 1x1 layers, packed contiguously: layer 0 red, layer 1 green.
     const packed = new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255]);
@@ -1000,7 +1347,7 @@ async function caseArrayLayerPartial(): Promise<CaseResult> {
     camera.updateViewMatrix();
 
     // First render performs the full upload and establishes the immutable storage.
-    renderer.render(scene, camera);
+    renderScene(renderer, scene, camera);
 
     // Rewrite layer 1 to blue in place, and queue ONLY that layer.
     packed[4] = 0;
@@ -1008,8 +1355,8 @@ async function caseArrayLayerPartial(): Promise<CaseResult> {
     packed[6] = 255;
     arrayTex._gpuTexture.addUpdateRegion({ z: 1, depth: 1 });
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'array-layer-partial', pixel, expected: [0, 0, 255, 255] };
 }
@@ -1021,7 +1368,7 @@ async function caseArrayLayerPartial(): Promise<CaseResult> {
  */
 async function caseArrayLayerPartialUntouched(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const packed = new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255]);
     const arrayTex = new ArrayTexture(packed, 1, 1, 2, {
@@ -1043,7 +1390,7 @@ async function caseArrayLayerPartialUntouched(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
+    renderScene(renderer, scene, camera);
 
     // Rewrite layer 1 only; layer 0 must not move.
     packed[4] = 0;
@@ -1051,8 +1398,8 @@ async function caseArrayLayerPartialUntouched(): Promise<CaseResult> {
     packed[6] = 255;
     arrayTex._gpuTexture.addUpdateRegion({ z: 1, depth: 1 });
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'array-layer-partial-untouched', pixel, expected: [255, 0, 0, 255] };
 }
@@ -1065,15 +1412,10 @@ async function caseArrayLayerPartialUntouched(): Promise<CaseResult> {
  */
 async function caseSubrectPartial(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     // 2x2 rgba8: (0,0) red, (1,0) green, (0,1) blue, (1,1) yellow.
-    const texels = new Uint8Array([
-        255, 0, 0, 255,
-        0, 255, 0, 255,
-        0, 0, 255, 255,
-        255, 255, 0, 255,
-    ]);
+    const texels = new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255]);
     const tex = new DataTexture(texels, 2, 2, {
         format: 'rgba8unorm',
         magFilter: 'nearest',
@@ -1094,7 +1436,7 @@ async function caseSubrectPartial(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
+    renderScene(renderer, scene, camera);
 
     // Rewrite ONLY texel (1,0) to magenta, and queue exactly that 1x1 box.
     texels[4] = 255;
@@ -1102,8 +1444,8 @@ async function caseSubrectPartial(): Promise<CaseResult> {
     texels[6] = 255;
     tex._gpuTexture.addUpdateRegion({ x: 1, y: 0, width: 1, height: 1 });
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'subrect-partial', pixel, expected: [255, 0, 255, 255] };
 }
@@ -1114,14 +1456,9 @@ async function caseSubrectPartial(): Promise<CaseResult> {
  */
 async function caseSubrectPartialNeighbour(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
-    const texels = new Uint8Array([
-        255, 0, 0, 255,
-        0, 255, 0, 255,
-        0, 0, 255, 255,
-        255, 255, 0, 255,
-    ]);
+    const texels = new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255]);
     const tex = new DataTexture(texels, 2, 2, {
         format: 'rgba8unorm',
         magFilter: 'nearest',
@@ -1142,15 +1479,15 @@ async function caseSubrectPartialNeighbour(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
+    renderScene(renderer, scene, camera);
 
     texels[4] = 255;
     texels[5] = 0;
     texels[6] = 255;
     tex._gpuTexture.addUpdateRegion({ x: 1, y: 0, width: 1, height: 1 });
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'subrect-partial-neighbour', pixel, expected: [255, 0, 0, 255] };
 }
@@ -1162,7 +1499,7 @@ async function caseSubrectPartialNeighbour(): Promise<CaseResult> {
  */
 async function caseCubeFacePartial(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const faceData = [
         new Uint8Array([230, 26, 26, 255]),
@@ -1189,7 +1526,7 @@ async function caseCubeFacePartial(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
+    renderScene(renderer, scene, camera);
 
     // Rewrite the +Z face in place to magenta, and queue only that face.
     faceData[4][0] = 255;
@@ -1197,8 +1534,8 @@ async function caseCubeFacePartial(): Promise<CaseResult> {
     faceData[4][2] = 255;
     cubeTex._gpuTexture.addUpdateRegion({ z: 4, depth: 1 });
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'cube-face-partial', pixel, expected: [255, 0, 255, 255] };
 }
@@ -1211,7 +1548,7 @@ async function caseCubeFacePartial(): Promise<CaseResult> {
  */
 async function caseInstanced(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     // Per-instance colors: instance 0 red, instance 1 the known green we assert.
     const inst1: [number, number, number] = [0.2, 0.8, 0.4];
@@ -1233,8 +1570,8 @@ async function caseInstanced(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'instanced', pixel, expected: [u8(inst1[0]), u8(inst1[1]), u8(inst1[2]), 255] };
 }
@@ -1246,7 +1583,7 @@ async function caseInstanced(): Promise<CaseResult> {
  */
 async function caseUnknownFormatUnsupported(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const data = new Uint8Array(2 * 2 * 4);
     // A real GPUTextureFormat WebGL2 has no mapping for (compressed BC format).
@@ -1267,7 +1604,7 @@ async function caseUnknownFormatUnsupported(): Promise<CaseResult> {
     let threw = false;
     let msg = '';
     try {
-        renderer.render(scene, camera);
+        renderScene(renderer, scene, camera);
     } catch (err) {
         threw = true;
         msg = err instanceof Error ? err.message : String(err);
@@ -1290,7 +1627,7 @@ async function caseUnknownFormatUnsupported(): Promise<CaseResult> {
 async function caseMrtBlendUnsupported(): Promise<CaseResult> {
     const renderer = await newRenderer();
 
-    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true, count: 2 });
+    const rt = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true, count: 2 });
     rt.textures[0].name = 'colA';
     rt.textures[1].name = 'colB';
 
@@ -1312,21 +1649,21 @@ async function caseMrtBlendUnsupported(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    const savedTarget = renderer.renderTarget;
-    renderer.renderTarget = rt;
-    renderer.mrt = mrtNode;
-    renderer.clearColor = [0, 0, 0, 1];
+    const savedTarget = activeTarget;
+    activeTarget = rt;
+    activeMrt = mrtNode;
+    activeClear = [0, 0, 0, 1];
 
     let threw = false;
     let msg = '';
     try {
-        renderer.render(scene, camera);
+        renderScene(renderer, scene, camera);
     } catch (err) {
         threw = true;
         msg = err instanceof Error ? err.message : String(err);
     }
-    renderer.mrt = null;
-    renderer.renderTarget = savedTarget;
+    activeMrt = null;
+    activeTarget = savedTarget;
     renderer.dispose();
     const ok = threw && msg.includes('per-attachment blend modes are not supported on the WebGL2 backend');
     return {
@@ -1347,31 +1684,44 @@ async function caseMrtBlendUnsupported(): Promise<CaseResult> {
 async function caseCubeMips(): Promise<CaseResult> {
     const renderer = await newRenderer();
 
-    const rt = new CubeRenderTarget(SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true, generateMipmaps: true });
+    const rt = createCubeRenderTarget(SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true, generateMipmaps: true });
 
-    const drawn: [number, number, number, number] = [0.4, 0.7, 0.6, 1];
-    const savedTarget = renderer.renderTarget;
-    const savedClear = renderer.clearColor;
-    renderer.renderTarget = rt;
-    renderer.clearColor = [drawn[0], drawn[1], drawn[2], 1];
+    const savedTarget = activeTarget;
+    const savedClear = activeClear;
+    activeTarget = rt;
+    activeClear = [0, 0, 0, 1];
+    // Half red, half black per face: a flat face makes every mip level identical, so the case would
+    // pass with no chain at all. The flag-flip below is `CubeCamera`'s, and is what suppressed the
+    // allocation until the chain length was captured at construction.
+    const facePosition = attribute('position', d.vec3f);
+    const faceClipY = varying(facePosition.y, 'vyCubeMips');
+    const twoTone = new Material({
+        vertex: vec4(facePosition, f32(1)),
+        fragment: select(vec4(0, 0, 0, 1), vec4(1, 0, 0, 1), faceClipY.greaterThan(f32(0))),
+        depthTest: false,
+    });
     const wantMips = rt.texture.generateMipmaps;
     rt.texture.generateMipmaps = false;
     for (let face = 0; face < 6; face++) {
         if (face === 5) rt.texture.generateMipmaps = wantMips; // restore before the last face
         rt.activeFace = face;
         const scene = new Scene();
+        scene.add(new Mesh(createFullscreenTriangleGeometry(), twoTone));
         const camera = new PerspectiveCamera();
         scene.updateWorldMatrix();
         camera.updateViewMatrix();
-        renderer.render(scene, camera);
+        renderScene(renderer, scene, camera);
     }
-    renderer.renderTarget = savedTarget;
-    renderer.clearColor = savedClear;
+    activeTarget = savedTarget;
+    activeClear = savedClear;
 
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const material = new Material({
         vertex: vec4(attribute('position', d.vec3f), f32(1)),
-        fragment: cubeTexture(rt.texture).sample(vec3(0, 0, 1)),
+        // The 1x1 level, the face average, so it does not depend on which way GL stored the rows.
+        fragment: cubeTexture(rt.texture)
+            .level(f32(6))
+            .sample(vec3(0, 0.6, 1)),
         depthTest: false,
     });
     const scene2 = new Scene();
@@ -1380,10 +1730,311 @@ async function caseCubeMips(): Promise<CaseResult> {
     scene2.updateWorldMatrix();
     camera2.updateViewMatrix();
 
-    renderer.render(scene2, camera2);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene2, camera2);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
-    return { name: 'cube-mips', pixel, expected: [u8(drawn[0]), u8(drawn[1]), u8(drawn[2]), 255] };
+    const blended = pixel[0] > 90 && pixel[0] < 165;
+    return {
+        name: 'cube-mips',
+        pixel: blended ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `level 6 red=${pixel[0]}; a chain suppressed at allocation clamps to level 0 and reads 0 or 255`,
+    };
+}
+
+/**
+ * cube-camera: drive CubeCamera.update over an empty scene whose cube target clears to a known
+ * colour, then sample the **-X** face. That face is only written if `PassDesc.layer` reaches
+ * `CubeRenderTarget.activeFace`; if the layer wiring were dead every pass would write face 0 and
+ * this read would come back as untouched texture rather than the clear colour.
+ */
+/**
+ * draw-opts: one mesh, drawn twice in one pass, differing only by `DrawOpts.range`. The geometry is a
+ * two-triangle strip: indices 0..2 cover the left half GREEN, 3..5 the right half RED. Both submissions
+ * share a geometry whose own `drawRange` covers everything, so if `range` were ignored each draw would
+ * cover the whole screen and the last one would win. Reading the LEFT half proves the override landed.
+ */
+async function caseDrawOpts(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    const geometry = new Geometry();
+    // Two clip-space triangles: left half, then right half.
+    geometry.setBuffer(
+        'position',
+        new GpuBuffer(d.vec3f, {
+            data: new Float32Array([
+                -1, -1, 0, 0, -1, 0, -1, 1, 0, 0, -1, 0, 0, 1, 0, -1, 1, 0, 0, -1, 0, 1, -1, 0, 0, 1, 0, 1, -1, 0, 1, 1, 0, 0, 1,
+                0,
+            ]),
+            usage: 'vertex',
+        }),
+    );
+
+    const position = attribute('position', d.vec3f);
+    const green = new Mesh(
+        geometry,
+        new Material({ vertex: vec4(position, f32(1)), fragment: vec4(0, 1, 0, 1), depthTest: false }),
+    );
+    const red = new Mesh(
+        geometry,
+        new Material({ vertex: vec4(position, f32(1)), fragment: vec4(1, 0, 0, 1), depthTest: false }),
+    );
+    green.updateWorldMatrix();
+    red.updateWorldMatrix();
+
+    const camera = new PerspectiveCamera();
+    camera.updateViewMatrix();
+
+    const target = renderer.backend.target;
+    target.clearColor = [0, 0, 0, 1];
+
+    const f = frame(renderer);
+    const pass = f.pass({ target, camera, label: 'draw-opts' });
+    pass.draw(green, { range: { start: 0, count: 6 } });
+    pass.draw(red, { range: { start: 6, count: 6 } });
+    pass.end();
+    f.submit();
+
+    const pixel = readAt(renderer.backend.gl!, 4, CENTER);
+    renderer.dispose();
+    return { name: 'draw-opts', pixel, expected: [0, 255, 0, 255] };
+}
+
+/**
+ * clear-depth: reversed-Z. The pass clears depth to 0 and the material tests 'greater', so a fragment
+ * at depth 0.5 passes only because the buffer started at 0. With the old hardcoded clear of 1.0 the
+ * test fails everywhere and the clear colour shows through, so this reads green only if
+ * `PassDesc.clearDepth` reached the attachment.
+ */
+async function caseClearDepth(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    const position = attribute('position', d.vec3f);
+    const mesh = new Mesh(
+        createFullscreenTriangleGeometry(),
+        new Material({
+            vertex: vec4(position, f32(1)),
+            fragment: vec4(0, 1, 0, 1),
+            depth: f32(0.5),
+            depthTest: true,
+            depthCompare: 'greater',
+        }),
+    );
+    mesh.updateWorldMatrix();
+
+    const camera = new PerspectiveCamera();
+    camera.updateViewMatrix();
+
+    const target = renderer.backend.target;
+    target.clearColor = [1, 0, 0, 1];
+
+    const f = frame(renderer);
+    const pass = f.pass({ target, camera, clearDepth: 0, label: 'clear-depth' });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    return { name: 'clear-depth', pixel, expected: [0, 255, 0, 255] };
+}
+
+/**
+ * clear-depth-only: two passes to one target. The first writes GREEN at depth 0.5. The second
+ * preserves colour (`clear: false`) but clears depth to 0, then draws BLUE at 0.5 with a 'greater'
+ * compare. Blue only wins if depth really was cleared while colour was kept; if the flags were still
+ * combined the depth clear would be dropped and 0.5 > 0.5 would fail, leaving green.
+ */
+async function caseClearDepthOnly(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    const position = attribute('position', d.vec3f);
+    const at = (r: number, g: number, b: number) =>
+        new Mesh(
+            createFullscreenTriangleGeometry(),
+            new Material({
+                vertex: vec4(position, f32(1)),
+                fragment: vec4(r, g, b, 1),
+                depth: f32(0.5),
+                depthTest: true,
+                depthCompare: 'greater',
+            }),
+        );
+    const green = at(0, 1, 0);
+    const blue = at(0, 0, 1);
+    green.updateWorldMatrix();
+    blue.updateWorldMatrix();
+
+    const camera = new PerspectiveCamera();
+    camera.updateViewMatrix();
+
+    const target = renderer.backend.target;
+    target.clearColor = [0, 0, 0, 1];
+
+    const f = frame(renderer);
+
+    const first = f.pass({ target, camera, clearDepth: 0, label: 'write-depth' });
+    first.draw(green);
+    first.end();
+
+    const second = f.pass({ target, camera, clear: false, clearDepth: 0, label: 'clear-depth-only' });
+    second.draw(blue);
+    second.end();
+
+    f.submit();
+
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    return { name: 'clear-depth-only', pixel, expected: [0, 0, 255, 255] };
+}
+
+/**
+ * clear-selective: a pass with no draws is a clear, so its per-attachment flags have to reach the load
+ * ops. Draw RED, then open an empty pass that clears depth only. Colour must survive: clearing it too
+ * would leave the canvas black, and skipping the clear entirely would look identical to a correct
+ * colour-preserving one, so a second empty pass clearing colour follows and must turn it blue.
+ */
+async function caseClearSelective(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    const position = attribute('position', d.vec3f);
+    const red = new Mesh(
+        createFullscreenTriangleGeometry(),
+        new Material({ vertex: vec4(position, f32(1)), fragment: vec4(1, 0, 0, 1), depthTest: false }),
+    );
+    red.updateWorldMatrix();
+
+    const scene = new Scene();
+    scene.add(red);
+    scene.updateWorldMatrix();
+    const camera = new PerspectiveCamera();
+    camera.updateViewMatrix();
+
+    activeClear = [0, 0, 1, 1];
+    renderScene(renderer, scene, camera);
+
+    clearPass(renderer, { clear: false });
+    const preserved = readCenter(renderer.backend.gl!);
+
+    clearPass(renderer, { clear: activeClear });
+    const cleared = readCenter(renderer.backend.gl!);
+
+    renderer.dispose();
+    const ok = isRed([...preserved]) && cleared[2] > 200 && cleared[0] < 60;
+    return {
+        name: 'clear-selective',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `depth-only clear left ${preserved.slice(0, 3)}, colour clear left ${cleared.slice(0, 3)}`,
+    };
+}
+
+/**
+ * draw-material: the per-submission material override, which is how the plan says to express a depth
+ * or outline variant: two Materials over ONE shared vertex node, so the vertex stage cannot drift.
+ * The mesh owns the red material; the submission asks for the green one built on the same vertex node.
+ */
+async function caseDrawMaterial(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    const position = attribute('position', d.vec3f);
+    const sharedVertex = vec4(position, f32(1));
+    const geometry = createFullscreenTriangleGeometry();
+
+    const mesh = new Mesh(geometry, new Material({ vertex: sharedVertex, fragment: vec4(1, 0, 0, 1), depthTest: false }));
+    const variant = new Material({ vertex: sharedVertex, fragment: vec4(0, 1, 0, 1), depthTest: false });
+    mesh.updateWorldMatrix();
+
+    const camera = new PerspectiveCamera();
+    camera.updateViewMatrix();
+
+    const target = renderer.backend.target;
+    target.clearColor = [0, 0, 0, 1];
+
+    const f = frame(renderer);
+    const pass = f.pass({ target, camera, label: 'draw-material' });
+    pass.draw(mesh, { material: variant });
+    pass.end();
+    f.submit();
+
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    return { name: 'draw-material', pixel, expected: [0, 255, 0, 255] };
+}
+
+/**
+ * buffer-swap: a VAO bakes in the GL buffer bound when it was created, so replacing a geometry's named
+ * buffer must rebuild it. Draw a triangle covering the LEFT half, swap `position` for one covering the
+ * RIGHT half, draw again. Reading the RIGHT half returns green only if the VAO followed the swap.
+ */
+async function caseBufferSwap(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    const left = new Float32Array([-1, -1, 0, 0, -1, 0, -1, 1, 0]);
+    const right = new Float32Array([0, -1, 0, 1, -1, 0, 1, 1, 0]);
+
+    const geometry = new Geometry();
+    geometry.setBuffer('position', new GpuBuffer(d.vec3f, { data: left, usage: 'vertex' }));
+
+    const position = attribute('position', d.vec3f);
+    const mesh = new Mesh(
+        geometry,
+        new Material({ vertex: vec4(position, f32(1)), fragment: vec4(0, 1, 0, 1), depthTest: false }),
+    );
+    mesh.updateWorldMatrix();
+
+    const camera = new PerspectiveCamera();
+    camera.updateViewMatrix();
+    const target = renderer.backend.target;
+    target.clearColor = [0, 0, 0, 1];
+
+    const draw = () => {
+        const f = frame(renderer);
+        const pass = f.pass({ target, camera, label: 'buffer-swap' });
+        pass.draw(mesh);
+        pass.end();
+        f.submit();
+    };
+
+    draw();
+    geometry.setBuffer('position', new GpuBuffer(d.vec3f, { data: right, usage: 'vertex' }));
+    draw();
+
+    const pixel = readAt(renderer.backend.gl!, SIZE - 4, CENTER);
+    renderer.dispose();
+    return { name: 'buffer-swap', pixel, expected: [0, 255, 0, 255] };
+}
+
+async function caseCubeCamera(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    const rt = createCubeRenderTarget(SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const faceColor: [number, number, number, number] = [0.2, 0.8, 0.4, 1];
+    rt.clearColor = faceColor;
+
+    const cubeCamera = new CubeCamera(0.1, 100, rt);
+    cubeCamera.updateWorldMatrix();
+
+    const empty = new Scene();
+    empty.updateWorldMatrix();
+    cubeCamera.update(renderer, empty);
+
+    activeClear = [0, 0, 0, 1];
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: cubeTexture(rt.texture).sample(vec3(-1, 0, 0)),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    return { name: 'cube-camera', pixel, expected: [u8(faceColor[0]), u8(faceColor[1]), u8(faceColor[2]), 255] };
 }
 
 // NOTE: a uint8 index-buffer render case is intentionally omitted. The WebGL backend now maps
@@ -1399,7 +2050,7 @@ async function caseCubeMips(): Promise<CaseResult> {
  */
 async function caseBgra8Unsupported(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const data = new Uint8Array(2 * 2 * 4);
     const tex = new DataTexture(data, 2, 2, { format: 'bgra8unorm', magFilter: 'nearest', minFilter: 'nearest' });
@@ -1419,7 +2070,7 @@ async function caseBgra8Unsupported(): Promise<CaseResult> {
     let threw = false;
     let msg = '';
     try {
-        renderer.render(scene, camera);
+        renderScene(renderer, scene, camera);
     } catch (err) {
         threw = true;
         msg = err instanceof Error ? err.message : String(err);
@@ -1441,9 +2092,9 @@ async function caseBgra8Unsupported(): Promise<CaseResult> {
 // -------------------------------------------------------------------------------------------------
 
 /** Read a GpuBuffer's TF output GL buffer back into a Float32Array (raw, test-side). */
-function readTfFloat32(renderer: WebGLRenderer, buffer: GpuBuffer, length: number): Float32Array {
-    const gl = renderer.gl!;
-    const glBuf = renderer.getTransformFeedbackGlBuffer(buffer);
+function readTfFloat32(renderer: Renderer<WebGLBackend>, buffer: GpuBuffer, length: number): Float32Array {
+    const gl = renderer.backend.gl!;
+    const glBuf = renderer.backend.getTransformFeedbackGlBuffer(buffer);
     if (!glBuf) throw new Error('no GL buffer for TF output (was transformFeedback() run?)');
     const out = new Float32Array(length);
     gl.bindBuffer(gl.ARRAY_BUFFER, glBuf);
@@ -1479,7 +2130,7 @@ async function caseTransformFeedback(): Promise<CaseResult> {
         outputs: { pos: d.vec4f },
     });
 
-    renderer.transformFeedback(kernel, { inputs: { pos: bufA, vel: velBuf }, outputs: { pos: bufB }, count: N });
+    renderer.backend.transformFeedback(kernel, { inputs: { pos: bufA, vel: velBuf }, outputs: { pos: bufB }, count: N });
 
     const got = readTfFloat32(renderer, bufB, N * 4);
     let ok = true;
@@ -1524,10 +2175,10 @@ async function caseTransformFeedbackPingPong(): Promise<CaseResult> {
     });
 
     // Step 1: front → back.
-    renderer.transformFeedback(kernel, { inputs: { pos: front, vel: velBuf }, outputs: { pos: back }, count: N });
+    renderer.backend.transformFeedback(kernel, { inputs: { pos: front, vel: velBuf }, outputs: { pos: back }, count: N });
     [front, back] = [back, front];
     // Step 2: front(=old back) → back(=old front). back must hold pos + 2*vel.
-    renderer.transformFeedback(kernel, { inputs: { pos: front, vel: velBuf }, outputs: { pos: back }, count: N });
+    renderer.backend.transformFeedback(kernel, { inputs: { pos: front, vel: velBuf }, outputs: { pos: back }, count: N });
 
     // `back` now (after the second swap target) holds the twice-advanced values.
     const got = readTfFloat32(renderer, back, N * 4);
@@ -1553,7 +2204,7 @@ async function caseTransformFeedbackPingPong(): Promise<CaseResult> {
 
 /**
  * tf-readback: run a particles-style kernel (pos' = pos + vel), then read the output buffer back via
- * the PUBLIC async API `renderer.readBufferAsync(outBuf)` (the real Phase-3 copyBufferSubData + fence
+ * the PUBLIC async API `renderer.backend.readBufferAsync(outBuf)` (the real Phase-3 copyBufferSubData + fence
  * path — NOT raw getBufferSubData). Asserts exact per-component values. Because the fence is polled
  * across event-loop ticks, this also regression-guards the yield: a synchronous busy-loop would time
  * out on SwiftShader and this case would throw/fail rather than pass.
@@ -1584,10 +2235,10 @@ async function caseTransformFeedbackReadbackAsync(): Promise<CaseResult> {
         outputs: { pos: d.vec4f },
     });
 
-    renderer.transformFeedback(kernel, { inputs: { pos: bufA, vel: velBuf }, outputs: { pos: bufB }, count: N });
+    renderer.backend.transformFeedback(kernel, { inputs: { pos: bufA, vel: velBuf }, outputs: { pos: bufB }, count: N });
 
     // The real async fence path — this is what Phase 3 delivers.
-    const got = await renderer.readBufferAsync(bufB);
+    const got = await renderer.backend.readBufferAsync(bufB);
     let ok = got instanceof Float32Array && got.length === N * 4;
     let note = '';
     if (!ok) {
@@ -1642,7 +2293,7 @@ async function caseTransformFeedbackUniform(): Promise<CaseResult> {
 
     // First dispatch with dt = 0.5.
     dt.value = 0.5;
-    renderer.transformFeedback(kernel, { inputs: { pos: posBuf, vel: velBuf }, outputs: { pos: outBuf }, count: N });
+    renderer.backend.transformFeedback(kernel, { inputs: { pos: posBuf, vel: velBuf }, outputs: { pos: outBuf }, count: N });
     const got1 = readTfFloat32(renderer, outBuf, N * 4);
 
     let ok = true;
@@ -1658,7 +2309,7 @@ async function caseTransformFeedbackUniform(): Promise<CaseResult> {
     // Second dispatch with dt = 2.0 — must take effect (per-dispatch re-pack).
     if (ok) {
         dt.value = 2.0;
-        renderer.transformFeedback(kernel, {
+        renderer.backend.transformFeedback(kernel, {
             inputs: { pos: posBuf, vel: velBuf },
             outputs: { pos: outBuf },
             count: N,
@@ -1729,7 +2380,7 @@ async function caseTransformFeedbackNeighbour(): Promise<CaseResult> {
         },
     );
 
-    renderer.transformFeedback(kernel, { inputs: { pos: posBuf }, outputs: { pos: outBuf }, count: N });
+    renderer.backend.transformFeedback(kernel, { inputs: { pos: posBuf }, outputs: { pos: outBuf }, count: N });
     const got = readTfFloat32(renderer, outBuf, N * 4);
 
     let ok = true;
@@ -1756,6 +2407,93 @@ async function caseTransformFeedbackNeighbour(): Promise<CaseResult> {
     };
 }
 
+/**
+ * tf-pass: the same kernel through `f.transformFeedback()`, with a render pass on the same frame
+ * after it. Proves the pass runs at its own `end()` and in sequence, which is the claim that moved
+ * transform feedback onto the frame in 6.97; `tf-add` covers the out-of-band method beside it.
+ */
+async function caseTransformFeedbackPass(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    activeClear = [1, 0, 0, 1];
+
+    const N = 4;
+    const input = new GpuBuffer(d.vec4f, { data: new Float32Array(N * 4).fill(3) });
+    const output = new GpuBuffer(d.vec4f, { count: N });
+    const kernel = transformFeedback((io) => ({ pos: io.pos.add(io.pos) }), {
+        inputs: { pos: d.vec4f },
+        outputs: { pos: d.vec4f },
+    });
+
+    const mesh = new Mesh(
+        createFullscreenTriangleGeometry(),
+        new Material({ vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment: vec4(0, 1, 0, 1), depthTest: false }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(renderer);
+    const sim = f.transformFeedback();
+    sim.dispatch(kernel, { inputs: { pos: input }, outputs: { pos: output }, count: N });
+    sim.end();
+    const pass = f.pass({ target: renderer.backend.target, camera: new PerspectiveCamera() });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const doubled = readTfFloat32(renderer, output, N * 4).every((v) => Math.abs(v - 6) < 1e-5);
+    const drawn = readAt(renderer.backend.gl!, CENTER, CENTER);
+    renderer.dispose();
+
+    const ok = doubled && drawn[1] > 200 && drawn[0] < 60;
+    return {
+        name: 'tf-pass',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `doubled=${doubled} drawn=${Array.from(drawn).join(',')}`,
+    };
+}
+
+/**
+ * tf-unbound: a missing output buffer throws before any GL state is touched. The check used to sit
+ * past `useProgram`, the VAO bind and `bindTransformFeedback`, so the throw left all three bound with
+ * nothing unwinding them. Reads the bindings back rather than the pixels, since that is the leak.
+ */
+async function caseTransformFeedbackUnboundOutput(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const N = 4;
+    const posBuf = new GpuBuffer(d.vec4f, { data: new Float32Array(N * 4) });
+    const velBuf = new GpuBuffer(d.vec4f, { data: new Float32Array(N * 4) });
+
+    const kernel = transformFeedback((io) => ({ pos: io.pos.add(io.vel) }), {
+        inputs: { pos: d.vec4f, vel: d.vec4f },
+        outputs: { pos: d.vec4f },
+    });
+
+    const gl = renderer.backend.gl!;
+    let threw = false;
+    try {
+        renderer.backend.transformFeedback(kernel, {
+            inputs: { pos: posBuf, vel: velBuf },
+            outputs: {},
+            count: N,
+        });
+    } catch {
+        threw = true;
+    }
+
+    const tfBinding = gl.getParameter(gl.TRANSFORM_FEEDBACK_BINDING);
+    const program = gl.getParameter(gl.CURRENT_PROGRAM);
+    const vao = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
+    renderer.dispose();
+
+    const clean = threw && tfBinding === null && program === null && vao === null;
+    return {
+        name: 'tf-unbound',
+        pixel: clean ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: threw ? `tf=${tfBinding === null} prog=${program === null} vao=${vao === null}` : 'did not throw',
+    };
+}
+
 /** tf-alias-guard: same buffer as input and output must throw. */
 async function caseTransformFeedbackAliasGuard(): Promise<CaseResult> {
     const renderer = await newRenderer();
@@ -1771,7 +2509,7 @@ async function caseTransformFeedbackAliasGuard(): Promise<CaseResult> {
     let threw = false;
     let msg = '';
     try {
-        renderer.transformFeedback(kernel, {
+        renderer.backend.transformFeedback(kernel, {
             inputs: { pos: shared, vel: velBuf },
             outputs: { pos: shared },
             count: N,
@@ -1800,9 +2538,13 @@ async function caseTransformFeedbackAliasGuard(): Promise<CaseResult> {
  * A broken firstInstance (u_drawBase not applied) makes every sub-draw read instance 0 ⇒ always red,
  * so the [0,1]⇒green case is the one that fails if the base isn't wired.
  */
-async function batchedDrawsCase(name: string, order: [number, number], expected: [number, number, number, number]): Promise<CaseResult> {
+async function batchedDrawsCase(
+    name: string,
+    order: [number, number],
+    expected: [number, number, number, number],
+): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     // 2×1 rgba8unorm: instance 0 = red, instance 1 = green.
     const data = new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255]);
@@ -1829,8 +2571,8 @@ async function batchedDrawsCase(name: string, order: [number, number], expected:
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name, pixel, expected };
 }
@@ -1853,7 +2595,7 @@ async function caseBatchedDrawsRed(): Promise<CaseResult> {
  */
 async function caseBatchedDrawsNonIndexed(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const data = new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255]); // instance 0 = red, instance 1 = green
     const tex = new DataTexture(data, 2, 1, { format: 'rgba8unorm', magFilter: 'nearest', minFilter: 'nearest' });
@@ -1877,8 +2619,8 @@ async function caseBatchedDrawsNonIndexed(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'batched-draws-nonindexed', pixel, expected: [0, 255, 0, 255] };
 }
@@ -1891,7 +2633,7 @@ async function caseBatchedDrawsNonIndexed(): Promise<CaseResult> {
  */
 async function caseIntegerTexture(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     // 1×1 rgba32uint: one texel = (64, 128, 192, 255) as raw u32 channels.
     const tex = new DataTexture(new Uint32Array([64, 128, 192, 255]), 1, 1, {
@@ -1914,8 +2656,8 @@ async function caseIntegerTexture(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'integer-texture', pixel, expected: [64, 128, 192, 255] };
 }
@@ -1929,7 +2671,7 @@ async function caseIntegerTexture(): Promise<CaseResult> {
  */
 async function caseStructTexture(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const Rec = struct('STRec', { color: d.vec4f, id: d.u32 });
     const tex = createStructTexture(Rec, 1);
@@ -1947,8 +2689,8 @@ async function caseStructTexture(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     // color rgb = (0.25,0.5,0.75); alpha = id/255 = 1.
     return { name: 'struct-texture', pixel, expected: [u8(0.25), u8(0.5), u8(0.75), 255] };
@@ -1961,7 +2703,7 @@ async function caseStructTexture(): Promise<CaseResult> {
  */
 async function caseStructTextureMat4(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const M = struct('STMat', { m: d.mat4x4f });
     const tex = createStructTexture(M, 1);
@@ -1981,8 +2723,8 @@ async function caseStructTextureMat4(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'struct-texture-mat4', pixel, expected: [u8(0.25), u8(0.5), u8(0.75), 255] };
 }
@@ -1994,7 +2736,7 @@ async function caseStructTextureMat4(): Promise<CaseResult> {
  */
 async function caseStructTexturePackedUnorm(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const Rec = struct('STPackU8', { col: d.unorm8x4 });
     const tex = createStructTexture(Rec, 1);
     tex.packAtIndex(Rec, 0, { col: [64 / 255, 128 / 255, 192 / 255, 1] });
@@ -2009,8 +2751,8 @@ async function caseStructTexturePackedUnorm(): Promise<CaseResult> {
     const camera = new PerspectiveCamera();
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'struct-texture-unorm8x4', pixel, expected: [64, 128, 192, 255] };
 }
@@ -2022,7 +2764,7 @@ async function caseStructTexturePackedUnorm(): Promise<CaseResult> {
  */
 async function caseStructTexturePackedHalf(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const Rec = struct('STPackH', { hv: d.half2x16, uv: d.unorm2x16 });
     const tex = createStructTexture(Rec, 1);
     tex.packAtIndex(Rec, 0, { hv: [0.5, 0.25], uv: [0.5, 0.75] });
@@ -2039,8 +2781,8 @@ async function caseStructTexturePackedHalf(): Promise<CaseResult> {
     const camera = new PerspectiveCamera();
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'struct-texture-half2x16', pixel, expected: [u8(0.5), u8(0.25), u8(0.5), 255] };
 }
@@ -2052,7 +2794,7 @@ async function caseStructTexturePackedHalf(): Promise<CaseResult> {
  */
 async function caseStructTexturePackedSnorm(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const Rec = struct('STPackS8', { s: d.snorm8x4 });
     const tex = createStructTexture(Rec, 1);
     tex.packAtIndex(Rec, 0, { s: [1, 0, -1, 0.5] });
@@ -2074,8 +2816,8 @@ async function caseStructTexturePackedSnorm(): Promise<CaseResult> {
     const camera = new PerspectiveCamera();
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'struct-texture-snorm8x4', pixel, expected: [255, u8(0.5), 0, 255] };
 }
@@ -2087,7 +2829,7 @@ async function caseStructTexturePackedSnorm(): Promise<CaseResult> {
  */
 async function caseStructTextureBits(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const Rec = struct('STBits', { bf: d.bits({ a: 8, b: 8, c: 8 }) });
     const tex = createStructTexture(Rec, 1);
     tex.packAtIndex(Rec, 0, { bf: { a: 64, b: 128, c: 192 } } as never);
@@ -2104,8 +2846,8 @@ async function caseStructTextureBits(): Promise<CaseResult> {
     const camera = new PerspectiveCamera();
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'struct-texture-bits', pixel, expected: [64, 128, 192, 255] };
 }
@@ -2119,7 +2861,7 @@ async function caseStructTextureBits(): Promise<CaseResult> {
  */
 async function caseStructTextureGrow(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const Rec = struct('GrowRec', { color: d.vec4f, id: d.u32 });
     const tex = createStructTexture(Rec, 1); // capacity 1 → storing record 5 forces a height grow
@@ -2138,8 +2880,8 @@ async function caseStructTextureGrow(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'struct-texture-grow', pixel, expected: [u8(0.25), u8(0.5), u8(0.75), 255] };
 }
@@ -2152,7 +2894,7 @@ async function caseStructTextureGrow(): Promise<CaseResult> {
  */
 async function caseStructTexturePartial(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const Rec = struct('PartRec', { color: d.vec4f, id: d.u32 });
     const tex = createStructTexture(Rec, 1); // grows to a multi-row texture when record 5 is written
@@ -2170,12 +2912,12 @@ async function caseStructTexturePartial(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera); // render 1: full upload (allocates the grown texture)
+    renderScene(renderer, scene, camera); // render 1: full upload (allocates the grown texture)
     // Change record 5 → partial path (already allocated, no full flag): only row 5 is re-uploaded.
     tex.packAtIndex(Rec, 5, { color: [0.25, 0.5, 0.75, 0.1], id: 255 });
-    renderer.render(scene, camera); // render 2: partial texSubImage2D of row 5
+    renderScene(renderer, scene, camera); // render 2: partial texSubImage2D of row 5
 
-    const pixel = readCenter(renderer.gl!);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'struct-texture-partial', pixel, expected: [u8(0.25), u8(0.5), u8(0.75), 255] };
 }
@@ -2189,7 +2931,7 @@ async function caseStructTexturePartial(): Promise<CaseResult> {
  */
 async function caseStorageStruct(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const Instance = struct('Instance', { color: d.vec4f });
     const R = 0.6;
@@ -2218,8 +2960,8 @@ async function caseStorageStruct(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'storage-struct', pixel, expected: [u8(R), u8(G), u8(B), 255] };
 }
@@ -2233,7 +2975,7 @@ async function caseStorageStruct(): Promise<CaseResult> {
  */
 async function caseStorageMat4(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const R = 0.3;
     const G = 0.7;
@@ -2262,8 +3004,8 @@ async function caseStorageMat4(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'storage-mat4', pixel, expected: [u8(R), u8(G), u8(B), 255] };
 }
@@ -2277,7 +3019,7 @@ async function caseStorageMat4(): Promise<CaseResult> {
  */
 async function caseStorageDynamic(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const Instance = struct('Instance', { color: d.vec4f });
     const N = 4;
@@ -2305,7 +3047,7 @@ async function caseStorageDynamic(): Promise<CaseResult> {
     camera.updateViewMatrix();
 
     // Frame 1 (allocates + uploads the buffer texture).
-    renderer.render(scene, camera);
+    renderScene(renderer, scene, camera);
 
     // Mutate the buffer's bytes in place and flag it dirty — the next render must re-upload.
     const R = 0.9;
@@ -2317,8 +3059,8 @@ async function caseStorageDynamic(): Promise<CaseResult> {
     buf.needsUpdate = true;
 
     // Frame 2 must reflect the new bytes (version-synced re-upload of the same-size texture).
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'storage-dynamic', pixel, expected: [u8(R), u8(G), u8(B), 255] };
 }
@@ -2334,7 +3076,7 @@ async function caseStorageDynamic(): Promise<CaseResult> {
  */
 async function caseStorageStore(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const Instance = struct('Instance', { color: d.vec4f });
     const N = 8192; // 1 texel/element → 8192 texels → a 2048×4 grid (height 4, so partial rows < full).
@@ -2374,7 +3116,7 @@ async function caseStorageStore(): Promise<CaseResult> {
     camera.updateViewMatrix();
 
     // Frame 1: allocates + fully uploads the buffer texture.
-    renderer.render(scene, camera);
+    renderScene(renderer, scene, camera);
 
     // Schema-typed write of a NEW color into the middle element → queues a partial (row-2) upload.
     const R = 0.8;
@@ -2382,8 +3124,8 @@ async function caseStorageStore(): Promise<CaseResult> {
     buf.packAtIndex(Instance, A_IDX, { color: [R, 0.3, B, 1] });
 
     // Frame 2: partial `texSubImage2D` of row 2 only; elem0's row 0 stays as originally uploaded.
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'storage-store', pixel, expected: [u8(R), u8(G), u8(B), 255] };
 }
@@ -2403,7 +3145,7 @@ async function caseStorageStore(): Promise<CaseResult> {
  */
 async function caseStorageU32(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const N = 64; // 256 bytes = multiple of 16, so this isolates ADDRESSING from the byte-length guard.
     const data = new Uint32Array(N);
@@ -2426,8 +3168,8 @@ async function caseStorageU32(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'storage-u32', pixel, expected: [128, 0, 0, 255] };
 }
@@ -2439,7 +3181,7 @@ async function caseStorageU32(): Promise<CaseResult> {
  */
 async function caseStorageU32Odd(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const N = 7; // 28 bytes — %16 != 0 (old guard rejected), %4 == 0 (r32uint is fine).
     const data = new Uint32Array(N);
@@ -2462,8 +3204,8 @@ async function caseStorageU32Odd(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'storage-u32-odd', pixel, expected: [210, 0, 0, 255] };
 }
@@ -2474,7 +3216,7 @@ async function caseStorageU32Odd(): Promise<CaseResult> {
  */
 async function caseStorageVec2(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const N = 8;
     const data = new Float32Array(N * 2);
@@ -2498,8 +3240,8 @@ async function caseStorageVec2(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'storage-vec2', pixel, expected: [128, 64, 0, 255] };
 }
@@ -2511,7 +3253,7 @@ async function caseStorageVec2(): Promise<CaseResult> {
  */
 async function caseStorageU32Struct(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const Rec = struct('U32Pair', { a: d.u32, b: d.u32 });
     const N = 8;
@@ -2536,16 +3278,16 @@ async function caseStorageU32Struct(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'storage-u32-struct', pixel, expected: [100, 200, 0, 255] };
 }
 
 async function caseStoragePad(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
-    const MAX = renderer.gl!.getParameter(renderer.gl!.MAX_TEXTURE_SIZE) as number;
+    activeClear = [0, 0, 0, 1];
+    const MAX = renderer.backend.gl!.getParameter(renderer.backend.gl!.MAX_TEXTURE_SIZE) as number;
 
     const Instance = struct('Instance', { color: d.vec4f });
     const N = MAX + 3; // width = min(N, MAX) = MAX → fullRows 1, remainder 3, height 2.
@@ -2575,8 +3317,8 @@ async function caseStoragePad(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'storage-pad', pixel, expected: [u8(R), u8(G), u8(B), 255] };
 }
@@ -2589,8 +3331,8 @@ async function caseStoragePad(): Promise<CaseResult> {
  */
 async function caseStoragePadDynamic(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
-    const MAX = renderer.gl!.getParameter(renderer.gl!.MAX_TEXTURE_SIZE) as number;
+    activeClear = [0, 0, 0, 1];
+    const MAX = renderer.backend.gl!.getParameter(renderer.backend.gl!.MAX_TEXTURE_SIZE) as number;
 
     const Instance = struct('Instance', { color: d.vec4f });
     const N = MAX + 3;
@@ -2618,15 +3360,15 @@ async function caseStoragePadDynamic(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera); // frame 1: full upload (allocates the padded grid).
+    renderScene(renderer, scene, camera); // frame 1: full upload (allocates the padded grid).
 
     const R = 0.9;
     const G = 0.1;
     const B = 0.5;
     buf.packAtIndex(Instance, LAST, { color: [R, G, B, 1] }); // dirty range → padded last row.
 
-    renderer.render(scene, camera); // frame 2: partial upload of just the last (narrower) row.
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera); // frame 2: partial upload of just the last (narrower) row.
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'storage-pad-dynamic', pixel, expected: [u8(R), u8(G), u8(B), 255] };
 }
@@ -2641,8 +3383,8 @@ async function caseStoragePadDynamic(): Promise<CaseResult> {
  */
 async function caseStoragePartialSpans(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
-    const MAX = renderer.gl!.getParameter(renderer.gl!.MAX_TEXTURE_SIZE) as number;
+    activeClear = [0, 0, 0, 1];
+    const MAX = renderer.backend.gl!.getParameter(renderer.backend.gl!.MAX_TEXTURE_SIZE) as number;
 
     const Instance = struct('Instance', { color: d.vec4f });
     const N = MAX + 8;
@@ -2675,7 +3417,7 @@ async function caseStoragePartialSpans(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera); // frame 1: full upload (allocates the grid).
+    renderScene(renderer, scene, camera); // frame 1: full upload (allocates the grid).
 
     const R = 0.9;
     const G = 0.6;
@@ -2687,8 +3429,8 @@ async function caseStoragePartialSpans(): Promise<CaseResult> {
     buf.packAtIndex(Instance, MAX, { color: [0, 0, 0, 1] });
     buf.packAtIndex(Instance, TAIL, { color: [0, G, 0, 1] });
 
-    renderer.render(scene, camera); // frame 2: two partial uploads, three texSubImage2D pieces.
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera); // frame 2: two partial uploads, three texSubImage2D pieces.
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'storage-partial-spans', pixel, expected: [u8(R), u8(G), u8(B), 255] };
 }
@@ -2701,7 +3443,7 @@ async function caseStoragePartialSpans(): Promise<CaseResult> {
  */
 async function caseReadbackOrientation(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const rt = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
 
     const geometry = createFullscreenTriangleGeometry();
     const position = attribute('position', d.vec3f);
@@ -2717,12 +3459,12 @@ async function caseReadbackOrientation(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    const saved = renderer.renderTarget;
-    renderer.renderTarget = rt;
-    renderer.render(scene, camera);
-    renderer.renderTarget = saved;
+    const saved = activeTarget;
+    activeTarget = rt;
+    renderScene(renderer, scene, camera);
+    activeTarget = saved;
 
-    const px = await renderer.readPixels(rt);
+    const px = await read(renderer, rt);
     const at = (x: number, y: number): [number, number, number, number] => {
         const i = (y * SIZE + x) * 4;
         return [px[i], px[i + 1], px[i + 2], px[i + 3]];
@@ -2743,14 +3485,13 @@ async function caseReadbackOrientation(): Promise<CaseResult> {
 }
 
 /**
- * headless-offscreen: construct a WebGLRenderer over a 1x1 OffscreenCanvas (no DOM canvas, no setSize),
+ * headless-offscreen: construct a WebGLBackend over a 1x1 OffscreenCanvas (no DOM canvas, no setSize),
  * render a solid color into a RenderTarget, and read it back — proving OffscreenCanvas acceptance
  * end-to-end (the headless icon-bake path).
  */
 async function caseHeadlessOffscreen(): Promise<CaseResult> {
-    const renderer = new WebGLRenderer({ canvas: new OffscreenCanvas(1, 1) });
-    await renderer.init();
-    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const renderer = await init(webgl({ target: createCanvasTarget(new OffscreenCanvas(1, 1)) }));
+    const rt = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
 
     const geometry = createFullscreenTriangleGeometry();
     const position = attribute('position', d.vec3f);
@@ -2765,12 +3506,12 @@ async function caseHeadlessOffscreen(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    const saved = renderer.renderTarget;
-    renderer.renderTarget = rt;
-    renderer.render(scene, camera);
-    renderer.renderTarget = saved;
+    const saved = activeTarget;
+    activeTarget = rt;
+    renderScene(renderer, scene, camera);
+    activeTarget = saved;
 
-    const px = await renderer.readPixels(rt);
+    const px = await read(renderer, rt);
     const i = (CENTER * SIZE + CENTER) * 4;
     const pixel: [number, number, number, number] = [px[i], px[i + 1], px[i + 2], px[i + 3]];
     renderer.dispose();
@@ -2787,7 +3528,7 @@ async function caseHeadlessOffscreen(): Promise<CaseResult> {
  */
 async function caseStorageAndTexture(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     // storage: one vec4 we read in the VERTEX and hand to the fragment as a varying (like the avatar's uv).
     const buf = new GpuBuffer(d.array(d.vec4f), { data: new Float32Array([0.5, 0.5, 0, 0]), usage: 'storage' });
@@ -2821,8 +3562,8 @@ async function caseStorageAndTexture(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'storage+texture', pixel, expected: [R, G, B, 255] };
 }
@@ -2838,7 +3579,7 @@ async function caseStorageAndTexture(): Promise<CaseResult> {
  */
 async function caseInterleavedAttrs(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
 
     const Vtx = struct('InterleavedVtx', { a: d.vec4f, b: d.vec4f }); // 32-byte stride, b at offset 16
     const U = 0.6;
@@ -2869,8 +3610,8 @@ async function caseInterleavedAttrs(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.render(scene, camera);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'interleaved-attrs', pixel, expected: [u8(U), u8(V), 0, 255] };
 }
@@ -2885,7 +3626,7 @@ async function caseInterleavedAttrs(): Promise<CaseResult> {
  */
 async function caseRenderTargetFlip(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const rt = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
 
     // Pass 1: two-tone into the RT. clip y > 0 (top) = RED, below = GREEN.
     const geometry1 = createFullscreenTriangleGeometry();
@@ -2902,13 +3643,13 @@ async function caseRenderTargetFlip(): Promise<CaseResult> {
     scene1.updateWorldMatrix();
     camera1.updateViewMatrix();
 
-    const saved = renderer.renderTarget;
-    renderer.renderTarget = rt;
-    renderer.render(scene1, camera1);
-    renderer.renderTarget = saved;
+    const saved = activeTarget;
+    activeTarget = rt;
+    renderScene(renderer, scene1, camera1);
+    activeTarget = saved;
 
     // Pass 2: sample the RT at a constant top-region uv (v = 0.25) onto the default framebuffer.
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const geometry2 = createFullscreenTriangleGeometry();
     const position2 = attribute('position', d.vec3f);
     const sampleMat = new Material({
@@ -2922,8 +3663,8 @@ async function caseRenderTargetFlip(): Promise<CaseResult> {
     scene2.updateWorldMatrix();
     camera2.updateViewMatrix();
 
-    renderer.render(scene2, camera2);
-    const pixel = readCenter(renderer.gl!);
+    renderScene(renderer, scene2, camera2);
+    const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     // v=0.25 is the top region, so RED (matching WebGPU's top-left sampling origin).
     return { name: 'rtt-flip', pixel, expected: [255, 0, 0, 255] };
@@ -2939,7 +3680,7 @@ async function caseRenderTargetFlip(): Promise<CaseResult> {
  */
 async function caseRtLoadOrient(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const rt = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
 
     // Pass 1: two-tone into the RT — clip y > 0 (top) = RED, below = GREEN.
     const g1 = createFullscreenTriangleGeometry();
@@ -2955,12 +3696,12 @@ async function caseRtLoadOrient(): Promise<CaseResult> {
     const cam1 = new PerspectiveCamera();
     s1.updateWorldMatrix();
     cam1.updateViewMatrix();
-    renderer.renderTarget = rt;
-    renderer.render(s1, cam1);
-    renderer.renderTarget = null;
+    activeTarget = rt;
+    renderScene(renderer, s1, cam1);
+    activeTarget = null;
 
     // Pass 2: texelFetch the RT by top-left screenUV * dims (makecat's occlusion index) → output it.
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const texNode = texture(rt.texture! as Texture);
     const texel = vec2i(mul(screenUV, vec2f(textureDimensions(texNode.bindingNode))));
     const g2 = createFullscreenTriangleGeometry();
@@ -2975,9 +3716,9 @@ async function caseRtLoadOrient(): Promise<CaseResult> {
     const cam2 = new PerspectiveCamera();
     s2.updateWorldMatrix();
     cam2.updateViewMatrix();
-    renderer.render(s2, cam2);
+    renderScene(renderer, s2, cam2);
 
-    const gl = renderer.gl!;
+    const gl = renderer.backend.gl!;
     const top = readAt(gl, CENTER, SIZE - 4); // displayed top → RED
     const bottom = readAt(gl, CENTER, 3); //     displayed bottom → GREEN
     renderer.dispose();
@@ -3001,7 +3742,7 @@ async function caseRtLoadOrient(): Promise<CaseResult> {
  */
 async function caseDepthLoadRead(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    const rt = new RenderTarget(SIZE, SIZE, { count: 0, depthFormat: 'depth32float', depthSampled: true });
+    const rt = createRenderTarget(SIZE, SIZE, { count: 0, depthFormat: 'depth32float', depthSampled: true });
 
     const g1 = createFullscreenTriangleGeometry();
     const p1 = attribute('position', d.vec3f);
@@ -3016,11 +3757,11 @@ async function caseDepthLoadRead(): Promise<CaseResult> {
     const cam1 = new PerspectiveCamera();
     s1.updateWorldMatrix();
     cam1.updateViewMatrix();
-    renderer.renderTarget = rt;
-    renderer.render(s1, cam1);
-    renderer.renderTarget = null;
+    activeTarget = rt;
+    renderScene(renderer, s1, cam1);
+    activeTarget = null;
 
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const depthNode = depthTexture(rt.depthTexture!);
     const texel = vec2i(mul(screenUV, vec2f(textureDimensions(depthNode.bindingNode))));
     const sceneZ = depthNode.load(texel);
@@ -3036,9 +3777,9 @@ async function caseDepthLoadRead(): Promise<CaseResult> {
     const cam2 = new PerspectiveCamera();
     s2.updateWorldMatrix();
     cam2.updateViewMatrix();
-    renderer.render(s2, cam2);
+    renderScene(renderer, s2, cam2);
 
-    const gl = renderer.gl!;
+    const gl = renderer.backend.gl!;
     const top = readAt(gl, CENTER, SIZE - 4); // displayed top → near depth 0.2 → dark (~51), NONZERO
     const bottom = readAt(gl, CENTER, 3); //     displayed bottom → far depth 0.8 → light (~204)
     renderer.dispose();
@@ -3054,7 +3795,7 @@ async function caseDepthLoadRead(): Promise<CaseResult> {
 
 /**
  * pass-depth-sample: replicates makecat's FULL CanvasTrait machinery, not just a direct RenderTarget —
- * a `pass()` renders a scene, its depth is taken via `getDepthTextureNode()`, and a `RenderPipeline`
+ * a `renderTexture()` renders a scene, its depth is taken via `getDepthTextureNode()`, and a composite pass
  * composite samples that pass-depth via `.load(screenUV * dims)` (the exact occlusion index). Proves the
  * pass depth is written + sampleable through the display-node pipeline. Scene writes depth 0.2 to the top,
  * 0.8 to the bottom; the composite reads it back — top must be near (dark), NONZERO, and not mirrored.
@@ -3082,20 +3823,23 @@ async function casePassDepthSample(): Promise<CaseResult> {
     // composite ALSO references the pass COLOR (× 0) — a pass only renders when its output is referenced,
     // and makecat's fxaa samples the scene color, so its scenePass renders and its depth is populated. Just
     // sampling the depth wouldn't trigger the render (the RT would stay at its 1×1 init size).
-    const scenePass = pass(scene, camera);
+    const scenePass = renderTexture(scene, camera);
     const sceneDepth = scenePass.getDepthTextureNode();
     const sceneColor = scenePass.getTextureNode();
     const texel = vec2i(mul(screenUV, vec2f(textureDimensions(sceneDepth.bindingNode))));
     const z = sceneDepth.load(texel);
-    const pipeline = new RenderPipeline(renderer, renderOutput(vec4(z, z, z, f32(1)).add(sceneColor.mul(f32(0)))));
+    const composite = fullscreen(renderOutput(vec4(z, z, z, f32(1)).add(sceneColor.mul(f32(0)))));
 
-    renderer.clearColor = [1, 0, 1, 1]; // magenta clear so an empty/black result is unambiguous
-    pipeline.render();
+    const f = frame(renderer);
+    // magenta clear so an empty/black result is unambiguous
+    const compositePass = f.pass({ target: renderer.backend.target, clear: [1, 0, 1, 1] });
+    compositePass.draw(composite);
+    compositePass.end();
+    f.submit();
 
-    const gl = renderer.gl!;
+    const gl = renderer.backend.gl!;
     const top = readAt(gl, CENTER, SIZE - 4);
     const bottom = readAt(gl, CENTER, 3);
-    pipeline.dispose();
     renderer.dispose();
     // Read works (nonzero) AND oriented (top near/dark, bottom far/light). 0 = the makecat pass-depth bug.
     const ok = bottom[0] > top[0] && bottom[0] > 150 && top[0] > 30 && top[0] < 200;
@@ -3103,7 +3847,7 @@ async function casePassDepthSample(): Promise<CaseResult> {
         name: 'pass-depth-sample',
         pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
         expected: [0, 255, 0, 255],
-        note: `top=${top[0]} bottom=${bottom[0]} (pass-depth via RenderPipeline; both 0 = makecat's bug reproduced)`,
+        note: `top=${top[0]} bottom=${bottom[0]} (pass-depth via a composite pass; both 0 = makecat's bug reproduced)`,
     };
 }
 
@@ -3136,7 +3880,7 @@ async function casePassOcclude(): Promise<CaseResult> {
     scene.updateWorldMatrix();
     scam.updateViewMatrix();
 
-    const scenePass = pass(scene, scam);
+    const scenePass = renderTexture(scene, scam);
     const sceneColor = scenePass.getTextureNode();
     const sceneDepth = scenePass.getDepthTextureNode();
 
@@ -3160,20 +3904,21 @@ async function casePassOcclude(): Promise<CaseResult> {
     overlayScene.updateWorldMatrix();
     ocam.updateViewMatrix();
 
-    const overlayPass = pass(overlayScene, ocam);
-    // makecat-faithful composite: sceneColor GENUINELY blended (premult-over), so the scene pass isn't
-    // pruned and renders first — out = sceneColor·(1−overlayA) + overlayRgb.
+    const overlayPass = renderTexture(overlayScene, ocam);
+    // sceneColor is genuinely blended (premultiplied over), so the scene pass is not pruned and runs first.
     const ov = overlayPass.getTextureNode();
     const compRgb = sceneColor.rgb.mul(f32(1).sub(ov.a)).add(ov.rgb);
-    const pipeline = new RenderPipeline(renderer, renderOutput(vec4(compRgb, f32(1))));
+    const composite = fullscreen(renderOutput(vec4(compRgb, f32(1))));
 
-    renderer.clearColor = [1, 0, 1, 1];
-    pipeline.render();
+    const f = frame(renderer);
+    const compositePass = f.pass({ target: renderer.backend.target, clear: [1, 0, 1, 1] });
+    compositePass.draw(composite);
+    compositePass.end();
+    f.submit();
 
-    const gl = renderer.gl!;
+    const gl = renderer.backend.gl!;
     const top = readAt(gl, CENTER, SIZE - 4); // scene 0.3 in front → occluded → shows RED scene
     const bottom = readAt(gl, CENTER, 3); //     scene 1.0 far → visible → GREEN canvas
-    pipeline.dispose();
     renderer.dispose();
     const ok = top[0] > 128 && top[1] < 128 && bottom[1] > 128 && bottom[0] < 128;
     return {
@@ -3202,7 +3947,7 @@ const isRed = (c: number[]): boolean => c[0] > 200 && c[1] < 60 && c[2] < 60;
  */
 async function caseScreenOrientDirect(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const g = createFullscreenTriangleGeometry();
     const p = attribute('position', d.vec3f);
     const vy = varying(p.y, 'vy');
@@ -3216,8 +3961,8 @@ async function caseScreenOrientDirect(): Promise<CaseResult> {
     const c = new PerspectiveCamera();
     s.updateWorldMatrix();
     c.updateViewMatrix();
-    renderer.render(s, c);
-    const gl = renderer.gl!;
+    renderScene(renderer, s, c);
+    const gl = renderer.backend.gl!;
     const dispTop = readAt(gl, CENTER, SIZE - 4);
     const dispBottom = readAt(gl, CENTER, 3);
     renderer.dispose();
@@ -3240,7 +3985,7 @@ async function caseScreenOrientDirect(): Promise<CaseResult> {
  */
 async function caseScreenOrientPresent(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const rt = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
     // pass 1: two-tone into the RT.
     const g1 = createFullscreenTriangleGeometry();
     const p1 = attribute('position', d.vec3f);
@@ -3255,12 +4000,12 @@ async function caseScreenOrientPresent(): Promise<CaseResult> {
     const c1 = new PerspectiveCamera();
     s1.updateWorldMatrix();
     c1.updateViewMatrix();
-    const saved = renderer.renderTarget;
-    renderer.renderTarget = rt;
-    renderer.render(s1, c1);
-    renderer.renderTarget = saved;
+    const saved = activeTarget;
+    activeTarget = rt;
+    renderScene(renderer, s1, c1);
+    activeTarget = saved;
     // pass 2: present via screenUV to the default framebuffer.
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const g2 = createFullscreenTriangleGeometry();
     const p2 = attribute('position', d.vec3f);
     const present = new Material({
@@ -3273,8 +4018,8 @@ async function caseScreenOrientPresent(): Promise<CaseResult> {
     const c2 = new PerspectiveCamera();
     s2.updateWorldMatrix();
     c2.updateViewMatrix();
-    renderer.render(s2, c2);
-    const gl = renderer.gl!;
+    renderScene(renderer, s2, c2);
+    const gl = renderer.backend.gl!;
     const dispTop = readAt(gl, CENTER, SIZE - 4);
     const dispBottom = readAt(gl, CENTER, 3);
     renderer.dispose();
@@ -3294,7 +4039,7 @@ async function caseScreenOrientPresent(): Promise<CaseResult> {
  */
 async function caseFragCoordDirect(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const g = createFullscreenTriangleGeometry();
     const p = attribute('position', d.vec3f);
     const mat = new Material({
@@ -3308,8 +4053,8 @@ async function caseFragCoordDirect(): Promise<CaseResult> {
     const c = new PerspectiveCamera();
     s.updateWorldMatrix();
     c.updateViewMatrix();
-    renderer.render(s, c);
-    const gl = renderer.gl!;
+    renderScene(renderer, s, c);
+    const gl = renderer.backend.gl!;
     const dispTop = readAt(gl, CENTER, SIZE - 4);
     const dispBottom = readAt(gl, CENTER, 3);
     renderer.dispose();
@@ -3328,7 +4073,7 @@ async function caseFragCoordDirect(): Promise<CaseResult> {
  */
 async function caseGeomUvPresent(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const rt = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
     // pass 1: two-tone into the RT (clip top RED, bottom GREEN).
     const g1 = createFullscreenTriangleGeometry();
     const p1 = attribute('position', d.vec3f);
@@ -3343,12 +4088,12 @@ async function caseGeomUvPresent(): Promise<CaseResult> {
     const c1 = new PerspectiveCamera();
     s1.updateWorldMatrix();
     c1.updateViewMatrix();
-    const saved = renderer.renderTarget;
-    renderer.renderTarget = rt;
-    renderer.render(s1, c1);
-    renderer.renderTarget = saved;
+    const saved = activeTarget;
+    activeTarget = rt;
+    renderScene(renderer, s1, c1);
+    activeTarget = saved;
     // pass 2: present sampling by the geometry uv (top-left), not screenUV.
-    renderer.clearColor = [0, 0, 0, 1];
+    activeClear = [0, 0, 0, 1];
     const g2 = createFullscreenTriangleGeometry();
     const p2 = attribute('position', d.vec3f);
     const vUv = varying(attribute('uv', d.vec2f), 'vUv');
@@ -3362,8 +4107,8 @@ async function caseGeomUvPresent(): Promise<CaseResult> {
     const c2 = new PerspectiveCamera();
     s2.updateWorldMatrix();
     c2.updateViewMatrix();
-    renderer.render(s2, c2);
-    const gl = renderer.gl!;
+    renderScene(renderer, s2, c2);
+    const gl = renderer.backend.gl!;
     const dispTop = readAt(gl, CENTER, SIZE - 4);
     const dispBottom = readAt(gl, CENTER, 3);
     renderer.dispose();
@@ -3383,33 +4128,38 @@ async function caseGeomUvPresent(): Promise<CaseResult> {
  */
 async function caseViewportCellPresent(): Promise<CaseResult> {
     const renderer = await newRenderer();
-    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const rt = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
     // clear the whole RT to BLUE.
-    renderer.clearColor = [0, 0, 1, 1];
-    const saved = renderer.renderTarget;
-    renderer.renderTarget = rt;
-    renderer.render(new Scene(), new PerspectiveCamera());
-    // draw solid RED into the top-half cell (top-left rect), without re-clearing the blue.
-    rt.viewport = [0, 0, SIZE, SIZE / 2];
-    rt.scissor = [0, 0, SIZE, SIZE / 2];
-    rt.scissorTest = true;
-    renderer.autoClear = false;
+    activeClear = [0, 0, 1, 1];
+    const saved = activeTarget;
+    activeTarget = rt;
+    renderScene(renderer, new Scene(), new PerspectiveCamera());
+    // draw solid RED into the top-half cell (top-left rect), without re-clearing the blue. The cell is
+    // named by the pass desc; a render target carries no viewport or scissor of its own.
     const g = createFullscreenTriangleGeometry();
     const p = attribute('position', d.vec3f);
     const red = new Material({ vertex: vec4(p, f32(1)), fragment: vec4(1, 0, 0, 1), depthTest: false });
-    const s = new Scene();
-    s.add(new Mesh(g, red));
+    const cell = new Mesh(g, red);
+    cell.updateWorldMatrix();
     const c = new PerspectiveCamera();
-    s.updateWorldMatrix();
     c.updateViewMatrix();
-    renderer.render(s, c);
-    // restore full-target state + present via screenUV.
-    rt.scissorTest = false;
-    rt.viewport = null;
-    rt.scissor = null;
-    renderer.autoClear = true;
-    renderer.renderTarget = saved;
-    renderer.clearColor = [0, 0, 0, 1];
+
+    const f = frame(renderer);
+    const cellPass = f.pass({
+        target: rt,
+        camera: c,
+        clear: false,
+        clearDepth: false,
+        viewport: { x: 0, y: 0, width: SIZE, height: SIZE / 2 },
+        scissor: { x: 0, y: 0, width: SIZE, height: SIZE / 2 },
+        label: 'cell',
+    });
+    cellPass.draw(cell);
+    cellPass.end();
+    f.submit();
+
+    activeTarget = saved;
+    activeClear = [0, 0, 0, 1];
     const g2 = createFullscreenTriangleGeometry();
     const p2 = attribute('position', d.vec3f);
     const present = new Material({
@@ -3422,8 +4172,8 @@ async function caseViewportCellPresent(): Promise<CaseResult> {
     const c2 = new PerspectiveCamera();
     s2.updateWorldMatrix();
     c2.updateViewMatrix();
-    renderer.render(s2, c2);
-    const gl = renderer.gl!;
+    renderScene(renderer, s2, c2);
+    const gl = renderer.backend.gl!;
     const dispTop = readAt(gl, CENTER, SIZE - 4);
     const dispBottom = readAt(gl, CENTER, 3);
     renderer.dispose();
@@ -3447,7 +4197,22 @@ export async function run(): Promise<RunResult> {
             caseGeomUvPresent,
             caseViewportCellPresent,
             caseClear,
+            caseCompilePrewarm,
+            caseTfOrdering,
             caseSolid,
+            caseFrameApi,
+            caseFrameDone,
+            caseForeignCanvas,
+            caseDrawScene,
+            caseCubeCamera,
+            caseDrawOpts,
+            caseDrawMaterial,
+            caseBundleReplay,
+            caseBufferSwap,
+            caseClearDepth,
+            caseClearDepthOnly,
+            caseClearSelective,
+            caseFullscreen,
             caseUniform,
             caseLit,
             caseTextured,
@@ -3514,6 +4279,8 @@ export async function run(): Promise<RunResult> {
             caseTransformFeedbackUniform,
             caseTransformFeedbackNeighbour,
             caseTransformFeedbackAliasGuard,
+            caseTransformFeedbackUnboundOutput,
+            caseTransformFeedbackPass,
             // NOTE: shadow-map (comparison sampler) is NOT asserted here — SwiftShader (the headless
             // WebGL2 backend this harness runs on) does not honor sampler2DShadow depth comparison
             // (a hand-rolled pure-GL shadow program returns "lit" for every ref against a

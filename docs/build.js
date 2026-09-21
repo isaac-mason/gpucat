@@ -31,8 +31,8 @@ const SECTIONS = [
         title: 'Renderer',
         blurb: 'Drive the GPU: create a renderer, build pipelines, render to the canvas or a target.',
         groups: [
-            { title: 'Renderer', modules: ['renderer/renderer'] },
-            { title: 'Pipelines & targets', modules: ['renderer/render-pipeline', 'renderer/canvas-target', 'renderer/read-pixels', 'core/render-target', 'core/cube-render-target'] },
+            { title: 'Renderer', modules: ['renderer/core/renderer', 'renderer/core/init', 'renderer/core/frame'] },
+            { title: 'Pipelines & targets', modules: ['renderer/core/canvas-target', 'renderer/core/read', 'core/render-target', 'core/cube-render-target'] },
         ],
     },
     {
@@ -292,6 +292,7 @@ function renderGroup(title, names, resolve) {
 
 function generateApiDocs() {
     const nodesGroups = parseNodesBlock();
+    const unresolved = [];
     let toc = '';
     let detail = '';
 
@@ -316,7 +317,9 @@ function generateApiDocs() {
             for (const mod of group.modules) {
                 const dts = dtsForModule(mod);
                 if (!dts) {
-                    console.warn(`  · no .d.ts for module "${mod}"`);
+                    // Not a warning: a module that moved or went away drops its whole group from the
+                    // reference, which is how the frame API went undocumented across the 6.x refactor.
+                    unresolved.push(`${group.title} -> ${mod}`);
                     continue;
                 }
                 for (const n of exportedNamesOf(dts)) {
@@ -332,16 +335,30 @@ function generateApiDocs() {
         }
     }
 
+    if (unresolved.length > 0) {
+        console.error('[docs] modules the API reference could not resolve:');
+        for (const u of unresolved) console.error(`  ${u}`);
+        process.exit(1);
+    }
+
     return toc + '\n---\n\n' + detail;
 }
 
 /* Render one DSL category (from the nodes block) inline: chips + detail.
  * Node-class types (`*Node`, bare `Node`) are dropped so the reference stays
  * focused on the DSL surface, not the backing classes. */
+/**
+ * Categories come from `// comment` lines inside `index.ts`'s `export { ... } from './nodes/nodes'`.
+ * That block has none, so every `<RenderCategory>` in the guide renders nothing. Classifying its 322
+ * names is its own job; until then this holds the count so a sixteenth cannot appear unnoticed.
+ */
+const MISSING_CATEGORY_BUDGET = 15;
+const missingCategories = new Set();
+
 function renderCategory(name, compact = false) {
     const g = parseNodesBlock().find((x) => x.category.toLowerCase() === name.toLowerCase());
     if (!g) {
-        console.warn(`  · <RenderCategory> category "${name}" not found`);
+        missingCategories.add(name);
         return '';
     }
     const names = g.names.filter((n) => n !== 'Node' && !/Node$/.test(n));
@@ -500,7 +517,12 @@ function render(text) {
             'm',
         );
         const m = re.exec(src);
-        if (!m) return console.warn(`Snippet group '${groupName}' not found`), full;
+        if (!m) {
+            // fatal, not a warning: an unresolved group ships the raw tag and leaves that block unchecked
+            console.error(`Snippet group '${groupName}' not found in ${sourcePath}`);
+            process.exitCode = 1;
+            return full;
+        }
         let code = m[2];
         if (m[1]) code = code.replace(new RegExp(`^${m[1]}`, 'gm'), '');
         code = code.replace(/^\s*\n|\n\s*$/g, '');
@@ -524,6 +546,14 @@ for (const { template, out } of outputs) {
     const outPath = path.join(here, out);
     fs.writeFileSync(outPath, result, 'utf-8');
     console.log(`Wrote ${path.relative(process.cwd(), outPath)}`);
+}
+
+if (missingCategories.size > MISSING_CATEGORY_BUDGET) {
+    console.error(`[docs] ${missingCategories.size} <RenderCategory> names render nothing, budget is ${MISSING_CATEGORY_BUDGET}:`);
+    for (const c of [...missingCategories].sort()) console.error(`  ${c}`);
+    process.exit(1);
+} else if (missingCategories.size > 0) {
+    console.warn(`[docs] ${missingCategories.size} empty <RenderCategory> sections, at the recorded budget`);
 }
 
 /* ───────────── getSource - raw source incl. body (for <RenderSource>) ────── */

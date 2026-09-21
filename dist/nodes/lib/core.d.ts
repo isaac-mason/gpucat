@@ -93,7 +93,7 @@ export declare enum NodeKind {
     CubeTexture = 37,
     DepthTexture = 38,
     ArrayTexture = 39,
-    Pass = 40,
+    RenderTexture = 40,
     Inspector = 41,
     SubBuild = 42,
     Node = 43
@@ -931,7 +931,8 @@ export type IfChain = {
     Else(body: () => void): IfChain;
 };
 export declare function If(condition: Node<Any>, thenBody: () => void): IfChain;
-export type LoopVars = Record<string, Node<Any>>;
+/** The loop variable is a scalar; `i32` unless a `LoopParam` names another `type`. */
+export type LoopVars = Record<string, Node<d.i32>>;
 export declare function Loop(range: number, callback: (vars: LoopVars) => void): LoopNode;
 export declare function Loop(o: LoopParam, callback: (vars: LoopVars) => void): LoopNode;
 export declare const For: typeof Loop;

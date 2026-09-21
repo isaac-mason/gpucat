@@ -58,12 +58,14 @@ export declare class MRTNode extends OutputStructNode {
      */
     merge(other: MRTNode): MRTNode;
     /**
-     * Resolve output names to @location indices based on render target textures.
-     * Called by the compiler when the render target is known.
+     * Resolve output names to @location indices against the target's attachment names. Throws on a
+     * name the target does not have: skipping it emits a shader with fewer locations than the pass
+     * binds, which the backend then draws with an attachment left at its clear colour.
      *
-     * @param getTextureIndex - Function that maps texture name to index (from RenderTarget)
+     * @param getTextureIndex - Maps an attachment name to its index, or -1.
+     * @param attachmentNames - Only read to name the alternatives when a lookup fails.
      */
-    resolveOutputs(getTextureIndex: (name: string) => number): void;
+    resolveOutputs(getTextureIndex: (name: string) => number, attachmentNames?: readonly string[]): void;
 }
 /**
  * Create an MRT (Multiple Render Targets) node from a dictionary of outputs.
@@ -79,7 +81,7 @@ export declare class MRTNode extends OutputStructNode {
  *     velocity: motionVector,
  * });
  *
- * const material = new Material({
+ * const material = createMaterial({
  *     vertex: clipPosition,
  *     fragment: mrtOutput,
  * });

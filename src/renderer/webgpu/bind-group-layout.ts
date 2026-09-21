@@ -212,3 +212,7 @@ export function buildComputeBindGroupLayouts(
 export function disposeBindGroupLayoutCache(cache: BindGroupLayoutCache): void {
     cache.cache.clear();
 }
+
+export function getBindGroupLayoutCacheStats(cache: BindGroupLayoutCache): { layoutCount: number } {
+    return { layoutCount: cache.cache.size };
+}

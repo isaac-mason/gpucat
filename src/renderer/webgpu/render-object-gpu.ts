@@ -7,12 +7,10 @@
  * mirroring how GpuBuffer/GpuTexture keep their GPU handles in renderer-side
  * caches (see buffers.ts BufferCache).
  *
- * The cache is a per-renderer instance (held on WebGPURenderer as
+ * The cache is a per-renderer instance (held on WebGPUBackend as
  * `_renderObjectGpu`), not a module-global.
  */
 
-import type { GpuBuffer } from '../../core/gpu-buffer';
-import type { Any } from '../../schema/schema';
 import type { RenderObject } from '../core/render-object';
 
 /**
@@ -34,18 +32,6 @@ export type RenderObjectGpu = {
      * null until bindings are created.
      */
     bindGroups: GPUBindGroup[] | null;
-
-    /**
-     * Vertex buffers used by this draw.
-     * null until buffers are resolved.
-     */
-    vertexBuffers: GpuBuffer<Any>[] | null;
-
-    /**
-     * Index buffer (if indexed draw).
-     * null for non-indexed draws.
-     */
-    indexBuffer: GpuBuffer<Any> | null;
 };
 
 /**
@@ -68,8 +54,6 @@ function createRenderObjectGpu(): RenderObjectGpu {
     return {
         pipeline: null,
         bindGroups: null,
-        vertexBuffers: null,
-        indexBuffer: null,
     };
 }
 
@@ -102,11 +86,4 @@ export function clearRenderObjectGpu(cache: RenderObjectGpuCache, renderObject: 
     if (!gpu) return;
     gpu.pipeline = null;
     gpu.bindGroups = null;
-    gpu.vertexBuffers = null;
-    gpu.indexBuffer = null;
-}
-
-/** Delete the device payload entry for a RenderObject entirely. */
-export function deleteRenderObjectGpu(cache: RenderObjectGpuCache, renderObject: RenderObject): void {
-    cache.data.delete(renderObject);
 }

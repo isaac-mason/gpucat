@@ -12,6 +12,7 @@
     ],
     "license": "MIT",
     "type": "module",
+    "sideEffects": false,
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "files": [
@@ -31,6 +32,11 @@
         "test:glsl": "node tst/glsl-compile/run.mjs",
         "test:wgsl": "node tst/wgsl-validate/run.mjs",
         "test:webgl": "node tst/webgl-render/run.mjs",
+        "test:webgpu": "node tst/webgpu-render/run.mjs",
+        "test:shake": "node tst/tree-shake/run.mjs",
+        "typecheck": "tsc --noEmit",
+        "typecheck:tst": "tsc --noEmit -p tst/tsconfig.json",
+        "typecheck:examples": "rollup --config rollup.config.mjs && tsc --noEmit -p examples/tsconfig.json",
         "docs": "(cd docs && node ./build.js)"
     },
     "packageManager": "pnpm@8.15.2+sha1.798034f615aa211c6c2ae00010cc20be5fc102ee",
@@ -50,6 +56,7 @@
         "rollup-plugin-filesize": "^10.0.0",
         "tslib": "^2.8.1",
         "typescript": "^5.9.2",
-        "vitest": "^3.2.4"
+        "vitest": "^3.2.4",
+        "webgpu": "^0.6.1"
     }
 }

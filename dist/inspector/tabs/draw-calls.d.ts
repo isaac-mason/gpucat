@@ -15,8 +15,8 @@
  */
 import type { NodeBuilderState } from '../../renderer/core/node-builder-state';
 import type { RenderObject } from '../../renderer/core/render-object';
-import type { InspectableRenderer } from '../inspector-base';
 import type { Inspector } from '../inspector';
+import type { InspectableRenderer } from '../inspector-base';
 import { List } from '../ui/list';
 import { Tab } from '../ui/tab';
 export declare class DrawCalls extends Tab {

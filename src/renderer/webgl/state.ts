@@ -3,10 +3,9 @@
  *
  * These are the immediate-mode equivalents of a WebGPU pipeline's fixed-function state: depth
  * test/write/compare, face culling, blending, and stencil. WebGPU bakes this into the pipeline
- * object; WebGL2 sets it live on the context before each draw. The mechanics are ported from the
- * reference renderer's `setDepthTest`/`setDepthMask`/`setCullSide`/`setBlending`, adapted to read
- * gpucat's `Material` fields (which use the WebGPU vocabulary: `depthCompare`, `cullMode`, `blend`,
- * `stencilFunc`, `stencilFail`, …) rather than the reference's own enums.
+ * object; WebGL2 sets it live on the context before each draw. These read `Material`'s fields
+ * directly, and those fields are WebGPU vocabulary (`depthCompare`, `cullMode`, `blend`,
+ * `stencilFunc`, `stencilFail`), so there is no second enum set to translate through.
  *
  * A small `GlStateCache` tracks the last-applied values so redundant `gl.enable`/`gl.depthFunc`/…
  * calls are skipped across the draw loop (the WebGPU path gets this for free from pipeline dedup).
@@ -102,13 +101,17 @@ function compareFunc(gl: WebGL2RenderingContext, compare: GPUCompareFunction): n
             return gl.NOTEQUAL;
         case 'greater-equal':
             return gl.GEQUAL;
-        default:
+        case 'always':
             return gl.ALWAYS;
+        default: {
+            const unhandled: never = compare;
+            throw new Error(`[webgl] unhandled '${unhandled}'.`);
+        }
     }
 }
 
 /** Map a WebGPU blend factor to the GL blend-factor constant. */
-function blendFactor(gl: WebGL2RenderingContext, factor: GPUBlendFactor): number {
+export function blendFactor(gl: WebGL2RenderingContext, factor: GPUBlendFactor): number {
     switch (factor) {
         case 'zero':
             return gl.ZERO;
@@ -140,11 +143,20 @@ function blendFactor(gl: WebGL2RenderingContext, factor: GPUBlendFactor): number
         case 'constant':
         case 'one-minus-constant':
             throw new Error(
-                `[WebGLRenderer] blend factor '${factor}' is not supported on WebGL2: gpucat does not ` +
+                `[webgl] blend factor '${factor}' is not supported on WebGL2: gpucat does not ` +
                     `model a blend constant (no setBlendConstant equivalent), so gl.blendColor cannot be set.`,
             );
-        default:
-            return gl.ONE;
+        // Dual-source blending is a WebGPU feature with no WebGL2 equivalent at all, so these cannot be
+        // approximated the way a missing format sometimes can.
+        case 'src1':
+        case 'one-minus-src1':
+        case 'src1-alpha':
+        case 'one-minus-src1-alpha':
+            throw new Error(`[webgl] blend factor '${factor}' needs dual-source blending, which WebGL2 does not have.`);
+        default: {
+            const unhandled: never = factor;
+            throw new Error(`[webgl] unknown blend factor '${unhandled}'.`);
+        }
     }
 }
 
@@ -159,8 +171,12 @@ function blendOp(gl: WebGL2RenderingContext, op: GPUBlendOperation): number {
             return gl.MIN;
         case 'max':
             return gl.MAX;
-        default:
+        case 'add':
             return gl.FUNC_ADD;
+        default: {
+            const unhandled: never = op;
+            throw new Error(`[webgl] unhandled '${unhandled}'.`);
+        }
     }
 }
 
@@ -181,8 +197,12 @@ function stencilOp(gl: WebGL2RenderingContext, op: GPUStencilOperation): number 
             return gl.INCR_WRAP;
         case 'decrement-wrap':
             return gl.DECR_WRAP;
-        default:
+        case 'keep':
             return gl.KEEP;
+        default: {
+            const unhandled: never = op;
+            throw new Error(`[webgl] unhandled '${unhandled}'.`);
+        }
     }
 }
 

@@ -10,10 +10,10 @@ import {
     // uniforms / builtins
     cameraProjectionMatrix,
     cameraViewMatrix,
-    // compile entry points
-    compile,
-    compileCompute,
+    compileComputeWgsl,
     compileGlsl,
+    // compile entry points
+    compileWgsl,
     // storage / atomics / compute
     createStorageBuffer,
     createStorageTexture,
@@ -66,7 +66,7 @@ import {
  */
 
 /** Extract only primitive, backend-neutral fields from a render CompileResult. */
-function renderShape(r: ReturnType<typeof compile>) {
+function renderShape(r: ReturnType<typeof compileWgsl>) {
     return {
         code: r.code,
         vertexEntryPoint: r.vertexEntryPoint,
@@ -77,7 +77,7 @@ function renderShape(r: ReturnType<typeof compile>) {
 }
 
 /** Extract only primitive fields from a compute ComputeCompileResult. */
-function computeShape(r: ReturnType<typeof compileCompute>) {
+function computeShape(r: ReturnType<typeof compileComputeWgsl>) {
     return {
         code: r.code,
         workgroupSize: r.workgroupSize,
@@ -99,7 +99,7 @@ describe('golden WGSL — render path', () => {
         const lighting = f32(0.15).add(vWorldNormal.dot(lightDir).max(f32(0)));
         const fragment = vec4(vec3(0.4, 0.7, 1.0).mul(lighting), f32(1));
 
-        const result = compile({ vertex: clipPosition, fragment, depth: undefined });
+        const result = compileWgsl({ vertex: clipPosition, fragment, depth: undefined });
         expect(renderShape(result)).toMatchSnapshot();
     });
 
@@ -108,7 +108,7 @@ describe('golden WGSL — render path', () => {
         const sampler = new GpuSampler({ minFilter: 'linear', magFilter: 'linear' });
         const color = texture(tex, sampler).sample(screenUV);
 
-        const result = compile({
+        const result = compileWgsl({
             vertex: vec4(attribute('position', d.vec3f), f32(1)),
             fragment: color,
             depth: undefined,
@@ -122,7 +122,7 @@ describe('golden WGSL — render path', () => {
         const luma = wgsl(d.f32)`dot(${tinted}, vec3f(0.299, 0.587, 0.114))`;
         const fragment = vec4(tinted.mul(luma), f32(1));
 
-        const result = compile({
+        const result = compileWgsl({
             vertex: vec4(attribute('position', d.vec3f), f32(1)),
             fragment,
             depth: undefined,
@@ -143,7 +143,7 @@ describe('golden WGSL — compute path', () => {
             index(items, cell.mul(u32(16)).add(slot)).assign(i);
         }).compute({ workgroupSize: [64, 1, 1] });
 
-        expect(computeShape(compileCompute(kernel))).toMatchSnapshot();
+        expect(computeShape(compileComputeWgsl(kernel))).toMatchSnapshot();
     });
 
     test('workgroup atomic + barriers', () => {
@@ -161,7 +161,7 @@ describe('golden WGSL — compute path', () => {
             index(out, slot).assign(total);
         }).compute({ workgroupSize: [64, 1, 1] });
 
-        expect(computeShape(compileCompute(kernel))).toMatchSnapshot();
+        expect(computeShape(compileComputeWgsl(kernel))).toMatchSnapshot();
     });
 
     test('control flow + struct + let/const: Loop / Break / Continue', () => {
@@ -185,7 +185,7 @@ describe('golden WGSL — compute path', () => {
             index(buf, i).field('life').assign(scaled);
         }).compute({ workgroupSize: [64, 1, 1] });
 
-        expect(computeShape(compileCompute(kernel))).toMatchSnapshot();
+        expect(computeShape(compileComputeWgsl(kernel))).toMatchSnapshot();
     });
 });
 
@@ -202,7 +202,7 @@ describe('GLSL companion does not affect WGSL output', () => {
         const withoutGlsl = wgslFn(src, { output: d.f32, params: [{ name: 'c', type: d.vec3f }] as const });
 
         const build = (fn: typeof withGlsl) =>
-            compile({
+            compileWgsl({
                 vertex: vec4(attribute('position', d.vec3f), f32(1)),
                 fragment: vec4(vec3(0.8, 0.3, 0.1).mul(fn(vec3(0.8, 0.3, 0.1))), f32(1)),
                 depth: undefined,
@@ -216,7 +216,7 @@ describe('GLSL companion does not affect WGSL output', () => {
     test('inline wgsl`` with a .glslSource companion emits the same WGSL expression', () => {
         const a = vec3(0.8, 0.3, 0.1);
         const withGlsl = wgsl(d.f32)`dot(${a}, vec3f(0.299, 0.587, 0.114))`.glslSource`dot(${a}, vec3(0.299, 0.587, 0.114))`;
-        const code = compile({
+        const code = compileWgsl({
             vertex: vec4(attribute('position', d.vec3f), f32(1)),
             fragment: vec4(a.mul(withGlsl), f32(1)),
             depth: undefined,
@@ -236,7 +236,7 @@ describe('frag_depth override (Material.depth)', () => {
         const fragment = vec4(vec3(0.4, 0.7, 1.0), f32(1));
         const depth = f32(0.25).add(varying(position.z, 'vZ').mul(f32(0.5)));
 
-        const result = compile({ vertex: clipPosition, fragment, depth });
+        const result = compileWgsl({ vertex: clipPosition, fragment, depth });
         // The frag_depth member + assignment are wired.
         expect(result.code).toContain('@builtin(frag_depth) frag_depth: f32,');
         expect(result.code).toContain('@location(0) color: vec4f,');
@@ -251,7 +251,7 @@ describe('frag_depth override (Material.depth)', () => {
         const clipPosition = vec4(position, f32(1));
         const depth = f32(0.75);
 
-        const result = compile({ vertex: clipPosition, fragment: undefined, depth });
+        const result = compileWgsl({ vertex: clipPosition, fragment: undefined, depth });
         // A fragment stage exists (to write frag_depth), with only the frag_depth member — no color
         // @location member in the FragmentOutput struct.
         expect(result.code).toContain('@builtin(frag_depth) frag_depth: f32,');
@@ -276,12 +276,12 @@ describe('frag_depth override (Material.depth)', () => {
         const clipPosition = vec4(position, f32(1));
         const fragment = vec4(a, a, m.mul(vec2(a, a)));
 
-        const findM = (r: ReturnType<typeof compile>) => {
+        const findM = (r: ReturnType<typeof compileWgsl>) => {
             const group = r.uniformGroups.find((g) => g.members.some((mem) => mem.uniformId === 'm'));
             return group?.members.find((mem) => mem.uniformId === 'm');
         };
 
-        const wgsl = findM(compile({ vertex: clipPosition, fragment }));
+        const wgsl = findM(compileWgsl({ vertex: clipPosition, fragment }));
         expect(wgsl?.offset).toBe(8); // WGSL uniform: mat2x2 aligns to 8
         expect(wgsl?.size).toBe(16);
 
@@ -299,7 +299,7 @@ describe('golden WGSL — MRT integer targets', () => {
         const ids = vec4u(u32(7), u32(0), u32(0), u32(1));
         const fragment = mrt({ color, ids });
 
-        const result = compile({
+        const result = compileWgsl({
             vertex: vec4(attribute('position', d.vec3f), f32(1)),
             fragment,
             depth: undefined,

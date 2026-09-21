@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import {
-    compileCompute,
+    compileComputeWgsl,
     createStorageBuffer,
     d,
     dot,
@@ -45,7 +45,7 @@ test('storage read inside a helper Fn resolves its binding name', () => {
         index(out, i).assign(sumLights(vec3(0, 0, 0)));
     }).compute({ workgroupSize: [64, 1, 1] });
 
-    const wgsl = compileCompute(kernel).code;
+    const wgsl = compileComputeWgsl(kernel).code;
     expect(wgsl).toContain('fn sumLights(');
     // the binding must be named, not `undefined[...]`
     expect(wgsl).not.toContain('undefined[');

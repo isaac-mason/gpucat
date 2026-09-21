@@ -11,39 +11,43 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    createCanvasTarget,
+    createMaterial,
     createSphereGeometry,
-    d,
     Discard,
-    f32,
+    d,
     Fn,
+    f32,
     fragCoord,
+    frame,
+    fullscreen,
     If,
     Inspector,
-    Material,
+    init,
     Mesh,
     modelNormalMatrix,
     modelWorldMatrix,
     mul,
+    type Node,
     normalize,
     OrbitControls,
-    pass,
     PerspectiveCamera,
-    RenderPipeline,
     renderOutput,
+    renderTexture,
     Scene,
     sin,
     uniform,
     varying,
     vec3,
     vec4,
+    webgpu,
     wgslFn,
-    WebGPURenderer,
-    type Node,
 } from 'gpucat';
-import { quat, type Euler } from 'math';
+import { type Euler, quat } from 'math';
 
 // 4x4 Bayer dither threshold — returns a value in [0,1) for the pixel coordinate
-const bayerThreshold = wgslFn(`
+const bayerThreshold = wgslFn(
+    `
 fn bayerThreshold(coord: vec2f) -> f32 {
     let x = u32(coord.x) % 4u;
     let y = u32(coord.y) % 4u;
@@ -59,7 +63,9 @@ fn bayerThreshold(coord: vec2f) -> f32 {
 
     return m[index] / 16.0;
 }
-`, { output: d.f32 });
+`,
+    { output: d.f32 },
+);
 
 // Fragment function that performs dithered discard
 const ditherFragment = Fn(
@@ -83,32 +89,31 @@ const ditherFragment = Fn(
 );
 
 async function main() {
-    const renderer = new WebGPURenderer({ antialias: false });
+    const canvas = document.createElement('canvas');
+    canvas.style.display = 'block';
+    document.body.appendChild(canvas);
+
+    const view = createCanvasTarget(canvas);
+    view.setPixelRatio(devicePixelRatio);
+    view.setSize(window.innerWidth, window.innerHeight);
+
+    const renderer = await init(webgpu());
     renderer.inspector = new Inspector();
-    await renderer.init();
 
-    document.body.appendChild(renderer.domElement);
     document.body.appendChild((renderer.inspector as Inspector).domElement);
-    renderer.setPixelRatio(devicePixelRatio);
-    renderer.setSize(window.innerWidth, window.innerHeight);
 
-    renderer.clearColor = [0.08, 0.08, 0.12, 1];
+    view.clearColor = [0.08, 0.08, 0.12, 1];
 
     const scene = new Scene();
 
-    const camera = new PerspectiveCamera(
-        Math.PI / 4,
-        window.innerWidth / window.innerHeight,
-        0.1,
-        100,
-    );
+    const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 100);
     camera.position[2] = 5;
     scene.add(camera);
 
-    const controls = new OrbitControls(camera, renderer.domElement);
+    const controls = new OrbitControls(camera, canvas);
 
     window.addEventListener('resize', () => {
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        view.setSize(window.innerWidth, window.innerHeight);
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
     });
@@ -130,12 +135,14 @@ async function main() {
 
     // Opacity oscillates 0..1 via sin(time). `time` is a user-driven uniform (seconds).
     const time = uniform(f32(0), 'time');
-    const opacity = sin(time.mul(f32(1.5))).mul(f32(0.5)).add(f32(0.5));
+    const opacity = sin(time.mul(f32(1.5)))
+        .mul(f32(0.5))
+        .add(f32(0.5));
     const screenPos = fragCoord.xy as Node<d.vec2f>;
 
     const fragmentOutput = ditherFragment(litColor, screenPos, opacity) as Node<d.vec4f>;
 
-    const material = new Material({
+    const material = createMaterial({
         vertex: clipPos,
         fragment: fragmentOutput,
     });
@@ -147,14 +154,13 @@ async function main() {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    const scenePass = pass(scene, camera);
+    const scenePass = renderTexture(scene, camera);
     const outputNode = renderOutput(scenePass.getTextureNode());
-    const renderPipeline = new RenderPipeline(renderer, outputNode);
-
+    const composite = fullscreen(outputNode);
     let angle = 0;
     let prevTime = performance.now() / 1000;
 
-    function frame() {
+    function update() {
         const now = performance.now() / 1000;
         const dt = now - prevTime;
         prevTime = now;
@@ -165,11 +171,15 @@ async function main() {
         mesh.updateWorldMatrix();
 
         controls.update();
-        renderPipeline.render();
-        requestAnimationFrame(frame);
+        const f = frame(renderer);
+        const compositePass = f.pass({ target: view });
+        compositePass.draw(composite);
+        compositePass.end();
+        f.submit();
+        requestAnimationFrame(update);
     }
 
-    requestAnimationFrame(frame);
+    requestAnimationFrame(update);
 }
 
 main().catch(console.error);

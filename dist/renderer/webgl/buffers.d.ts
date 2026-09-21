@@ -5,7 +5,7 @@
  *
  *  - `bufferMap` keys by `GpuBuffer` identity, for anything a GpuBuffer backs: vertex attributes,
  *    indices, transform-feedback IO. One GpuBuffer therefore means exactly one GL buffer, no matter
- *    how many geometries or passes reach it. `webgl/renderer.ts` `readBufferAsync` has always
+ *    how many geometries or passes reach it. `readBufferAsync` in `webgl-backend.ts` has always
  *    documented that invariant; before this module there was nothing to enforce it.
  *  - `rawMap` keys by an arbitrary object, for device buffers with no GpuBuffer behind them. Uniform
  *    blocks are the only case: a block is a byte blob packed from many uniform nodes through a

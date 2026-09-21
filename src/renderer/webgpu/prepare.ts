@@ -1,52 +1,21 @@
-/**
- * prepare.ts (webgpu) - the device half of per-object preparation + the `compile()` pre-warm.
- *
- * These free functions sit just above `render-objects.ts`: they run the compile → pipeline → bind
- * group → geometry init/upload for a single RenderObject. Called by `WebGPURenderer`'s `render()`
- * (per-object prepare) and `compile()` (pre-warm) methods with explicit device + cache params.
- */
-
 import type { Geometry } from '../../geometry/geometry';
-import { compile } from '../../nodes/builder';
+import { compileWgsl } from '../../nodes/builder';
 import type { NodeFrame } from '../core/node-frame';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderObject } from '../core/render-object';
-import * as Bindings from './bindings';
+import type { BackendState } from './backend-state';
 import * as Buffers from './buffers';
-import * as Geometries from './geometries';
-import type * as Pipelines from './pipelines';
 import * as RenderObjectGpu from './render-object-gpu';
-import * as Samplers from './samplers';
 import * as RenderObjects from './render-objects';
-import type * as Textures from './textures';
 
 /**
  * Compile the node graph and build the pipeline / bind group layouts / geometry for one render
  * object. Returns whether it is drawable (initialized, pipeline present, node state present). The
  * neutral collect/getRenderObject/updateBefore steps stay in the render-loop orchestration.
  */
-export function prepareRenderObject(
-    device: GPUDevice,
-    geometries: Geometries.GeometriesState,
-    bindings: Bindings.BindingsState,
-    pipelines: Pipelines.PipelinesState,
-    buffers: Buffers.BufferCache,
-    renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache,
-    nodes: NodeManagerState,
-    renderObject: RenderObject,
-): boolean {
-    const initialized = RenderObjects.initRenderObject(
-        nodes,
-        geometries,
-        bindings,
-        pipelines,
-        device,
-        buffers,
-        renderObjectGpu,
-        renderObject,
-        compile,
-    );
-    const gpu = RenderObjectGpu.getRenderObjectGpu(renderObjectGpu, renderObject);
+export function prepareRenderObject(b: BackendState, nodes: NodeManagerState, renderObject: RenderObject): boolean {
+    const initialized = RenderObjects.initRenderObject(b, nodes, renderObject, compileWgsl);
+    const gpu = RenderObjectGpu.getRenderObjectGpu(b.renderObjectGpu, renderObject);
     if (!initialized || !gpu.pipeline) {
         console.warn('[gpucat] initRenderObject failed or pipeline missing', {
             initialized,
@@ -67,28 +36,12 @@ export function prepareRenderObject(
  * pushing in-flight promises onto `promises`.
  */
 export function compileRenderObject(
-    device: GPUDevice,
-    geometries: Geometries.GeometriesState,
-    bindings: Bindings.BindingsState,
-    pipelines: Pipelines.PipelinesState,
-    buffers: Buffers.BufferCache,
-    renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache,
+    b: BackendState,
     nodes: NodeManagerState,
     renderObject: RenderObject,
     promises: Promise<void>[],
 ): void {
-    RenderObjects.initRenderObjectWithPromises(
-        nodes,
-        geometries,
-        bindings,
-        pipelines,
-        device,
-        buffers,
-        renderObjectGpu,
-        renderObject,
-        promises,
-        compile,
-    );
+    RenderObjects.initRenderObjectWithPromises(b, nodes, renderObject, promises, compileWgsl);
 }
 
 /**
@@ -96,13 +49,7 @@ export function compileRenderObject(
  * then (re)build its bind groups against the pre-warm frame.
  */
 export function uploadRenderObjectResources(
-    device: GPUDevice,
-    bindings: Bindings.BindingsState,
-    geometries: Geometries.GeometriesState,
-    buffers: Buffers.BufferCache,
-    textures: Textures.TextureCache,
-    samplers: Samplers.SamplerCache,
-    renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache,
+    b: BackendState,
     renderObject: RenderObject,
     geometry: Geometry,
     frame: NodeFrame,
@@ -113,7 +60,7 @@ export function uploadRenderObjectResources(
         // upload storage buffers
         for (const s of nodeState.storage) {
             const buffer = Buffers.resolveStorageBuffer(s.node, geometry, null);
-            Buffers.ensureUploaded(buffers, device, buffer, s.name);
+            Buffers.ensureUploaded(b.buffers, b.device, buffer, s.name);
         }
 
         // upload vertex buffers
@@ -121,7 +68,7 @@ export function uploadRenderObjectResources(
             if (attrEntry.kind === 'geometry') {
                 const bufAttr = geometry.buffers.get(attrEntry.name!);
                 if (bufAttr) {
-                    Buffers.ensureUploaded(buffers, device, bufAttr, attrEntry.name!);
+                    Buffers.ensureUploaded(b.buffers, b.device, bufAttr, attrEntry.name!);
                 }
             } else {
                 const gpuBuffer = attrEntry.node.buffer;
@@ -131,28 +78,18 @@ export function uploadRenderObjectResources(
                 const arr = gpuBuffer.array;
                 if (arr) {
                     // node-owned attribute buffers are GpuBuffers too, so same gated path.
-                    Buffers.ensureUploaded(buffers, device, gpuBuffer, attrEntry.shaderName);
+                    Buffers.ensureUploaded(b.buffers, b.device, gpuBuffer, attrEntry.shaderName);
                 }
             }
         }
 
         // upload index buffer if present
         if (geometry.index) {
-            Buffers.ensureUploaded(buffers, device, geometry.index, 'index');
+            Buffers.ensureUploaded(b.buffers, b.device, geometry.index, 'index');
         }
     }
 
     // upload uniforms and rebuild bind groups
     // (must be after texture upload so bind groups can reference GPU resources)
-    RenderObjects.updateRenderObject(
-        bindings,
-        geometries,
-        device,
-        buffers,
-        textures,
-        samplers,
-        renderObjectGpu,
-        renderObject,
-        frame,
-    );
+    RenderObjects.updateRenderObject(b, renderObject, frame);
 }

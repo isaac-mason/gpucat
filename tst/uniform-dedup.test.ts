@@ -1,5 +1,6 @@
 /// <reference types="@webgpu/types" />
 
+import { Renderer } from '../src/renderer/core/renderer';
 import { beforeAll, beforeEach, describe, expect, test } from 'vitest';
 import { createStubGPU, installWebGPUPolyfills, type StubGPUResult } from './stub-gpu';
 
@@ -25,30 +26,43 @@ import {
     vec4,
 } from '../src/nodes/nodes';
 import { Mesh } from '../src/objects/mesh';
-import { WebGPURenderer } from '../src/renderer/webgpu/renderer';
+import { type CanvasTarget, createCanvasTarget } from '../src/renderer/core/canvas-target';
+import { WebGPUBackend } from '../src/renderer/webgpu/webgpu-backend';
+import { drawScene } from '../src/scene/draw-scene';
 import { Scene } from '../src/scene/scene';
 import * as d from '../src/schema/schema';
+import { frame } from '../src/renderer/core/frame';
 
 /**
  * Test suite for uniform group deduplication.
  *
- * Uses the high-level WebGPURenderer API with stub GPU to verify:
+ * Uses the high-level WebGPUBackend API with stub GPU to verify:
  * 1. Shared groups (frameGroup, renderGroup) cause minimal buffer writes
  * 2. Per-object groups (objectGroup) write once per object
  * 3. Version bumping triggers re-processing
  */
 
+/** What `renderer.render` used to be: one frame, one pass to the canvas, the scene walked into it. */
+function renderScene(renderer: Renderer<WebGPUBackend>, view: CanvasTarget, scene: Scene, camera: PerspectiveCamera): void {
+    const f = frame(renderer);
+    const pass = f.pass({ target: view, camera });
+    drawScene(renderer, pass, scene, camera);
+    pass.end();
+    f.submit();
+}
+
 describe('uniform group deduplication', () => {
     let stub: StubGPUResult;
-    let renderer: WebGPURenderer;
+    let renderer: Renderer<WebGPUBackend>;
+    let view: CanvasTarget;
     let scene: Scene;
     let camera: PerspectiveCamera;
 
     beforeEach(async () => {
         stub = createStubGPU();
-        renderer = new WebGPURenderer(stub.getRendererOptions());
+        renderer = new Renderer(new WebGPUBackend(stub.getRendererOptions()));
         await renderer.init();
-        renderer.setSize(800, 600);
+        view = createCanvasTarget(stub.canvas);
 
         scene = new Scene();
         camera = new PerspectiveCamera(Math.PI / 4, 800 / 600, 0.1, 100);
@@ -122,7 +136,7 @@ describe('uniform group deduplication', () => {
             scene.add(mesh);
             mesh.updateWorldMatrix();
 
-            renderer.render(scene, camera);
+            renderScene(renderer, view, scene, camera);
 
             // Should have at least one draw call
             expect(stub.stats.drawCalls).toBeGreaterThanOrEqual(1);
@@ -143,13 +157,13 @@ describe('uniform group deduplication', () => {
             }
 
             // First frame - capture baseline
-            renderer.render(scene, camera);
+            renderScene(renderer, view, scene, camera);
             const firstFrameWrites = stub.stats.bufferWrites;
 
             stub.stats.reset();
 
             // Second frame - shared uniforms should not re-upload
-            renderer.render(scene, camera);
+            renderScene(renderer, view, scene, camera);
             const secondFrameWrites = stub.stats.bufferWrites;
 
             // Second frame should have fewer or equal writes (shared groups deduplicated)
@@ -175,7 +189,7 @@ describe('uniform group deduplication', () => {
                 mesh.updateWorldMatrix();
             }
 
-            renderer.render(scene, camera);
+            renderScene(renderer, view, scene, camera);
 
             // Should have draw calls for each mesh
             expect(stub.stats.drawCalls).toBeGreaterThanOrEqual(5);
@@ -191,7 +205,7 @@ describe('uniform group deduplication', () => {
             mesh.updateWorldMatrix();
 
             // First frame
-            renderer.render(scene, camera);
+            renderScene(renderer, view, scene, camera);
             stub.stats.reset();
 
             // Move the mesh (changes modelWorldMatrix) - stay within frustum
@@ -199,7 +213,7 @@ describe('uniform group deduplication', () => {
             mesh.updateWorldMatrix();
 
             // Second frame - object group should re-upload due to matrix change
-            renderer.render(scene, camera);
+            renderScene(renderer, view, scene, camera);
 
             // Should have buffer writes for the changed matrix
             expect(stub.stats.bufferWrites).toBeGreaterThan(0);

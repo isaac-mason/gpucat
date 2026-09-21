@@ -1,25 +1,13 @@
 /**
- * render-objects.ts (webgpu) - device half of RenderObject init/update.
- *
- * The neutral cache (state + getRenderObject + dispose/stats) lives in `../core/render-objects`
- * and is re-exported here for existing call sites. This module keeps only the device-coupled
- * per-object work: compiling the node graph, creating bind group layouts + the pipeline, and
- * uploading geometry. Subsystem dependencies (nodes, geometries, bindings, pipelines, device,
- * bufferCache, textureCache) are passed as function parameters, not stored in state.
+ * The device half of RenderObject init/update: compiling the node graph, building bind group layouts
+ * and the pipeline, uploading geometry. The neutral cache is `../core/render-objects`, which callers
+ * import directly. The backend arrives as one parameter, so this module holds no state.
  */
 import type { CompileResult, CompileSlots } from '../../nodes/builder';
 import type { NodeFrame } from '../core/node-frame';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderObject } from '../core/render-object';
-import type { BindingsState } from './bindings';
-import type { BufferCache } from './buffers';
-import type { GeometriesState } from './geometries';
-import * as pipelines from './pipelines';
-import type { RenderObjectGpuCache } from './render-object-gpu';
-import type { SamplerCache } from './samplers';
-import type { TextureCache } from './textures';
-export type { RenderObjectsState } from '../core/render-objects';
-export { createRenderObjectsState, disposeAllRenderObjects, disposeRenderObjectsForMaterial, disposeRenderObjectsForMesh, getRenderObject, getRenderObjectsStats, } from '../core/render-objects';
+import type { BackendState } from './backend-state';
 /**
  * Initialize a RenderObject for rendering.
  *
@@ -35,7 +23,7 @@ export { createRenderObjectsState, disposeAllRenderObjects, disposeRenderObjects
  *
  * @returns true if initialization succeeded
  */
-export declare function initRenderObject(nodes: NodeManagerState, geometriesState: GeometriesState, bindingsState: BindingsState, pipelinesState: pipelines.PipelinesState, device: GPUDevice, bufferCache: BufferCache, renderObjectGpuCache: RenderObjectGpuCache, renderObject: RenderObject, compile: (slots: CompileSlots) => CompileResult): boolean;
+export declare function initRenderObject(b: BackendState, nodes: NodeManagerState, renderObject: RenderObject, compile: (slots: CompileSlots) => CompileResult): boolean;
 /**
  * Update a RenderObject for rendering.
  *
@@ -43,16 +31,6 @@ export declare function initRenderObject(nodes: NodeManagerState, geometriesStat
  * - Update uniform buffers
  * - Rebuild bind groups if needed
  */
-export declare function updateRenderObject(bindingsState: BindingsState, geometriesState: GeometriesState, device: GPUDevice, bufferCache: BufferCache, textureCache: TextureCache, samplerCache: SamplerCache, renderObjectGpuCache: RenderObjectGpuCache, renderObject: RenderObject, frame: NodeFrame): void;
-/**
- * Initialize a RenderObject for pre-warming with async pipeline compilation.
- *
- * This is similar to initRenderObject but collects pipeline compilation promises
- * for non-blocking compilation. Use this in renderer.compile() to pre-warm all
- * pipelines without blocking the main thread.
- *
- * The `compile` render-shader emitter is supplied by the backend (WGSL/GLSL).
- *
- * @returns true if initialization succeeded (pipeline may still be compiling)
- */
-export declare function initRenderObjectWithPromises(nodes: NodeManagerState, geometriesState: GeometriesState, bindingsState: BindingsState, pipelinesState: pipelines.PipelinesState, device: GPUDevice, bufferCache: BufferCache, renderObjectGpuCache: RenderObjectGpuCache, renderObject: RenderObject, promises: Promise<void>[], compile: (slots: CompileSlots) => CompileResult): boolean;
+export declare function updateRenderObject(b: BackendState, renderObject: RenderObject, frame: NodeFrame): void;
+/** `initRenderObject` for the pre-warm: pipeline compilation is pushed onto `promises` instead of awaited. */
+export declare function initRenderObjectWithPromises(b: BackendState, nodes: NodeManagerState, renderObject: RenderObject, promises: Promise<void>[], compile: (slots: CompileSlots) => CompileResult): boolean;

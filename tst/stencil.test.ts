@@ -1,6 +1,8 @@
 import { expect, test } from 'vitest';
-import { Material, RenderTarget, WebGPURenderer } from '../src/index';
+import { Material, createRenderTarget } from '../src/index';
+import { createCanvasTarget } from '../src/renderer/core/canvas-target';
 import { formatHasStencil, makeRenderPipelineKey } from '../src/renderer/webgpu/pipelines';
+import type { DepthTextureFormat } from '../src/texture/depth-texture';
 import { installWebGPUPolyfills } from './stub-gpu';
 
 installWebGPUPolyfills();
@@ -50,7 +52,7 @@ test('Material applies stencil options', () => {
     expect(m.stencilFail).toBe('keep');
 });
 
-const KEY_ARGS = [1, ['bgra8unorm'] as GPUTextureFormat[], 'depth24plus-stencil8' as GPUTextureFormat, null] as const;
+const KEY_ARGS = ['12:v|', 1, ['bgra8unorm'] as GPUTextureFormat[], 'depth24plus-stencil8' as GPUTextureFormat, null] as const;
 
 test('pipeline cache key varies with baked stencil state', () => {
     const base = makeRenderPipelineKey(mat(), ...KEY_ARGS);
@@ -77,6 +79,16 @@ test('colorWrite defaults on and splits the pipeline cache key', () => {
     expect(makeRenderPipelineKey(mat({ colorWrite: false }), ...KEY_ARGS)).not.toBe(base);
 });
 
+test('pipeline cache key splits on the vertex layout', () => {
+    // arrayStride can come from the geometry's buffer format, not the node graph, so two geometries
+    // supplying one attribute name with different formats must not share a pipeline.
+    const [, ...rest] = KEY_ARGS;
+    const base = makeRenderPipelineKey(mat(), '12:v|', ...rest);
+    expect(makeRenderPipelineKey(mat(), '16:v|', ...rest)).not.toBe(base);
+    expect(makeRenderPipelineKey(mat(), '12:i|', ...rest)).not.toBe(base);
+    expect(makeRenderPipelineKey(mat(), '12:v|', ...rest)).toBe(base);
+});
+
 test('pipeline cache key ignores the dynamic stencil reference', () => {
     // stencilRef is applied via setStencilReference, not baked into the pipeline — so it must NOT split the cache.
     const a = makeRenderPipelineKey(mat({ stencilTest: true, stencilRef: 1 }), ...KEY_ARGS);
@@ -84,20 +96,20 @@ test('pipeline cache key ignores the dynamic stencil reference', () => {
     expect(a).toBe(b);
 });
 
-test('renderer depthFormat/stencil options resolve the swapchain stencil aspect', () => {
-    const mk = (opts: object) => new WebGPURenderer({ headless: true, device: {} as never, ...opts });
-    expect(mk({}).stencil).toBe(false); // default depth24plus
-    expect(mk({ stencil: true }).stencil).toBe(true); // depth24plus-stencil8
-    expect(mk({ depthFormat: 'depth32float-stencil8' }).stencil).toBe(true); // explicit float+stencil
-    expect(mk({ depthFormat: 'depth32float' }).stencil).toBe(false); // float depth, no stencil — overrides stencil:true
-    expect(mk({ stencil: true, depthFormat: 'depth32float' }).stencil).toBe(false);
+test('a canvas target resolves its own stencil aspect from its depth format', () => {
+    const mk = (depthFormat?: DepthTextureFormat) =>
+        createCanvasTarget({ width: 8, height: 8 } as OffscreenCanvas, { depthFormat }).depthFormat.includes('stencil');
+    expect(mk()).toBe(false);
+    expect(mk('depth24plus-stencil8')).toBe(true);
+    expect(mk('depth32float-stencil8')).toBe(true);
+    expect(mk('depth32float')).toBe(false);
 });
 
 test('RenderTarget stencilBuffer allocates a stencil-capable depth texture', () => {
-    expect(new RenderTarget(64, 64)._depthAttachment?.format).toBe('depth24plus');
-    expect(new RenderTarget(64, 64, { stencilBuffer: true })._depthAttachment?.format).toBe('depth24plus-stencil8');
+    expect(createRenderTarget(64, 64)._depthAttachment?.format).toBe('depth24plus');
+    expect(createRenderTarget(64, 64, { stencilBuffer: true })._depthAttachment?.format).toBe('depth24plus-stencil8');
     // An explicit depthFormat wins over stencilBuffer.
-    expect(new RenderTarget(64, 64, { stencilBuffer: true, depthFormat: 'depth32float' })._depthAttachment?.format).toBe(
+    expect(createRenderTarget(64, 64, { stencilBuffer: true, depthFormat: 'depth32float' })._depthAttachment?.format).toBe(
         'depth32float',
     );
 });

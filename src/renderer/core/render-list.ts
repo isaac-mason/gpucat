@@ -12,13 +12,13 @@
  * - Transparent: sorted back-to-front by view-space Z
  */
 
-import { box3, type Box3, type Sphere } from 'math/shapes';
-import type { Camera } from '../../camera/camera';
+import { type Box3, box3, type Sphere } from 'math/shapes';
 import type { Object3D } from '../../core/object3d';
 import type { Geometry } from '../../geometry/geometry';
 import type { Material } from '../../material/material';
 import * as frustum from '../../math/frustum';
 import type { Mesh } from '../../objects/mesh';
+import type { View } from './view';
 
 // Types
 
@@ -61,7 +61,7 @@ export type RenderList = {
     object: Object3D | null;
 
     /** The camera this list was built for. */
-    camera: Camera | null;
+    camera: View | null;
 
     // Object Pool
 
@@ -80,9 +80,6 @@ export type RenderList = {
     transparent: RenderItem[];
 
     // Statistics
-
-    /** Number of items performing occlusion queries (future use). */
-    occlusionQueryCount: number;
 };
 
 /**
@@ -90,7 +87,7 @@ export type RenderList = {
  */
 export type RenderListsState = {
     /** Nested WeakMap cache for RenderLists by (object -> camera). */
-    lists: WeakMap<Object3D, WeakMap<Camera, RenderList>>;
+    lists: WeakMap<Object3D, WeakMap<View, RenderList>>;
 };
 
 // Factories
@@ -109,7 +106,6 @@ export function createRenderList(): RenderList {
         renderItemsIndex: 0,
         opaque: [],
         transparent: [],
-        occlusionQueryCount: 0,
     };
 }
 
@@ -131,7 +127,7 @@ export function createRenderListsState(): RenderListsState {
  * @param object - The object to render (Scene, Mesh, or any Object3D)
  * @param camera - The camera to render from
  */
-export function getRenderList(state: RenderListsState, object: Object3D, camera: Camera): RenderList {
+export function getRenderList(state: RenderListsState, object: Object3D, camera: View): RenderList {
     let cameraMap = state.lists.get(object);
     if (!cameraMap) {
         cameraMap = new WeakMap();
@@ -154,13 +150,12 @@ export function getRenderList(state: RenderListsState, object: Object3D, camera:
  *
  * This resets the pool index but keeps pooled items for reuse.
  */
-export function beginRenderList(list: RenderList, object: Object3D, camera: Camera): void {
+export function beginRenderList(list: RenderList, object: Object3D, camera: View): void {
     list.object = object;
     list.camera = camera;
     list.renderItemsIndex = 0;
     list.opaque.length = 0;
     list.transparent.length = 0;
-    list.occlusionQueryCount = 0;
 }
 
 /**
@@ -327,15 +322,9 @@ const _worldSphere: Sphere = { center: [0, 0, 0], radius: 0 };
  * @param state - The RenderLists state
  * @param object - The object to collect from (Scene, Mesh, or any Object3D)
  * @param camera - The camera for frustum culling and Z sorting
- * @param overrideMaterial - When set, all meshes use this material instead of their own
  * @returns The populated and sorted RenderList
  */
-export function collectRenderList(
-    state: RenderListsState,
-    object: Object3D,
-    camera: Camera,
-    overrideMaterial: Material | null = null,
-): RenderList {
+export function collectRenderList(state: RenderListsState, object: Object3D, camera: View): RenderList {
     const list = getRenderList(state, object, camera);
 
     // Begin new frame
@@ -345,7 +334,7 @@ export function collectRenderList(
     frustum.setFromViewProjectionMatrix(_frustum, camera.projectionMatrix, camera.matrixWorldInverse, camera.coordinateSystem);
 
     // Walk object and collect visible meshes
-    walkObject(list, object, camera, overrideMaterial);
+    walkObject(list, object, camera);
 
     // Finish and sort
     finishRenderList(list);
@@ -357,13 +346,13 @@ export function collectRenderList(
 /**
  * Walk the scene graph and collect visible meshes.
  */
-function walkObject(list: RenderList, obj: Object3D, camera: Camera, overrideMaterial: Material | null): void {
+function walkObject(list: RenderList, obj: Object3D, camera: View): void {
     if (!obj.visible) return;
 
     if (obj.isMesh) {
         const mesh = obj as Mesh;
         if (isMeshVisible(mesh)) {
-            const material = overrideMaterial ?? mesh.material;
+            const material = mesh.material;
             const z = computeViewZ(mesh, camera);
             pushRenderItem(
                 list,
@@ -378,7 +367,7 @@ function walkObject(list: RenderList, obj: Object3D, camera: Camera, overrideMat
 
     // Recurse into children
     for (const child of obj.children) {
-        walkObject(list, child, camera, overrideMaterial);
+        walkObject(list, child, camera);
     }
 }
 
@@ -440,7 +429,7 @@ function isMeshVisible(mesh: Mesh): boolean {
  * Returns the view-space Z coordinate (negative = in front of camera in a
  * right-handed system; we sort from largest (furthest) to smallest).
  */
-function computeViewZ(mesh: Mesh, camera: Camera): number {
+function computeViewZ(mesh: Mesh, camera: View): number {
     const wm = mesh.matrixWorld;
     const vm = camera.matrixWorldInverse;
 
@@ -451,63 +440,4 @@ function computeViewZ(mesh: Mesh, camera: Camera): number {
 
     // Transform world position by view matrix (only z row needed)
     return vm[2] * wx + vm[6] * wy + vm[10] * wz + vm[14];
-}
-
-// Custom Sort Support
-
-/**
- * Collect and sort with custom sort functions.
- */
-export function collectRenderListWithSort(
-    state: RenderListsState,
-    object: Object3D,
-    camera: Camera,
-    opaqueSort?: (a: RenderItem, b: RenderItem) => number,
-    transparentSort?: (a: RenderItem, b: RenderItem) => number,
-    overrideMaterial: Material | null = null,
-): RenderList {
-    const list = getRenderList(state, object, camera);
-
-    beginRenderList(list, object, camera);
-
-    frustum.setFromViewProjectionMatrix(_frustum, camera.projectionMatrix, camera.matrixWorldInverse, camera.coordinateSystem);
-
-    walkObject(list, object, camera, overrideMaterial);
-
-    finishRenderList(list);
-    sortRenderList(list, opaqueSort, transparentSort);
-
-    return list;
-}
-
-// Statistics
-
-/**
- * Get render list statistics.
- */
-export function getRenderListStats(list: RenderList): {
-    opaque: number;
-    transparent: number;
-    total: number;
-    poolSize: number;
-} {
-    return {
-        opaque: list.opaque.length,
-        transparent: list.transparent.length,
-        total: list.opaque.length + list.transparent.length,
-        poolSize: list.renderItems.length,
-    };
-}
-
-/**
- * Get statistics about all cached RenderLists.
- */
-export function getRenderListsStats(_state: RenderListsState): {
-    cachedLists: number;
-} {
-    // Note: We can't enumerate WeakMap entries, so we can't count them.
-    // This would require tracking lists in a separate Set.
-    return {
-        cachedLists: -1, // Unknown
-    };
 }

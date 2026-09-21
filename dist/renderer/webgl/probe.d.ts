@@ -4,7 +4,7 @@
  *
  * This is the GL sibling of the WebGPU probe re-render in inspector.ts. It reuses the SAME device
  * layer the normal draw uses — `programs.ts` to compile+link a patched program (real vertex GLSL +
- * the probe's patched fragment GLSL), `geometries.ts` to bind the object's VAO, `uniforms.ts` to
+ * the probe's patched fragment GLSL), `geometries.ts` to bind the object's VAO, `bindings.ts` to
  * update+bind its std140 UBOs (camera/model, already valid this frame), and `texture-bindings.ts`
  * for its textures — so the probe renders the same mesh with the same inputs, only the fragment
  * output changes. It renders to a 1×1 RGBA8 FBO and `gl.readPixels` the single pixel, returning the

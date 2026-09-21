@@ -524,10 +524,10 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
             expr = `${elemType}[${node.elements.length}](${elems.join(', ')})`;
             break;
         }
-        case NodeKind.Pass: {
-            // A PassNode used as an expression delegates to its underlying texture node (the render
+        case NodeKind.RenderTexture: {
+            // A RenderTextureNode used as an expression delegates to its underlying texture node (the render
             // target it samples). Depth-scope passes read the linear-depth node instead.
-            const textureNode = node.scope === 'depth' ? node.getLinearDepthNode() : node.getTextureNode();
+            const textureNode = node.read === 'depth' ? node.getLinearDepthNode() : node.getTextureNode();
             expr = generateExpr(ctx, textureNode);
             break;
         }

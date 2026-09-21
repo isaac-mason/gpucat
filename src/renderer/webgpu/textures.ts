@@ -15,7 +15,7 @@
 
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
-import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
+import type { Source } from '../../texture/source';
 import {
     createTextureTally,
     createTextureTallyEntry,
@@ -25,8 +25,8 @@ import {
     tallyClearTexture,
     tallySetTexture,
 } from '../core/info';
+import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
 import { bytesPerTexel, gpuTextureBytes, mipLevelCountFor } from '../core/texture-size';
-import type { Source } from '../../texture/source';
 import { createMipmapState, disposeMipmapState, generateMipmaps, type MipmapState } from './mipmap-utils';
 
 /** Data stored per Texture in the cache */
@@ -72,10 +72,6 @@ export type TextureCache = {
 
     /** Stats counters */
     tally: TextureTally;
-};
-
-export type TextureCacheStats = {
-    textureCount: number;
 };
 
 export function createTextureCache(): TextureCache {
@@ -519,6 +515,15 @@ function uploadCubeTextureData(device: GPUDevice, texture: GpuTexture, data: Tex
                 },
                 [width, height],
             );
+        } else if (isTypedArrayData(faceData)) {
+            const view = (faceData as { data: ArrayBufferView }).data;
+            const bytesPerRow = width * bytesPerTexel(texture.format);
+            device.queue.writeTexture(
+                { texture: data.texture, origin: { x: 0, y: 0, z: faceIndex } },
+                view.buffer,
+                { offset: view.byteOffset, bytesPerRow, rowsPerImage: height },
+                [width, height],
+            );
         }
     }
 }
@@ -641,7 +646,6 @@ function uploadExplicitMips(device: GPUDevice, texture: GpuTexture, data: Textur
     }
 }
 
-
 /**
  * Get or create a 1x1 default placeholder texture.
  */
@@ -683,10 +687,6 @@ export function disposeTextureCache(cache: TextureCache): void {
     }
     cache.textureMap = new WeakMap();
     resetTextureTally(cache.tally);
-}
-
-export function getTextureCacheStats(cache: TextureCache): TextureCacheStats {
-    return { textureCount: cache.tally.count };
 }
 
 /**

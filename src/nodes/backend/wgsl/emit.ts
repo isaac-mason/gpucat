@@ -287,9 +287,9 @@ function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
         expr = generateAttribute(ctx, node);
     } else if (node.kind === NodeKind.Storage) {
         expr = generateStorage(ctx, node);
-    } else if (node.kind === NodeKind.Pass) {
-        // PassNode used as expression delegates to its texture node
-        const textureNode = node.scope === 'fragment' ? node.getTextureNode() : node.getLinearDepthNode();
+    } else if (node.kind === NodeKind.RenderTexture) {
+        // RenderTextureNode used as expression delegates to its texture node
+        const textureNode = node.read === 'depth' ? node.getLinearDepthNode() : node.getTextureNode();
         expr = generateExpr(ctx, textureNode);
     } else if (node.kind === NodeKind.TextureBinding) {
         expr = generateTextureBinding(ctx, node);

@@ -2,7 +2,7 @@
  * context.ts (webgl) - WebGL2 context acquisition.
  *
  * A single free device function that acquires the WebGL2 rendering context from a canvas with the
- * requested context attributes. Called by `WebGLRenderer.init()`. WebGL2 is immediate mode — there is
+ * requested context attributes. Called by `WebGLBackend.init()`. WebGL2 is immediate mode — there is
  * no device object or swapchain to configure, so this is the whole of "device bring-up".
  */
 
@@ -29,12 +29,12 @@ export function createContext(canvas: HTMLCanvasElement | OffscreenCanvas, attrs
     // through HTMLCanvasElement so the single call type-checks across the union.
     const gl = (canvas as HTMLCanvasElement).getContext('webgl2', attrs) as WebGL2RenderingContext | null;
     if (!gl) {
-        throw new Error('[WebGLRenderer] WebGL2 is not available in this environment.');
+        throw new Error('[webgl] WebGL2 is not available in this environment.');
     }
 
     // Enable float-format support. In WebGL2, float textures (RGBA16F/RGBA32F/…) are sampleable by
     // default but NOT color-renderable as framebuffer attachments without EXT_color_buffer_float —
-    // and gpucat's RenderTarget/pass() default to `rgba16float`, so render-to-texture (any HDR /
+    // and gpucat's RenderTarget/renderTexture() default to `rgba16float`, so render-to-texture (any HDR /
     // post-processing pass) needs this or the FBO is incomplete. Requesting an extension activates it
     // for the context. Availability is re-checked when a float render target is actually built
     // (render-target.ts `ensureColorRenderable`), which throws a clear error if neither ext is present

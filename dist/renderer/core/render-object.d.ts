@@ -2,7 +2,7 @@
  * render-object.ts - Per-draw-call state container.
  *
  * - Central hub owning all per-draw-call state
- * - One RenderObject per unique (mesh, material, renderContext, passId) tuple
+ * - One RenderObject per unique (mesh, material, renderContext) tuple
  * - Caches nodeBuilderState, pipeline, bindings, attributes
  * - Lazily initialized - starts empty, populated on first render
  *
@@ -11,24 +11,23 @@
  * - getBindings() calls NodeBuilderState.createBindings() which clones non-shared groups
  * - This ensures shared groups (camera, time) are reused across all RenderObjects
  */
-import type { Camera } from '../../camera/camera';
-import type { Object3D } from '../../core/object3d';
 import type { Geometry } from '../../geometry/geometry';
 import type { Material } from '../../material/material';
 import type { Mesh } from '../../objects/mesh';
 import type { BindGroup } from './bind-group';
 import type { NodeBuilderState } from './node-builder-state';
 import type { RenderContext } from './pass-context';
+import type { View } from './view';
 /**
  * RenderObject - Per-draw-call state container.
  *
  * This is the central hub that owns all state needed to execute a draw call:
- * - Source references (mesh, material, geometry, camera, scene, renderContext)
+ * - Source references (mesh, material, geometry, camera, renderContext)
  * - Compiled state (nodeBuilderState, pipeline, bindings)
  * - Attribute state (vertex buffers, index buffer)
  * - Draw parameters
  *
- * RenderObjects are cached by (mesh, material, renderContext, passId) in RenderObjects manager.
+ * RenderObjects are cached by (mesh, material, renderContext) in the RenderObjects manager.
  */
 export type RenderObject = {
     /** Unique identifier. */
@@ -37,16 +36,14 @@ export type RenderObject = {
     mesh: Mesh;
     /** The material to render with. */
     material: Material;
-    /** The geometry (from mesh.geometry, cached for convenience). */
+    /** From `mesh.geometry`, and the one source reference the cache key does not cover. */
     geometry: Geometry;
     /** The camera for this render pass. */
-    camera: Camera;
-    /** The scene/object containing the mesh. */
-    scene: Object3D;
+    camera: View;
     /** The render context (framebuffer config). */
     renderContext: RenderContext;
-    /** The render pass this RenderObject belongs to (e.g. 'default', 'shadow'). */
-    passId: string;
+    /** Label of the pass that last drew this, for the inspector only. Never part of the identity. */
+    lastPassLabel: string;
     /**
      * Compiled shader state.
      * null until first compilation.
@@ -59,11 +56,6 @@ export type RenderObject = {
      * null until first access.
      */
     _bindings: BindGroup[] | null;
-    /**
-     * Initial cache key computed when RenderObject was created.
-     * Used to detect when recompilation is needed.
-     */
-    initialCacheKey: string;
     /**
      * Version counter - incremented when RenderObject state changes.
      */
@@ -88,6 +80,8 @@ export type RenderObject = {
      * Used to invalidate cache when material changes.
      */
     _pipelineKeyVersion: number;
+    /** Geometry version the cached key was built at; the key carries the vertex layout. @internal */
+    _pipelineKeyGeometryVersion: number;
     /**
      * Callback to clean up GPU resources when disposed.
      */
@@ -97,23 +91,9 @@ export type RenderObject = {
      */
     disposed: boolean;
 };
-/**
- * Create a new RenderObject.
- *
- * @param mesh - The mesh to render
- * @param material - The material to use
- * @param scene - The scene/object containing the mesh
- * @param camera - The camera for rendering
- */
-export declare function createRenderObject(mesh: Mesh, material: Material, scene: Object3D, camera: Camera, renderContext: RenderContext): RenderObject;
-/**
- * Check if the RenderObject has been compiled (has neutral compiled state).
- *
- * Note: this only checks backend-neutral state (nodeBuilderState). Whether the
- * device-side pipeline exists is a WebGPU concern tracked in the
- * RenderObjectGpu side table - see webgpu/render-object-gpu.ts.
- */
-export declare function isInitialized(renderObject: RenderObject): boolean;
+/** What the inspector calls this draw: the mesh, else the material's own name, else its class. */
+export declare function pipelineLabel(mesh: Mesh, material: Material): string;
+export declare function createRenderObject(mesh: Mesh, material: Material, camera: View, renderContext: RenderContext): RenderObject;
 /**
  * Dispose a RenderObject and clean up GPU resources.
  */

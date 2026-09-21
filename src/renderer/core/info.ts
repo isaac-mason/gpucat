@@ -9,11 +9,10 @@
  * one reader — we have two independent ones, the host's debug panel and gpucat's own Inspector, and
  * whichever read first would zero the other's numbers.
  *
- * So the PRODUCER resets, at the frame boundary the renderer already keeps: the depth-guarded
- * `_renderCallDepth === 0` block that bumps `frameId` and opens the Inspector's frame. Nested
- * renders (PassNode) and render-to-target passes run at depth > 0 and share the frame, exactly as
- * they already share a `frameId`. Nothing has to be called from outside, so nothing can be
- * forgotten, and any number of readers can read the same numbers without disturbing each other.
+ * So the PRODUCER resets, at the frame boundary: `beginFrame` bumps `frameId`, zeroes the per-frame
+ * counters and opens the Inspector's frame. Every pass in that frame, including a RenderTextureNode's, shares
+ * it. Nothing has to be called from outside, so nothing can be forgotten, and any number of readers
+ * can read the same numbers without disturbing each other.
  *
  * Counters are therefore LAST COMPLETE FRAME while a frame is in flight, which is what a panel
  * wants anyway. `calls` is the one cumulative figure (session totals, free to keep); everything
@@ -212,7 +211,15 @@ export function recordBufferWrite(
 
     let entry = buffers.writes[buffers.writeCount];
     if (entry === undefined) {
-        entry = { bytes: 0, usage: '', full: false, label: undefined, material: undefined, updateType: undefined, changedBytes: undefined };
+        entry = {
+            bytes: 0,
+            usage: '',
+            full: false,
+            label: undefined,
+            material: undefined,
+            updateType: undefined,
+            changedBytes: undefined,
+        };
         buffers.writes[buffers.writeCount] = entry;
     }
     entry.bytes = bytes;

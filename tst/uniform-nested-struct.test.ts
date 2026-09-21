@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { attribute, compile, d, f32, struct, vec4 } from '../src/index';
+import { attribute, compileWgsl, d, f32, struct, vec4 } from '../src/index';
 import { fields, frameGroup, Uniform, UniformNode } from '../src/nodes/nodes';
 
 // End-to-end: a nested struct bound as a uniform. A member following a nested struct must sit on a
@@ -12,7 +12,7 @@ describe('nested struct in a UBO', () => {
         const outer = fields(
             new UniformNode(new Uniform(Outer, { inner: { a: 0, b: 0 }, tail: 0 }, frameGroup), 'uniform_outer') as never,
         ) as never as { tail: ReturnType<typeof f32> };
-        return compile({
+        return compileWgsl({
             vertex: vec4(attribute('position', d.vec3f), f32(1)),
             fragment: vec4(outer.tail, outer.tail, outer.tail, outer.tail),
             depth: undefined,

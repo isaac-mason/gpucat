@@ -1,4 +1,38 @@
-import { d, createStorageBuffer, storage, Fn, Var, globalId, If, index, f32, vec4, instanceIndex, attribute, mul, cameraViewMatrix, cameraProjectionMatrix, varying, uniform, Material, WebGPURenderer, Inspector, Scene, PerspectiveCamera, Geometry, Mesh, pass, createIndexBuffer, createVertexBuffer, RenderPipeline, renderOutput } from 'gpucat';
+import {
+    attribute,
+    cameraProjectionMatrix,
+    cameraViewMatrix,
+    compileCompute,
+    createCanvasTarget,
+    createIndexBuffer,
+    createMaterial,
+    createStorageBuffer,
+    createVertexBuffer,
+    d,
+    Fn,
+    f32,
+    frame,
+    fullscreen,
+    Geometry,
+    globalId,
+    If,
+    Inspector,
+    index,
+    init,
+    instanceIndex,
+    Mesh,
+    mul,
+    PerspectiveCamera,
+    renderOutput,
+    renderTexture,
+    Scene,
+    storage,
+    uniform,
+    Var,
+    varying,
+    vec4,
+    webgpu,
+} from 'gpucat';
 
 const N = 8192;
 const WG_SIZE = 64;
@@ -8,10 +42,10 @@ const WG_SIZE = 64;
 // positions: vec4f per particle — xyz = position, w = lifetime [0..1]
 const positionData = new Float32Array(N * 4);
 for (let i = 0; i < N; i++) {
-    positionData[i * 4 + 0] = (Math.random() - 0.5) * 20;  // x spread
-    positionData[i * 4 + 1] = (Math.random() - 0.5) * 10;  // y spread
-    positionData[i * 4 + 2] = (Math.random() - 0.5) * 4;   // z depth
-    positionData[i * 4 + 3] = Math.random();               // initial lifetime
+    positionData[i * 4 + 0] = (Math.random() - 0.5) * 20; // x spread
+    positionData[i * 4 + 1] = (Math.random() - 0.5) * 10; // y spread
+    positionData[i * 4 + 2] = (Math.random() - 0.5) * 4; // z depth
+    positionData[i * 4 + 3] = Math.random(); // initial lifetime
 }
 const positionBuffer = createStorageBuffer(d.array(d.vec4f), positionData);
 const positions = storage(positionBuffer, 'read_write');
@@ -46,13 +80,9 @@ const updateParticles = Fn(() => {
     If(newW.lessThanEqual(f32(0)), () => {
         // use globalId components as a cheap deterministic hash for spawn position.
         const seedX = f32(0).add(idx.toF32().mul(f32(0.0013)).fract().mul(f32(20)).sub(f32(10)));
-        index(positions, idx).assign(
-            vec4(seedX, f32(-5), f32(0), f32(1)),
-        );
+        index(positions, idx).assign(vec4(seedX, f32(-5), f32(0), f32(1)));
     }).Else(() => {
-        index(positions, idx).assign(
-            vec4(newX, newY, newZ, newW),
-        );
+        index(positions, idx).assign(vec4(newX, newY, newZ, newW));
     });
 }).compute({ workgroupSize: [WG_SIZE, 1, 1] });
 
@@ -62,12 +92,7 @@ const particlePos = index(positions, iIdx);
 
 // vertex: offset the geometry vertex by the particle's world position.
 const vtxPos = attribute('position', d.vec3f);
-const worldPos = vec4(
-    vtxPos.x.add(particlePos.x),
-    vtxPos.y.add(particlePos.y),
-    vtxPos.z.add(particlePos.z),
-    f32(1),
-);
+const worldPos = vec4(vtxPos.x.add(particlePos.x), vtxPos.y.add(particlePos.y), vtxPos.z.add(particlePos.z), f32(1));
 const viewPos = mul(cameraViewMatrix, worldPos);
 const clipPos = mul(cameraProjectionMatrix, viewPos);
 
@@ -83,12 +108,9 @@ const particleColor = vec4(colR, colG, colB, colA);
 // updated each frame in the loop — the renderer no longer ticks time itself.
 const time = uniform(f32(0), 'time');
 const pulse = time.mul(f32(2)).sin().mul(f32(0.05)).add(f32(1));
-const finalColor = vec4(
-    particleColor.rgb.mul(pulse),
-    particleColor.a,
-);
+const finalColor = vec4(particleColor.rgb.mul(pulse), particleColor.a);
 
-const material = new Material({
+const material = createMaterial({
     vertex: clipPos,
     fragment: finalColor,
     transparent: true,
@@ -96,23 +118,22 @@ const material = new Material({
 });
 
 /* setup renderer and scene */
-const renderer = new WebGPURenderer({ antialias: true });
-renderer.inspector = new Inspector();
-await renderer.init();
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
 
-document.body.appendChild(renderer.domElement);
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
+renderer.inspector = new Inspector();
+
 document.body.appendChild((renderer.inspector as Inspector).domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.clearColor = [0.04, 0.04, 0.08, 1];
+view.clearColor = [0.04, 0.04, 0.08, 1];
 
 const scene = new Scene();
-const camera = new PerspectiveCamera(
-    Math.PI / 4,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    200,
-);
+const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.position[2] = 25;
 scene.add(camera);
 // Static scene — set matrices once after setup.
@@ -120,7 +141,7 @@ scene.updateWorldMatrix();
 camera.updateViewMatrix();
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
@@ -128,12 +149,7 @@ window.addEventListener('resize', () => {
 // Small quad geometry for each particle — a 0.15-unit square.
 const S2 = 0.075;
 const quadGeom = new Geometry();
-const verts = new Float32Array([
-    -S2, -S2, 0,
-    S2, -S2, 0,
-    S2,  S2, 0,
-    -S2,  S2, 0,
-]);
+const verts = new Float32Array([-S2, -S2, 0, S2, -S2, 0, S2, S2, 0, -S2, S2, 0]);
 const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
 quadGeom.setBuffer('position', createVertexBuffer(d.vec3f, verts));
 quadGeom.index = createIndexBuffer(indices);
@@ -143,18 +159,25 @@ mesh.count = N;
 scene.add(mesh);
 
 // Pre-warm the compute pipeline before the frame loop.
-await renderer.compileCompute(updateParticles);
+await compileCompute(renderer, updateParticles);
 
-const scenePass = pass(scene, camera);
+const scenePass = renderTexture(scene, camera);
 const outputNode = renderOutput(scenePass.getTextureNode());
-const renderPipeline = new RenderPipeline(renderer, outputNode);
-
-function frame() {
+const composite = fullscreen(outputNode);
+function update() {
     time.value = performance.now() / 1000;
     // Dispatch the compute pass first, then render.
-    renderer.compute([{ node: updateParticles, dispatch: [Math.ceil(N / WG_SIZE), 1, 1] }]);
-    renderPipeline.render();
-    requestAnimationFrame(frame);
+    const f = frame(renderer);
+
+    const simPass = f.compute();
+    simPass.dispatch(updateParticles, [Math.ceil(N / WG_SIZE), 1, 1]);
+    simPass.end();
+
+    const compositePass = f.pass({ target: view });
+    compositePass.draw(composite);
+    compositePass.end();
+    f.submit();
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

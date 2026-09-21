@@ -1,7 +1,10 @@
 import { type Vec3, vec3 } from 'math';
 import type { CubeRenderTarget } from '../core/cube-render-target';
 import { Object3D } from '../core/object3d';
-import type { Renderer } from '../renderer/core/renderer-interface';
+import { frame } from '../renderer/core/frame';
+
+import type { Renderer } from '../renderer/core/renderer';
+import { drawScene } from '../scene/draw-scene';
 import { PerspectiveCamera } from './perspective-camera';
 
 /*
@@ -61,27 +64,20 @@ export class CubeCamera extends Object3D {
         }
     }
 
-    /**
-     * Render the scene into all six faces of the cube render target from this
-     * camera's world position. Restores the renderer's previous render target.
-     */
+    /** Records six passes, one per face, on a frame of its own. */
     update(renderer: Renderer, scene: Object3D): void {
         if (this.parent === null) this.updateWorldMatrix();
         this.getWorldPosition(_worldPos);
 
-        const previous = renderer.renderTarget;
         const previousFace = this.renderTarget.activeFace;
         const previousMip = this.renderTarget.activeMipmapLevel;
         const generateMipmaps = this.renderTarget.texture.generateMipmaps;
 
-        this.renderTarget.activeMipmapLevel = this.activeMipmapLevel;
-        // Suppress mip generation while the first five faces render, then restore it just before the
-        // last face so the renderer's render-finish step fills the cube's mip chain exactly once, on
-        // the render that completes all six faces. Regenerating per face would be 6× redundant, and
-        // generating before every face is defined would build mips from incomplete data.
+        // Mips fill once, on the face that completes the cube: earlier faces are not defined yet,
+        // and regenerating per face would be 6x redundant.
         this.renderTarget.texture.generateMipmaps = false;
-        renderer.renderTarget = this.renderTarget;
 
+        const f = frame(renderer);
         for (let face = 0; face < 6; face++) {
             if (face === 5) this.renderTarget.texture.generateMipmaps = generateMipmaps;
 
@@ -92,11 +88,18 @@ export class CubeCamera extends Object3D {
             camera.updateWorldMatrix();
             camera.updateViewMatrix();
 
-            this.renderTarget.activeFace = face;
-            renderer.render(scene, camera);
+            const pass = f.pass({
+                target: this.renderTarget,
+                camera,
+                layer: face,
+                mipLevel: this.activeMipmapLevel,
+                label: 'cube-camera',
+            });
+            drawScene(renderer, pass, scene, camera);
+            pass.end();
         }
+        f.submit();
 
-        renderer.renderTarget = previous;
         this.renderTarget.activeFace = previousFace;
         this.renderTarget.activeMipmapLevel = previousMip;
     }

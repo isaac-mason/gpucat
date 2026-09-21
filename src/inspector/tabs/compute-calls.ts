@@ -12,7 +12,7 @@
 
 import type { ComputeNode } from '../../nodes/nodes';
 import * as pipelines from '../../renderer/webgpu/pipelines';
-import type { WebGPURenderer } from '../../renderer/webgpu/renderer';
+import type { WebGPUBackend } from '../../renderer/webgpu/webgpu-backend';
 import type { Inspector } from '../inspector';
 import { Item } from '../ui/item';
 import { List } from '../ui/list';
@@ -131,7 +131,7 @@ export class ComputeCalls extends Tab {
      * Called by Inspector._processFrame() every frame when compute passes exist.
      * Diffs by node.id, only adds/removes items on structural changes.
      */
-    update(inspector: Inspector, renderer: WebGPURenderer): void {
+    update(inspector: Inspector, backend: WebGPUBackend): void {
         const liveNodes = inspector.computeNodes;
 
         // 1. Remove stale node items
@@ -160,7 +160,7 @@ export class ComputeCalls extends Tab {
             const capturedNode = node;
             item.itemRow.addEventListener('click', (e) => {
                 if ((e.target as HTMLElement).closest('.item-toggler')) return;
-                this.selectNode(capturedNode, inspector, renderer);
+                this.selectNode(capturedNode, inspector, backend);
             });
 
             this.list.add(item);
@@ -174,7 +174,7 @@ export class ComputeCalls extends Tab {
 
         // 3. Refresh detail panel if a node is currently selected
         if (this._selectedNode && liveNodes.has(this._selectedNode.id)) {
-            this._refreshShaderPanel(renderer);
+            this._refreshShaderPanel(backend);
         }
     }
 
@@ -182,7 +182,7 @@ export class ComputeCalls extends Tab {
      * Select a compute node programmatically (also called on click).
      * Highlights the item and populates the detail panel.
      */
-    selectNode(node: ComputeNode, inspector: Inspector, renderer: WebGPURenderer): void {
+    selectNode(node: ComputeNode, inspector: Inspector, backend: WebGPUBackend): void {
         // Clear previous highlight
         if (this._selectedNode) {
             const prev = this._nodeRecords.get(this._selectedNode.id);
@@ -195,12 +195,12 @@ export class ComputeCalls extends Tab {
 
         // Show and populate detail panel
         this._detailPanel.style.display = 'flex';
-        this._populateDetail(node, inspector, renderer);
+        this._populateDetail(node, inspector, backend);
     }
 
     // Detail panel population
 
-    private _populateDetail(node: ComputeNode, _inspector: Inspector, renderer: WebGPURenderer): void {
+    private _populateDetail(node: ComputeNode, _inspector: Inspector, backend: WebGPUBackend): void {
         // Metadata pane, workgroup size
         this._metaPane.innerHTML = '';
         const ws = node.workgroupSize;
@@ -210,11 +210,11 @@ export class ComputeCalls extends Tab {
         this._metaPane.appendChild(metaTable);
 
         // Shader pane, delegate to ShaderPanel (compute mode)
-        this._refreshShaderPanel(renderer);
+        this._refreshShaderPanel(backend);
 
         // Bindings pane
         this._bindingsPane.innerHTML = '';
-        const entry = pipelines.lookupCompute(renderer.pipelines, node);
+        const entry = pipelines.lookupCompute(backend.pipelines, node);
         if (entry) {
             const nbs = entry.nodeBuilderState;
             this._bindingsPane.appendChild(buildBindingsTable(nbs));
@@ -229,10 +229,10 @@ export class ComputeCalls extends Tab {
         this._showDetailSubTab(this._currentSubTab);
     }
 
-    private _refreshShaderPanel(renderer: WebGPURenderer): void {
+    private _refreshShaderPanel(backend: WebGPUBackend): void {
         if (!this._selectedNode) return;
 
-        const entry = pipelines.lookupCompute(renderer.pipelines, this._selectedNode);
+        const entry = pipelines.lookupCompute(backend.pipelines, this._selectedNode);
         if (entry) {
             this._shaderPanel.updateFromCompute(entry.nodeBuilderState.computeCode!);
         }

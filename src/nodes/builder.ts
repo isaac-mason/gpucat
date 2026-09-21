@@ -59,7 +59,7 @@ import type { WgslFunctionNode } from './lib/wgsl-fn';
 
 /* public apis */
 
-export function compile(slots: CompileSlots): CompileResult {
+export function compileWgsl(slots: CompileSlots): CompileResult {
     // A fragment-less material (depth/stencil-only) may leave the slot null or undefined.
     const hasFragment = slots.fragment != null;
     // A frag_depth override is a fragment-stage value; a fragment shader must run to write it, even in
@@ -547,7 +547,7 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
     };
 }
 
-export function compileCompute(node: ComputeNode): ComputeCompileResult {
+export function compileComputeWgsl(node: ComputeNode): ComputeCompileResult {
     // trace the FnNode to get roots
     const fn = node.fn;
     const traced = fn.trace();

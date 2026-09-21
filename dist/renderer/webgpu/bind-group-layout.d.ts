@@ -41,3 +41,6 @@ export declare function getBindGroupLayout(cache: BindGroupLayoutCache, device: 
 export declare function buildComputeBindGroupLayouts(device: GPUDevice, bindings: NodeBindGroup[], layoutCache: BindGroupLayoutCache): GPUBindGroupLayout[];
 /** Drop every cached layout (called on renderer dispose; `device.destroy()` frees the GPU side). */
 export declare function disposeBindGroupLayoutCache(cache: BindGroupLayoutCache): void;
+export declare function getBindGroupLayoutCacheStats(cache: BindGroupLayoutCache): {
+    layoutCount: number;
+};

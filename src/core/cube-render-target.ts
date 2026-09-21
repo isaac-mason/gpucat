@@ -1,6 +1,7 @@
-import { RenderTarget } from './render-target';
+import { fullMipChainLength } from '../renderer/core/texture-size';
 import { CubeTexture } from '../texture/cube-texture';
 import type { DepthTextureFormat } from '../texture/depth-texture';
+import { RenderTarget } from './render-target';
 
 export type CubeRenderTargetOptions = {
     /** Color format of the cube faces. Default: 'rgba8unorm'. */
@@ -36,7 +37,7 @@ export type CubeRenderTargetOptions = {
 
 /**
  * A render target whose color attachment is a cube texture. Render each of the
- * six faces (set `activeFace` and call `renderer.render(scene, faceCamera)`),
+ * six faces (a pass per face, naming it with `PassDesc.layer`; see `CubeCamera`),
  * then sample the result as an environment map via `cubeTexture(rt.texture)`.
  *
  * Usually driven by a `CubeCamera`, which sets up the six face cameras and loops
@@ -85,6 +86,10 @@ export class CubeRenderTarget extends RenderTarget {
         });
         this._texture.name = 'output';
         this._texture._gpuTexture.renderTarget = this;
+        // Allocation must not depend on `generateMipmaps`, which `CubeCamera` flips off mid-render to
+        // regenerate once rather than per face: storage is immutable, so a chain suppressed at the
+        // first face can never be added back.
+        if (opts.generateMipmaps) this._texture._gpuTexture.mipLevelCount = fullMipChainLength(size, size);
         this.textures[0] = this._texture;
     }
 
@@ -98,4 +103,9 @@ export class CubeRenderTarget extends RenderTarget {
         super.setSize(size, size);
         this.size = size;
     }
+}
+
+/** A cube render target: six square faces, drawn one pass each with `PassDesc.layer`. */
+export function createCubeRenderTarget(size: number, opts: CubeRenderTargetOptions = {}): CubeRenderTarget {
+    return new CubeRenderTarget(size, opts);
 }

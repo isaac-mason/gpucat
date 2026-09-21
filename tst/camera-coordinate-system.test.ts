@@ -10,7 +10,7 @@ import { CoordinateSystem, OrthographicCamera, PerspectiveCamera } from '../src/
  * A pixel-occlusion test can NOT catch a ZO/NO regression: both conventions preserve depth ORDERING,
  * so a near object still occludes a far one either way (which is exactly why a symmetric lit box
  * passes even with the wrong projection). The observable difference is the projected NDC depth of the
- * near/far planes — asserted directly here. WebGPURenderer/WebGLRenderer stamp their convention onto
+ * near/far planes — asserted directly here. WebGPUBackend/WebGLBackend stamp their convention onto
  * the camera each frame; this validates the math those pushes drive.
  */
 

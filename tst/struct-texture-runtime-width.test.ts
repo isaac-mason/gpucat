@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { attribute, compile, compileGlsl, createStructTexture, f32, struct, texture, u32, vec4 } from '../src/index';
+import { attribute, compileGlsl, compileWgsl, createStructTexture, f32, struct, texture, u32, vec4 } from '../src/index';
 import * as d from '../src/schema/schema';
 
 // A real `texture(t).load(schema, i)` maps a linear record index to (x, y) using the texture's
@@ -18,6 +18,6 @@ test('real-texture load addresses texels with runtime width (both backends)', ()
     // No baked texels-per-row constant: the width comes only from the runtime query.
     expect(glsl.code).not.toMatch(/[%/]\s*4u/);
 
-    const wgsl = compile({ vertex, fragment: record.color });
+    const wgsl = compileWgsl({ vertex, fragment: record.color });
     expect(wgsl.code).toContain('textureDimensions(');
 });

@@ -3,10 +3,9 @@
  *
  * These are the immediate-mode equivalents of a WebGPU pipeline's fixed-function state: depth
  * test/write/compare, face culling, blending, and stencil. WebGPU bakes this into the pipeline
- * object; WebGL2 sets it live on the context before each draw. The mechanics are ported from the
- * reference renderer's `setDepthTest`/`setDepthMask`/`setCullSide`/`setBlending`, adapted to read
- * gpucat's `Material` fields (which use the WebGPU vocabulary: `depthCompare`, `cullMode`, `blend`,
- * `stencilFunc`, `stencilFail`, …) rather than the reference's own enums.
+ * object; WebGL2 sets it live on the context before each draw. These read `Material`'s fields
+ * directly, and those fields are WebGPU vocabulary (`depthCompare`, `cullMode`, `blend`,
+ * `stencilFunc`, `stencilFail`), so there is no second enum set to translate through.
  *
  * A small `GlStateCache` tracks the last-applied values so redundant `gl.enable`/`gl.depthFunc`/…
  * calls are skipped across the draw loop (the WebGPU path gets this for free from pipeline dedup).
@@ -58,6 +57,8 @@ export declare function createGlStateCache(): GlStateCache;
  * fight the first draw's material state.
  */
 export declare function establishPassBaseline(gl: WebGL2RenderingContext): void;
+/** Map a WebGPU blend factor to the GL blend-factor constant. */
+export declare function blendFactor(gl: WebGL2RenderingContext, factor: GPUBlendFactor): number;
 /**
  * Apply the whole fixed-function GL state for a material in one call: depth, cull, blend, color mask,
  * and (when the framebuffer supports it) stencil. Redundant sub-states are skipped via `cache`.

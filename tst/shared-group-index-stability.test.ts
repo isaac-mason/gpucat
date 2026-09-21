@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { add, attribute, cameraProjectionMatrix, cameraViewMatrix, compile, d, f32, mul, struct, vec4 } from '../src/index';
+import { add, attribute, cameraProjectionMatrix, cameraViewMatrix, compileWgsl, d, f32, mul, struct, vec4 } from '../src/index';
 import { fields, frameGroup, Uniform, uniform } from '../src/nodes/nodes';
 
 /**
@@ -34,7 +34,7 @@ describe('shared group layout is stable whether or not a material uses the camer
             ? (mul(cameraProjectionMatrix, mul(cameraViewMatrix, vec4(pos, f32(1)))) as never)
             : vec4(pos, f32(1));
 
-        const r = compile({
+        const r = compileWgsl({
             vertex,
             fragment: vec4(frag, f32(0), f32(0), f32(1)),
             depth: undefined,

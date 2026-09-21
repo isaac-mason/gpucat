@@ -37,7 +37,7 @@ import type {
     WorkgroupVarNode,
 } from './lib/core';
 import { NodeKind } from './lib/core';
-import type { PassNode } from './lib/display/pass-node';
+import type { RenderTextureNode } from './lib/display/render-texture-node';
 import type { MRTNode, OutputStructNode } from './lib/mrt';
 import type { StorageNode } from './lib/storage';
 import type {
@@ -99,7 +99,7 @@ export type AnyNode =
     | CubeTextureNode
     | DepthTextureNode
     | ArrayTextureNode
-    | PassNode
+    | RenderTextureNode
     | InspectorNode<d.Any>;
 
 /** Get all child nodes for traversal */
@@ -144,9 +144,9 @@ export function getChildren(rawNode: Node<d.Any>): Node<d.Any>[] {
         children.push(node.value);
     } else if (node.kind === NodeKind.Inspector) {
         children.push(node.wrappedNode);
-    } else if (node.kind === NodeKind.Pass) {
-        // PassNode delegates to its texture node during code generation
-        const textureNode = node.scope === 'fragment' ? node.getTextureNode() : node.getLinearDepthNode();
+    } else if (node.kind === NodeKind.RenderTexture) {
+        // RenderTextureNode delegates to its texture node during code generation
+        const textureNode = node.read === 'depth' ? node.getLinearDepthNode() : node.getTextureNode();
         children.push(textureNode);
     } else if (node.kind === NodeKind.TextureBinding) {
         // A binding fed by a render pass depends on that pass: reaching it here makes discovery render
@@ -160,7 +160,9 @@ export function getChildren(rawNode: Node<d.Any>): Node<d.Any>[] {
         if (node.samplerNode) {
             children.push(node.samplerNode);
         }
-        if (node.uvNode) {
+        // A load reads `loadCoords` and never the uv, so walking it here would collect the default
+        // `varying(uv())` and make the geometry owe a `uv` attribute the shader never reads.
+        if (node.uvNode && node.samplingMode !== 'load') {
             children.push(node.uvNode);
         }
         if (node.levelNode) {
@@ -203,7 +205,7 @@ export function getChildren(rawNode: Node<d.Any>): Node<d.Any>[] {
         if (node.samplerNode) {
             children.push(node.samplerNode);
         }
-        if (node.uvNode) {
+        if (node.uvNode && node.samplingMode !== 'load') {
             children.push(node.uvNode);
         }
         if (node.levelNode) {
@@ -223,7 +225,7 @@ export function getChildren(rawNode: Node<d.Any>): Node<d.Any>[] {
         if (node.samplerNode) {
             children.push(node.samplerNode);
         }
-        if (node.uvNode) {
+        if (node.uvNode && node.samplingMode !== 'load') {
             children.push(node.uvNode);
         }
         children.push(node.layerNode);

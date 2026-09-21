@@ -1,10 +1,62 @@
 import {
-    d, createStorageBuffer, storage, Fn, Var, If, Loop, index, globalId, instanceIndex,
-    f32, u32, vec3, vec4, mul, floor, clamp, min, max, dot, cross, mix, sin, cos, atan2, pow, length, normalize,
-    atomicStore, atomicAdd, atomicLoad, attribute, varying, uniform, Uniform,
-    cameraViewMatrix, cameraProjectionMatrix, cameraPosition, Material, Mesh, Scene, PerspectiveCamera,
-    WebGPURenderer, OrbitControls, Geometry, createVertexBuffer, createIndexBuffer,
-    pass, renderOutput, fxaa, RenderPipeline, unproject, Inspector, type Node,
+    atan2,
+    atomicAdd,
+    atomicLoad,
+    atomicStore,
+    attribute,
+    cameraPosition,
+    cameraProjectionMatrix,
+    cameraViewMatrix,
+    clamp,
+    compileCompute,
+    cos,
+    createCanvasTarget,
+    createIndexBuffer,
+    createMaterial,
+    createStorageBuffer,
+    createVertexBuffer,
+    cross,
+    d,
+    dot,
+    Fn,
+    f32,
+    floor,
+    frame,
+    fullscreen,
+    fxaa,
+    Geometry,
+    globalId,
+    If,
+    Inspector,
+    index,
+    init,
+    instanceIndex,
+    Loop,
+    length,
+    Mesh,
+    max,
+    min,
+    mix,
+    mul,
+    type Node,
+    normalize,
+    OrbitControls,
+    PerspectiveCamera,
+    pow,
+    renderOutput,
+    renderTexture,
+    Scene,
+    sin,
+    storage,
+    Uniform,
+    u32,
+    uniform,
+    unproject,
+    Var,
+    varying,
+    vec3,
+    vec4,
+    webgpu,
 } from 'gpucat';
 import { vec3 as v3 } from 'math';
 
@@ -26,31 +78,31 @@ import { vec3 as v3 } from 'math';
 
 const N = 4096;
 const WG = 64;
-const R = 3.0;                    // perception radius == spatial-hash cell size
-const GRID_MIN = -16;            // world-space corner of the grid
+const R = 3.0; // perception radius == spatial-hash cell size
+const GRID_MIN = -16; // world-space corner of the grid
 const CELL = R;
 const GRID_DIM = Math.ceil((-2 * GRID_MIN) / CELL);
 const NUM_CELLS = GRID_DIM * GRID_DIM * GRID_DIM;
-const MAX_PER_CELL = 96;          // fixed per-cell capacity (flocks clump, so keep it generous)
+const MAX_PER_CELL = 96; // fixed per-cell capacity (flocks clump, so keep it generous)
 
 // flocking weights — these shape direction; the speed clamp shapes magnitude.
 // Strong alignment is what makes the flock stream into murmuration-like lanes.
-const SEP_W = 0.5;                // separation: push apart, stronger when closer
-const ALI_W = 0.2;                // alignment: match neighbours' heading
-const COH_W = 0.025;              // cohesion: drift toward neighbours' centre
-const BOUND = 13;                 // soft sphere radius; beyond it, turn back
+const SEP_W = 0.5; // separation: push apart, stronger when closer
+const ALI_W = 0.2; // alignment: match neighbours' heading
+const COH_W = 0.025; // cohesion: drift toward neighbours' centre
+const BOUND = 13; // soft sphere radius; beyond it, turn back
 const BOUND_W = 0.6;
-const MIN_SPEED = 3.0;            // birds never stall...
-const MAX_SPEED = 6.5;            // ...and never outrun the sim
+const MIN_SPEED = 3.0; // birds never stall...
+const MAX_SPEED = 6.5; // ...and never outrun the sim
 const DT = 1 / 60;
-const SCALE = 0.4;                // bird size
-const FLAP_AMP = 0.95;            // wing-beat amplitude (radians, ~54°)
-const FLAP_BASE = 13;             // base beat rate
-const FLAP_VAR = 9;               // per-bird rate spread, so they don't beat in unison
-const FOG_NEAR = 30;              // distance fog: front of the flock stays vivid...
-const FOG_FAR = 62;              // ...the back fades into the background, reading as depth
-const MOUSE_RADIUS = 8.0;         // cursor predator sphere
-const MOUSE_STRENGTH = 5.0;       // how hard birds swerve away
+const SCALE = 0.4; // bird size
+const FLAP_AMP = 0.95; // wing-beat amplitude (radians, ~54°)
+const FLAP_BASE = 13; // base beat rate
+const FLAP_VAR = 9; // per-bird rate spread, so they don't beat in unison
+const FOG_NEAR = 30; // distance fog: front of the flock stays vivid...
+const FOG_FAR = 62; // ...the back fades into the background, reading as depth
+const MOUSE_RADIUS = 8.0; // cursor predator sphere
+const MOUSE_STRENGTH = 5.0; // how hard birds swerve away
 
 /* storage buffers */
 
@@ -97,7 +149,10 @@ const mouseActive = uniform(uMouseActive);
 const clampCoord = (v: Node<d.f32>) => clamp(floor(v), f32(0), f32(GRID_DIM - 1)).toU32();
 const cellOf = (p: Node<d.vec3f>): Node<d.u32> => {
     const l = p.sub(vec3(GRID_MIN, GRID_MIN, GRID_MIN)).mul(f32(1 / CELL));
-    return clampCoord(l.z).mul(u32(GRID_DIM * GRID_DIM)).add(clampCoord(l.y).mul(u32(GRID_DIM))).add(clampCoord(l.x));
+    return clampCoord(l.z)
+        .mul(u32(GRID_DIM * GRID_DIM))
+        .add(clampCoord(l.y).mul(u32(GRID_DIM)))
+        .add(clampCoord(l.x));
 };
 
 /* pass 1: clear the grid counts */
@@ -132,7 +187,7 @@ const simulate = Fn(() => {
         const selfP = Var('selfP', index(posPrev, i).xyz);
         const selfV = Var('selfV', index(velPrev, i).xyz);
 
-        const sep = Var('sep', vec3(0, 0, 0));      // push away from close neighbours
+        const sep = Var('sep', vec3(0, 0, 0)); // push away from close neighbours
         const aliSum = Var('aliSum', vec3(0, 0, 0)); // sum of neighbour velocities
         const cohSum = Var('cohSum', vec3(0, 0, 0)); // sum of neighbour positions
         const count = Var('count', f32(0));
@@ -172,9 +227,9 @@ const simulate = Fn(() => {
         const vel = Var('vel', selfV.add(sep.mul(f32(SEP_W))));
         If(count.greaterThan(f32(0)), () => {
             const aliAvg = aliSum.div(count);
-            vel.addAssign(aliAvg.sub(selfV).mul(f32(ALI_W)));      // alignment
+            vel.addAssign(aliAvg.sub(selfV).mul(f32(ALI_W))); // alignment
             const cohAvg = cohSum.div(count);
-            vel.addAssign(cohAvg.sub(selfP).mul(f32(COH_W)));      // cohesion
+            vel.addAssign(cohAvg.sub(selfP).mul(f32(COH_W))); // cohesion
         });
 
         // soft spherical boundary: turn back when straying past the radius
@@ -238,7 +293,7 @@ const clipPos = mul(cameraProjectionMatrix, mul(cameraViewMatrix, worldPos));
 const rotNormal = right.mul(flapNormal.x).add(up.mul(flapNormal.y)).add(fwd.mul(flapNormal.z));
 const vNormal = varying(rotNormal, 'vNormal');
 const vWorldPos = varying(worldPosV, 'vWorldPos');
-const vHeading = varying(fwd, 'vHeading');                 // travel direction, drives the hue
+const vHeading = varying(fwd, 'vHeading'); // travel direction, drives the hue
 const vSpeed = varying(length(birdVel), 'vSpeed');
 
 // hue from heading: birds flowing the same way share a colour, so the flocking
@@ -268,7 +323,7 @@ const lit = shaded.add(rimColor);
 const fog = clamp(dist.sub(f32(FOG_NEAR)).div(f32(FOG_FAR - FOG_NEAR)), f32(0), f32(1));
 const fragColor = vec4(mix(lit, vec3(0.03, 0.04, 0.08), fog), f32(1));
 
-const material = new Material({ vertex: clipPos, fragment: fragColor, cullMode: 'none' });
+const material = createMaterial({ vertex: clipPos, fragment: fragColor, cullMode: 'none' });
 
 /* a little low-poly bird: a slim body in the vertical plane plus two horizontal
  * wings, nose pointing +Z. Each vertex carries a `wing` sign (+1 left, -1 right,
@@ -287,13 +342,13 @@ function createBirdGeometry() {
     };
 
     // body verts (vertical plane, x=0)
-    const N = [0, 0, 0.95];   // nose
-    const T = [0, 0, -0.75];  // tail
+    const N = [0, 0, 0.95]; // nose
+    const T = [0, 0, -0.75]; // tail
     const Tp = [0, 0.14, -0.25]; // back ridge
     const Bt = [0, -0.06, -0.2]; // belly
     // wing verts: shoulders sit on the body axis (x=0) so they act as the hinge
-    const Sf = [0, 0, 0.25];   // shoulder, front
-    const Sb = [0, 0, -0.45];  // shoulder, back
+    const Sf = [0, 0, 0.25]; // shoulder, front
+    const Sb = [0, 0, -0.45]; // shoulder, back
     const L = [-1.15, 0, -0.55]; // left wing tip (swept back)
     const Rt = [1.15, 0, -0.55]; // right wing tip
 
@@ -313,7 +368,7 @@ function createBirdGeometry() {
     tri(N, Tp, T, 0);
     tri(N, T, Bt, 0);
     // wings: lie flat (normal up so the top catches light); the flap rotates them
-    tri(Sf, Sb, L, 1, [0, 1, 0]);  // left wing
+    tri(Sf, Sb, L, 1, [0, 1, 0]); // left wing
     tri(Sf, Sb, Rt, -1, [0, 1, 0]); // right wing
 
     const geom = new Geometry();
@@ -328,22 +383,26 @@ function createBirdGeometry() {
 
 /* renderer + scene */
 
-const renderer = new WebGPURenderer({ antialias: true });
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
+
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
 const inspector = new Inspector();
 renderer.inspector = inspector;
-await renderer.init();
-document.body.appendChild(renderer.domElement);
 document.body.appendChild(inspector.domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.clearColor = [0.03, 0.04, 0.08, 1];
+view.clearColor = [0.03, 0.04, 0.08, 1];
 
 const scene = new Scene();
 const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.position[2] = 42;
 scene.add(camera);
 
-const controls = new OrbitControls(camera, renderer.domElement);
+const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 
 const mesh = new Mesh(createBirdGeometry(), material);
@@ -352,7 +411,7 @@ mesh.frustumCulled = false;
 scene.add(mesh);
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
@@ -367,13 +426,15 @@ const far: [number, number, number] = [0, 0, 0];
 const dir: [number, number, number] = [0, 0, 0];
 const mouseWorld: [number, number, number] = [0, 0, 0];
 
-renderer.domElement.addEventListener('pointermove', (e) => {
-    const rect = renderer.domElement.getBoundingClientRect();
+canvas.addEventListener('pointermove', (e) => {
+    const rect = canvas.getBoundingClientRect();
     ndcX.v = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     ndcY.v = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     mouseOver = true;
 });
-renderer.domElement.addEventListener('pointerleave', () => { mouseOver = false; });
+canvas.addEventListener('pointerleave', () => {
+    mouseOver = false;
+});
 
 function updateMouse() {
     if (!mouseOver) {
@@ -394,32 +455,34 @@ function updateMouse() {
 
 /* pre-warm pipelines, then run */
 
-await renderer.compileCompute(clearGrid);
-await renderer.compileCompute(bin);
-await renderer.compileCompute(simulate);
+await compileCompute(renderer, [clearGrid, bin, simulate]);
 
-const scenePass = pass(scene, camera);
+const scenePass = renderTexture(scene, camera);
 // anti-alias the rendered scene (FXAA needs the texture), then tone-map + sRGB
-const renderPipeline = new RenderPipeline(renderer, renderOutput(fxaa(scenePass.getTextureNode())));
-
+const composite = fullscreen(renderOutput(fxaa(scenePass.getTextureNode())));
 const dispatchN = Math.ceil(N / WG);
 const dispatchCells = Math.ceil(NUM_CELLS / WG);
 
-function frame() {
+function update() {
     controls.update();
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
     updateMouse();
     time.value = performance.now() / 1000;
 
-    renderer.compute([
-        { node: clearGrid, dispatch: [dispatchCells, 1, 1] },
-        { node: bin, dispatch: [dispatchN, 1, 1] },
-        { node: simulate, dispatch: [dispatchN, 1, 1] },
-    ]);
-    renderPipeline.render();
+    const f = frame(renderer);
 
-    requestAnimationFrame(frame);
+    const simPass = f.compute();
+    simPass.dispatch(clearGrid, [dispatchCells, 1, 1]);
+    simPass.dispatch(bin, [dispatchN, 1, 1]);
+    simPass.dispatch(simulate, [dispatchN, 1, 1]);
+    simPass.end();
+
+    const compositePass = f.pass({ target: view });
+    compositePass.draw(composite);
+    compositePass.end();
+    f.submit();
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

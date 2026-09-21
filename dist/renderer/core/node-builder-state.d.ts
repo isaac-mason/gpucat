@@ -90,3 +90,11 @@ export declare function createNodeBuilderStateForCompute(compileResult: ComputeC
  * @returns array of BindGroups for this RenderObject
  */
 export declare function createBindings(state: NodeBuilderState): BindGroup[];
+/**
+ * The shader's attributes name the buffers a geometry owes it. A missing one is silent in both
+ * backends — WebGPU drops the layout and Dawn blames an anonymous vertex slot, WebGL skips the upload
+ * and draws whatever the attribute last held — so it is named here instead, once, for both.
+ */
+export declare function assertVertexBuffers(geometry: {
+    buffers: Map<string, unknown>;
+}, state: NodeBuilderState, label: string): void;

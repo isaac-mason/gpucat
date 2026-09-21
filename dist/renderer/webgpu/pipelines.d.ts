@@ -4,7 +4,7 @@ import type { MRTNode } from '../../nodes/lib/mrt';
 import { type ComputeNode } from '../../nodes/nodes';
 import type { NodeBuilderState } from '../core/node-builder-state';
 import type { NodeManagerState } from '../core/node-manager';
-import type { ComputeContext } from '../core/pass-context';
+import type { ComputeContext, RenderContext } from '../core/pass-context';
 import type { RenderObject } from '../core/render-object';
 import { type BindGroupLayoutCache } from './bind-group-layout';
 export type ComputePipelineEntry = {
@@ -18,7 +18,6 @@ export type RenderPipelineEntry = {
 export type PipelinesStats = {
     renderCount: number;
     computeCount: number;
-    bindGroupLayoutCount: number;
 };
 /**
  * Pipelines state object.
@@ -40,15 +39,7 @@ export type PipelinesState = {
      * Set by the renderer once the canvas format is known.
      */
     canvasFormat: GPUTextureFormat;
-    /**
-     * Fallback depth format used when rendering to the swapchain (renderTarget === null).
-     * Set by the renderer to match the swapchain depth texture format.
-     */
-    canvasDepthFormat: GPUTextureFormat;
 };
-export declare const DEPTH_FORMAT: GPUTextureFormat;
-/** Depth format carrying a stencil aspect. Used when a target requests a stencil buffer. */
-export declare const DEPTH_STENCIL_FORMAT: GPUTextureFormat;
 /** Whether a depth format includes a stencil aspect (depth24plus-stencil8, depth32float-stencil8, stencil8). */
 export declare function formatHasStencil(format: GPUTextureFormat): boolean;
 /**
@@ -67,23 +58,13 @@ export declare function getRenderContextColorFormats(renderContext: {
         }[];
     } | null;
 }, canvasFormat: GPUTextureFormat): GPUTextureFormat[];
-/**
- * Depth-stencil format for a render context, or null if the target has no depth attachment.
- * Reads the always-present depth ATTACHMENT (`_depthAttachment`), not the sampling-gated
- * `depthTexture` getter — a target's pipeline needs the depth format whether or not it's sampled.
- * Falls back to the swapchain depth format.
- */
-export declare function getRenderContextDepthFormat(renderContext: {
-    renderTarget: {
-        _depthAttachment: {
-            format: GPUTextureFormat;
-        } | null;
-    } | null;
-}, canvasDepthFormat: GPUTextureFormat): GPUTextureFormat | null;
+/** The depth ATTACHMENT's format, not the sampling-gated `depthTexture` getter: a pipeline needs it
+ *  whether or not the depth is sampled. */
+export declare function getRenderContextDepthFormat(renderContext: RenderContext): GPUTextureFormat | null;
 /**
  * Get cache statistics.
  */
-export declare function getStats(state: PipelinesState): PipelinesStats;
+export declare function getPipelineCacheStats(state: PipelinesState): PipelinesStats;
 /**
  * Get or create a render pipeline for a RenderObject.
  *
@@ -97,10 +78,6 @@ export declare function getStats(state: PipelinesState): PipelinesStats;
  */
 export declare function getForRender(state: PipelinesState, device: GPUDevice, renderObject: RenderObject, bindGroupLayouts: GPUBindGroupLayout[], promises?: Promise<void>[] | null): RenderPipelineEntry;
 /**
- * Check if a render pipeline is ready for rendering.
- */
-export declare function isReady(state: PipelinesState, renderObject: RenderObject): boolean;
-/**
  * Get or create a compute pipeline for a ComputeNode.
  *
  * @param state - The pipelines state
@@ -110,10 +87,6 @@ export declare function isReady(state: PipelinesState, renderObject: RenderObjec
  * @returns The compute pipeline entry
  */
 export declare function getForCompute(state: PipelinesState, device: GPUDevice, nodes: NodeManagerState, node: ComputeNode, computeContext: ComputeContext, promises?: Promise<void>[] | null): ComputePipelineEntry;
-/**
- * Check if a compute pipeline is ready.
- */
-export declare function isComputeReady(state: PipelinesState, node: ComputeNode): boolean;
 /**
  * Look up an existing compute pipeline entry without compiling.
  * Returns null if the pipeline hasn't been created yet.
@@ -126,11 +99,23 @@ export declare function lookupCompute(state: PipelinesState, node: ComputeNode):
 /** Drop every cached pipeline (called on renderer dispose; `device.destroy()` frees the GPU side). */
 export declare function disposePipelines(state: PipelinesState): void;
 /**
- * Stable cache key for a material + MSAA sample count + color format + optional depth format.
+ * Stable cache key for a material + vertex layout + MSAA sample count + color format + optional depth
+ * format. `vertexLayout` comes from {@link vertexLayoutKey}; without it two geometries that supply the
+ * same attribute name with different buffer formats share a pipeline whose arrayStride suits only one.
  */
-export declare function makeRenderPipelineKey(material: Material, samples: number, formats: GPUTextureFormat[], depthFormat: GPUTextureFormat | null, mrt: MRTNode | null): string;
+export declare function makeRenderPipelineKey(material: Material, vertexLayout: string, samples: number, formats: GPUTextureFormat[], depthFormat: GPUTextureFormat | null, mrt: MRTNode | null): string;
+/** The part of a pipeline's vertex layout that comes from the geometry, not from the node graph. */
+export declare function vertexLayoutKey(geometry: Geometry, nodeState: NodeBuilderState): string;
 /**
  * Build vertex buffer layouts from geometry and NodeBuilderState.
  * Uses vertexBufferGroups to produce one GPUVertexBufferLayout per unique buffer.
  */
-export declare function buildVertexBufferLayouts(geometry: Geometry, nodeState: NodeBuilderState): GPUVertexBufferLayout[];
+export declare function buildVertexBufferLayouts(geometry: Geometry, nodeState: NodeBuilderState, label?: string): GPUVertexBufferLayout[];
+/**
+ * Get bytes per element for a vertex format.
+ */
+export declare function getBytesPerElement(format: GPUVertexFormat): number;
+/**
+ * Get the item size (number of components) for a WGSL type.
+ */
+export declare function wgslTypeItemSize(type: string): number;

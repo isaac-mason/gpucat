@@ -1,8 +1,7 @@
-import type { Vec4 } from 'math';
-import { type ImageSize } from '../texture/source';
-import { Texture } from '../texture/texture';
-import { DepthTexture, type DepthTextureFormat } from '../texture/depth-texture';
 import type { CubeTexture } from '../texture/cube-texture';
+import { DepthTexture, type DepthTextureFormat } from '../texture/depth-texture';
+import type { ImageSize } from '../texture/source';
+import { Texture } from '../texture/texture';
 
 export type RenderTargetOptions = {
     /**
@@ -28,10 +27,13 @@ export type RenderTargetOptions = {
      * Whether the depth attachment will be sampled (read as a texture). Default false: the depth is a
      * write-only attachment (a RENDERBUFFER on WebGL — more broadly FBO-complete, three.js parity), and
      * `rt.depthTexture` is null. Set true (or provide an explicit `depthTexture`, or call
-     * `PassNode.getDepthTextureNode()`) to expose the depth as a sampleable texture — required to read
+     * `RenderTextureNode.getDepthTextureNode()`) to expose the depth as a sampleable texture — required to read
      * it in a shader (e.g. a shadow map). Depth testing works either way; this only governs readability.
      */
     depthSampled?: boolean;
+
+    /** Clear colour used by a pass that clears without naming one. Default [0, 0, 0, 1]. */
+    clearColor?: [number, number, number, number];
 
     /** MSAA sample count. Default: 1. */
     samples?: number;
@@ -50,6 +52,8 @@ export type RenderTargetTexture = Texture | CubeTexture;
  */
 export class RenderTarget {
     readonly isRenderTarget = true;
+
+    clearColor: [number, number, number, number];
     /** Brand set true on CubeRenderTarget; declared here so `rt.isCubeRenderTarget` types on a RenderTarget ref. */
     readonly isCubeRenderTarget?: true;
     /** The width of the render target */
@@ -79,7 +83,7 @@ export class RenderTarget {
     /**
      * The depth attachment exposed for SAMPLING, or null when the depth isn't declared sampled.
      * three.js-aligned: a render target's depth is readable as a texture only when you opt in
-     * (`depthSampled: true`, an explicit `depthTexture`, or `PassNode.getDepthTextureNode()`), mirroring
+     * (`depthSampled: true`, an explicit `depthTexture`, or `RenderTextureNode.getDepthTextureNode()`), mirroring
      * three.js where the *presence* of `renderTarget.depthTexture` is the signal. The actual depth
      * attachment for depth testing always exists (see {@link _depthAttachment}); returning null here
      * makes sampling an undeclared depth fail loud (a null at wiring time) instead of silently reading
@@ -93,30 +97,17 @@ export class RenderTarget {
      * Whether the depth attachment is sampled. When false and the target owns an
      * auto-allocated depth, the WebGL backend attaches a depth RENDERBUFFER instead
      * of a texture (three.js parity, more broadly FBO-complete; depth-testing still
-     * works). Set true by `PassNode.getDepthTextureNode()` or the `depthSampled` option.
+     * works). Set true by `RenderTextureNode.getDepthTextureNode()` or the `depthSampled` option.
      * WebGPU always allocates the attachment as a texture, so it is unaffected.
      */
     depthSampled = false;
-
-    /**
-     * Viewport for renders into this target as a `Vec4` [x, y, width, height] in the target's pixels
-     * (top-left origin); null = full target. A render into a target uses the target's own viewport/scissor,
-     * never the renderer's swapchain one, so a swapchain compositing viewport can't leak into a
-     * render-to-texture (or cube) pass.
-     */
-    viewport: Vec4 | null = null;
-
-    /** Scissor rect as a `Vec4` [x, y, width, height] in the target's pixels; null = full target. Clips only while scissorTest is on. */
-    scissor: Vec4 | null = null;
-
-    /** Whether the scissor test is enabled for renders into this target. */
-    scissorTest = false;
 
     /** Constructs a new render target */
     constructor(width: number, height: number, opts: RenderTargetOptions = {}) {
         this.width = width;
         this.height = height;
         this.samples = opts.samples ?? 1;
+        this.clearColor = opts.clearColor ?? [0, 0, 0, 1];
 
         const defaultFormat = opts.colorFormat ?? 'rgba16float';
         const count = opts.count ?? 1;
@@ -194,7 +185,7 @@ export class RenderTarget {
         }
     }
 
-    /** 
+    /**
      * Dispose of the render target's GPU resources.
      * This triggers the _onDispose callbacks set by the renderer cache.
      */
@@ -231,9 +222,14 @@ function createRenderTargetTexture(
     texture.isRenderTargetTexture = true;
     texture.generateMipmaps = false;
     texture.flipY = false;
-    
+
     // Mark the underlying GpuTexture as a render target texture too
     texture._gpuTexture.isRenderTargetTexture = true;
 
     return texture;
+}
+
+/** Holds no device: the backend allocates the textures on first use. */
+export function createRenderTarget(width: number, height: number, opts: RenderTargetOptions = {}): RenderTarget {
+    return new RenderTarget(width, height, opts);
 }

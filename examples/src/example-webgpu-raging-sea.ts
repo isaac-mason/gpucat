@@ -3,30 +3,33 @@ import {
     cameraPosition,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    createCanvasTarget,
+    createMaterial,
     createPlaneGeometry,
     d,
     Fn,
     f32,
+    frame,
+    fullscreen,
     Inspector,
-    Material,
+    init,
     Mesh,
     modelNormalMatrix,
     modelWorldMatrix,
     mul,
-    normalize,
     type Node,
+    normalize,
     OrbitControls,
     PerspectiveCamera,
-    pass,
-    RenderPipeline,
     renderOutput,
+    renderTexture,
     Scene,
     uniform,
     varying,
     vec2,
     vec3,
     vec4,
-    WebGPURenderer,
+    webgpu,
     wgslFn,
 } from 'gpucat';
 import { quat } from 'math';
@@ -188,10 +191,7 @@ const wavesElevationWithGradient = Fn(
         for (let oct = 1; oct <= 3; oct++) {
             const scale = f32(oct);
             const freqScale = sFreq.mul(scale);
-            const noiseInput = vec3(
-                pos.add(vec2(f32(2), f32(2))).mul(freqScale),
-                t.mul(sSpeed),
-            );
+            const noiseInput = vec3(pos.add(vec2(f32(2), f32(2))).mul(freqScale), t.mul(sSpeed));
             // returns vec4(noise, dNoise/dx, dNoise/dy, dNoise/dz)
             const noiseResult = gradNoise3DWithDerivatives(noiseInput);
             const ampScale = sAmp.div(scale);
@@ -203,7 +203,7 @@ const wavesElevationWithGradient = Fn(
             // Its derivative n/sqrt(n^2 + k) is a softened sign, exact everywhere.
             const n = noiseResult.x.toVar('n');
             const a = n.mul(n).add(f32(0.04)).sqrt().toVar('a'); // smooth abs; k=0.04 sets ridge roundness
-            const s = n.div(a).toVar('s');                       // smoothed sign in (-1,1)
+            const s = n.div(a).toVar('s'); // smoothed sign in (-1,1)
             elev.assign(elev.sub(a.mul(ampScale)));
             // chain rule: dElev/dx = -(n/a) * dNoise/dx * freqScale * ampScale
             dElevDx.assign(dElevDx.sub(s.mul(noiseResult.y).mul(freqScale).mul(ampScale)));
@@ -232,7 +232,17 @@ const wavesElevationWithGradient = Fn(
 const uTime = uniform(f32(0), 'time');
 
 function elevWithGradient(pos: Node<d.vec2f>): Node<d.vec3f> {
-    return wavesElevationWithGradient(pos, uTime, uFreqX, uFreqY, uSpeed, uAmp, uSmallFreq, uSmallSpeed, uSmallAmp) as Node<d.vec3f>;
+    return wavesElevationWithGradient(
+        pos,
+        uTime,
+        uFreqX,
+        uFreqY,
+        uSpeed,
+        uAmp,
+        uSmallFreq,
+        uSmallSpeed,
+        uSmallAmp,
+    ) as Node<d.vec3f>;
 }
 
 function elev(pos: Node<d.vec2f>): Node<d.f32> {
@@ -302,20 +312,24 @@ const emissive = emissiveColor.mul(emissiveT.pow(emissivePower)).toVar('emissive
 
 const finalColor = vec4(litColor.add(emissive), f32(1)).toVar('finalColor');
 
-const material = new Material({ vertex: clipPos, fragment: finalColor });
+const material = createMaterial({ vertex: clipPos, fragment: finalColor });
 
 /* renderer and scene */
 
-const renderer = new WebGPURenderer({ antialias: true });
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
+
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
 renderer.inspector = new Inspector();
-await renderer.init();
 
-document.body.appendChild(renderer.domElement);
 document.body.appendChild((renderer.inspector as Inspector).domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
 
-renderer.clearColor = [0.05, 0.04, 0.1, 1];
+view.clearColor = [0.05, 0.04, 0.1, 1];
 
 const scene = new Scene();
 
@@ -325,13 +339,13 @@ camera.position[1] = 1.2;
 camera.position[2] = 1.4;
 scene.add(camera);
 
-const controls = new OrbitControls(camera, renderer.domElement);
+const controls = new OrbitControls(camera, canvas);
 controls.target[1] = 0;
 controls.enableDamping = true;
 controls.update();
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
@@ -357,18 +371,21 @@ smallParams.add(uSmallFreq, 'value', 0.1, 10, 0.1).name('Frequency');
 smallParams.add(uSmallSpeed, 'value', 0.0, 5.0, 0.05).name('Speed');
 smallParams.add(uSmallAmp, 'value', 0.0, 1.0, 0.01).name('Amplitude');
 
-const scenePass = pass(scene, camera);
+const scenePass = renderTexture(scene, camera);
 // match the reference: no tone mapping, so the neon-pink crests stay punchy
 const outputNode = renderOutput(scenePass.getTextureNode(), { toneMapping: 'none' });
-const renderPipeline = new RenderPipeline(renderer, outputNode);
-
-function frame() {
+const composite = fullscreen(outputNode);
+function update() {
     uTime.value = performance.now() / 1000;
     controls.update();
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
-    renderPipeline.render();
-    requestAnimationFrame(frame);
+    const f = frame(renderer);
+    const compositePass = f.pass({ target: view });
+    compositePass.draw(composite);
+    compositePass.end();
+    f.submit();
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

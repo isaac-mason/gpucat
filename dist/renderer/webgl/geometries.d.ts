@@ -24,6 +24,8 @@ import * as Buffers from './buffers';
 type GeometryBuffers = {
     /** VAOs keyed by program identity (a geometry may be drawn by several materials). */
     vaos: Map<WebGLProgram, WebGLVertexArrayObject>;
+    /** A VAO bakes in the buffers bound when it was built, so a rebind invalidates every one of them. */
+    bindingsVersion: number;
 };
 /** Geometries state: per-geometry VAOs, keyed by geometry identity. */
 export type GeometriesState = {
@@ -68,7 +70,7 @@ export type GeometryDrawInfo = {
  * Ensure the geometry's GL buffers are uploaded and its VAO (for `program`) is built, returning the
  * draw resources. Re-uploads buffers whose version changed. The VAO is cached per (geometry, program).
  */
-export declare function prepareGeometry(gl: WebGL2RenderingContext, state: GeometriesState, buffers: Buffers.BufferCache, geometry: Geometry, nodeState: NodeBuilderState, program: WebGLProgram): GeometryDrawInfo;
+export declare function prepareGeometry(gl: WebGL2RenderingContext, state: GeometriesState, buffers: Buffers.BufferCache, geometry: Geometry, nodeState: NodeBuilderState, program: WebGLProgram, label?: string): GeometryDrawInfo;
 /**
  * Dispose the GL resources this module owns for one geometry: its VAOs.
  *

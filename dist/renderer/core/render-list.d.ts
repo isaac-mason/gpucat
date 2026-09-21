@@ -11,11 +11,11 @@
  * - Opaque: sorted by material/pipeline key to minimize state changes
  * - Transparent: sorted back-to-front by view-space Z
  */
-import type { Camera } from '../../camera/camera';
 import type { Object3D } from '../../core/object3d';
 import type { Geometry } from '../../geometry/geometry';
 import type { Material } from '../../material/material';
 import type { Mesh } from '../../objects/mesh';
+import type { View } from './view';
 /**
  * RenderItem - A single item in the render list.
  *
@@ -47,7 +47,7 @@ export type RenderList = {
     /** The object this list was built from (Scene, Mesh, or any Object3D). */
     object: Object3D | null;
     /** The camera this list was built for. */
-    camera: Camera | null;
+    camera: View | null;
     /** Pool of RenderItems (reused across frames). */
     renderItems: RenderItem[];
     /** Current index into the pool (number of active items). */
@@ -56,15 +56,13 @@ export type RenderList = {
     opaque: RenderItem[];
     /** Transparent items (sorted back-to-front by Z). */
     transparent: RenderItem[];
-    /** Number of items performing occlusion queries (future use). */
-    occlusionQueryCount: number;
 };
 /**
  * RenderListsState - manages RenderList caching.
  */
 export type RenderListsState = {
     /** Nested WeakMap cache for RenderLists by (object -> camera). */
-    lists: WeakMap<Object3D, WeakMap<Camera, RenderList>>;
+    lists: WeakMap<Object3D, WeakMap<View, RenderList>>;
 };
 /**
  * Create a new RenderList.
@@ -81,13 +79,13 @@ export declare function createRenderListsState(): RenderListsState;
  * @param object - The object to render (Scene, Mesh, or any Object3D)
  * @param camera - The camera to render from
  */
-export declare function getRenderList(state: RenderListsState, object: Object3D, camera: Camera): RenderList;
+export declare function getRenderList(state: RenderListsState, object: Object3D, camera: View): RenderList;
 /**
  * Begin building a render list for a new frame.
  *
  * This resets the pool index but keeps pooled items for reuse.
  */
-export declare function beginRenderList(list: RenderList, object: Object3D, camera: Camera): void;
+export declare function beginRenderList(list: RenderList, object: Object3D, camera: View): void;
 /**
  * Push a mesh into the render list.
  *
@@ -142,26 +140,6 @@ export declare function reversePainterSortStable(a: RenderItem, b: RenderItem): 
  * @param state - The RenderLists state
  * @param object - The object to collect from (Scene, Mesh, or any Object3D)
  * @param camera - The camera for frustum culling and Z sorting
- * @param overrideMaterial - When set, all meshes use this material instead of their own
  * @returns The populated and sorted RenderList
  */
-export declare function collectRenderList(state: RenderListsState, object: Object3D, camera: Camera, overrideMaterial?: Material | null): RenderList;
-/**
- * Collect and sort with custom sort functions.
- */
-export declare function collectRenderListWithSort(state: RenderListsState, object: Object3D, camera: Camera, opaqueSort?: (a: RenderItem, b: RenderItem) => number, transparentSort?: (a: RenderItem, b: RenderItem) => number, overrideMaterial?: Material | null): RenderList;
-/**
- * Get render list statistics.
- */
-export declare function getRenderListStats(list: RenderList): {
-    opaque: number;
-    transparent: number;
-    total: number;
-    poolSize: number;
-};
-/**
- * Get statistics about all cached RenderLists.
- */
-export declare function getRenderListsStats(_state: RenderListsState): {
-    cachedLists: number;
-};
+export declare function collectRenderList(state: RenderListsState, object: Object3D, camera: View): RenderList;

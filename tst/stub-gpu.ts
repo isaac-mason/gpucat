@@ -7,7 +7,7 @@
  * for verifying renderer behavior without actual WebGPU.
  */
 
-import type { WebGPURendererOptions } from '../src/renderer/webgpu/renderer';
+import type { WebGPUBackendOptions } from '../src/renderer/webgpu/webgpu-backend';
 
 /**
  * Install WebGPU global polyfills for Node.js testing environment.
@@ -70,10 +70,27 @@ export type StubGPUStats = {
     bindGroupCreations: number;
     /** Number of createBuffer calls */
     bufferCreations: number;
-    /** Number of draw/drawIndexed calls */
+    /** Index count of the most recent drawIndexed, so a test can tell which geometry was drawn. */
+    lastIndexCount: number;
+    /** Number of draw/drawIndexed calls, on a render pass or a bundle encoder */
     drawCalls: number;
+    /** Number of device.createRenderBundleEncoder calls, so a test can see a re-record */
+    bundleRecordings: number;
+    /** Labels the bundle encoders were created with, so a test can see the caller's own name arrive. */
+    bundleLabels: string[];
+    /** Number of bundles handed to executeBundles */
+    bundleExecutions: number;
+    /** Number of dispatchWorkgroups/dispatchWorkgroupsIndirect calls */
+    dispatches: number;
+    /** Number of encoder.beginComputePass calls */
+    computePasses: number;
+    /** Number of setPipeline calls on compute pass encoders */
+    computeSetPipelines: number;
     /** Number of device.createCommandEncoder calls */
     encoderCreations: number;
+    /** A pushed scope the device never pops stays on its stack and misattributes every later error. */
+    errorScopeDepth: number;
+    errorScopePushes: number;
     /** Number of queue.submit calls */
     submits: number;
     /** Reset all counters */
@@ -87,22 +104,24 @@ export type StubGPUResult = {
     adapter: GPUAdapter;
     /** Stub HTMLCanvasElement */
     canvas: HTMLCanvasElement;
+    /** A further canvas of its own size, for frames that draw to more than one. */
+    makeCanvas(width: number, height: number): HTMLCanvasElement;
     /** Stats for verifying GPU operations */
     stats: StubGPUStats;
     /** Get renderer options with all stubs pre-configured */
-    getRendererOptions(): WebGPURendererOptions;
+    getRendererOptions(): WebGPUBackendOptions;
 };
 
 /**
  * Create a stub GPU backend for testing.
  *
  * Returns device, adapter, canvas, and stats for tracking GPU operations.
- * Use `getRendererOptions()` to get options ready for WebGPURenderer.
+ * Use `getRendererOptions()` to get options ready for WebGPUBackend.
  *
  * @example
  * ```ts
  * const stub = createStubGPU();
- * const renderer = new WebGPURenderer(stub.getRendererOptions());
+ * const renderer = new Renderer(new WebGPUBackend(stub.getRendererOptions()));
  * await renderer.init();
  *
  * renderer.render(outputNode);
@@ -115,14 +134,32 @@ export function createStubGPU(): StubGPUResult {
         bindGroupCreations: 0,
         bufferCreations: 0,
         drawCalls: 0,
+        bundleRecordings: 0,
+        bundleLabels: [],
+        bundleExecutions: 0,
+        lastIndexCount: 0,
+        dispatches: 0,
+        computePasses: 0,
+        computeSetPipelines: 0,
         encoderCreations: 0,
+        errorScopeDepth: 0,
+        errorScopePushes: 0,
         submits: 0,
         reset() {
             this.bufferWrites = 0;
             this.bindGroupCreations = 0;
             this.bufferCreations = 0;
             this.drawCalls = 0;
+            this.bundleRecordings = 0;
+            this.bundleLabels = [];
+            this.bundleExecutions = 0;
+            this.lastIndexCount = 0;
+            this.dispatches = 0;
+            this.computePasses = 0;
+            this.computeSetPipelines = 0;
             this.encoderCreations = 0;
+            this.errorScopeDepth = 0;
+            this.errorScopePushes = 0;
             this.submits = 0;
         },
     };
@@ -141,20 +178,50 @@ export function createStubGPU(): StubGPUResult {
         }) as unknown as GPUBuffer;
 
     // Stub texture
-    const createStubTexture = (): GPUTexture =>
-        ({
-            width: 1,
-            height: 1,
-            depthOrArrayLayers: 1,
-            mipLevelCount: 1,
-            sampleCount: 1,
-            dimension: '2d',
-            format: 'rgba8unorm',
-            usage: 0,
-            label: '',
-            createView: () => ({}) as unknown as GPUTextureView,
+    // Dimensionally honest: a view remembers its texture, so beginRenderPass can check attachments
+    // agree the way real WebGPU does. A 1x1-for-everything stub makes every mismatch invisible.
+    const createStubTexture = (descriptor?: GPUTextureDescriptor): GPUTexture => {
+        const size = (descriptor?.size ?? [1, 1, 1]) as number[];
+        const texture = {
+            width: size[0] ?? 1,
+            height: size[1] ?? 1,
+            depthOrArrayLayers: size[2] ?? 1,
+            mipLevelCount: descriptor?.mipLevelCount ?? 1,
+            sampleCount: descriptor?.sampleCount ?? 1,
+            dimension: descriptor?.dimension ?? '2d',
+            format: descriptor?.format ?? 'rgba8unorm',
+            usage: descriptor?.usage ?? 0,
+            label: descriptor?.label ?? '',
+            createView: () => ({ __texture: texture }) as unknown as GPUTextureView,
             destroy: () => {},
-        }) as unknown as GPUTexture;
+        };
+        return texture as unknown as GPUTexture;
+    };
+
+    /** Mirrors the validation rule that every attachment in a pass must agree on size and samples. */
+    const assertAttachmentsAgree = (descriptor: GPURenderPassDescriptor): void => {
+        const views: (GPUTexture | GPUTextureView)[] = [];
+        for (const a of descriptor.colorAttachments ?? []) {
+            if (!a) continue;
+            views.push(a.view);
+            if (a.resolveTarget) views.push(a.resolveTarget);
+        }
+        if (descriptor.depthStencilAttachment) views.push(descriptor.depthStencilAttachment.view);
+
+        let expected: { width: number; height: number } | null = null;
+        for (const view of views) {
+            const texture = (view as unknown as { __texture?: GPUTexture }).__texture;
+            if (texture === undefined) continue;
+            if (expected === null) {
+                expected = { width: texture.width, height: texture.height };
+            } else if (texture.width !== expected.width || texture.height !== expected.height) {
+                throw new Error(
+                    `[stub-gpu] render pass attachments disagree: ${expected.width}x${expected.height} vs ` +
+                        `${texture.width}x${texture.height}`,
+                );
+            }
+        }
+    };
 
     // Stub sampler
     const createStubSampler = (): GPUSampler =>
@@ -205,8 +272,14 @@ export function createStubGPU(): StubGPUResult {
     const createStubCommandEncoder = (): GPUCommandEncoder =>
         ({
             label: '',
-            beginRenderPass: () => createStubRenderPassEncoder(),
-            beginComputePass: () => createStubComputePassEncoder(),
+            beginRenderPass: (descriptor: GPURenderPassDescriptor) => {
+                assertAttachmentsAgree(descriptor);
+                return createStubRenderPassEncoder();
+            },
+            beginComputePass: () => {
+                stats.computePasses++;
+                return createStubComputePassEncoder();
+            },
             copyBufferToBuffer: () => {},
             copyBufferToTexture: () => {},
             copyTextureToBuffer: () => {},
@@ -219,47 +292,71 @@ export function createStubGPU(): StubGPUResult {
             insertDebugMarker: () => {},
         }) as unknown as GPUCommandEncoder;
 
+    // Shared by both encoders, so a replayed draw counts exactly as the direct draw it stands in for.
+    const drawRecorder = () => ({
+        label: '',
+        setPipeline: () => {},
+        setBindGroup: () => {},
+        setVertexBuffer: () => {},
+        setIndexBuffer: () => {},
+        draw: () => {
+            stats.drawCalls++;
+        },
+        drawIndexed: (indexCount: number) => {
+            stats.drawCalls++;
+            stats.lastIndexCount = indexCount;
+        },
+        drawIndirect: () => {
+            stats.drawCalls++;
+        },
+        drawIndexedIndirect: () => {
+            stats.drawCalls++;
+        },
+        pushDebugGroup: () => {},
+        popDebugGroup: () => {},
+        insertDebugMarker: () => {},
+    });
+
+    // Deliberately no setStencilReference: a real bundle encoder lacks it, and the encoder tests for that.
+    const createStubRenderBundleEncoder = (descriptor?: GPURenderBundleEncoderDescriptor): GPURenderBundleEncoder => {
+        stats.bundleRecordings++;
+        if (descriptor?.label !== undefined) stats.bundleLabels.push(descriptor.label);
+        return {
+            ...drawRecorder(),
+            finish: () => ({}) as unknown as GPURenderBundle,
+        } as unknown as GPURenderBundleEncoder;
+    };
+
     // Stub render pass encoder
     const createStubRenderPassEncoder = (): GPURenderPassEncoder =>
         ({
-            label: '',
-            setPipeline: () => {},
-            setBindGroup: () => {},
-            setVertexBuffer: () => {},
-            setIndexBuffer: () => {},
-            draw: () => {
-                stats.drawCalls++;
-            },
-            drawIndexed: () => {
-                stats.drawCalls++;
-            },
-            drawIndirect: () => {
-                stats.drawCalls++;
-            },
-            drawIndexedIndirect: () => {
-                stats.drawCalls++;
-            },
+            ...drawRecorder(),
             setViewport: () => {},
             setScissorRect: () => {},
             setBlendConstant: () => {},
             setStencilReference: () => {},
-            executeBundles: () => {},
+            executeBundles: (bundles: Iterable<GPURenderBundle>) => {
+                for (const _ of bundles) stats.bundleExecutions++;
+            },
             end: () => {},
             beginOcclusionQuery: () => {},
             endOcclusionQuery: () => {},
-            pushDebugGroup: () => {},
-            popDebugGroup: () => {},
-            insertDebugMarker: () => {},
         }) as unknown as GPURenderPassEncoder;
 
     // Stub compute pass encoder
     const createStubComputePassEncoder = (): GPUComputePassEncoder =>
         ({
             label: '',
-            setPipeline: () => {},
+            setPipeline: () => {
+                stats.computeSetPipelines++;
+            },
             setBindGroup: () => {},
-            dispatchWorkgroups: () => {},
-            dispatchWorkgroupsIndirect: () => {},
+            dispatchWorkgroups: () => {
+                stats.dispatches++;
+            },
+            dispatchWorkgroupsIndirect: () => {
+                stats.dispatches++;
+            },
             end: () => {},
             pushDebugGroup: () => {},
             popDebugGroup: () => {},
@@ -313,7 +410,7 @@ export function createStubGPU(): StubGPUResult {
             stats.bufferCreations++;
             return createStubBuffer();
         },
-        createTexture: () => createStubTexture(),
+        createTexture: (descriptor: GPUTextureDescriptor) => createStubTexture(descriptor),
         createSampler: () => createStubSampler(),
         createBindGroupLayout: () => createStubBindGroupLayout(),
         createBindGroup: () => {
@@ -330,11 +427,17 @@ export function createStubGPU(): StubGPUResult {
             stats.encoderCreations++;
             return createStubCommandEncoder();
         },
-        createRenderBundleEncoder: () => ({}) as unknown as GPURenderBundleEncoder,
+        createRenderBundleEncoder: (descriptor?: GPURenderBundleEncoderDescriptor) => createStubRenderBundleEncoder(descriptor),
         createQuerySet: () => ({}) as unknown as GPUQuerySet,
         importExternalTexture: () => ({}) as unknown as GPUExternalTexture,
-        pushErrorScope: () => {},
-        popErrorScope: async () => null,
+        pushErrorScope: () => {
+            stats.errorScopeDepth++;
+            stats.errorScopePushes++;
+        },
+        popErrorScope: async () => {
+            stats.errorScopeDepth--;
+            return null;
+        },
         onuncapturederror: null,
         addEventListener: () => {},
         removeEventListener: () => {},
@@ -352,41 +455,45 @@ export function createStubGPU(): StubGPUResult {
         requestAdapterInfo: async () => adapterInfo,
     } as unknown as GPUAdapter;
 
-    // Stub canvas context
-    const stubCanvasContext: GPUCanvasContext = {
-        __brand: 'GPUCanvasContext',
-        canvas: null as any,
-        configure: () => {},
-        unconfigure: () => {},
-        getCurrentTexture: () => createStubTexture(),
-    } as unknown as GPUCanvasContext;
+    /** Each canvas reports its own size, so a frame drawing to several is dimensionally distinguishable. */
+    const makeCanvas = (width: number, height: number): HTMLCanvasElement => {
+        const element = {
+            width,
+            height,
+            // The CSS layout size, which `autoResize` reads; tests set it to simulate a layout change.
+            clientWidth: width,
+            clientHeight: height,
+            style: {},
+            getContext: (contextId: string) => {
+                if (contextId !== 'webgpu') return null;
+                return {
+                    __brand: 'GPUCanvasContext',
+                    canvas: element,
+                    configure: () => {},
+                    unconfigure: () => {},
+                    getCurrentTexture: () =>
+                        createStubTexture({ size: [element.width, element.height, 1] } as unknown as GPUTextureDescriptor),
+                } as unknown as GPUCanvasContext;
+            },
+            addEventListener: () => {},
+            removeEventListener: () => {},
+            dispatchEvent: () => false,
+        };
+        return element as unknown as HTMLCanvasElement;
+    };
 
-    // Stub canvas
-    const canvas: HTMLCanvasElement = {
-        width: 800,
-        height: 600,
-        style: {},
-        getContext: (contextId: string) => {
-            if (contextId === 'webgpu') {
-                return stubCanvasContext;
-            }
-            return null;
-        },
-        addEventListener: () => {},
-        removeEventListener: () => {},
-        dispatchEvent: () => false,
-    } as unknown as HTMLCanvasElement;
+    const canvas = makeCanvas(800, 600);
 
     return {
         device,
         adapter,
         canvas,
+        makeCanvas,
         stats,
-        getRendererOptions(): WebGPURendererOptions {
+        getRendererOptions(): WebGPUBackendOptions {
             return {
                 device,
                 adapter,
-                canvas,
                 format: 'bgra8unorm',
             };
         },

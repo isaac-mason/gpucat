@@ -3,8 +3,8 @@
  *
  * WGSL binds a texture and its sampler separately; the GLSL emitter collapses each texture binding
  * into one COMBINED-sampler uniform `uniform sampler2D u_<textureId>;` and assigns it a flat texture
- * unit (the `binding` field on the compiled `TextureEntry`/`SamplerEntry`). The GL mechanics are the
- * reference renderer's: for each texture binding, `activeTexture(TEXTURE0+unit)`, bind the uploaded
+ * unit (the `binding` field on the compiled `TextureEntry`/`SamplerEntry`). Per texture binding:
+ * `activeTexture(TEXTURE0+unit)`, bind the uploaded
  * GL texture, `bindSampler(unit, glSampler)` for the paired sampler, and `uniform1i(location, unit)`
  * on the combined-sampler uniform so the shader samples through that unit.
  *

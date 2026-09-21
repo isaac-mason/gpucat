@@ -17,12 +17,12 @@ import type { NodeBuilderState } from '../core/node-builder-state';
 import type { NodeFrame } from '../core/node-frame';
 import type { RenderObject } from '../core/render-object';
 import { getBindings as getRenderObjectBindings } from '../core/render-object';
+import type { BackendState } from './backend-state';
 import { type BindGroupLayoutCache, getBindGroupLayout, samplerBindingType, textureBindingLayout } from './bind-group-layout';
 import type { BufferCache } from './buffers';
 import { ensureUploaded, getRaw, getUploaded, resolveStorageBuffer, uploadUniformBlock } from './buffers';
 import { formatHasStencil } from './pipelines';
-import type { RenderObjectGpuCache } from './render-object-gpu';
-import { clearRenderObjectGpu, getRenderObjectGpu } from './render-object-gpu';
+import { getRenderObjectGpu } from './render-object-gpu';
 import { ensureRenderTargetTexturesAllocated } from './render-target';
 import { getSampler, peekSampler, type SamplerCache } from './samplers';
 import type { TextureCache } from './textures';
@@ -57,6 +57,12 @@ export type BindingsState = {
      * Keyed by BindGroup object identity - shared groups share data.
      */
     data: WeakMap<BindGroup, BindGroupData>;
+
+    /**
+     * Render bind groups rebuilt since creation. A rebuild replaces the `GPUBindGroup` object, which
+     * a recorded render bundle has already baked in, so a bundle compares this to know it is stale.
+     */
+    bindGroupRebuilds: number;
 };
 
 /**
@@ -67,6 +73,7 @@ export function createBindingsState(layoutCache: BindGroupLayoutCache): Bindings
     return {
         layoutCache,
         data: new WeakMap(),
+        bindGroupRebuilds: 0,
     };
 }
 
@@ -114,16 +121,9 @@ function getData(state: BindingsState, bindGroup: BindGroup): BindGroupData {
 }
 
 /** Update all bindings for a RenderObject. */
-export function updateRenderBindings(
-    state: BindingsState,
-    renderObject: RenderObject,
-    frame: NodeFrame,
-    device: GPUDevice,
-    bufferCache: BufferCache,
-    textureCache: TextureCache,
-    samplerCache: SamplerCache,
-    renderObjectGpuCache: RenderObjectGpuCache,
-): void {
+export function updateRenderBindings(b: BackendState, renderObject: RenderObject, frame: NodeFrame): void {
+    const { bindings: state, device, buffers: bufferCache } = b;
+    const { textures: textureCache, samplers: samplerCache, renderObjectGpu: renderObjectGpuCache } = b;
     const nodeState = renderObject.nodeBuilderState;
     if (!nodeState) return;
 
@@ -143,6 +143,7 @@ export function updateRenderBindings(
         if (data.needsUpdate || !data.bindGroup) {
             rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, renderObject.geometry, null);
             data.needsUpdate = false;
+            state.bindGroupRebuilds++;
         }
 
         if (data.bindGroup) {
@@ -156,15 +157,12 @@ export function updateRenderBindings(
 
 /** Update all bindings for a compute pass and return GPUBindGroups. */
 export function updateComputeBindings(
-    state: BindingsState,
+    b: BackendState,
     nodeBuilderState: NodeBuilderState,
     frame: NodeFrame,
-    device: GPUDevice,
-    bufferCache: BufferCache,
-    textureCache: TextureCache,
-    samplerCache: SamplerCache,
     buffers: Record<string, GpuBuffer<Any>> | null,
 ): GPUBindGroup[] {
+    const { bindings: state, device, buffers: bufferCache, textures: textureCache, samplers: samplerCache } = b;
     const gpuBindGroups: GPUBindGroup[] = [];
 
     for (const bindGroup of nodeBuilderState.bindings) {
@@ -221,68 +219,6 @@ export function getRenderBindGroupLayouts(state: BindingsState, renderObject: Re
     }
 
     return layouts;
-}
-
-/** Get bind group layouts for a compute pass. Used for pipeline creation. */
-export function getComputeBindGroupLayouts(
-    state: BindingsState,
-    nodeBuilderState: NodeBuilderState,
-    device: GPUDevice,
-): GPUBindGroupLayout[] {
-    const layouts: GPUBindGroupLayout[] = [];
-
-    for (const bindGroup of nodeBuilderState.bindings) {
-        // Initialize bind group layout if needed
-        initBindGroup(state, bindGroup, device, GPUShaderStage.COMPUTE);
-
-        const data = getData(state, bindGroup);
-        if (data.bindGroupLayout) {
-            layouts.push(data.bindGroupLayout);
-        }
-    }
-
-    return layouts;
-}
-
-/** Get the bind groups for a RenderObject. */
-export function getRenderBindGroups(state: BindingsState, renderObject: RenderObject): GPUBindGroup[] {
-    const bindGroups = getRenderObjectBindings(renderObject);
-
-    const gpuBindGroups: GPUBindGroup[] = [];
-    for (const bindGroup of bindGroups) {
-        const data = state.data.get(bindGroup);
-        if (data?.bindGroup) {
-            gpuBindGroups.push(data.bindGroup);
-        }
-    }
-
-    return gpuBindGroups;
-}
-
-/** Delete bindings for a RenderObject. */
-export function deleteRenderBindings(
-    _state: BindingsState,
-    renderObject: RenderObject,
-    renderObjectGpuCache: RenderObjectGpuCache,
-): void {
-    // Note: We don't need to explicitly delete from WeakMap - GC handles it.
-    // When the BindGroup objects are GC'd, the WeakMap entries are removed.
-    // We just clear the RenderObject's reference.
-    clearRenderObjectGpu(renderObjectGpuCache, renderObject);
-    renderObject._bindings = null;
-}
-
-/** Mark a RenderObject's bindings as needing rebuild. */
-export function invalidateRenderBindings(state: BindingsState, renderObject: RenderObject): void {
-    const bindings = renderObject._bindings;
-    if (!bindings) return;
-
-    for (const bindGroup of bindings) {
-        const data = state.data.get(bindGroup);
-        if (data) {
-            data.needsUpdate = true;
-        }
-    }
 }
 
 /** Initialize a BindGroup (create layout). Called once per BindGroup. */
@@ -496,8 +432,7 @@ function packAndCompare(
         }
         if (value === null || value === undefined) continue;
 
-        // Cast needed: UniformValue is broader than Infer<schema> but matches at runtime
-        packToView(m.schema, view, m.offset, value as never, 'wgsl-uniform');
+        packToView(m.schema, view, m.offset, value, 'wgsl-uniform');
     }
 
     // Compare word by word, COUNTING rather than early-returning. The count is what

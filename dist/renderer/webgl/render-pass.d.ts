@@ -3,8 +3,7 @@
  *
  * Mirrors `webgpu/render-pass.ts` in role (attachment binding + clear + draw loop) but in WebGL2's
  * immediate style: no command encoder, no attachment descriptors — bind the framebuffer, set the
- * viewport/scissor, clear, then draw. `WebGLRenderer.render()` calls `executeRenderPass`;
- * `WebGLRenderer.clear()` calls `clear`.
+ * viewport/scissor, clear, then draw.
  *
  * The draw loop is the WebGL2 port of the WebGPU `draw()` loop: per prepared object it runs the
  * neutral per-object node update, `useProgram` (deduped), updates + binds each uniform group's UBO,
@@ -14,34 +13,33 @@
  * (never loose `glUniform*`).
  */
 import type { InspectorBase } from '../../inspector/inspector-base';
+import type { DrawOpts } from '../core/frame';
+import type { RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
 import type { PreparedRenderObject, RenderPassParams } from '../core/render-types';
-import * as Buffers from './buffers';
-import * as Geometries from './geometries';
-import { type RenderObjectGlCache } from './render-object-gl';
-import { type GlRenderTargetsState } from './render-target';
-import type { SamplerCache } from './samplers';
-import type { RendererInfo } from '../core/info';
-import type { TextureCache } from './textures';
-import * as Bindings from './bindings';
+import type { BackendState } from './backend-state';
 /**
- * Manually clear the current framebuffer (color and/or depth and/or stencil), ignoring autoClear and
- * viewport/scissor. The scissor test is disabled so the whole framebuffer clears.
+ * How the pass's single GL blend state is chosen.
+ *
+ * WebGL2 applies one global blend state to all draw buffers (there is no per-attachment blend), so an
+ * MRT whose targets resolve to different blends cannot be honored. `targetName` is the target the
+ * global state follows; the others are proven to resolve identically, either unconditionally or
+ * (`opaqueOnly`) for as long as the material is opaque.
  */
-export declare function clear(gl: WebGL2RenderingContext, caches: DrawCaches, params: RenderPassParams, color: boolean, depth: boolean, stencil: boolean): void;
-/** Caches the draw loop needs, bundled so `executeRenderPass` keeps a small signature. */
-export type DrawCaches = {
-    geometries: Geometries.GeometriesState;
-    buffers: Buffers.BufferCache;
-    uniforms: Bindings.BindingsState;
-    renderObjectGl: RenderObjectGlCache;
-    textures: TextureCache;
-    samplers: SamplerCache;
-    renderTargets: GlRenderTargetsState;
+type PassBlend = {
+    targetName: string | null;
+    opaqueOnly: boolean;
 };
 /**
  * Run the whole render pass immediately: bind the framebuffer, apply viewport/scissor, clear on
  * autoClear, then draw the prepared objects.
  */
-export declare function executeRenderPass(gl: WebGL2RenderingContext, caches: DrawCaches, nodes: NodeManagerState, passCtx: RenderContext, prepared: PreparedRenderObject[], params: RenderPassParams, inspector: InspectorBase | null, info: RendererInfo): void;
+export type PassScope = {
+    passBlend: PassBlend;
+};
+export declare function beginPass(gl: WebGL2RenderingContext, caches: BackendState, passCtx: RenderContext, params: RenderPassParams): PassScope;
+/** Unbinds the VAO so later buffer mutations cannot record into it, then resolves an MSAA target. */
+export declare function endPass(gl: WebGL2RenderingContext, caches: BackendState): void;
+export declare function encodeDraws(gl: WebGL2RenderingContext, caches: BackendState, nodes: NodeManagerState, passCtx: RenderContext, prepared: readonly PreparedRenderObject[], preparedOpts: readonly (DrawOpts | null)[], count: number, inspector: InspectorBase | null, info: RendererInfo, { passBlend }: PassScope): void;
+export {};

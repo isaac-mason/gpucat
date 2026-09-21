@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { GpuBuffer, createStorageBuffer } from '../src/core/gpu-buffer';
+import { createStorageBuffer, GpuBuffer } from '../src/core/gpu-buffer';
 import { struct } from '../src/nodes/lib/core';
 import { layoutStrideOf, unpack, unpackArray } from '../src/schema/pack';
 import * as d from '../src/schema/schema';
@@ -10,14 +10,48 @@ import * as d from '../src/schema/schema';
 
 describe('GpuBuffer.packAtIndex — array<mat4x4f> (the makecat instance-transform shape)', () => {
     const N = 4;
-    const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    const identity: [
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+    ] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
     test('writes element i at its std430 offset, leaving neighbours untouched', () => {
         const buf = createStorageBuffer(d.array(d.mat4x4f), new Float32Array(N * 16));
-        const m2 = [2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 4, 0, 5, 6, 7, 1];
+        const m2: [
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+        ] = [2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 4, 0, 5, 6, 7, 1];
         buf.packAtIndex(d.mat4x4f, 2, m2);
 
-        const all = unpackArray(d.mat4x4f, buf.array!.buffer, N);
+        const all = unpackArray(d.mat4x4f, buf.array!.buffer as ArrayBuffer, N);
         expect(all[2]).toEqual(m2);
         // Neighbours stay zero (not clobbered by the element-2 write).
         expect(all[0]).toEqual(new Array(16).fill(0));
@@ -43,13 +77,34 @@ describe('GpuBuffer.packAtIndex — array<Struct>', () => {
         const stride = layoutStrideOf(Instance, 'std430');
         const count = 3;
         const buf = new GpuBuffer(d.array(Instance), { data: new Float32Array((count * stride) / 4), usage: 'storage' });
-        const rec = {
+        const rec: {
+            transform: [
+                number,
+                number,
+                number,
+                number,
+                number,
+                number,
+                number,
+                number,
+                number,
+                number,
+                number,
+                number,
+                number,
+                number,
+                number,
+                number,
+            ];
+            color: [number, number, number, number];
+            id: number;
+        } = {
             transform: [9, 0, 0, 0, 0, 9, 0, 0, 0, 0, 9, 0, 1, 2, 3, 1],
             color: [0.25, 0.5, 0.75, 1],
             id: 42,
         };
         buf.packAtIndex(Instance, 1, rec);
-        const back = unpack(Instance, buf.array!.buffer, 1 * stride);
+        const back = unpack(Instance, buf.array!.buffer as ArrayBuffer, 1 * stride);
         expect(back).toEqual(rec);
     });
 });
@@ -94,14 +149,14 @@ describe('GpuBuffer.pack — bulk whole-array write', () => {
         expect(buf.updateRanges.length).toBeGreaterThan(0);
 
         const v0 = buf.version;
-        const values = [
+        const values: [number, number, number, number][] = [
             [1, 2, 3, 4],
             [5, 6, 7, 8],
             [9, 10, 11, 12],
         ];
         buf.pack(d.vec4f, values);
 
-        expect(unpackArray(d.vec4f, buf.array!.buffer, N)).toEqual(values);
+        expect(unpackArray(d.vec4f, buf.array!.buffer as ArrayBuffer, N)).toEqual(values);
         expect(buf.updateRanges).toEqual([]); // cleared → renderer takes the full path
         expect(buf.version).toBeGreaterThan(v0);
     });

@@ -7,7 +7,7 @@
  *
  * GL `readPixels` returns rows bottom-to-top (GL's origin is lower-left), so the rows are flipped to
  * top-to-bottom to match the WebGPU convention. The public entry is the
- * `WebGLRenderer.readPixels` method; this is the free-function impl it delegates to
+ * `WebGLBackend.readPixels`; this is the free-function impl it delegates to
  * (mirroring `readBufferAsync`).
  */
 

@@ -55,9 +55,6 @@ export type TextureCache = {
     /** Stats counters */
     tally: TextureTally;
 };
-export type TextureCacheStats = {
-    textureCount: number;
-};
 export declare function createTextureCache(): TextureCache;
 /**
  * Set up the _onDispose callback on a GpuTexture to destroy its GPU texture.
@@ -84,7 +81,6 @@ export declare function updateTexture(cache: TextureCache, device: GPUDevice, te
  * stale entry and destroy through a dead device. The WebGL sibling does the same for the same reason.
  */
 export declare function disposeTextureCache(cache: TextureCache): void;
-export declare function getTextureCacheStats(cache: TextureCache): TextureCacheStats;
 /**
  * Get cached TextureData for a GpuTexture.
  * Returns null if not in cache (call updateTexture first).

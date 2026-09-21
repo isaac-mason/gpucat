@@ -1,9 +1,9 @@
 // Multi-view: many independent 3D scenes rendered into sub-rectangles of ONE
-// canvas / ONE device, using the renderer's viewport + scissor + autoClear.
+// canvas / ONE device, one pass per cell.
 //
 // This is the primitive behind a grid of 3D "cards" (e.g. avatar previews): each
-// cell is its own Scene + Camera, and we composite them all into one canvas with
-// setViewport / setScissor, clearing once per frame with autoClear = false.
+// cell is its own Scene + Camera and its own pass, naming that cell as its viewport
+// and scissor. One empty pass clears the canvas first; the rest load and composite.
 //
 // To make scissor's clipping VISIBLE, each cell's viewport is intentionally
 // inflated past its scissor rect, so the cube renders bigger than the cell and
@@ -14,10 +14,13 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    createCanvasTarget,
     createBoxGeometry,
     d,
+    drawScene,
     f32,
-    Material,
+    init,
+    createMaterial,
     Mesh,
     modelNormalMatrix,
     modelWorldMatrix,
@@ -28,19 +31,21 @@ import {
     varying,
     vec3,
     vec4,
-    WebGPURenderer,
+    webgpu,
+    frame,
 } from 'gpucat';
 import { quat } from 'math';
 
-const renderer = new WebGPURenderer();
-await renderer.init();
-document.body.appendChild(renderer.domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.clearColor = [0.08, 0.08, 0.1, 1];
-// We clear once per frame and composite each view on top (loadOp:'load').
-renderer.autoClear = false;
-renderer.setScissorTest(true);
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
+
+const view = createCanvasTarget(canvas);
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
+view.clearColor = [0.08, 0.08, 0.1, 1];
 
 const COLS = 4;
 const ROWS = 3;
@@ -78,7 +83,7 @@ function makeView(color: [number, number, number]): View {
     const lightDir = vec3(0.5, 0.85, 0.6).normalize();
     const lighting = f32(0.22).add(vNormal.dot(lightDir).max(f32(0)).mul(f32(0.85)));
     const base = vec3(color[0], color[1], color[2]);
-    const material = new Material({ vertex: clipPosition, fragment: vec4(base.mul(lighting), f32(1)) });
+    const material = createMaterial({ vertex: clipPosition, fragment: vec4(base.mul(lighting), f32(1)) });
 
     const mesh = new Mesh(geometry, material);
     scene.add(mesh);
@@ -102,15 +107,17 @@ function cellRect(i: number, w: number, h: number): { x: number; y: number; widt
     return { x, y, width: cellW, height: cellH };
 }
 
-window.addEventListener('resize', () => renderer.setSize(window.innerWidth, window.innerHeight));
+window.addEventListener('resize', () => view.setSize(window.innerWidth, window.innerHeight));
 
-function frame(): void {
+function update(): void {
     const now = performance.now() / 1000;
     const w = window.innerWidth;
     const h = window.innerHeight;
 
-    // one clear for the whole canvas, then composite each view.
-    renderer.clear();
+    const f = frame(renderer);
+
+    // one clear for the whole canvas, then composite each view into it
+    f.pass({ target: view }).end();
 
     for (let i = 0; i < COUNT; i++) {
         const v = views[i];
@@ -127,12 +134,21 @@ function frame(): void {
         v.camera.updateProjectionMatrix();
         v.camera.updateViewMatrix();
 
-        renderer.setScissor(cell.x, cell.y, cell.width, cell.height);
-        renderer.setViewport(vp.x, vp.y, vp.width, vp.height);
-        renderer.render(v.scene, v.camera);
+        const cellPass = f.pass({
+            target: view,
+            camera: v.camera,
+            clear: false,
+            clearDepth: false,
+            viewport: vp,
+            scissor: cell,
+        });
+        drawScene(renderer, cellPass, v.scene, v.camera);
+        cellPass.end();
     }
 
-    requestAnimationFrame(frame);
+    f.submit();
+
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

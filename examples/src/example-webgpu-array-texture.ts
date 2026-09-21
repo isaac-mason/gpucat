@@ -4,37 +4,44 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    compile,
+    createCanvasTarget,
+    createMaterial,
     createPlaneGeometry,
     d,
     f32,
+    frame,
+    fullscreen,
     Inspector,
     i32,
-    Material,
+    init,
     Mesh,
     modelWorldMatrix,
     mul,
-    type Node,
     PerspectiveCamera,
-    pass,
-    RenderPipeline,
     renderOutput,
+    renderTexture,
     Scene,
     uniform,
     varying,
     vec4,
-    WebGPURenderer,
+    webgpu,
 } from 'gpucat';
 
 // ─── Renderer ───────────────────────────────────────────────────────────────
 
-const renderer = new WebGPURenderer({ antialias: true });
-renderer.inspector = new Inspector();
-await renderer.init();
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
 
-document.body.appendChild(renderer.domElement);
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
+renderer.inspector = new Inspector();
+
 document.body.appendChild((renderer.inspector as Inspector).domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
 
 // ─── Camera ─────────────────────────────────────────────────────────────────
 
@@ -43,7 +50,7 @@ camera.position = [0, 0, 3];
 camera.lookAt([0, 0, 0]);
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
 });
@@ -137,9 +144,9 @@ const vUv = varying(uvAttr, 'v_uv');
 const layerUniform = uniform(i32(0), 'layerIndex');
 
 const flipbook = arrayTexture(flipbookTex, layerUniform);
-const texColor = flipbook.sample(vUv as unknown as Node<d.vec2f>);
+const texColor = flipbook.sample(vUv);
 
-const material = new Material({
+const material = createMaterial({
     vertex: clipPos,
     fragment: texColor,
 });
@@ -157,25 +164,32 @@ scene.add(mesh);
 scene.updateWorldMatrix();
 camera.updateViewMatrix();
 
-await renderer.compile(scene, camera);
+await compile(renderer, mesh, view, camera);
 
-const scenePass = pass(scene, camera);
+const scenePass = renderTexture(scene, camera);
 const outputNode = renderOutput(scenePass.getTextureNode());
-const renderPipeline = new RenderPipeline(renderer, outputNode);
-
+const composite = fullscreen(outputNode);
 // ─── Animation loop ─────────────────────────────────────────────────────────
 
 const FPS = 8; // flipbook playback rate
 
-function frame() {
+function update() {
     const now = performance.now() / 1000;
 
     // Cycle through layers
     const frameIndex = Math.floor(now * FPS) % FRAME_COUNT;
     layerUniform.value = frameIndex;
 
-    renderPipeline.render();
-    requestAnimationFrame(frame);
+    const f = frame(renderer);
+
+    const compositePass = f.pass({ target: view });
+
+    compositePass.draw(composite);
+
+    compositePass.end();
+
+    f.submit();
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

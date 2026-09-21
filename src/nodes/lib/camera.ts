@@ -1,4 +1,4 @@
-import { vec3 } from 'math';
+import { mat4, vec3 } from 'math';
 
 import * as d from '../../schema/schema';
 import { CallNode, type Node } from './core';
@@ -36,7 +36,7 @@ const _cameraWorldPosition = /*@__PURE__*/ vec3.create();
 export const cameraPosition = /*@__PURE__*/ new UniformNode(
     new Uniform(d.vec3f, undefined, renderGroup),
     'cameraPosition',
-).onRenderUpdate((frame) => frame.camera!.getWorldPosition(_cameraWorldPosition));
+).onRenderUpdate((frame) => mat4.getTranslation(_cameraWorldPosition, frame.camera!.matrixWorld));
 
 /** Camera near plane distance. In renderGroup. */
 export const cameraNear = /*@__PURE__*/ new UniformNode(new Uniform(d.f32, undefined, renderGroup), 'cameraNear').onRenderUpdate(

@@ -1,22 +1,26 @@
 import {
+    compileCompute,
+    createCanvasTarget,
     createStorageTexture,
-    storageTexture,
-    textureStore,
-    texture,
-    screenUV,
     Fn,
-    Var,
-    globalId,
     f32,
+    frame,
+    fullscreen,
+    GpuSampler,
+    globalId,
+    Inspector,
+    init,
+    renderGroup,
+    screenUV,
+    sin,
+    storageTexture,
+    texture,
+    textureStore,
+    uniform,
+    Var,
     vec2u,
     vec4,
-    sin,
-    uniform,
-    renderGroup,
-    GpuSampler,
-    RenderPipeline,
-    WebGPURenderer,
-    Inspector,
+    webgpu,
 } from 'gpucat';
 
 /**
@@ -51,41 +55,63 @@ const computePlasma = Fn(() => {
     const u = Var('u', px.toF32().div(f32(W)));
     const v = Var('v', py.toF32().div(f32(H)));
 
-    const r = sin(u.mul(f32(12)).add(time)).mul(f32(0.5)).add(f32(0.5));
-    const g = sin(v.mul(f32(12)).add(time.mul(f32(1.3)))).mul(f32(0.5)).add(f32(0.5));
-    const b = sin(u.add(v).mul(f32(8)).add(time.mul(f32(0.7)))).mul(f32(0.5)).add(f32(0.5));
+    const r = sin(u.mul(f32(12)).add(time))
+        .mul(f32(0.5))
+        .add(f32(0.5));
+    const g = sin(v.mul(f32(12)).add(time.mul(f32(1.3))))
+        .mul(f32(0.5))
+        .add(f32(0.5));
+    const b = sin(
+        u
+            .add(v)
+            .mul(f32(8))
+            .add(time.mul(f32(0.7))),
+    )
+        .mul(f32(0.5))
+        .add(f32(0.5));
 
     textureStore(writeTex, vec2u(px, py), vec4(r, g, b, f32(1)));
 }).compute({ workgroupSize: [WG, WG, 1] });
 
 /* renderer + display */
-const renderer = new WebGPURenderer({ antialias: true });
-renderer.inspector = new Inspector();
-await renderer.init();
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
 
-document.body.appendChild(renderer.domElement);
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
+renderer.inspector = new Inspector();
+
 document.body.appendChild((renderer.inspector as Inspector).domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
 
 window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    view.setSize(window.innerWidth, window.innerHeight);
 });
 
 // Sample the storage texture onto a fullscreen quad.
 const sampler = new GpuSampler({ minFilter: 'linear', magFilter: 'linear' });
 const outputNode = texture(tex, sampler).sample(screenUV);
-const renderPipeline = new RenderPipeline(renderer, outputNode);
-
+const composite = fullscreen(outputNode);
 // Pre-warm the compute pipeline before the loop.
-await renderer.compileCompute(computePlasma);
+await compileCompute(renderer, computePlasma);
 
-function frame() {
+function update() {
     time.value = performance.now() / 1000;
     // Compute writes the texture, then the render pass samples it.
-    renderer.compute([{ node: computePlasma, dispatch: [Math.ceil(W / WG), Math.ceil(H / WG), 1] }]);
-    renderPipeline.render();
-    requestAnimationFrame(frame);
+    const f = frame(renderer);
+
+    const plasmaPass = f.compute();
+    plasmaPass.dispatch(computePlasma, [Math.ceil(W / WG), Math.ceil(H / WG), 1]);
+    plasmaPass.end();
+
+    const compositePass = f.pass({ target: view });
+    compositePass.draw(composite);
+    compositePass.end();
+    f.submit();
+    requestAnimationFrame(update);
 }
 
-requestAnimationFrame(frame);
+requestAnimationFrame(update);

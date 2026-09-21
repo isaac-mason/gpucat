@@ -1,9 +1,8 @@
 /**
  * programs.ts (webgl) - GLSL program compile/link + cache.
  *
- * Ports the reference renderer's `compile()` program half: create+compile a vertex and fragment
- * shader, attach + link, and check COMPILE_STATUS/LINK_STATUS (throwing with the info log on
- * failure). The GLSL emitter returns a single combined `code` string with the two stages separated
+ * Create and compile a vertex and fragment shader, attach and link, and check
+ * COMPILE_STATUS/LINK_STATUS, throwing with the info log on failure. The GLSL emitter returns a single combined `code` string with the two stages separated
  * by a `// ---- fragment stage ----` marker (see builder.ts `compileGlsl`); we split on it.
  *
  * gpucat's GLSL emitter declares uniforms as `layout(std140) uniform <Block> { … } <inst>;` and
@@ -85,14 +84,14 @@ function splitStages(code: string): { vertex: string; fragment: string } {
 /** Compile one shader stage, throwing with the info log (and source) on failure. */
 function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
     const shader = gl.createShader(type);
-    if (!shader) throw new Error('[WebGLRenderer] gl.createShader returned null.');
+    if (!shader) throw new Error('[webgl] gl.createShader returned null.');
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
         const log = gl.getShaderInfoLog(shader);
         gl.deleteShader(shader);
         const stage = type === gl.VERTEX_SHADER ? 'vertex' : 'fragment';
-        throw new Error(`[WebGLRenderer] ${stage} shader compile failed:\n${log}\n---- source ----\n${source}`);
+        throw new Error(`[webgl] ${stage} shader compile failed:\n${log}\n---- source ----\n${source}`);
     }
     return shader;
 }
@@ -120,7 +119,7 @@ export function getProgram(
     const fs = compileShader(gl, gl.FRAGMENT_SHADER, fragment);
 
     const program = gl.createProgram();
-    if (!program) throw new Error('[WebGLRenderer] gl.createProgram returned null.');
+    if (!program) throw new Error('[webgl] gl.createProgram returned null.');
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
     gl.linkProgram(program);
@@ -132,7 +131,7 @@ export function getProgram(
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
         const log = gl.getProgramInfoLog(program);
         gl.deleteProgram(program);
-        throw new Error(`[WebGLRenderer] program link failed:\n${log}`);
+        throw new Error(`[webgl] program link failed:\n${log}`);
     }
 
     // Resolve each std140 UBO block and assign it a unique binding point. The GLSL emitter always
@@ -202,7 +201,7 @@ export function createTransformFeedbackProgram(
     const fs = compileShader(gl, gl.FRAGMENT_SHADER, fragment);
 
     const program = gl.createProgram();
-    if (!program) throw new Error('[WebGLRenderer] gl.createProgram returned null.');
+    if (!program) throw new Error('[webgl] gl.createProgram returned null.');
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
 
@@ -216,7 +215,7 @@ export function createTransformFeedbackProgram(
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
         const log = gl.getProgramInfoLog(program);
         gl.deleteProgram(program);
-        throw new Error(`[WebGLRenderer] transform-feedback program link failed:\n${log}`);
+        throw new Error(`[webgl] transform-feedback program link failed:\n${log}`);
     }
 
     // Same std140 UBO binding-point resolution as getProgram, so kernels using uniform() work.

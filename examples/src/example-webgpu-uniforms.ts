@@ -1,13 +1,13 @@
 /**
  * example-uniforms.ts
- * 
+ *
  * Demonstrates two ways to use uniforms:
- * 
+ *
  * 1. Inline form: uniform(f32(value), 'name')
  *    - Creates a Uniform internally with an initial value
  *    - Good for shared shader graphs where all instances use the same value
  *    - Update via uniformNode.value = newValue
- * 
+ *
  * 2. Name-based form: uniform('name', schema) + material.uniforms
  *    - Declares a uniform slot in the shader, resolved from material at render time
  *    - Good for reusable materials where each instance has different values
@@ -18,62 +18,64 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    createCanvasTarget,
     createBoxGeometry,
     d,
     f32,
+    frame,
+    fullscreen,
     Inspector,
-    Material,
+    init,
+    createMaterial,
     Mesh,
     modelNormalMatrix,
     modelWorldMatrix,
     mul,
     normalize,
     OrbitControls,
-    pass,
     PerspectiveCamera,
-    RenderPipeline,
+    renderTexture,
+    renderOutput,
     Scene,
     Uniform,
     uniform,
     varying,
     vec3,
     vec4,
-    WebGPURenderer,
-    renderOutput,
+    webgpu,
 } from 'gpucat';
 import { quat } from 'math';
 
 async function main() {
-    const renderer = new WebGPURenderer({ antialias: true });
-    renderer.inspector = new Inspector();
-    await renderer.init();
+    const canvas = document.createElement('canvas');
+    canvas.style.display = 'block';
+    document.body.appendChild(canvas);
 
-    document.body.appendChild(renderer.domElement);
+    const view = createCanvasTarget(canvas, { samples: 4 });
+    view.setPixelRatio(devicePixelRatio);
+    view.setSize(window.innerWidth, window.innerHeight);
+
+    const renderer = await init(webgpu());
+    renderer.inspector = new Inspector();
+
     document.body.appendChild((renderer.inspector as Inspector).domElement);
-    renderer.setPixelRatio(devicePixelRatio);
-    renderer.setSize(window.innerWidth, window.innerHeight);
 
     const scene = new Scene();
 
-    const camera = new PerspectiveCamera(
-        Math.PI / 4,
-        window.innerWidth / window.innerHeight,
-        0.1,
-        100,
-    );
+    const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 100);
     camera.position[2] = 8;
     scene.add(camera);
 
-    const controls = new OrbitControls(camera, renderer.domElement);
+    const controls = new OrbitControls(camera, canvas);
 
     window.addEventListener('resize', () => {
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        view.setSize(window.innerWidth, window.innerHeight);
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
     });
 
     const geometry = createBoxGeometry(1, 1, 1);
-    
+
     const lightDir = vec3(0.6, 1.0, 0.8).normalize();
 
     // -------------------------------------------------------------------------
@@ -81,19 +83,19 @@ async function main() {
     // -------------------------------------------------------------------------
     // All meshes using this material share the same color uniform.
     // Updating uColorInline.value affects ALL meshes.
-    
+
     const uColorInline = uniform(vec3(1.0, 0.4, 0.1), 'inlineColor');
-    
+
     const position1 = attribute('position', d.vec3f);
     const normal1 = attribute('normal', d.vec3f);
     const worldPosition1 = mul(modelWorldMatrix, vec4(position1, f32(1)));
     const clipPosition1 = mul(cameraProjectionMatrix, mul(cameraViewMatrix, worldPosition1));
     const vNormal1 = varying(normalize(mul(modelNormalMatrix, normal1)), 'vNormal');
-    
+
     const diffuse1 = vNormal1.dot(lightDir).max(f32(0.15));
     const litColor1 = uColorInline.mul(diffuse1);
-    
-    const materialInline = new Material({
+
+    const materialInline = createMaterial({
         vertex: clipPosition1,
         fragment: vec4(litColor1, f32(1)),
     });
@@ -103,23 +105,22 @@ async function main() {
     // -------------------------------------------------------------------------
     // Each material instance can have its own color value.
     // The shader declares a slot, material.uniforms provides the value.
-    
+
     const uColorNamed = uniform('namedColor', d.vec3f);
-    
+
     const position2 = attribute('position', d.vec3f);
     const normal2 = attribute('normal', d.vec3f);
     const worldPosition2 = mul(modelWorldMatrix, vec4(position2, f32(1)));
     const clipPosition2 = mul(cameraProjectionMatrix, mul(cameraViewMatrix, worldPosition2));
     const vNormal2 = varying(normalize(mul(modelNormalMatrix, normal2)), 'vNormal');
-    
+
     const diffuse2 = vNormal2.dot(lightDir).max(f32(0.15));
     const litColor2 = uColorNamed.mul(diffuse2);
-
 
     // -------------------------------------------------------------------------
     // Create meshes
     // -------------------------------------------------------------------------
-    
+
     // Left side: 3 boxes using inline uniform (all same color)
     const inlineMeshes: Mesh[] = [];
     for (let i = 0; i < 3; i++) {
@@ -133,20 +134,20 @@ async function main() {
     // Right side: 3 boxes using name-based uniforms (each different color)
     const namedMeshes: Mesh[] = [];
     const colors = [
-        [0.2, 0.6, 1.0],  // blue
-        [0.2, 1.0, 0.4],  // green
-        [1.0, 0.2, 0.6],  // pink
+        [0.2, 0.6, 1.0], // blue
+        [0.2, 1.0, 0.4], // green
+        [1.0, 0.2, 0.6], // pink
     ];
-    
+
     for (let i = 0; i < 3; i++) {
         // Each mesh gets its own Material instance with its own uniforms map
-        const material = new Material({
+        const material = createMaterial({
             vertex: clipPosition2,
             fragment: vec4(litColor2, f32(1)),
         });
         // Set the color for this specific material instance
         material.uniforms.set('namedColor', new Uniform(d.vec3f, colors[i]));
-        
+
         const mesh = new Mesh(geometry, material);
         mesh.position[0] = 2.5;
         mesh.position[1] = (i - 1) * 1.5;
@@ -161,10 +162,10 @@ async function main() {
     // Inspector controls
     // -------------------------------------------------------------------------
     const inspector = renderer.inspector as Inspector;
-    
+
     const inlineParams = inspector.createParameters('Inline Uniform (left)');
     inlineParams.add(uColorInline, 'value', { label: 'Color (affects all 3)' });
-    
+
     const namedParams = inspector.createParameters('Named Uniforms (right)');
     // For name-based, we need to access the Uniform from each material
     for (let i = 0; i < namedMeshes.length; i++) {
@@ -176,14 +177,13 @@ async function main() {
     // -------------------------------------------------------------------------
     // Render loop
     // -------------------------------------------------------------------------
-    const scenePass = pass(scene, camera);
+    const scenePass = renderTexture(scene, camera);
     const outputNode = renderOutput(scenePass.getTextureNode());
-    const renderPipeline = new RenderPipeline(renderer, outputNode);
-
+    const composite = fullscreen(outputNode);
     let angle = 0;
     let prevTime = performance.now() / 1000;
 
-    function frame() {
+    function update() {
         const now = performance.now() / 1000;
         const dt = now - prevTime;
         prevTime = now;
@@ -197,11 +197,15 @@ async function main() {
         }
 
         controls.update();
-        renderPipeline.render();
-        requestAnimationFrame(frame);
+        const f = frame(renderer);
+        const compositePass = f.pass({ target: view });
+        compositePass.draw(composite);
+        compositePass.end();
+        f.submit();
+        requestAnimationFrame(update);
     }
 
-    requestAnimationFrame(frame);
+    requestAnimationFrame(update);
 }
 
 main().catch(console.error);

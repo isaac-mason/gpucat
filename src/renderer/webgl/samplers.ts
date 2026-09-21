@@ -108,7 +108,7 @@ export function getSampler(
     if (existing) return existing;
 
     const sampler = gl.createSampler();
-    if (!sampler) throw new Error('[WebGLRenderer] gl.createSampler returned null.');
+    if (!sampler) throw new Error('[webgl] gl.createSampler returned null.');
 
     gl.samplerParameteri(sampler, gl.TEXTURE_MIN_FILTER, glMinFilter(gl, gpuSampler.minFilter, gpuSampler.mipmapFilter, hasMips));
     gl.samplerParameteri(sampler, gl.TEXTURE_MAG_FILTER, glMagFilter(gl, gpuSampler.magFilter));

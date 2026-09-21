@@ -39,7 +39,7 @@ A minimal spinning cube. Renderer setup, a node-based material, and a `requestAn
 A few things to notice:
 
 - The material is just two nodes: `vertex` (a clip-space position) and `fragment` (a `vec4f` color). You build them by composing smaller nodes, and gpucat compiles the resulting graph to WGSL.
-- You own the frame loop. gpucat never starts its own `requestAnimationFrame` and never reads a wall clock. You call `render()` (and `compute()`) when you want a frame, and you drive time yourself via plain uniforms, so it stays composable with your own update loop.
+- You own the frame loop. gpucat never starts its own `requestAnimationFrame` and never reads a wall clock. You open a frame with `frame(renderer)` when you want one, and you drive time yourself via plain uniforms, so it stays composable with your own update loop.
 
 
 <ExamplesTable ids="example-webgpu-hello-world" />
@@ -66,37 +66,42 @@ There is a split worth internalising early: `d.f32` is the *type*, `f32(1)` is a
 
 ## Backends: WebGPU & WebGL2
 
-gpucat runs on two graphics backends: WebGPU (`WebGPURenderer`) and WebGL2 (`WebGLRenderer`). They implement the same neutral `Renderer` interface and share the entire node-graph, DSL, scene, and resource layer above them. You author a scene once; only the renderer constructor differs.
+gpucat runs on two graphics backends: WebGPU (`webgpu()`) and WebGL2 (`webgl()`). One `Renderer` class drives either, and they share the entire node-graph, DSL, scene, and resource layer above them. You author a scene once; only the backend you hand to `init` differs.
 
 ### Backend selection is explicit
 
-You choose the backend by choosing the constructor. There is **no automatic fallback**: a `WebGPURenderer` never quietly downgrades to WebGL2 if WebGPU is missing. This is deliberate. The two backends do not support the exact same feature set, so a silent fallback would swap in a renderer that cannot run your code and fail somewhere confusing. You decide, up front, which one you are targeting, and can branch yourself if you want to. `renderer.backend` reports the choice as `'webgpu'` or `'webgl'`.
+You choose the backend by choosing what you pass to `init`. There is **no automatic fallback**: a WebGPU renderer never quietly downgrades to WebGL2 if WebGPU is missing. This is deliberate. The two backends do not support the exact same feature set, so a silent fallback would swap in a renderer that cannot run your code and fail somewhere confusing. You decide, up front, which one you are targeting, and can branch yourself if you want to. `renderer.api` reports the choice as `'webgpu'` or `'webgl'`.
+
+`init` rejects rather than resolving something half-built, so a `try`/`catch` is all a fallback needs.
 
 ```ts
-const renderer = new WebGPURenderer({ antialias: true });   // WebGPU
-// const renderer = new WebGLRenderer({ antialias: true });  // WebGL2
-await renderer.init();
-renderer.backend;   // 'webgpu' | 'webgl'
+const renderer = await init(webgpu());                 // WebGPU
+// const renderer = await init(webgl({ target: view })); // WebGL2, whose device IS a canvas
+renderer.api;   // 'webgpu' | 'webgl'
 ```
 
 ### Same code, two backends
 
-The node-graph material and DSL are authored once. `WebGPURenderer` compiles the graph to WGSL; `WebGLRenderer` compiles the same graph to GLSL ES 3.00. The DSL grammar is WGSL-native, and GLSL is a translation target reached through each schema's `glslType` companion, so the WGSL surface is never watered down to fit WebGL. Everything above the renderer, scene, geometry, materials, uniforms, textures, render targets, the shading language, is identical across both. Swapping backends is a one-line change:
+The node-graph material and DSL are authored once. The WebGPU backend compiles the graph to WGSL; the WebGL2 one compiles the same graph to GLSL ES 3.00. The DSL grammar is WGSL-native, and GLSL is a translation target reached through each schema's `glslType` companion, so the WGSL surface is never watered down to fit WebGL. Everything above the renderer, scene, geometry, materials, uniforms, textures, render targets, the shading language, is identical across both. Swapping backends is a one-line change:
 
 ```ts
 // build the scene and material once; nothing here is backend-specific
-const material = new Material({ vertex: clipPos, fragment: litColor });
-const mesh = new Mesh(geom, material);
+const material = createMaterial({ vertex: clipPos, fragment: litColor });
+const mesh = createMesh(geom, material);
 scene.add(mesh);
 
 // pick a backend at the top; the rest of the app is unchanged
 const renderer = webgpuSupported
-    ? new WebGPURenderer({ antialias: true })
-    : new WebGLRenderer({ antialias: true });
-await renderer.init();
+    ? await init(webgpu())
+    : await init(webgl({ target: view }));
 
-const pipeline = new RenderPipeline(renderer, renderOutput(pass(scene, camera).getTextureNode()));
-// each frame: pipeline.render();
+const composite = fullscreen(renderOutput(renderTexture(scene, camera).getTextureNode()));
+// each frame:
+const f = frame(renderer);
+const p = f.pass({ target: view });
+p.draw(composite);
+p.end();
+f.submit();
 ```
 
 ### What WebGL2 supports
@@ -109,15 +114,15 @@ The WebGL2 backend covers the standard rendering surface:
 - **Render targets**: MRT, depth attachments, cube targets, and MSAA-resolve.
 - **HDR / float render targets** via `EXT_color_buffer_float`.
 - Correct clip-space **depth** and **frustum culling**.
-- **Render-to-texture, passes, and post-processing** through `RenderPipeline`.
-- **Transform feedback** (`renderer.transformFeedback(...)`) for GPU particle/simulation kernels, with native buffer readback (`renderer.readBufferAsync(...)`). See [Transform feedback](#transform-feedback-webgl2).
+- **Render-to-texture, passes, and post-processing** through `pass` and `fullscreen`.
+- **Transform feedback** (`f.transformFeedback()`) for GPU particle/simulation kernels, with native buffer readback (`readBuffer(renderer, buffer)`). See [Transform feedback](#transform-feedback-webgl2).
 - The **inspector**: real GPU timing (`EXT_disjoint_timer_query_webgl2`), memory, draw-call counts, the scene tree, and a GLSL shader panel.
 
 ### What WebGL2 does not support
 
-These are WebGPU-only. On `WebGLRenderer` they throw a clear error, at shader-compile time where possible, otherwise at prepare. They never fail silently. Use `WebGPURenderer` for any of them:
+These are WebGPU-only. On the WebGL2 backend they throw a clear error, at shader-compile time where possible, otherwise at prepare. They never fail silently. Use the WebGPU backend for any of them:
 
-- **Compute**: `renderer.compute()`, compute nodes, and `Fn(...).compute(...)` kernels. For own-index GPU simulation (particles), WebGL2 offers [transform feedback](#transform-feedback-webgl2) instead; scatter/atomics/arbitrary-index writes stay WebGPU-only.
+- **Compute**: `f.compute()`, compute nodes, and `Fn(...).compute(...)` kernels. For own-index GPU simulation (particles), WebGL2 offers [transform feedback](#transform-feedback-webgl2) instead; scatter/atomics/arbitrary-index writes stay WebGPU-only.
 - **Storage buffers** (`storage(...)`, `createStorageBuffer`) and **atomics**.
 - **Storage textures** and **workgroup vars** (`WorkgroupVar`).
 - **Inline WGSL**: `` wgsl`…` `` and `wgslFn(...)` (raw WGSL has no GLSL translation).
@@ -158,8 +163,8 @@ Both renderers share a common set of options; each backend adds a few of its own
 | Depth + frustum culling | ✓ | ✓ |
 | Render-to-texture / passes / post-processing | ✓ | ✓ |
 | Inspector (GPU timing, memory, draws, scene, shaders) | ✓ | ✓ |
-| Transform feedback (`renderer.transformFeedback()`, own-index GPU sim) | ✗ (use `compute()`) | ✓ |
-| Compute (`renderer.compute()`, compute nodes, scatter/atomics) | ✓ | ✗ (use `transformFeedback()`) |
+| Transform feedback (`f.transformFeedback()`, own-index GPU sim) | ✗ (use `compute()`) | ✓ |
+| Compute (`f.compute()`, compute nodes, scatter/atomics) | ✓ | ✗ (use `transformFeedback()`) |
 | Storage buffer reads (lowered to a texture on WebGL2) | ✓ | ✓ |
 | Storage buffer writes · atomics | ✓ | ✗ |
 | Storage textures · workgroup vars | ✓ | ✗ |
@@ -172,48 +177,63 @@ Both renderers share a common set of options; each backend adds a few of its own
 
 Backend compatibility is a property of the *features* you use, not of any single example (each example file constructs one specific renderer). Read it off the matrix above, or by category:
 
-- **Runs on both backends:** meshes and node-graph materials, textures, render targets and MRT, render-to-texture and post-processing, and camera controls. Anything built only from these works on either `WebGPURenderer` or `WebGLRenderer`.
-- **WebGPU-only:** compute (compute nodes and `renderer.compute()`), storage buffer *writes* (`read_write`, atomics, compute output), storage textures, workgroup vars, inline WGSL (`` wgsl`` `` / `wgslFn`), and indirect draw (`geometry.indirect`, both CPU-authored and compute-driven). Anything using these needs `WebGPURenderer`. Read-only storage reads are portable, covered below.
-- **WebGL2-only:** [transform feedback](#transform-feedback-webgl2) (`renderer.transformFeedback()`), the honest own-index GPU-simulation primitive, with native readback via `renderer.readBufferAsync()`. WebGPU has no transform feedback; you express the same simulation as a `compute()` kernel there, reusing the per-element body `Fn` verbatim.
+- **Runs on both backends:** meshes and node-graph materials, textures, render targets and MRT, render-to-texture and post-processing, and camera controls. Anything built only from these works on either backend.
+- **WebGPU-only:** compute (compute nodes and `f.compute()`), storage buffer *writes* (`read_write`, atomics, compute output), storage textures, workgroup vars, inline WGSL (`` wgsl`` `` / `wgslFn`), and indirect draw (`geometry.indirect`, both CPU-authored and compute-driven). Anything using these needs the WebGPU backend. Read-only storage reads are portable, covered below.
+- **WebGL2-only:** [transform feedback](#transform-feedback-webgl2) (`f.transformFeedback()`), the honest own-index GPU-simulation primitive, with native readback via `readBuffer()`. WebGPU has no transform feedback; you express the same simulation as a `compute()` kernel there, reusing the per-element body `Fn` verbatim.
 
 The [examples browser](https://isaac-mason.github.io/gpucat/) groups examples by the backend each one targets, so the compute and storage-driven examples sit under WebGPU and the WebGL2 examples under WebGL.
 
 ## The Renderer
 
-You create a `WebGPURenderer`, initialise it (it acquires the GPU device asynchronously), and size it to your canvas:
+`init` acquires the device asynchronously and hands back a `Renderer`. The canvas is yours, not the
+renderer's: you wrap it in a `canvasTarget` and a pass names it as its target.
 
 ```ts
-const renderer = new WebGPURenderer({ antialias: true });
-await renderer.init();
-document.body.appendChild(renderer.domElement);
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
+const canvas = document.createElement('canvas');
+document.body.appendChild(canvas);
+
+const view = createCanvasTarget(canvas, { samples: 4 });
+view.setPixelRatio(devicePixelRatio);
+view.setSize(window.innerWidth, window.innerHeight);
+
+const renderer = await init(webgpu());
 ```
 
-gpucat never starts its own loop. You own the frame, and a frame is just: update transforms, push any changed data, run any compute, then render.
+gpucat never starts its own loop. You own the frame, and a frame is just: update transforms, push any changed data, open a frame, record passes into it, submit.
 
 ```ts
-function frame() {
+function update() {
     movingMesh.updateWorldMatrix();  // update only what moved, not the whole scene
     camera.updateViewMatrix();       // the camera moved this frame
+    uColor.value = nextColor;        // push changed data
 
-    uColor.value = nextColor;                                    // push changed data
-    renderer.compute([{ node: sim, dispatch: [groups, 1, 1] }]); // optional
-    renderPipeline.render();
+    const f = frame(renderer);
 
-    requestAnimationFrame(frame);
+    const sim = f.compute();              // optional, WebGPU only
+    sim.dispatch(simNode, [groups, 1, 1]);
+    sim.end();
+
+    const scenePass = f.pass({ target: view, camera });
+    scenePass.draw(mesh);
+    scenePass.end();
+
+    f.submit();
+
+    requestAnimationFrame(update);
 }
-requestAnimationFrame(frame);
+requestAnimationFrame(update);
 ```
+
+Everything recorded between `frame(renderer)` and `submit()` goes onto one command encoder, so a compute pass that writes a buffer and a draw that reads it are one submission with no CPU sync point between them.
 
 ## Scene and Objects
 
 A `Scene` holds a tree of `Object3D`s. Each object has a `position`, `quaternion`, and `scale`; you call `updateWorldMatrix()` to fold them into its world matrix. A `Mesh` is geometry plus material.
 
 ```ts
-const scene = new Scene();
+const scene = createScene();
 
-const mesh = new Mesh(geom, material);
+const mesh = createMesh(geom, material);
 mesh.position[1] = 2;
 scene.add(mesh);
 
@@ -225,6 +245,25 @@ scene.add(camera);
 For **instancing** (drawing one geometry many times in a single call), set `mesh.count` and pull per-instance data from a storage buffer. See [Drawing Many Things](#instancing).
 
 Cameras carry the projection: `PerspectiveCamera(fov, aspect, near, far)` or `OrthographicCamera(...)`. See [`Scene`](./api.md#scene), [`Object3D`](./api.md#object3d), [`Mesh`](./api.md#mesh), [`PerspectiveCamera`](./api.md#perspectivecamera).
+
+### The tree is a layer, and you can skip it
+
+`drawScene(renderer, pass, scene, camera)` is the walk, and it is an ordinary public function built on `pass.draw`. It is what gives a scene the behaviour you would expect of one:
+
+- objects with `visible === false`, and their whole subtree, are skipped
+- frustum culling, unless a mesh sets `frustumCulled = false`
+- opaque draws first, sorted by `renderOrder` then front-to-back; transparent after, back-to-front
+
+```ts
+const pass = f.pass({ target: view, camera });
+drawScene(renderer, pass, scene, camera);   // the tree
+pass.draw(cursor);                          // and anything else, in the order you say
+pass.end();
+```
+
+**A draw you record yourself is unconditional.** `pass.draw(mesh)` draws that mesh: it does not read `visible`, does not frustum cull, and does not sort. Those are the walk's, not the pass's. This matters if you keep your own list of what to draw, because hiding something by setting `visible = false` will do nothing and report nothing. Skip it yourself, or hand the tree to `drawScene` and let it decide.
+
+`renderTexture(contents, camera)` takes either: a scene to walk, or a `(pass) => void` that records its own draws.
 
 ### Updating matrices is your job
 
@@ -262,7 +301,7 @@ A `Material` is the shaders plus the pipeline state. Three node slots define the
 - **`depth`** an optional `f32` that overrides the depth written to the buffer (emits `@builtin(frag_depth)`).
 
 ```ts
-const material = new Material({
+const material = createMaterial({
     vertex: clipPos,
     fragment: litColor,
     transparent: true,
@@ -300,7 +339,7 @@ For anything else, pass an explicit `blend` (a WebGPU `GPUBlendState`). Common r
 | Multiply | `dst` | `zero` |
 
 ```ts
-const glow = new Material({
+const glow = createMaterial({
     vertex: clipPos,
     fragment: emissive,
     transparent: true,
@@ -386,7 +425,7 @@ const sim = Fn(() => { /* update positions[globalId.x] */ }).compute({ workgroup
 const world = index(positions, instanceIndex);   // material reads what the kernel wrote
 ```
 
-You call `renderer.compute([{ node: sim, dispatch: [...] }])` then `renderPipeline.render()`, and nothing round-trips through the CPU. This is the spine of the particle and ball-cluster examples, and the same buffer-per-instance idea behind [Instancing](#instancing).
+You record a `f.compute()` pass and then a render pass on the same frame, and nothing round-trips through the CPU. This is the spine of the particle and ball-cluster examples, and the same buffer-per-instance idea behind [Instancing](#instancing).
 
 ### Ping-pong (double buffering)
 
@@ -397,7 +436,9 @@ const state = storage('state', d.array(Particle), 'read_write');
 let [src, dst] = [bufferA, bufferB];
 
 // each frame:
-renderer.compute([{ node: sim, dispatch: [...], buffers: { state: src } }]);
+const step = f.compute();
+step.dispatch(sim, [groups, 1, 1], { buffers: { state: src } });
+step.end();
 [src, dst] = [dst, src];   // swap for next frame
 ```
 
@@ -498,16 +539,38 @@ See [`createStructTexture`](./api.md#createstructtexture), [`DataTexture`](./api
 
 ## Render Pipeline
 
-A `pass` renders a scene and camera to a texture, `renderOutput` turns a texture into the final screen output, and a `RenderPipeline` ties an output node to the renderer:
+A `pass` renders a scene and camera to a texture, `renderOutput` turns a texture into the final screen
+output, and `fullscreen` draws it. You place the work yourself, on a frame:
 
 ```ts
-const scenePass = pass(scene, camera);
-const output = renderOutput(scenePass.getTextureNode());
-const renderPipeline = new RenderPipeline(renderer, output);
-// each frame: renderPipeline.render();
+const scenePass = renderTexture(scene, camera);
+const composite = fullscreen(renderOutput(scenePass.getTextureNode()));
+
+// each frame
+const f = frame(renderer);
+const p = f.pass({ target: view });
+p.draw(composite);
+p.end();
+f.submit();
 ```
 
-Because a pass is just a texture node, you add post-processing by sampling it and feeding the result through more nodes before `renderOutput`. `mrt` writes several targets at once, and a `RenderTarget` lets you render off-screen. See [`RenderPipeline`](./api.md#renderpipeline) and [`RenderTarget`](./api.md#rendertarget).
+`submit()` returns nothing and does not wait. When you need to know the GPU has finished — a readback,
+a benchmark, pacing outside a rAF loop, a deterministic test — `f.done` resolves once it has:
+
+```ts
+f.submit();
+await f.done;   // resolve-only: completion, not success
+```
+
+It is **resolve-only on purpose**. It never rejects, because the errors worth knowing about arrive from
+the device after it would have settled; those reach you through `renderer.onDeviceLost`. Reading `done`
+is what starts the wait, so a frame nobody asks about costs nothing, and it is only meaningful between
+`submit()` and the next `frame()`, since the frame object is reused.
+
+A pass nested in the graph like `scenePass` renders itself, before the pass that samples it. Because a
+pass is just a texture node, you add post-processing by sampling it and feeding the result through more
+nodes before `renderOutput`. `mrt` writes several targets at once, and a `RenderTarget` lets you render
+off-screen. See [`RenderTarget`](./api.md#rendertarget).
 
 <RenderCategory name="render pass" compact />
 <RenderCategory name="render output" compact />
@@ -748,15 +811,17 @@ const tex = createStorageTexture(256, 256, 'rgba8unorm');   // 2d; also 3d / Arr
 const write = storageTexture(tex, 'write');                 // access: 'write' | 'read' | 'read_write'
 const paint = Fn(() => {
     const p = vec2u(globalId.x, globalId.y);
-    textureStore(write, p, vec4(/* … */));
+    textureStore(write, p, vec4(/* ... */));
 }).compute({ workgroupSize: [8, 8, 1] });
 
 // render: sample the same texture (dual usage, no copy)
 const sampler = new GpuSampler({ minFilter: 'linear', magFilter: 'linear' });
 const color = texture(tex, sampler).sample(screenUV);
 
-// each frame: compute writes, then render samples
-renderer.compute([{ node: paint, dispatch: [Math.ceil(256 / 8), Math.ceil(256 / 8), 1] }]);
+// each frame: compute writes, then a later pass on the same frame samples
+const paintPass = f.compute();
+paintPass.dispatch(paint, [Math.ceil(256 / 8), Math.ceil(256 / 8), 1]);
+paintPass.end();
 ```
 
 `access` is a property of the binding, not the texture, so one texture can be bound `write` in one kernel and `read` in another (e.g. ping-pong simulations). Reads use `textureLoad(node, coords)` (no mip level). Writes are compute-only; binding a `write`/`read_write` storage texture in a vertex or fragment shader is a compile error. `read_write` access is limited by WebGPU to the `r32uint` / `r32sint` / `r32float` formats; the value type of `textureStore`/`textureLoad` follows the format's channel (`vec4f` / `vec4u` / `vec4i`). If the texture has mips and `mipmapsAutoUpdate` is on (the default), its mips regenerate after a compute write so it can be sampled mipmapped.
@@ -807,23 +872,11 @@ gpucat provides the common per-frame and per-object values as ready-made nodes, 
 
 ## Compute
 
-Compute shaders use the same node API. You declare storage buffers, write a kernel with `Fn(...).compute(...)`, and dispatch it through the renderer before you render. Index into a buffer with `index(buf, i)` and write with `.assign(...)`.
+Compute shaders use the same node API. You declare storage buffers, write a kernel with `Fn(...).compute(...)`, and dispatch it from a compute pass on the frame, before the render passes that read what it wrote. Index into a buffer with `index(buf, i)` and write with `.assign(...)`.
 
-```ts
-// a storage buffer the kernel reads and writes
-const positions = storage(createStorageBuffer(d.array(d.vec4f), data), 'read_write');
+<Snippet source="./snippets.ts" select="gpu-compute" />
 
-const sim = Fn(() => {
-    const i = globalId.x;
-    const p = index(positions, i);
-    index(positions, i).assign(p.add(vec4(0, 0.01, 0, 0)));
-}).compute({ workgroupSize: [64, 1, 1] });
-
-// in the frame loop, before rendering:
-renderer.compute([{ node: sim, dispatch: [Math.ceil(N / 64), 1, 1] }]);
-```
-
-The same buffer can feed a material, which is how the particle example draws what the compute pass just updated. A compute kernel can also write to a texture instead of a buffer. See [Storage textures](#storage-textures).
+A compute kernel can write to a texture instead of a buffer. See [Storage textures](#storage-textures).
 
 For a full worked example, `examples/src/example-webgpu-ball-cluster.ts` simulates balls that pull toward a point and collide into a packed cluster, all on the GPU. It runs three compute passes per frame (clear grid, bin into a spatial-hash grid while snapshotting the previous state, then forces + collision against the 27 neighbouring cells), so each ball only checks nearby balls instead of every other one. `examples/src/example-webgpu-compute-particles.ts` is a simpler starting point.
 
@@ -838,7 +891,7 @@ For a full worked example, `examples/src/example-webgpu-ball-cluster.ts` simulat
 ```ts
 const dt = uniform('dt', d.f32);
 
-// attribute-in (pos, vel) → captured-varying-out (pos). The body is ordinary DSL.
+// attribute-in (pos, vel) becomes captured-varying-out (pos). The body is ordinary DSL.
 const kernel = transformFeedback(
     (io) => ({ pos: io.pos.add(io.vel.mul(dt)) }),
     { inputs: { pos: d.vec4f, vel: d.vec4f }, outputs: { pos: d.vec4f } },
@@ -850,18 +903,21 @@ You bind the input/output buffers at the **run site** (not on the node), because
 ```ts
 let [cur, next] = [bufA, bufB];   // two GpuBuffers of the same schema
 
-function frame() {
-    renderer.transformFeedback(kernel, {
-        inputs: { pos: cur, vel: velBuf },   // name → GpuBuffer, bound as a vertex attribute
-        outputs: { pos: next },              // name → GpuBuffer, the captured-varying target
-        count: N,                            // → drawArrays(POINTS, 0, N) under RASTERIZER_DISCARD
+function update() {
+    const f = frame(renderer);
+    const sim = f.transformFeedback();
+    sim.dispatch(kernel, {
+        inputs: { pos: cur, vel: velBuf },   // bound by name as a vertex attribute
+        outputs: { pos: next },              // bound by name as the captured-varying target
+        count: N,                            // drawArrays(POINTS, 0, N) under RASTERIZER_DISCARD
     });
+    sim.end();
     [cur, next] = [next, cur];               // explicit ping-pong; nothing swaps behind your back
-    // ...read `cur` back, or run another pass...
+    f.submit();
 }
 ```
 
-`transformFeedback()` and `readBufferAsync()` are **`WebGLRenderer`-only** methods. Calling them on a `WebGPURenderer` is a compile-time type error, the same as `compute()` on `WebGLRenderer`. Inside the kernel body you can use `uniform()` and `textureLoad()` (an explicit `DataTexture` you bind, for neighbour gather); the element index is `vertexIndex` (or `instanceIndex` when you pass `instanceCount`). Outputs are scalar / vector types; `vec3` wants `vec4f` and struct outputs are not supported (both throw a clear message). Scatter, arbitrary-index writes, and atomics are not part of this model; use `compute()` on WebGPU for those.
+`f.transformFeedback()` is a pass, the exact mirror of `f.compute()`: both take `.dispatch(...)` and `.end()`, and each refuses on the backend that cannot run it. `readBuffer(renderer, buffer)` is a free function typed on `Renderer<WebGLBackend>`, the buffer counterpart of `read()` for targets. `f.compute()` is the other way round: it exists on every frame and throws on a WebGL2 backend, because the frame API is backend-neutral by construction. Inside the kernel body you can use `uniform()` and `textureLoad()` (an explicit `DataTexture` you bind, for neighbour gather); the element index is `vertexIndex` (or `instanceIndex` when you pass `instanceCount`). Outputs are scalar / vector types; `vec3` wants `vec4f` and struct outputs are not supported (both throw a clear message). Scatter, arbitrary-index writes, and atomics are not part of this model; use `compute()` on WebGPU for those.
 
 ### Sharing the body with `compute()`
 
@@ -923,7 +979,7 @@ const args = new Uint32Array(packArray(DrawIndexedIndirect, [
 geometry.indirect = createIndirectBuffer(DrawIndexedIndirect, args);
 ```
 
-One buffer can hold several draws (`geometry.indirectDrawCount`), and `geometry.indirectOffset` skips a header. The real payoff is GPU-driven rendering: the buffer has `storage` + `indirect` usage, so a compute pass can write the `instanceCount` (culling, LOD, spawning) and the draw reads it the same frame, with no CPU readback. `renderer.compute([{ node, indirect: buf }])` dispatches a compute pass the same way, with its workgroup counts read from a buffer.
+One buffer can hold several draws (`geometry.indirectDrawCount`), and `geometry.indirectOffset` skips a header. The real payoff is GPU-driven rendering: the buffer has `storage` + `indirect` usage, so a compute pass can write the `instanceCount` (culling, LOD, spawning) and the draw reads it the same frame, with no CPU readback. `c.dispatchIndirect(node, buf)` dispatches a compute pass the same way, with its workgroup counts read from a buffer.
 
 <RenderCategory name="indirect" compact />
 
@@ -931,13 +987,47 @@ See `examples/src/example-webgpu-indirect-batched.ts` (CPU-driven multi-draw) an
 
 <ExamplesTable ids="example-webgpu-indirect-batched,example-webgpu-indirect-compute,example-webgpu-voxels" />
 
+### Render bundles
+
+Instancing and indirect drawing both address *many copies of one thing*. A render bundle addresses the other axis: **many different draws whose set does not change between frames**. The draw calls are the same every frame, so re-encoding them every frame is CPU work you already know the answer to. Record them once, replay the recording:
+
+```ts
+const encoder = bundle('static-props');
+for (const prop of props) encoder.draw(prop);
+const staticProps = encoder.finish();
+
+function update() {
+    const f = frame(renderer);
+    const p = f.pass({ target: view, camera });
+    p.execute(staticProps);   // the recorded draws
+    p.draw(player);           // ordinary draws, in the order you record them
+    p.end();
+    f.submit();
+}
+```
+
+A bundle takes no target. The attachment shape it has to match is whichever pass executes it, so it is recorded against that pass and matches by construction. Passing the same bundle to two passes with different attachments records it twice, which is correct rather than an error.
+
+**On WebGPU this is the acceleration.** The bundle becomes a `GPURenderBundle`, recorded on the first frame that executes it and replayed with one `executeBundles` after that, so the per-draw pipeline and binding calls stop happening on the CPU each frame. What a replay saves is the encoding, not the per-draw update: uniform uploads and bind-group rebuilds still run every frame, which is what keeps a bundled draw's values as live as a direct one's. **On WebGL2 it costs nothing and buys nothing**: there is no such device object, so the records replay as the draws they always were. Code written against bundles runs correctly on both; only WebGPU gets faster.
+
+A bundle holds meshes and materials by reference and will redraw whatever they have become, so changing a *value* (a uniform, a transform) needs nothing from you. Changing the *structure* does: swap a geometry or a material, or change the set of draws, and the recording is stale. Say so and it re-records on the next frame:
+
+```ts
+staticProps.invalidate();   // the recording is wrong; build a new one
+staticProps.dispose();      // done with it; drops the records too
+```
+
+Executing a disposed bundle throws and names it, rather than quietly drawing nothing. The label you pass to `bundle()` is what appears there, and on the device objects recorded from it, so it is worth giving one.
+
+The one thing a bundle cannot contain is a draw that needs a stencil reference (`material.stencilRef` on a pass with a stencil attachment), because a bundle encoder has no `setStencilReference`. Recording one throws and names the mesh. Viewport and scissor are pass state and stay on `PassDesc`, so they are unaffected.
+
 ## Controls and the Inspector
 
 Camera controls drive a camera from input. Construct one with the camera and the canvas, and call `update()` each frame:
 
 ```ts
-const controls = new OrbitControls(camera, renderer.domElement);
-// in the frame loop, before rendering:
+const controls = new OrbitControls(camera, canvas);
+// in the frame loop, before recording any pass:
 controls.update();
 ```
 
@@ -946,8 +1036,9 @@ controls.update();
 The built-in **Inspector** is an in-page debugger for shaders, draw and compute calls, buffers, and timings. Attach it to the renderer and add its element to the page:
 
 ```ts
-renderer.inspector = new Inspector();
-document.body.appendChild(renderer.inspector.domElement);
+const inspector = new Inspector();
+renderer.inspector = inspector;
+document.body.appendChild(inspector.domElement);
 ```
 
 See [`OrbitControls`](./api.md#orbitcontrols) and [`Inspector`](./api.md#inspector).

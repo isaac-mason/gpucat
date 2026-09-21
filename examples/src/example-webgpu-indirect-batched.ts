@@ -1,35 +1,37 @@
 import * as g from 'gpucat';
-import { d, packArray, packTo, layoutStrideOf, createVertexBuffer, createIndexBuffer, createIndirectBuffer } from 'gpucat';
+import { createIndexBuffer, createIndirectBuffer, createVertexBuffer, d, layoutStrideOf, packArray, packTo } from 'gpucat';
 import { mat4, quat, vec3 } from 'math';
 
 const TOTAL = 120; // total instances
-const COLS  = 12;
-const ROWS  = TOTAL / COLS;
+const COLS = 12;
+const ROWS = TOTAL / COLS;
 const SPACING = 2.0;
 
-const boxSource    = g.createBoxGeometry(0.8, 0.8, 0.8);
+const boxSource = g.createBoxGeometry(0.8, 0.8, 0.8);
 const sphereSource = g.createSphereGeometry(0.5, 16, 8);
 
-const boxPos    = boxSource.buffers.get('position')!.array    as Float32Array;
-const boxNorm   = boxSource.buffers.get('normal')!.array      as Float32Array;
-const boxIdx    = boxSource.index!.array as Uint16Array;
+const boxPos = boxSource.buffers.get('position')!.array as Float32Array;
+const boxNorm = boxSource.buffers.get('normal')!.array as Float32Array;
+const boxIdx = boxSource.index!.array as Uint16Array;
 
-const sphPos    = sphereSource.buffers.get('position')!.array as Float32Array;
-const sphNorm   = sphereSource.buffers.get('normal')!.array   as Float32Array;
-const sphIdx    = sphereSource.index!.array as Uint16Array;
+const sphPos = sphereSource.buffers.get('position')!.array as Float32Array;
+const sphNorm = sphereSource.buffers.get('normal')!.array as Float32Array;
+const sphIdx = sphereSource.index!.array as Uint16Array;
 
-const mergedPos  = new Float32Array(boxPos.length  + sphPos.length);
+const mergedPos = new Float32Array(boxPos.length + sphPos.length);
 const mergedNorm = new Float32Array(boxNorm.length + sphNorm.length);
-mergedPos.set(boxPos);   mergedPos.set(sphPos,  boxPos.length);
-mergedNorm.set(boxNorm); mergedNorm.set(sphNorm, boxNorm.length);
+mergedPos.set(boxPos);
+mergedPos.set(sphPos, boxPos.length);
+mergedNorm.set(boxNorm);
+mergedNorm.set(sphNorm, boxNorm.length);
 
 const mergedIdx = new Uint16Array(boxIdx.length + sphIdx.length);
 mergedIdx.set(boxIdx);
 mergedIdx.set(sphIdx, boxIdx.length);
 
 const boxVertCount = boxPos.length / 3;
-const boxIdxCount  = boxIdx.length;
-const sphIdxCount  = sphIdx.length;
+const boxIdxCount = boxIdx.length;
+const sphIdxCount = sphIdx.length;
 
 const mergedGeometry = new g.Geometry();
 mergedGeometry.setBuffer('position', createVertexBuffer(d.vec3f, mergedPos));
@@ -37,7 +39,7 @@ mergedGeometry.setBuffer('normal', createVertexBuffer(d.vec3f, mergedNorm));
 mergedGeometry.index = createIndexBuffer(mergedIdx);
 
 const instanceMatrices = new Float32Array(TOTAL * 16);
-const instanceHues     = new Float32Array(TOTAL);      // [0..1] for color
+const instanceHues = new Float32Array(TOTAL); // [0..1] for color
 
 const _translation = vec3.create();
 const _scale = vec3.fromValues(1, 1, 1);
@@ -69,15 +71,15 @@ const norm = g.attribute('normal', d.vec3f);
 
 const localPos = g.vec4(pos, g.f32(1.0));
 const worldPos = g.mul(instanceTransform, localPos);
-const viewPos  = g.mul(g.cameraViewMatrix, worldPos);
-const clipPos  = g.mul(g.cameraProjectionMatrix, viewPos);
+const viewPos = g.mul(g.cameraViewMatrix, worldPos);
+const clipPos = g.mul(g.cameraProjectionMatrix, viewPos);
 
 // world-space normal (no non-uniform scale so instanceTransform is fine)
 const worldNorm = g.vec4(norm, g.f32(0.0));
 const tformedNorm = g.mul(instanceTransform, worldNorm);
 
 // simple diffuse lighting from a fixed light direction
-const lightDir  = g.vec3f(0.6, 1.0, 0.8).normalize();
+const lightDir = g.vec3f(0.6, 1.0, 0.8).normalize();
 const vNorm = g.varying(tformedNorm.xyz, 'v_norm');
 const vHue = g.varying(instanceHue, 'v_hue');
 
@@ -87,11 +89,25 @@ const diffuse = vNorm.normalize().dot(lightDir).max(g.f32(0.15));
 const time = g.uniform(g.f32(0), 'time');
 // HSV-like color from hue: oscillate through red→yellow→green→cyan→blue→magenta
 const pulse = time.mul(g.f32(0.4)).sin().mul(g.f32(0.05)).add(g.f32(1.0));
-const colR = vHue.mul(g.f32(Math.PI * 2)).sin().mul(g.f32(0.5)).add(g.f32(0.5));
-const colG = vHue.mul(g.f32(Math.PI * 2)).add(g.f32(Math.PI * 2 / 3)).sin().mul(g.f32(0.5)).add(g.f32(0.5));
-const colB = vHue.mul(g.f32(Math.PI * 2)).add(g.f32(Math.PI * 4 / 3)).sin().mul(g.f32(0.5)).add(g.f32(0.5));
+const colR = vHue
+    .mul(g.f32(Math.PI * 2))
+    .sin()
+    .mul(g.f32(0.5))
+    .add(g.f32(0.5));
+const colG = vHue
+    .mul(g.f32(Math.PI * 2))
+    .add(g.f32((Math.PI * 2) / 3))
+    .sin()
+    .mul(g.f32(0.5))
+    .add(g.f32(0.5));
+const colB = vHue
+    .mul(g.f32(Math.PI * 2))
+    .add(g.f32((Math.PI * 4) / 3))
+    .sin()
+    .mul(g.f32(0.5))
+    .add(g.f32(0.5));
 const baseColor = g.vec3(colR, colG, colB);
-const litColor  = baseColor.mul(diffuse).mul(pulse);
+const litColor = baseColor.mul(diffuse).mul(pulse);
 const finalColor = g.vec4(litColor, g.f32(1.0));
 
 const material = new g.Material({ vertex: clipPos, fragment: finalColor });
@@ -109,10 +125,18 @@ const material = new g.Material({ vertex: clipPos, fragment: finalColor });
 //      [draw*5+4] firstInstance
 // ---------------------------------------------------------------------------
 
-const indirectData = new Uint32Array(packArray(g.DrawIndexedIndirect, [
-    { indexCount: boxIdxCount, instanceCount: TOTAL / 2, firstIndex: 0,           baseVertex: 0,           firstInstance: 0        },
-    { indexCount: sphIdxCount, instanceCount: TOTAL / 2, firstIndex: boxIdxCount, baseVertex: boxVertCount, firstInstance: TOTAL / 2 },
-]));
+const indirectData = new Uint32Array(
+    packArray(g.DrawIndexedIndirect, [
+        { indexCount: boxIdxCount, instanceCount: TOTAL / 2, firstIndex: 0, baseVertex: 0, firstInstance: 0 },
+        {
+            indexCount: sphIdxCount,
+            instanceCount: TOTAL / 2,
+            firstIndex: boxIdxCount,
+            baseVertex: boxVertCount,
+            firstInstance: TOTAL / 2,
+        },
+    ]),
+);
 
 const indirectBuffer = createIndirectBuffer(g.DrawIndexedIndirect, indirectData);
 mergedGeometry.indirect = indirectBuffer;
@@ -122,23 +146,22 @@ mergedGeometry.indirect = indirectBuffer;
 // ---------------------------------------------------------------------------
 
 async function main() {
-    const renderer = new g.WebGPURenderer({ antialias: true });
-    renderer.inspector = new g.Inspector();
-    await renderer.init();
+    const canvas = document.createElement('canvas');
+    canvas.style.display = 'block';
+    document.body.appendChild(canvas);
 
-    document.body.appendChild(renderer.domElement);
+    const view = g.createCanvasTarget(canvas, { samples: 4 });
+    view.setPixelRatio(devicePixelRatio);
+    view.setSize(window.innerWidth, window.innerHeight);
+
+    const renderer = await g.init(g.webgpu());
+    renderer.inspector = new g.Inspector();
+
     document.body.appendChild((renderer.inspector as g.Inspector).domElement);
-    renderer.setPixelRatio(devicePixelRatio);
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.clearColor = [0.07, 0.07, 0.1, 1];
+    view.clearColor = [0.07, 0.07, 0.1, 1];
 
     const scene = new g.Scene();
-    const camera = new g.PerspectiveCamera(
-        Math.PI / 4,
-        window.innerWidth / window.innerHeight,
-        0.1,
-        200,
-    );
+    const camera = new g.PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 200);
     camera.position[2] = 28;
     scene.add(camera);
     // Static scene — set matrices once after setup.
@@ -146,7 +169,7 @@ async function main() {
     camera.updateViewMatrix();
 
     window.addEventListener('resize', () => {
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        view.setSize(window.innerWidth, window.innerHeight);
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
     });
@@ -155,10 +178,9 @@ async function main() {
     const mesh = new g.Mesh(mergedGeometry, material);
     scene.add(mesh);
 
-    const scenePass = g.pass(scene, camera);
+    const scenePass = g.renderTexture(scene, camera);
     const outputNode = g.renderOutput(scenePass.getTextureNode());
-    const renderPipeline = new g.RenderPipeline(renderer, outputNode);
-
+    const composite = g.fullscreen(outputNode);
     // -----------------------------------------------------------------------
     // UI — slider to split instances between boxes and spheres at runtime
     // -----------------------------------------------------------------------
@@ -176,9 +198,9 @@ async function main() {
     label.textContent = `boxes: ${TOTAL / 2}   spheres: ${TOTAL / 2}`;
 
     const slider = document.createElement('input');
-    slider.type  = 'range';
-    slider.min   = '0';
-    slider.max   = String(TOTAL);
+    slider.type = 'range';
+    slider.min = '0';
+    slider.max = String(TOTAL);
     slider.value = String(TOTAL / 2);
     slider.style.width = '240px';
 
@@ -188,8 +210,20 @@ async function main() {
 
         const stride = layoutStrideOf(g.DrawIndexedIndirect);
         const buf = indirectBuffer.array!.buffer as ArrayBuffer;
-        packTo(g.DrawIndexedIndirect, buf, 0,          { indexCount: boxIdxCount, instanceCount: boxCount, firstIndex: 0,           baseVertex: 0,           firstInstance: 0        });
-        packTo(g.DrawIndexedIndirect, buf, stride,     { indexCount: sphIdxCount, instanceCount: sphCount, firstIndex: boxIdxCount, baseVertex: boxVertCount, firstInstance: boxCount });
+        packTo(g.DrawIndexedIndirect, buf, 0, {
+            indexCount: boxIdxCount,
+            instanceCount: boxCount,
+            firstIndex: 0,
+            baseVertex: 0,
+            firstInstance: 0,
+        });
+        packTo(g.DrawIndexedIndirect, buf, stride, {
+            indexCount: sphIdxCount,
+            instanceCount: sphCount,
+            firstIndex: boxIdxCount,
+            baseVertex: boxVertCount,
+            firstInstance: boxCount,
+        });
         indirectBuffer.needsUpdate = true;
 
         label.textContent = `boxes: ${boxCount}   spheres: ${sphCount}`;
@@ -199,13 +233,17 @@ async function main() {
     ui.appendChild(slider);
     document.body.appendChild(ui);
 
-    function frame() {
+    function update() {
         time.value = performance.now() / 1000;
-        renderPipeline.render();
-        requestAnimationFrame(frame);
+        const f = g.frame(renderer);
+        const compositePass = f.pass({ target: view });
+        compositePass.draw(composite);
+        compositePass.end();
+        f.submit();
+        requestAnimationFrame(update);
     }
 
-    requestAnimationFrame(frame);
+    requestAnimationFrame(update);
 }
 
 main();

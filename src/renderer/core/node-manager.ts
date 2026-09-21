@@ -1,5 +1,5 @@
 import type { CompileResult, CompileSlots, UpdateNode } from '../../nodes/builder';
-import { compileCompute } from '../../nodes/builder';
+import { compileComputeWgsl } from '../../nodes/builder';
 import type { MRTNode } from '../../nodes/lib/mrt';
 import { type ComputeNode, NodeKind } from '../../nodes/nodes';
 import type { BindingContext, NodeBuilderState } from './node-builder-state';
@@ -43,24 +43,8 @@ export function getNodeFrameForRender(state: NodeManagerState, renderObject: Ren
     frame.object = renderObject.mesh;
     frame.camera = renderObject.camera;
     frame.material = renderObject.material;
-    frame.scene = renderObject.scene;
     // renderer, encoder, width, height are set by the renderer before calling
     return frame;
-}
-
-/**
- * Get the NodeFrame with minimal context (for compute or non-object renders).
- */
-export function getNodeFrame(state: NodeManagerState): NodeFrame {
-    return state.nodeFrame;
-}
-
-/**
- * Get the NodeBuilderState for a RenderObject.
- * Returns null if not compiled yet.
- */
-export function getNodeBuilderState(state: NodeManagerState, renderObject: RenderObject): NodeBuilderState | null {
-    return state.nodeStates.get(renderObject) ?? null;
 }
 
 /**
@@ -108,7 +92,10 @@ export function compileNodeState(
     if (fragmentNode !== undefined && fragmentNode.kind === NodeKind.MRT) {
         const renderTarget = renderObject.renderContext.renderTarget;
         if (renderTarget !== null) {
-            (fragmentNode as MRTNode).resolveOutputs((name: string) => renderTarget.getTextureIndex(name));
+            (fragmentNode as MRTNode).resolveOutputs(
+                (name: string) => renderTarget.getTextureIndex(name),
+                renderTarget.textures.map((t) => t.name),
+            );
         }
     }
 
@@ -257,7 +244,7 @@ export function updateForCompute(state: NodeManagerState, computeNode: ComputeNo
  * @returns the compiled NodeBuilderState
  */
 function compileComputeNode(state: NodeManagerState, computeNode: ComputeNode, context: BindingContext): NodeBuilderState {
-    const compileResult = compileCompute(computeNode);
+    const compileResult = compileComputeWgsl(computeNode);
 
     // extract update nodes from the compile result
     // for compute, we use the uniform update callbacks

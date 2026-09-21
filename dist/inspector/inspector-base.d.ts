@@ -12,17 +12,16 @@
  *   detach   → inspector.setRenderer(null)
  *              (subclass releases GPU resources, removes DOM, drops listeners)
  *
- * Hook call sites in WebGPURenderer (all guarded by `if (inspector)`):
- *   render() start         → inspector.begin(frameId)
- *   render() end           → inspector.finish(frameId)
- *   _renderPassNode start  → inspector.beginRender(passId, frameId)
- *   _renderPassNode end    → inspector.finishRender(passId, frameId)
- *   _dispatchComputeNode   → inspector.beginCompute(node, frameId) / finishCompute
+ * Hook call sites, all guarded by `if (inspector)` and all at a frame-API boundary:
+ *   beginFrame             → inspector.begin(frameId)
+ *   submitFrame / discard  → inspector.finish(frameId)
+ *   encodePass             → inspector.beginRender(passId) / finishRender, one try/finally
+ *   encodeComputePass      → inspector.beginCompute(node) / finishCompute
  *   Node.inspect()         → inspector.inspect(node)
- *   renderScene() start    → inspector.beginRenderScene(passId, scene, samples, colorFormat, frameId)
+ *   drawScene()            → inspector.beginRenderScene(passId, scene, samples, colorFormat)
  *
  * Per-draw-call hooks (inside a render pass):
- *   issueDrawsForItems      → inspector.setPipeline(label)
+ *   encodeDraws             → inspector.setPipeline(label)
  *                           → inspector.setBindGroup(index, label)
  *                           → inspector.setVertexBuffer(slot)
  *                           → inspector.setIndexBuffer()
@@ -32,15 +31,16 @@
  *                           → inspector.drawIndexedIndirect()
  *
  * Per-dispatch hooks (inside a compute pass):
- *   _dispatchComputeNode    → inspector.dispatchWorkgroups(x, y, z)
+ *   encodeComputePass       → inspector.dispatchWorkgroups(x, y, z)
  */
 import type { Object3D } from '../core/object3d';
 import type { ComputeNode, InspectorNode } from '../nodes/nodes';
-import type { WebGLRenderer } from '../renderer/webgl/renderer';
-import type { WebGPURenderer } from '../renderer/webgpu/renderer';
+import type { Renderer } from '../renderer/core/renderer';
+import type { WebGLBackend } from '../renderer/webgl/webgl-backend';
+import type { WebGPUBackend } from '../renderer/webgpu/webgpu-backend';
 import type { Any } from '../schema/schema';
-/** Any renderer the inspector can attach to. Branch on `renderer.backend` for backend-specific bits. */
-export type InspectableRenderer = WebGPURenderer | WebGLRenderer;
+/** Any renderer the inspector can attach to. Branch on `renderer.api` to reach a backend's own surface. */
+export type InspectableRenderer = Renderer<WebGPUBackend> | Renderer<WebGLBackend>;
 export declare class InspectorBase {
     /** Back-reference to the renderer. Set by renderer after init(). */
     renderer: InspectableRenderer | null;
@@ -78,29 +78,29 @@ export declare class InspectorBase {
      * top-level renderer does NOT call this.
      */
     init(): void;
-    /** Called at the very start of WebGPURenderer.render(), before any work. */
+    /** Called at the very start of a frame, before any work. */
     begin(_frameId: number): void;
-    /** Called at the very end of WebGPURenderer.render(), after queue.submit(). */
+    /** Called at the very end of a frame, after its submit. */
     finish(_frameId: number): void;
-    /** Called before a PassNode scene render pass begins. */
-    beginRender(_passId: string, _frameId: number): void;
-    /** Called after a PassNode scene render pass ends. */
-    finishRender(_passId: string, _frameId: number): void;
+    /** Called before a RenderTextureNode scene render pass begins. */
+    beginRender(_passId: string): void;
+    /** Called after a RenderTextureNode scene render pass ends. */
+    finishRender(_passId: string): void;
     /**
      * Returns timestampWrites configuration for a render/compute pass, or undefined if not available.
      * Called by the renderer when creating a pass to inject GPU timing queries.
      */
     getTimestampWrites(_passId: string): GPURenderPassTimestampWrites | undefined;
     /** Called before a compute dispatch. */
-    beginCompute(_node: ComputeNode, _frameId: number): void;
+    beginCompute(_node: ComputeNode): void;
     /** Called after a compute dispatch. */
-    finishCompute(_nodeId: string, _frameId: number): void;
+    finishCompute(_nodeId: string): void;
     /**
      * Called at the start of renderScene(), before the GPU pass begins.
      * Gives the inspector a reference to the scene being rendered, along with
      * the pipeline key parameters needed to retrieve compiled WGSL later.
      */
-    beginRenderScene(_passId: string, _scene: Object3D, _samples: number, _colorFormat: string, _frameId: number): void;
+    beginRenderScene(_passId: string, _scene: Object3D, _samples: number, _colorFormat: string): void;
     /**
      * Called when a node marked with .inspect() is encountered during rendering.
      * Subclasses override this to register the node for Viewer tab preview.

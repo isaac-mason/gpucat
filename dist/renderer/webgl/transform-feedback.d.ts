@@ -26,11 +26,9 @@ import type { GpuBuffer } from '../../core/gpu-buffer';
 import { type TransformFeedbackGlslResult } from '../../nodes/builder';
 import type { TransformFeedbackNode } from '../../nodes/lib/transform-feedback';
 import type { NodeFrame } from '../core/node-frame';
-import type { ProgramInfo } from './programs';
-import type { SamplerCache } from './samplers';
-import type { TextureCache } from './textures';
-import { type BindingsState } from './bindings';
+import type { BackendState } from './backend-state';
 import * as Buffers from './buffers';
+import type { ProgramInfo } from './programs';
 /** Per-node cached compile + link. */
 type TfNodeCache = {
     compiled: TransformFeedbackGlslResult;
@@ -64,13 +62,25 @@ export type TransformFeedbackRunOptions = {
  * Execute one transform-feedback dispatch: bind the kernel's input `GpuBuffer`s as attributes, its
  * output `GpuBuffer`s as the captured-varying targets, and run the kernel under `RASTERIZER_DISCARD`.
  */
-export declare function runTransformFeedback(gl: WebGL2RenderingContext, state: TransformFeedbackState, node: TransformFeedbackNode, opts: TransformFeedbackRunOptions, precision: 'highp' | 'mediump' | 'lowp' | undefined, frame: NodeFrame, uniforms: BindingsState, textures: TextureCache, samplers: SamplerCache, buffers: Buffers.BufferCache): void;
+export declare function runTransformFeedback(gl: WebGL2RenderingContext, b: BackendState, state: TransformFeedbackState, node: TransformFeedbackNode, opts: TransformFeedbackRunOptions, precision: 'highp' | 'mediump' | 'lowp' | undefined, frame: NodeFrame): void;
 /**
  * Get the plain GL buffer backing a GpuBuffer within this transform-feedback state, if one exists.
  * Used by the test harness (and Phase 3 `readBufferAsync`) to read back a TF output buffer. Returns
  * null if the buffer was never bound. @internal
  */
 export declare function getGlBufferFor(buffers: Buffers.BufferCache, buffer: GpuBuffer): WebGLBuffer | null;
+/**
+ * Poll a fence to completion WITHOUT blocking the thread. Returns a promise that resolves once the GPU
+ * has signalled `sync`, rejecting if the wait fails or exceeds `maxPolls` event-loop ticks.
+ *
+ * The fence MUST be polled across event-loop ticks (`setTimeout(0)`), not in a synchronous busy-loop:
+ * on a single-threaded GL backend (SwiftShader/ANGLE, the test platform) the GPU commands only make
+ * progress when the loop turns, so a tight `clientWaitSync(sync, 0, 0)` spin on one tick hits
+ * `TIMEOUT_EXPIRED` forever and never signals. The first poll passes `SYNC_FLUSH_COMMANDS_BIT` to
+ * guarantee the flush; subsequent polls yield a tick, then re-poll. This mirrors the Phase-0.5 probe
+ * (`tst/tf-probe/run.mjs`), whose whole point was proving this async shape is the one that works.
+ */
+export declare function clientWaitAsync(gl: WebGL2RenderingContext, sync: WebGLSync, label?: string, maxPolls?: number): Promise<void>;
 /**
  * Honest native CPU readback of a GpuBuffer's current GL buffer (e.g. a transform-feedback output).
  *

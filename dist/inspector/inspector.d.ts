@@ -13,8 +13,8 @@ export type { ComputeEntry, FrameRecord, MarkerEntry, PassRecord, RenderEntry, S
 import type { ComputeNode, InspectorNode } from '../nodes/nodes';
 import type { RenderObject } from '../renderer/core/render-object';
 import type { Any } from '../schema/schema';
-import type { InspectableRenderer } from './inspector-base';
 import type { GUI } from './gui/GUI';
+import type { InspectableRenderer } from './inspector-base';
 import type { ProbeTarget } from './probe-wgsl';
 import { ComputeCalls } from './tabs/compute-calls';
 import { Console } from './tabs/console';
@@ -29,17 +29,29 @@ import { Timeline } from './tabs/timeline';
 import { type CanvasData, Viewer } from './tabs/viewer';
 import { Profiler } from './ui/profiler';
 export declare class Inspector extends RendererInspector {
+    /** @internal */
     readonly profiler: Profiler;
+    /** @internal */
     readonly performance: Performance;
+    /** @internal */
     readonly performanceTimeline: PerformanceTimeline;
+    /** @internal */
     readonly memory: Memory;
+    /** @internal */
     readonly console: Console;
+    /** @internal */
     readonly parameters: Parameters;
+    /** @internal */
     readonly viewer: Viewer;
+    /** @internal */
     readonly timeline: Timeline;
+    /** @internal */
     readonly settings: Settings;
+    /** @internal */
     readonly sceneHierarchy: SceneHierarchy;
+    /** @internal */
     readonly drawCalls: DrawCalls;
+    /** @internal */
     readonly computeCalls: ComputeCalls;
     private _displayCycle;
     private _lastUpdateTime;
@@ -60,6 +72,7 @@ export declare class Inspector extends RendererInspector {
         warn: (msg: string) => void;
         error: (msg: string) => void;
     };
+    /** @internal */
     setRenderer(renderer: InspectableRenderer | null): void;
     /**
      * Release everything this Inspector owns: GPU resources (probe + timestamp
@@ -72,10 +85,10 @@ export declare class Inspector extends RendererInspector {
      */
     dispose(): Promise<void>;
     begin(frameId: number): void;
-    beginRender(passId: string, frameId: number): void;
-    finishRender(passId: string, frameId: number): void;
-    beginCompute(node: ComputeNode, frameId: number): void;
-    finishCompute(nodeId: string, frameId: number): void;
+    beginRender(passId: string): void;
+    finishRender(passId: string): void;
+    beginCompute(node: ComputeNode): void;
+    finishCompute(nodeId: string): void;
     setPipeline(label: string): void;
     setBindGroup(index: number, label: string): void;
     setVertexBuffer(slot: number): void;
@@ -87,6 +100,7 @@ export declare class Inspector extends RendererInspector {
     dispatchWorkgroups(x: number, y: number, z: number): void;
     dispatchWorkgroupsIndirect(_buffer: GPUBuffer, offset: number): void;
     finish(frameId: number): void;
+    /** @internal */
     createParameters(name: string): GUI;
     /**
      * Set the active probe to the given variable expression in the given mesh's
@@ -97,27 +111,31 @@ export declare class Inspector extends RendererInspector {
      * Returns the probe canvas element so the caller can display it, or null
      * if patching / pipeline creation fails.
      */
+    /** @internal */
     setProbe(target: ProbeTarget, sourceRO: RenderObject): HTMLElement | null;
     /**
      * WebGL probe: patch the fragment GLSL to output the probed value, build a small popover element
-     * (color swatch + numeric readback), and wire it to read back each frame via renderer.renderProbe.
+     * (color swatch + numeric readback), and wire it to read back each frame via renderer.backend.renderProbe.
      * Returns the element, or null if patching fails. Never touches `device`.
      */
     private _setGlProbe;
     /** Remove the active probe (WebGPU and WebGL). Returns a promise that resolves
      *  once the WebGPU probe's GPU resources are actually destroyed (drained first). */
     clearProbe(): Promise<void>;
+    /** @internal */
     navigateToRO(ro: RenderObject): void;
     private _processFrame;
     /**
      * Build canvasData for each inspectable node and call viewer.update().
      */
+    /** @internal */
     resolveViewer(nodes: InspectorNode<Any>[]): void;
     /**
      * Get or create the CanvasData for an inspectable node.
      * Creates a 140×140 CanvasTarget, wraps the node as vec4(vec3(node), 1),
      * and builds a fullscreen Material. Cached per node, never recreated.
      */
+    /** @internal */
     getCanvasDataByNode(node: InspectorNode<Any>): CanvasData;
     private _tickCycle;
     /**
@@ -129,7 +147,7 @@ export declare class Inspector extends RendererInspector {
     private _renderProbe;
     /**
      * WebGL probe readback: re-render the probed mesh with the patched fragment into a 1×1 FBO via
-     * renderer.renderProbe, then decode the pixel per the coerced type and update the swatch + text.
+     * renderer.backend.renderProbe, then decode the pixel per the coerced type and update the swatch + text.
      * Runs each frame while a WebGL probe is active. Never touches `device`.
      */
     private _renderGlProbe;

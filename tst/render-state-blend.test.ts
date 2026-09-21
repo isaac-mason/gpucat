@@ -1,13 +1,17 @@
 /* The backend-neutral blend policy: the transparent default, and MRT target precedence. */
 
 import { describe, expect, test } from 'vitest';
+import { attribute, f32, vec4 } from '../src/index';
 import { BlendMode } from '../src/material/blend-mode';
 import { Material } from '../src/material/material';
 import { MRTNode } from '../src/nodes/lib/mrt';
 import { blendModeState, defaultBlendState, materialBlendState, resolveTargetBlend } from '../src/renderer/core/render-state';
+import * as d from '../src/schema/schema';
 
-const opaque = () => new Material({});
-const translucent = () => new Material({ transparent: true });
+const graph = () => ({ vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment: vec4(1, 1, 1, 1) });
+
+const opaque = () => new Material(graph());
+const translucent = () => new Material({ ...graph(), transparent: true });
 
 /** An MRT with one named target per entry, each carrying the given blend mode. */
 function mrtWith(modes: Record<string, BlendMode>): MRTNode {
@@ -32,7 +36,7 @@ describe('material blend', () => {
             color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
             alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
         };
-        expect(materialBlendState(new Material({ transparent: true, blend }))).toBe(blend);
+        expect(materialBlendState(new Material({ ...graph(), transparent: true, blend }))).toBe(blend);
     });
 
     test('an explicit blend on an opaque material is inert', () => {
@@ -40,7 +44,7 @@ describe('material blend', () => {
             color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
             alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
         };
-        expect(materialBlendState(new Material({ blend }))).toBeUndefined();
+        expect(materialBlendState(new Material({ ...graph(), blend }))).toBeUndefined();
     });
 });
 
