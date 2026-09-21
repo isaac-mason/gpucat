@@ -77,13 +77,3 @@ export function peekRenderObjectGpu(cache: RenderObjectGpuCache, renderObject: R
     return cache.data.get(renderObject);
 }
 
-/**
- * Reset the device payload for a RenderObject (clears pipeline/bindGroups/buffers).
- * Used on disposal / invalidation.
- */
-export function clearRenderObjectGpu(cache: RenderObjectGpuCache, renderObject: RenderObject): void {
-    const gpu = cache.data.get(renderObject);
-    if (!gpu) return;
-    gpu.pipeline = null;
-    gpu.bindGroups = null;
-}

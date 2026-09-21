@@ -95,15 +95,6 @@ export function getRenderObject(
     return renderObject;
 }
 
-/** Dispose all RenderObjects for a specific mesh. */
-export function disposeRenderObjectsForMesh(state: RenderObjectsState, mesh: Mesh): void {
-    for (const renderObject of state.renderObjects) {
-        if (renderObject.mesh === mesh) {
-            disposeRenderObject(renderObject);
-        }
-    }
-}
-
 /** Dispose all RenderObjects for a specific material. */
 export function disposeRenderObjectsForMaterial(state: RenderObjectsState, material: Material): void {
     for (const renderObject of state.renderObjects) {
@@ -111,15 +102,6 @@ export function disposeRenderObjectsForMaterial(state: RenderObjectsState, mater
             disposeRenderObject(renderObject);
         }
     }
-}
-
-/** Dispose all RenderObjects. */
-export function disposeAllRenderObjects(state: RenderObjectsState): void {
-    for (const renderObject of state.renderObjects) {
-        disposeRenderObject(renderObject);
-    }
-    state.renderObjects.clear();
-    state.cache = new WeakMap();
 }
 
 /** Get statistics about RenderObjects. */

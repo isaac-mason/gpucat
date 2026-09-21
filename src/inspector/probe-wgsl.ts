@@ -95,11 +95,6 @@ export function extractProbeTarget(line: string): ProbeTarget | null {
     return null;
 }
 
-/** Backwards-compat shim used by shader-panel hover logic. */
-export function extractProbeVar(line: string): string | null {
-    return extractProbeTarget(line)?.expr ?? null;
-}
-
 // Type environment, struct field maps parsed from WGSL preamble
 
 /**

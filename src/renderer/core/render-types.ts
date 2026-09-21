@@ -6,14 +6,6 @@ import type { RenderObject } from './render-object';
 import type { View } from './view';
 
 /**
- * An opaque texture/attachment handle. Neutral core code may hold and pass these around but never
- * inspects them — the concrete type (a `GPUTexture` for WebGPU, a WebGLTexture-ish handle for a
- * future WebGL2 backend) lives entirely inside the renderer. Kept as `unknown` so no device type
- * name leaks into `render/core`.
- */
-export type BackendTexture = unknown;
-
-/**
  * A render object that survived preparation (compiled + pipeline built), paired with the render list
  * item that produced it. The draw loop consumes these in order. Neutral: it only
  * references the language-agnostic `RenderObject`/`RenderItem`; the device payload lives in a
