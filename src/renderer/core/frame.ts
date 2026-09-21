@@ -124,10 +124,11 @@ export type FrameBackend = {
 /** A recording render pass. `end()` prepares its draws, opens the GPU pass, encodes and closes it. */
 export type Pass = {
     readonly kind: 'render';
+    /** The desc this pass was opened with; rewritten when its pool slot is reused. */
     desc: PassDesc;
-    records: PassEntry[];
-    count: number;
-    ended: boolean;
+    /** @internal */ records: PassEntry[];
+    /** @internal */ count: number;
+    /** @internal */ ended: boolean;
     /** Draws unconditionally: `mesh.visible` gates the scene walk, not a draw you recorded yourself. */
     draw(mesh: Mesh, opts?: DrawOptions): void;
     /** Replays a bundle here, keeping its order against the draws around it. */
@@ -140,10 +141,11 @@ export type Pass = {
 /** A recording compute pass. The batch shares one GPU pass unless an inspector wants per-node timings. */
 export type ComputePass = {
     readonly kind: 'compute';
+    /** The desc this pass was opened with; rewritten when its pool slot is reused. */
     desc: ComputePassDesc;
-    records: DispatchRecord[];
-    count: number;
-    ended: boolean;
+    /** @internal */ records: DispatchRecord[];
+    /** @internal */ count: number;
+    /** @internal */ ended: boolean;
     dispatch(node: ComputeNode, counts: [number, number, number], opts?: DispatchOptions): void;
     /** `indirect` needs `'indirect'` usage, and is typically written by an earlier compute pass. */
     dispatchIndirect(node: ComputeNode, indirect: GpuBuffer<Any>, opts?: DispatchIndirectOptions): void;
@@ -168,10 +170,11 @@ export type TransformFeedbackRecord = TransformFeedbackDispatch & { node: Transf
  */
 export type TransformFeedbackPass = {
     readonly kind: 'transform-feedback';
+    /** The desc this pass was opened with; rewritten when its pool slot is reused. */
     desc: TransformFeedbackPassDesc;
-    records: TransformFeedbackRecord[];
-    count: number;
-    ended: boolean;
+    /** @internal */ records: TransformFeedbackRecord[];
+    /** @internal */ count: number;
+    /** @internal */ ended: boolean;
     dispatch(node: TransformFeedbackNode, opts: TransformFeedbackDispatch): void;
     end(): void;
 };
@@ -180,22 +183,22 @@ export type AnyPass = Pass | ComputePass | TransformFeedbackPass;
 
 /** Holds both pass pools for the life of the renderer, so a steady-state frame allocates nothing. */
 export type Frame = {
-    backend: FrameBackend;
-    /** Set by `frame(renderer)`; `pass.scene()` needs it for the per-(scene, camera) render-list cache. */
+    /** @internal */ backend: FrameBackend;
+    /** Set by `frame(renderer)`; `pass.scene()` needs it for the per-(scene, camera) render-list cache. @internal */
     renderer: Renderer | null;
-    pool: Pass[];
-    poolIndex: number;
-    computePool: ComputePass[];
-    computePoolIndex: number;
-    transformFeedbackPool: TransformFeedbackPass[];
-    transformFeedbackPoolIndex: number;
-    open: AnyPass | null;
-    closed: boolean;
-    /** Render targets this frame encoded into, so `submit` can see one disposed since. */
+    /** @internal */ pool: Pass[];
+    /** @internal */ poolIndex: number;
+    /** @internal */ computePool: ComputePass[];
+    /** @internal */ computePoolIndex: number;
+    /** @internal */ transformFeedbackPool: TransformFeedbackPass[];
+    /** @internal */ transformFeedbackPoolIndex: number;
+    /** @internal */ open: AnyPass | null;
+    /** @internal */ closed: boolean;
+    /** Render targets this frame encoded into, so `submit` can see one disposed since. @internal */
     targets: RenderTarget[];
-    /** True once this frame object has carried a submitted frame, so a reopen can be told from a first use. */
+    /** True once this frame object has carried a submitted frame, so a reopen can be told from a first use. @internal */
     everSubmitted: boolean;
-    /** Memoised by the `done` getter, so asking twice waits once and never asking waits not at all. */
+    /** Memoised by the `done` getter, so asking twice waits once and never asking waits not at all. @internal */
     completion: Promise<void> | null;
     pass(desc: PassDesc): Pass;
     compute(desc?: ComputePassDesc): ComputePass;
