@@ -56,7 +56,7 @@ const world = mul(modelWorldMatrix, vec4(position, f32(1)));  // node math
 const clip = mul(cameraProjectionMatrix, mul(cameraViewMatrix, world));
 ```
 
-When you hand a nodes to a `Material` (or call `compile()`), gpucat walks the graph and emits WGSL.
+When you hand a nodes to a `Material` (or call `compileWgsl()`), gpucat walks the graph and emits WGSL.
 
 ### Types: the `d` namespace
 
@@ -587,16 +587,17 @@ A `CubeRenderTarget` is a render target whose color attachment is a cube texture
 const cubeRT = new CubeRenderTarget(256);
 const cubeCamera = new CubeCamera(0.1, 100, cubeRT);
 
-// each frame, with the reflective object hidden so it does not reflect itself:
+// on your frame, with the reflective object hidden so it does not reflect itself:
+const f = frame(renderer);
 reflector.visible = false;
-cubeCamera.update(renderer, scene);   // renders the 6 faces into cubeRT
+cubeCamera.update(f, scene);   // records the 6 faces into cubeRT
 reflector.visible = true;
 
 // in the reflector's material, sample the cube along the reflection vector:
 const env = cubeTexture(cubeRT.texture).sample(reflectDir);
 ```
 
-Like everything else, this does no automatic per-frame work: you call `update()` when you want to refresh the map. See [`CubeRenderTarget`](./api.md#cuberendertarget) and [`CubeCamera`](./api.md#cubecamera).
+Like everything else, this does no automatic per-frame work: you call `update()` when you want to refresh the map, and it records onto the frame you hand it, so the cube and whatever samples it reach the device in one submit. See [`CubeRenderTarget`](./api.md#cuberendertarget) and [`CubeCamera`](./api.md#cubecamera).
 
 <ExamplesTable ids="example-webgpu-cube-camera" />
 
@@ -1049,7 +1050,7 @@ See [`OrbitControls`](./api.md#orbitcontrols) and [`Inspector`](./api.md#inspect
 
 ## Compiling to WGSL
 
-A node graph is compiled to a WGSL string by `compile()` (for a material's vertex/fragment slots) or `compileCompute()` (for a compute kernel). You rarely call these directly, `Material` and `compute` dispatch do it for you, but they are the seam if you want to inspect the generated shader.
+A node graph is compiled to a WGSL string by `compileWgsl()` (for a material's vertex/fragment slots) or `compileComputeWgsl()` (for a compute kernel). You rarely call these directly, `Material` and `compute` dispatch do it for you, but they are the seam if you want to inspect the generated shader.
 
 The point of the node graph is that it produces readable WGSL. For example, this material fragment:
 

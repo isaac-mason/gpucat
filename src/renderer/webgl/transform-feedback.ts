@@ -28,13 +28,13 @@ import { compileTransformFeedback, type TransformFeedbackGlslResult } from '../.
 import type { TransformFeedbackNode } from '../../nodes/lib/transform-feedback';
 import { typedArrayCtorOf } from '../../schema/schema';
 import type { NodeFrame } from '../core/node-frame';
-import type { BackendState } from './backend-state';
 import { updateAndBindStandaloneUniformGroup } from './bindings';
 import * as Buffers from './buffers';
 import { attribFormat, glComponentType } from './geometries';
 import type { ProgramInfo } from './programs';
 import { createTransformFeedbackProgram } from './programs';
 import { bindStandaloneTextures } from './texture-bindings';
+import type { WebGLBackend } from './webgl-backend';
 
 /** Per-node cached compile + link. */
 type TfNodeCache = {
@@ -162,14 +162,14 @@ function getNodeCache(
  */
 export function runTransformFeedback(
     gl: WebGL2RenderingContext,
-    b: BackendState,
+    b: WebGLBackend,
     state: TransformFeedbackState,
     node: TransformFeedbackNode,
     opts: TransformFeedbackRunOptions,
     precision: 'highp' | 'mediump' | 'lowp' | undefined,
     frame: NodeFrame,
 ): void {
-    const { uniforms, textures, samplers, buffers } = b;
+    const { buffers } = b;
     const { inputs, outputs, count, instanceCount } = opts;
 
     // Alias guard: a buffer used as an output can't also be an input (a TF-bound buffer must not be
@@ -212,13 +212,13 @@ export function runTransformFeedback(
         if (group.members.length === 0) continue;
         const bindingPoint = programInfo.uboBindingPoints.get(group.groupName);
         if (bindingPoint === undefined) continue;
-        updateAndBindStandaloneUniformGroup(gl, uniforms, buffers, group, frame, bindingPoint);
+        updateAndBindStandaloneUniformGroup(gl, b, group, frame, bindingPoint);
     }
 
     // Bind any DataTextures the kernel samples via textureLoad() (explicit neighbour gather — the user
     // binds the DataTexture on the texture node; no hidden mirror). Runs in the vertex stage under TF.
     if (compiled.textures.length > 0) {
-        bindStandaloneTextures(gl, textures, samplers, compiled.textures, compiled.samplers, programInfo);
+        bindStandaloneTextures(gl, b, compiled.textures, compiled.samplers, programInfo);
     }
 
     // Bind inputs as vertex attributes into the node's VAO (rebuilt each dispatch: the caller may

@@ -7,6 +7,8 @@ export type ReadOptions = {
     attachment?: number;
     /** Array layer, or cube face: 0..5 = +X, -X, +Y, -Y, +Z, -Z. */
     layer?: number;
+    /** Mip level to read; only a cube target has any but the base. */
+    mipLevel?: number;
 };
 
 /**
@@ -18,5 +20,5 @@ export function read(renderer: Renderer, target: RenderTarget, opts: ReadOptions
     if (isFrameOpen(renderer._frameState)) {
         return Promise.reject(new Error('[read] reading while a frame is open gives stale pixels; submit() first.'));
     }
-    return renderer.backend.readPixels(target, opts.attachment ?? 0, opts.layer ?? 0);
+    return renderer.backend.readPixels(target, opts.attachment ?? 0, opts.layer ?? 0, opts.mipLevel ?? 0);
 }

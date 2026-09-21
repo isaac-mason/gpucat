@@ -8,9 +8,9 @@
  */
 
 import { layoutAlignOf, layoutSizeOf } from '../../../schema/pack';
-import { assertUniformLayoutConformant } from '../../../schema/validate-layout';
 import type { StructSchema } from '../../../schema/schema';
 import * as d from '../../../schema/schema';
+import { assertUniformLayoutConformant } from '../../../schema/validate-layout';
 import type {
     AttributeEntry,
     CompileSlots,
@@ -403,11 +403,7 @@ function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
         // after it). Declaring it at first use would leave it out of scope for the later use, so if it's
         // stable at body top, splice it there. Only immutable (`let`) values built from function-scope
         // inputs qualify; anything touching a loop var or a block-local `let`/`var` stays at first use.
-        if (
-            ctx.hoistIndex >= 0 &&
-            keyword === 'let' &&
-            isHoistStable(node, ctx.topScopeParamIds, ctx.hoistStableMemo)
-        ) {
+        if (ctx.hoistIndex >= 0 && keyword === 'let' && isHoistStable(node, ctx.topScopeParamIds, ctx.hoistStableMemo)) {
             ctx.code.splice(ctx.hoistIndex, 0, line);
             ctx.hoistIndex++;
         } else {

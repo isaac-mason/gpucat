@@ -17,8 +17,9 @@ import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
 import type { ResolvedStorageBufferTexture, StorageBufferTextureSource } from '../../nodes/lib/texture';
 import { getBindings, type RenderObject } from '../core/render-object';
 import type { ProgramInfo } from './programs';
-import { type SamplerCache, getSampler } from './samplers';
-import { type TextureCache, getTextureData, isIntegerTextureFormat, updateStorageBufferTexture, updateTexture } from './textures';
+import { getSampler } from './samplers';
+import { getTextureData, isIntegerTextureFormat, type TextureCache, updateStorageBufferTexture, updateTexture } from './textures';
+import type { WebGLBackend } from './webgl-backend';
 
 /** The combined-sampler uniform name for a texture id (mirrors the GLSL emitter's `samplerUniformName`). */
 function samplerUniformName(textureId: string): string {
@@ -153,22 +154,21 @@ function resolveStorageSource(
 
 export function bindTextures(
     gl: WebGL2RenderingContext,
-    textures: TextureCache,
-    samplers: SamplerCache,
+    b: WebGLBackend,
     renderObject: RenderObject,
     programInfo: ProgramInfo,
 ): void {
     const bindGroups = getBindings(renderObject);
 
-    // First pass: collect the GpuSampler assigned to each texture unit (samplers share the unit of
+    // First pass: collect the GpuSampler assigned to each texture unit (b.samplers share the unit of
     // their paired texture, per the combined-sampler model).
-    // We look them up per-unit as we bind textures below.
+    // We look them up per-unit as we bind b.textures below.
     for (const bindGroup of bindGroups) {
         for (const binding of bindGroup.bindings) {
             if (binding.kind === 'storageTexture') {
-                // Storage textures (texture_storage_*, written via textureStore in a compute pass) are
+                // Storage b.textures (texture_storage_*, written via textureStore in a compute pass) are
                 // a WebGPU-only capability; WebGL2 core has no image load/store.
-                throw new Error('[webgl] storage textures are not supported on the WebGL2 backend.');
+                throw new Error('[webgl] storage b.textures are not supported on the WebGL2 backend.');
             }
             if (binding.kind !== 'texture') continue;
 
@@ -179,13 +179,13 @@ export function bindTextures(
             // a 0-based index across every texture + storage-buffer a material samples; once it reaches
             // MAX_COMBINED_TEXTURE_IMAGE_UNITS, `activeTexture(TEXTURE0 + unit)` addresses a non-existent
             // unit and the draw samples garbage. Turn that silent corruption into a clear, actionable error.
-            if (textures.maxTextureUnits == null) {
-                textures.maxTextureUnits = gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS) as number;
+            if (b.textures.maxTextureUnits == null) {
+                b.textures.maxTextureUnits = gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS) as number;
             }
-            if (unit >= textures.maxTextureUnits) {
+            if (unit >= b.textures.maxTextureUnits) {
                 throw new Error(
-                    `[webgl] a material samples more textures + storage buffers than this device's ` +
-                        `MAX_COMBINED_TEXTURE_IMAGE_UNITS=${textures.maxTextureUnits} (needs unit ${unit}); ` +
+                    `[webgl] a material samples more b.textures + storage buffers than this device's ` +
+                        `MAX_COMBINED_TEXTURE_IMAGE_UNITS=${b.textures.maxTextureUnits} (needs unit ${unit}); ` +
                         `reduce the number sampled by one material on the WebGL2 backend.`,
                 );
             }
@@ -205,8 +205,8 @@ export function bindTextures(
             if (storageSource) {
                 // Name-based sources (`storage('slot','read')` + `geometry.setBuffer('slot',…)`) resolve
                 // their buffer from THIS render object's geometry now; value-based already carry it.
-                const resolved = resolveStorageSource(gl, textures, renderObject, storageSource);
-                const glTexture = updateStorageBufferTexture(gl, textures, resolved);
+                const resolved = resolveStorageSource(gl, b.textures, renderObject, storageSource);
+                const glTexture = updateStorageBufferTexture(gl, b.textures, resolved);
                 gl.activeTexture(gl.TEXTURE0 + unit); // updateStorageBufferTexture may have left another unit active
                 gl.bindTexture(gl.TEXTURE_2D, glTexture);
                 gl.bindSampler(unit, null);
@@ -218,13 +218,13 @@ export function bindTextures(
             const gpuTexture = entry.node.value;
             if (!gpuTexture) continue;
 
-            // Upload / allocate the GL texture (version-gated). Render-target textures are allocated
+            // Upload / allocate the GL texture (version-gated). Render-target b.textures are allocated
             // by the FBO path; if never seen, updateTexture allocates them here as a safe fallback.
-            let texData = getTextureData(textures, gpuTexture);
+            let texData = getTextureData(b.textures, gpuTexture);
             if (!gpuTexture.isRenderTargetTexture) {
-                texData = updateTexture(gl, textures, gpuTexture);
+                texData = updateTexture(gl, b.textures, gpuTexture);
             } else if (!texData) {
-                texData = updateTexture(gl, textures, gpuTexture);
+                texData = updateTexture(gl, b.textures, gpuTexture);
             }
             if (!texData) continue;
 
@@ -239,7 +239,7 @@ export function bindTextures(
             assertIntegerNotFiltered(gpuTexture.format, gpuSampler);
             if (gpuSampler) {
                 const hasMips = gpuTexture.generateMipmaps;
-                const glSampler = getSampler(gl, samplers, gpuSampler, hasMips);
+                const glSampler = getSampler(gl, b.samplers, gpuSampler, hasMips);
                 gl.bindSampler(unit, glSampler);
             } else {
                 // No paired sampler (bare texture handle): clear any stale sampler on the unit so the
@@ -272,8 +272,7 @@ export function bindTextures(
  */
 export function bindStandaloneTextures(
     gl: WebGL2RenderingContext,
-    textures: TextureCache,
-    samplers: SamplerCache,
+    b: WebGLBackend,
     textureEntries: readonly TextureEntry[],
     samplerEntries: readonly SamplerEntry[],
     programInfo: ProgramInfo,
@@ -288,11 +287,11 @@ export function bindStandaloneTextures(
             );
         }
 
-        let texData = getTextureData(textures, gpuTexture);
+        let texData = getTextureData(b.textures, gpuTexture);
         if (!gpuTexture.isRenderTargetTexture) {
-            texData = updateTexture(gl, textures, gpuTexture);
+            texData = updateTexture(gl, b.textures, gpuTexture);
         } else if (!texData) {
-            texData = updateTexture(gl, textures, gpuTexture);
+            texData = updateTexture(gl, b.textures, gpuTexture);
         }
         if (!texData) continue;
 
@@ -304,7 +303,7 @@ export function bindStandaloneTextures(
         assertIntegerNotFiltered(gpuTexture.format, gpuSampler);
         if (gpuSampler) {
             const hasMips = gpuTexture.generateMipmaps;
-            const glSampler = getSampler(gl, samplers, gpuSampler, hasMips);
+            const glSampler = getSampler(gl, b.samplers, gpuSampler, hasMips);
             gl.bindSampler(unit, glSampler);
         } else {
             gl.bindSampler(unit, null);

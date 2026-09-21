@@ -24,53 +24,53 @@ import type { RenderContext } from '../core/pass-context';
 import { getBindings, pipelineLabel } from '../core/render-object';
 import * as RenderState from '../core/render-state';
 import type { PreparedRenderObject, RenderPassParams } from '../core/render-types';
-import type { BackendState } from './backend-state';
 import * as Bindings from './bindings';
 import * as Geometries from './geometries';
 import { getRenderObjectGl } from './render-object-gl';
 import { bindRenderTargetFramebuffer, resolveActiveRenderTarget } from './render-target';
 import { applyMaterialState, createGlStateCache, establishPassBaseline } from './state';
 import { bindTextures } from './texture-bindings';
+import type { WebGLBackend } from './webgl-backend';
 
 /**
  * Bind the target framebuffer for a pass: the render target's FBO (allocating + attaching its color
  * textures + depth) when `params.renderTarget` is set, else the default framebuffer (`null`).
  * Returns whether the bound target carries a stencil aspect (drives stencil clears).
  */
-function bindFramebuffer(gl: WebGL2RenderingContext, caches: BackendState, params: RenderPassParams): { hasStencil: boolean } {
+function bindFramebuffer(gl: WebGL2RenderingContext, caches: WebGLBackend, params: RenderPassParams): { hasStencil: boolean } {
     if (params.renderTarget) {
-        return bindRenderTargetFramebuffer(gl, caches.renderTargets, caches.textures, params.renderTarget);
+        return bindRenderTargetFramebuffer(gl, caches, params.renderTarget, params.layer, params.mipLevel);
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     return { hasStencil: params.swapchainStencil };
 }
 
-/** Apply the pass context's resolved (physical-pixel) viewport + scissor to GL state. */
-function applyViewportScissor(gl: WebGL2RenderingContext, passCtx: RenderContext): void {
-    if (passCtx.viewport) {
-        const v = passCtx.viewportValue;
+/** Apply the pass's resolved (physical-pixel) viewport + scissor to GL state. */
+function applyViewportScissor(gl: WebGL2RenderingContext, params: RenderPassParams): void {
+    if (params.viewport) {
+        const v = params.viewportValue;
         // WebGPU's viewport origin is top-left; GL's is bottom-left. Flip Y against the framebuffer height
         // so a top-left rect (e.g. the studio grid's per-card cells, sourced from DOM coordinates) lands in
         // the right place. A full-framebuffer viewport is unchanged by the flip.
-        gl.viewport(v.x, passCtx.height - v.y - v.height, v.width, v.height);
+        gl.viewport(v.x, params.height - v.y - v.height, v.width, v.height);
         // Honor the viewport's depth range (defaults 0,1). Threaded through per pass so a prior pass's
         // custom range never leaks into this one.
         gl.depthRange(v.minDepth, v.maxDepth);
     } else {
-        // No explicit viewport for this pass → cover the full framebuffer at its own size. `passCtx.width`
+        // No explicit viewport for this pass → cover the full framebuffer at its own size. `params.width`
         // / `.height` are the physical framebuffer dimensions (the render target's size, or the canvas
         // drawing buffer). Setting this every pass (rather than relying on the last gl.viewport) is what
         // lets a render target larger than the canvas draw correctly — e.g. a headless 1x1 OffscreenCanvas
         // rendering into a full-size target. Also restore the default full depth range so a preceding
         // pass's custom depthRange doesn't persist as stale state.
-        gl.viewport(0, 0, passCtx.width, passCtx.height);
+        gl.viewport(0, 0, params.width, params.height);
         gl.depthRange(0, 1);
     }
-    if (passCtx.scissor) {
-        const s = passCtx.scissorValue;
+    if (params.scissor) {
+        const s = params.scissorValue;
         gl.enable(gl.SCISSOR_TEST);
         // Same top-left to bottom-left Y flip as the viewport above.
-        gl.scissor(s.x, passCtx.height - s.y - s.height, s.width, s.height);
+        gl.scissor(s.x, params.height - s.y - s.height, s.width, s.height);
     } else {
         gl.disable(gl.SCISSOR_TEST);
     }
@@ -179,38 +179,40 @@ function planPassBlend(passCtx: RenderContext): PassBlend {
 
 /**
  * Run the whole render pass immediately: bind the framebuffer, apply viewport/scissor, clear on
- * autoClear, then draw the prepared objects.
+ * clearsColor, then draw the prepared objects.
  */
 export type PassScope = { passBlend: PassBlend };
 
-export function beginPass(
-    gl: WebGL2RenderingContext,
-    caches: BackendState,
-    passCtx: RenderContext,
-    params: RenderPassParams,
-): PassScope {
+export function beginPass(caches: WebGLBackend, passCtx: RenderContext, params: RenderPassParams): PassScope {
+    const gl = caches.gl!;
     const passBlend = planPassBlend(passCtx);
     const { hasStencil: targetStencil } = bindFramebuffer(gl, caches, params);
-    applyViewportScissor(gl, passCtx);
 
-    if (params.autoClear || params.autoClearDepth || params.autoClearStencil) {
-        clearBuffers(gl, params, params.autoClear, params.autoClearDepth, params.autoClearStencil, targetStencil);
+    // Before the scissor, not after: `gl.clear` obeys the scissor box and WebGPU's `loadOp` does not,
+    // so clearing under it would make one `clear` mean two different regions on the two backends.
+    if (params.clearsColor || params.clearsDepth || params.clearsStencil) {
+        gl.disable(gl.SCISSOR_TEST);
+        clearBuffers(gl, params, params.clearsColor, params.clearsDepth, params.clearsStencil, targetStencil);
     }
+
+    applyViewportScissor(gl, params);
 
     return { passBlend };
 }
 
 /** Unbinds the VAO so later buffer mutations cannot record into it, then resolves an MSAA target. */
-export function endPass(gl: WebGL2RenderingContext, caches: BackendState): void {
+export function endPass(caches: WebGLBackend): void {
+    const gl = caches.gl!;
     gl.bindVertexArray(null);
     resolveActiveRenderTarget(gl, caches.renderTargets);
 }
 
 export function encodeDraws(
     gl: WebGL2RenderingContext,
-    caches: BackendState,
+    caches: WebGLBackend,
     nodes: NodeManagerState,
     passCtx: RenderContext,
+    params: RenderPassParams,
     prepared: readonly PreparedRenderObject[],
     preparedOpts: readonly (DrawOptions | null)[],
     count: number,
@@ -248,7 +250,9 @@ export function encodeDraws(
 
         const payload = getRenderObjectGl(caches.renderObjectGl, renderObject);
         const programInfo = payload.program;
-        if (!programInfo) continue;
+        if (!programInfo) {
+            throw new Error(`[webgl] '${mesh.name || 'mesh'}' reached the draw loop with no linked program.`);
+        }
 
         // Program (deduped). Inspector: a program switch is the WebGL analogue of a pipeline switch.
         if (currentProgram !== programInfo.program) {
@@ -258,7 +262,7 @@ export function encodeDraws(
             // framebuffer height so they match WebGPU's top-left origin. Constant per pass; set on
             // each program bind. null location = program doesn't use the builtin.
             if (programInfo.fragCoordFlipHeightLocation != null) {
-                gl.uniform1f(programInfo.fragCoordFlipHeightLocation, passCtx.height);
+                gl.uniform1f(programInfo.fragCoordFlipHeightLocation, params.height);
             }
             if (inspector) inspector.setPipeline(pipelineLabel(mesh, material));
         }
@@ -272,22 +276,21 @@ export function encodeDraws(
                 if (binding.kind !== 'uniform') continue;
                 const bindingPoint = programInfo.uboBindingPoints.get(binding.block.groupName);
                 if (bindingPoint === undefined) continue; // block optimized out / unused
-                Bindings.updateAndBindUniformGroup(gl, caches.uniforms, caches.buffers, binding, frame, bindingPoint, material);
+                Bindings.updateAndBindUniformGroup(gl, caches, binding, frame, bindingPoint, material);
             }
             if (inspector) inspector.setBindGroup(bindGroupIndex, mesh.name || '');
             bindGroupIndex++;
         }
 
         // Texture + sampler bindings → GL texture units + combined-sampler uniforms.
-        bindTextures(gl, caches.textures, caches.samplers, renderObject, programInfo);
+        bindTextures(gl, caches, renderObject, programInfo);
 
         // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
         // `prepareGeometry` detaches the VAO to upload buffers safely (see its note), so the GL VAO
         // is unbound on return — always rebind the resolved one here rather than deduping the GL call.
         const drawInfo = Geometries.prepareGeometry(
             gl,
-            caches.geometries,
-            caches.buffers,
+            caches,
             geometry,
             nodeState,
             programInfo.program,

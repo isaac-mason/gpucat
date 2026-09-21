@@ -159,7 +159,7 @@ mesh.count = N;
 scene.add(mesh);
 
 // Pre-warm the compute pipeline before the frame loop.
-await compileCompute(renderer, updateParticles);
+await compileCompute(renderer, [updateParticles]);
 
 const scenePass = renderTexture(scene, camera);
 const outputNode = renderOutput(scenePass.getTextureNode());

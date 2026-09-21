@@ -1320,3 +1320,8 @@ export class TransformControls {
         this._plane.cameraQuaternion = this.cameraQuaternion;
     }
 }
+
+/** The factory form, matching `createOrbitControls` and `createFlyControls`. */
+export function createTransformControls(camera: Camera, domElement?: HTMLElement): TransformControls {
+    return new TransformControls(camera, domElement);
+}

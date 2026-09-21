@@ -1,4 +1,4 @@
-import { vec3, vec2, quat, spherical, type Vec3, type Vec2, type Quat, type Spherical } from 'math';
+import { type Quat, quat, type Spherical, spherical, type Vec2, type Vec3, vec2, vec3 } from 'math';
 import type { Camera } from '../camera/camera';
 import type { PerspectiveCamera } from '../camera/perspective-camera';
 
@@ -327,14 +327,8 @@ export class OrbitControls {
         if (!element) return;
 
         element.removeEventListener('pointerdown', this._onPointerDown as EventListener);
-        (element.ownerDocument ?? element).removeEventListener(
-            'pointermove',
-            this._onPointerMove as EventListener,
-        );
-        (element.ownerDocument ?? element).removeEventListener(
-            'pointerup',
-            this._onPointerUp as EventListener,
-        );
+        (element.ownerDocument ?? element).removeEventListener('pointermove', this._onPointerMove as EventListener);
+        (element.ownerDocument ?? element).removeEventListener('pointerup', this._onPointerUp as EventListener);
         element.removeEventListener('pointercancel', this._onPointerUp as EventListener);
         element.removeEventListener('wheel', this._onMouseWheel as EventListener);
         element.removeEventListener('contextmenu', this._onContextMenu);
@@ -376,10 +370,7 @@ export class OrbitControls {
 
     stopListenToKeyEvents(): void {
         if (this._domElementKeyEvents !== null) {
-            this._domElementKeyEvents.removeEventListener(
-                'keydown',
-                this._onKeyDown as EventListener,
-            );
+            this._domElementKeyEvents.removeEventListener('keydown', this._onKeyDown as EventListener);
             this._domElementKeyEvents = null;
         }
     }
@@ -479,10 +470,7 @@ export class OrbitControls {
         }
 
         // Clamp polar
-        this._spherical[2] = Math.max(
-            this.minPolarAngle,
-            Math.min(this.maxPolarAngle, this._spherical[2]),
-        );
+        this._spherical[2] = Math.max(this.minPolarAngle, Math.min(this.maxPolarAngle, this._spherical[2]));
         spherical.makeSafe(this._spherical, this._spherical);
 
         // Pan offset
@@ -495,10 +483,7 @@ export class OrbitControls {
         // Clamp target distance from cursor
         vec3.subtract(this.target, this.target, this.cursor);
         const tLen = vec3.length(this.target);
-        const tLenClamped = Math.max(
-            this.minTargetRadius,
-            Math.min(this.maxTargetRadius, tLen),
-        );
+        const tLenClamped = Math.max(this.minTargetRadius, Math.min(this.maxTargetRadius, tLen));
         if (tLen > 0) {
             vec3.scale(this.target, this.target, tLenClamped / tLen);
         }
@@ -540,12 +525,7 @@ export class OrbitControls {
             const radiusDelta = prevRadius - newRadius;
 
             if (radiusDelta !== 0) {
-                vec3.scaleAndAdd(
-                    this.object.position,
-                    this.object.position,
-                    this._dollyDirection,
-                    radiusDelta,
-                );
+                vec3.scaleAndAdd(this.object.position, this.object.position, this._dollyDirection, radiusDelta);
                 this.object.updateWorldMatrix();
                 zoomChanged = true;
             }
@@ -615,7 +595,7 @@ export class OrbitControls {
 
     /** @internal */ _getAutoRotationAngle(deltaTime: number | null): number {
         if (deltaTime !== null) {
-            return ((_twoPI / 60) * this.autoRotateSpeed) * deltaTime;
+            return (_twoPI / 60) * this.autoRotateSpeed * deltaTime;
         }
         return (_twoPI / 60 / 60) * this.autoRotateSpeed;
     }
@@ -664,14 +644,8 @@ export class OrbitControls {
             // fov is in radians
             targetDistance *= Math.tan(cam.fov / 2);
 
-            this._panLeft(
-                (2 * deltaX * targetDistance) / element.clientHeight,
-                this.object.matrix,
-            );
-            this._panUp(
-                (2 * deltaY * targetDistance) / element.clientHeight,
-                this.object.matrix,
-            );
+            this._panLeft((2 * deltaX * targetDistance) / element.clientHeight, this.object.matrix);
+            this._panUp((2 * deltaY * targetDistance) / element.clientHeight, this.object.matrix);
         } else {
             // Fallback, disable pan for unknown camera type
             console.warn('OrbitControls: unknown camera type, pan disabled.');
@@ -732,10 +706,8 @@ export class OrbitControls {
         this._rotateEnd[0] = event.clientX;
         this._rotateEnd[1] = event.clientY;
 
-        this._rotateDelta[0] =
-            (this._rotateEnd[0] - this._rotateStart[0]) * this.rotateSpeed;
-        this._rotateDelta[1] =
-            (this._rotateEnd[1] - this._rotateStart[1]) * this.rotateSpeed;
+        this._rotateDelta[0] = (this._rotateEnd[0] - this._rotateStart[0]) * this.rotateSpeed;
+        this._rotateDelta[1] = (this._rotateEnd[1] - this._rotateStart[1]) * this.rotateSpeed;
 
         const element = this.domElement;
         const height = element ? element.clientHeight : 1;
@@ -906,10 +878,8 @@ export class OrbitControls {
             this._rotateEnd[1] = 0.5 * (event.pageY + pos[1]);
         }
 
-        this._rotateDelta[0] =
-            (this._rotateEnd[0] - this._rotateStart[0]) * this.rotateSpeed;
-        this._rotateDelta[1] =
-            (this._rotateEnd[1] - this._rotateStart[1]) * this.rotateSpeed;
+        this._rotateDelta[0] = (this._rotateEnd[0] - this._rotateStart[0]) * this.rotateSpeed;
+        this._rotateDelta[1] = (this._rotateEnd[1] - this._rotateStart[1]) * this.rotateSpeed;
 
         const h = this.domElement ? this.domElement.clientHeight : 1;
         this._rotateLeft((_twoPI * this._rotateDelta[0]) / h);
@@ -948,10 +918,7 @@ export class OrbitControls {
         this._dollyEnd[1] = distance;
 
         this._dollyDelta[0] = 0;
-        this._dollyDelta[1] = Math.pow(
-            this._dollyEnd[1] / this._dollyStart[1],
-            this.zoomSpeed,
-        );
+        this._dollyDelta[1] = Math.pow(this._dollyEnd[1] / this._dollyStart[1], this.zoomSpeed);
 
         this._dollyOut(this._dollyDelta[1]);
         this._dollyStart[0] = this._dollyEnd[0];
@@ -999,8 +966,7 @@ export class OrbitControls {
     }
 
     _getSecondPointerPosition(event: PointerEvent): Vec2 {
-        const pointerId =
-            event.pointerId === this._pointers[0] ? this._pointers[1] : this._pointers[0];
+        const pointerId = event.pointerId === this._pointers[0] ? this._pointers[1] : this._pointers[0];
         return this._pointerPositions[pointerId] ?? vec2.create();
     }
 
@@ -1289,4 +1255,9 @@ function _interceptControlUp(this: OrbitControls, event: KeyboardEvent): void {
             capture: true,
         });
     }
+}
+
+/** The factory form, matching `createFlyControls` and `createTransformControls`. */
+export function createOrbitControls(object: Camera, domElement: HTMLElement | null = null): OrbitControls {
+    return new OrbitControls(object, domElement);
 }

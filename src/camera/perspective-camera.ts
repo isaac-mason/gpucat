@@ -1,6 +1,6 @@
 import { mat4 } from 'math';
-import { Camera } from './camera';
 import { CoordinateSystem } from '../core/coordinate-system';
+import { Camera } from './camera';
 
 export class PerspectiveCamera extends Camera {
     readonly isPerspectiveCamera = true;
@@ -27,4 +27,9 @@ export class PerspectiveCamera extends Camera {
             mat4.perspectiveZO(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
         }
     }
+}
+
+/** The factory form, matching `createOrthographicCamera` and the other object constructors. */
+export function createPerspectiveCamera(fov?: number, aspect?: number, near?: number, far?: number): PerspectiveCamera {
+    return new PerspectiveCamera(fov, aspect, near, far);
 }

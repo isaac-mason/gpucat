@@ -15,7 +15,7 @@ export type GpuSamplerOptions = {
 
 /**
  * Declarative sampler settings.
- * 
+ *
  * Does NOT hold the GPU resource - that's managed by the renderer's cache.
  * The settingsKey is used for deduplication (multiple GpuSampler instances
  * with the same settings share one GPUSampler).
@@ -23,7 +23,7 @@ export type GpuSamplerOptions = {
 export class GpuSampler {
     readonly isGpuSampler = true;
     readonly id = _samplerId++;
-    
+
     minFilter: GPUFilterMode;
     magFilter: GPUFilterMode;
     mipmapFilter: GPUMipmapFilterMode;
@@ -33,15 +33,15 @@ export class GpuSampler {
     maxAnisotropy: number;
     lodMinClamp: number;
     lodMaxClamp: number;
-    
+
     /** For comparison samplers (shadow mapping) */
     compare?: GPUCompareFunction;
-    
+
     /** Renderer-set callback to clean up cache entry */
     _onDispose: (() => void) | null = null;
-    
+
     disposed = false;
-    
+
     constructor(options: GpuSamplerOptions = {}) {
         this.minFilter = options.minFilter ?? 'linear';
         this.magFilter = options.magFilter ?? 'linear';
@@ -54,24 +54,30 @@ export class GpuSampler {
         this.lodMaxClamp = options.lodMaxClamp ?? 32;
         this.compare = options.compare;
     }
-    
+
     /** Is this a comparison sampler? */
     get isComparison(): boolean {
         return this.compare !== undefined;
     }
-    
+
     /** Settings key for deduplication */
     get settingsKey(): string {
-        const base = `${this.minFilter}-${this.magFilter}-${this.mipmapFilter}-` +
-                     `${this.addressModeU}-${this.addressModeV}-${this.addressModeW}-` +
-                     `${this.maxAnisotropy}-${this.lodMinClamp}-${this.lodMaxClamp}`;
+        const base =
+            `${this.minFilter}-${this.magFilter}-${this.mipmapFilter}-` +
+            `${this.addressModeU}-${this.addressModeV}-${this.addressModeW}-` +
+            `${this.maxAnisotropy}-${this.lodMinClamp}-${this.lodMaxClamp}`;
         return this.compare ? `${base}-cmp-${this.compare}` : base;
     }
-    
+
     dispose(): void {
         if (this.disposed) return;
         this.disposed = true;
         this._onDispose?.();
         this._onDispose = null;
     }
+}
+
+/** The factory form; the sampler is settings only, the device resource is the renderer's. */
+export function createSampler(options: GpuSamplerOptions = {}): GpuSampler {
+    return new GpuSampler(options);
 }

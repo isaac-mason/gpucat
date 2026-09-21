@@ -3,10 +3,11 @@ import {
     cameraPosition,
     cameraProjectionMatrix,
     cameraViewMatrix,
-    createCanvasTarget,
     clamp,
     compileCompute,
     createBoxGeometry,
+    createCanvasTarget,
+    createMaterial,
     createStorageTexture3d,
     d,
     dot,
@@ -24,7 +25,6 @@ import {
     init,
     Loop,
     length,
-    createMaterial,
     Mesh,
     max,
     min,
@@ -35,9 +35,9 @@ import {
     normalize,
     OrbitControls,
     PerspectiveCamera,
-    renderTexture,
     renderGroup,
     renderOutput,
+    renderTexture,
     Scene,
     sin,
     smoothstep,
@@ -237,7 +237,7 @@ window.addEventListener('resize', () => {
     camera.updateProjectionMatrix();
 });
 
-await compileCompute(renderer, fillVolume);
+await compileCompute(renderer, [fillVolume]);
 
 const scenePass = renderTexture(scene, camera, { clearColor: [BG[0], BG[1], BG[2], 1] });
 const outputNode = renderOutput(scenePass.getTextureNode(), { toneMapping: 'none' });

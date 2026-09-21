@@ -247,3 +247,14 @@ export class ArrayTexture {
         this._gpuSampler.dispose();
     }
 }
+
+/** The factory form, matching `createDataTexture` and the other texture constructors. */
+export function createArrayTexture(
+    data: DataTextureImage['data'] = null,
+    width = 1,
+    height = 1,
+    depth = 1,
+    options: TextureOptions = {},
+): ArrayTexture {
+    return new ArrayTexture(data, width, height, depth, options);
+}

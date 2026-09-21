@@ -1,6 +1,6 @@
-import { vec3, quat, euler, type Vec3, type Quat } from 'math';
+import { euler, type Quat, quat, type Vec3, vec3 } from 'math';
 import type { Camera } from '../camera/camera';
-import { topic, type Topic } from '../utils/topic';
+import { type Topic, topic } from '../utils/topic';
 
 const _EPS = 0.000001;
 
@@ -316,4 +316,9 @@ function onWheel(this: FlyControls, event: WheelEvent): void {
     } else if (event.deltaY > 0) {
         this.movementSpeed = Math.max(this.minSpeed, this.movementSpeed / this.speedScrollFactor);
     }
+}
+
+/** The factory form, matching `createOrbitControls` and `createTransformControls`. */
+export function createFlyControls(object: Camera, domElement: HTMLElement | null = null): FlyControls {
+    return new FlyControls(object, domElement);
 }

@@ -5,9 +5,10 @@ import type * as d from '../../schema/schema';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DeviceBackend } from '../core/device-backend';
 import type { ComputePassDesc, DispatchRecord, DrawOptions, PassDesc, PassEntry } from '../core/frame';
+import { aimNodeFrame } from '../core/node-frame';
 import type { RenderContext } from '../core/pass-context';
 import { alignCameraToBackend, resolvePassContext, resolvePassParams } from '../core/pass-desc';
-import type { PreparedRenderObject, PreparedSegment, RenderPassParams } from '../core/render-types';
+import { createPassParams, type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
 import { preparedAt, prepareRecordedDraws } from '../core/renderer-ops';
 import { renderTargetOf } from '../core/target';
@@ -28,10 +29,14 @@ export type WebGPUFrameBackendState = {
     /** Each prepared object's per-submission overrides, same index, same depth. */
     preparedOptsByDepth: (DrawOptions | null)[][];
     segmentsByDepth: PreparedSegment[][];
+    /** One per nesting depth: a nested pass resolves its own while the outer one is still in use. */
+    paramsByDepth: RenderPassParams[];
+    encodeContextsByDepth: RenderPass.EncodeContext[];
     depth: number;
     /** Targets written this frame whose mips are filled after submit, since generation owns an encoder. */
-    mipTargets: RenderTarget[];
     /** The compute-pass equivalent: storage textures written this frame that opted into mips. */
+    /** Targets written this frame whose chain is stale; drained onto the frame encoder before submit. */
+    mipTargets: Set<RenderTarget>;
     mipTextures: Set<GpuTexture<d.StorageTexture>>;
 };
 
@@ -45,8 +50,10 @@ export function createWebGPUFrameBackendState(
         preparedByDepth: [],
         preparedOptsByDepth: [],
         segmentsByDepth: [],
+        paramsByDepth: [],
+        encodeContextsByDepth: [],
         depth: 0,
-        mipTargets: [],
+        mipTargets: new Set(),
         mipTextures: new Set(),
     };
 }
@@ -88,8 +95,8 @@ export function encodePass(s: WebGPUFrameBackendState, desc: PassDesc, records: 
     if (canvasTarget?.autoResize) canvasTarget.syncToClientSize();
 
     const ctx = resolvePassContext(renderer._renderContexts, desc);
-    if (ctx.width === 0 || ctx.height === 0) return; // hidden or minimized canvas
-    const params = resolvePassParams(desc);
+    const params = resolvePassParams(desc, paramsAt(s.paramsByDepth, s.depth));
+    if (params.width === 0 || params.height === 0) return; // hidden or minimized canvas
 
     renderer.info.render.calls++;
     renderer.info.render.frameCalls++;
@@ -97,7 +104,7 @@ export function encodePass(s: WebGPUFrameBackendState, desc: PassDesc, records: 
     const previousRenderId = nodeFrame.beginRender();
     Geometries.incrementCallId(backend.geometries);
 
-    setNodeFrame(s, desc, ctx);
+    aimNodeFrame(s.renderer, desc.camera ?? null, params.width, params.height);
     renderer.inspector?.beginRender(params.passId);
     try {
         encodeOpenPass(s, desc, ctx, params, records, count);
@@ -118,6 +125,8 @@ function encodeOpenPass(
     count: number,
 ): void {
     const { renderer, backend } = s;
+    // Read now: the params struct is pooled per depth, so a later pass owns it by the time this settles.
+    const passId = params.passId;
 
     backend.device.pushErrorScope('validation');
     try {
@@ -131,7 +140,7 @@ function encodeOpenPass(
                 renderer,
                 records,
                 count,
-                ctx.camera!,
+                params.camera!,
                 ctx,
                 renderer.inspector === null ? null : params.passId,
                 (nodes, renderObject) => Prepare.prepareRenderObject(backend, nodes, renderObject),
@@ -144,32 +153,14 @@ function encodeOpenPass(
         }
 
         // A nested pass prepared against its own target, so restore this one's view of the frame.
-        setNodeFrame(s, desc, ctx);
+        aimNodeFrame(s.renderer, desc.camera ?? null, params.width, params.height);
 
-        const { colorAttachments, depthAttachment } = RenderPass.resolveAttachments(backend, params);
-        const scope = RenderPass.beginPass(
-            backend._currentEncoder!,
-            ctx,
-            colorAttachments,
-            depthAttachment,
-            params.passId,
-            renderer.inspector,
-        );
+        const scope = RenderPass.beginPass(backend, params);
 
         try {
             if (preparedCount > 0) {
-                RenderPass.encodeDraws(
-                    backend,
-                    renderer._nodes,
-                    ctx,
-                    prepared,
-                    preparedOpts,
-                    preparedCount,
-                    renderer.inspector,
-                    renderer.info,
-                    scope,
-                    segments,
-                );
+                const encodeContext = contextAt(s, ctx, params, prepared, preparedOpts);
+                RenderPass.encodeDraws(encodeContext, preparedCount, scope, segments);
             }
         } finally {
             RenderPass.endPass(scope);
@@ -178,7 +169,7 @@ function encodeOpenPass(
         backend._pendingValidation.push(
             backend.device.popErrorScope().then((err) => {
                 if (err) {
-                    const message = `[WebGPU render validation error] pass '${params.passId}': ${err.message}`;
+                    const message = `[WebGPU render validation error] pass '${passId}': ${err.message}`;
                     console.error(message);
                     backend._validationErrors.push(message);
                 }
@@ -187,15 +178,7 @@ function encodeOpenPass(
     }
 
     const renderTarget = renderTargetOf(desc.target);
-    if (renderTarget?.textures.some((tex) => tex.generateMipmaps)) s.mipTargets.push(renderTarget);
-}
-
-function setNodeFrame(s: WebGPUFrameBackendState, desc: PassDesc, ctx: RenderContext): void {
-    const frame = s.renderer._nodes.nodeFrame;
-    frame.renderer = s.renderer;
-    frame.camera = desc.camera ?? null;
-    frame.width = ctx.width;
-    frame.height = ctx.height;
+    if (renderTarget?.textures.some((tex) => tex.generateMipmaps)) s.mipTargets.add(renderTarget);
 }
 
 export function encodeComputePass(
@@ -245,6 +228,18 @@ export function submitFrame(s: WebGPUFrameBackendState): void {
 
     // A command buffer Dawn rejects takes the whole frame with it, including the clears, and the
     // per-pass scopes closed before this ran — so without a scope here there is no reason, only pixels.
+    // Onto the frame's own encoder, so the chain is one command buffer with the passes that wrote it.
+    for (const renderTarget of s.mipTargets) {
+        for (const tex of renderTarget.textures) {
+            if (tex.generateMipmaps) {
+                Textures.generateTextureMipmaps(backend.textures, backend.device, tex._gpuTexture, backend._currentEncoder!);
+            }
+        }
+    }
+    s.mipTargets.clear();
+    Compute.regenerateComputeMips(backend.device, backend.textures, s.mipTextures, backend._currentEncoder!);
+    s.mipTextures.clear();
+
     backend.device.pushErrorScope('validation');
     try {
         backend.device.queue.submit([backend._currentEncoder!.finish()]);
@@ -261,16 +256,6 @@ export function submitFrame(s: WebGPUFrameBackendState): void {
     }
     backend._currentEncoder = null;
 
-    for (const renderTarget of s.mipTargets) {
-        for (const tex of renderTarget.textures) {
-            if (tex.generateMipmaps) Textures.generateTextureMipmaps(backend.textures, backend.device, tex._gpuTexture);
-        }
-    }
-    s.mipTargets.length = 0;
-
-    Compute.regenerateComputeMips(backend.device, backend.textures, s.mipTextures);
-    s.mipTextures.clear();
-
     renderer.inspector?.finish(renderer._nodes.nodeFrame.frameId);
 }
 
@@ -278,7 +263,51 @@ export function discardFrame(s: WebGPUFrameBackendState): void {
     if (!usable(s)) return;
     const { renderer, backend } = s;
     backend._currentEncoder = null;
-    s.mipTargets.length = 0;
+    s.mipTargets.clear();
     s.mipTextures.clear();
     renderer.inspector?.finish(renderer._nodes.nodeFrame.frameId);
+}
+
+/** Grows to the nesting depth in use and never shrinks, like the prepared lists beside it. */
+function paramsAt(pool: RenderPassParams[], depth: number): RenderPassParams {
+    let params = pool[depth];
+    if (params === undefined) {
+        params = createPassParams();
+        pool[depth] = params;
+    }
+    return params;
+}
+
+/** The draw loop's fixed half, pooled per nesting depth and refilled: a nested pass has its own. */
+function contextAt(
+    s: WebGPUFrameBackendState,
+    passCtx: RenderContext,
+    params: RenderPassParams,
+    preparedObjects: readonly PreparedRenderObject[],
+    preparedOpts: readonly (DrawOptions | null)[],
+): RenderPass.EncodeContext {
+    const { renderer, backend } = s;
+    let ctx = s.encodeContextsByDepth[s.depth];
+    if (ctx === undefined) {
+        ctx = {
+            b: backend,
+            nodes: renderer._nodes,
+            passCtx,
+            params,
+            preparedObjects,
+            preparedOpts,
+            inspector: null,
+            info: renderer.info,
+        };
+        s.encodeContextsByDepth[s.depth] = ctx;
+    }
+    ctx.b = backend;
+    ctx.nodes = renderer._nodes;
+    ctx.passCtx = passCtx;
+    ctx.params = params;
+    ctx.preparedObjects = preparedObjects;
+    ctx.preparedOpts = preparedOpts;
+    ctx.inspector = renderer.inspector;
+    ctx.info = renderer.info;
+    return ctx;
 }

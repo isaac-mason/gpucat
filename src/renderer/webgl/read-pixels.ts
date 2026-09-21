@@ -13,8 +13,9 @@
 
 import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { RenderTarget } from '../../core/render-target';
-import { resolveActiveRenderTarget, type GlRenderTargetsState } from './render-target';
-import { getTextureData, type TextureCache } from './textures';
+import { resolveActiveRenderTarget } from './render-target';
+import { getTextureData } from './textures';
+import type { WebGLBackend } from './webgl-backend';
 
 /**
  * Read a RenderTarget color attachment back to a tightly-packed, top-to-bottom RGBA8 `Uint8Array`
@@ -25,11 +26,11 @@ import { getTextureData, type TextureCache } from './textures';
  */
 export function readPixels(
     gl: WebGL2RenderingContext,
-    state: GlRenderTargetsState,
-    textures: TextureCache,
+    b: WebGLBackend,
     renderTarget: RenderTarget,
     attachmentIndex = 0,
     layer = 0,
+    mipLevel = 0,
 ): Uint8Array {
     const tex = renderTarget.textures[attachmentIndex];
     if (!tex) {
@@ -44,23 +45,24 @@ export function readPixels(
         );
     }
 
-    const fboData = state.data.get(renderTarget);
+    const fboData = b.renderTargets.data.get(renderTarget);
     if (!fboData) {
         throw new Error('[readPixels] render target has not been rendered to yet; render() into it first.');
     }
 
     // MSAA target: resolve the multisample result into the texture FBO before reading it.
-    if (state.pendingResolve === renderTarget) {
-        resolveActiveRenderTarget(gl, state);
+    if (b.renderTargets.pendingResolve === renderTarget) {
+        resolveActiveRenderTarget(gl, b.renderTargets);
     }
 
-    const { width, height } = renderTarget;
+    const width = Math.max(1, renderTarget.width >> mipLevel);
+    const height = Math.max(1, renderTarget.height >> mipLevel);
     const prevRead = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
 
     if (renderTarget.isCubeRenderTarget === true) {
         // Cube target: point the read FBO's color attachment at the requested face.
         const cube = renderTarget as CubeRenderTarget;
-        const data = getTextureData(textures, cube.texture._gpuTexture);
+        const data = getTextureData(b.textures, cube.texture._gpuTexture);
         if (!data) {
             throw new Error('[readPixels] cube render target has no GL texture; render() into it first.');
         }
@@ -70,9 +72,10 @@ export function readPixels(
             gl.COLOR_ATTACHMENT0,
             gl.TEXTURE_CUBE_MAP_POSITIVE_X + layer,
             data.texture,
-            cube.activeMipmapLevel,
+            mipLevel,
         );
         fboData.attachedFace = layer;
+        fboData.attachedMip = mipLevel;
     } else {
         gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fboData.fbo);
     }

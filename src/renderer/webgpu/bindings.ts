@@ -17,16 +17,16 @@ import type { NodeBuilderState } from '../core/node-builder-state';
 import type { NodeFrame } from '../core/node-frame';
 import type { RenderObject } from '../core/render-object';
 import { getBindings as getRenderObjectBindings } from '../core/render-object';
-import type { BackendState } from './backend-state';
+import { formatHasStencil } from '../core/render-types';
 import { type BindGroupLayoutCache, getBindGroupLayout, samplerBindingType, textureBindingLayout } from './bind-group-layout';
 import type { BufferCache } from './buffers';
 import { ensureUploaded, getRaw, getUploaded, resolveStorageBuffer, uploadUniformBlock } from './buffers';
-import { formatHasStencil } from './pipelines';
 import { getRenderObjectGpu } from './render-object-gpu';
 import { ensureRenderTargetTexturesAllocated } from './render-target';
 import { getSampler, peekSampler, type SamplerCache } from './samplers';
 import type { TextureCache } from './textures';
 import { getTextureData, updateTexture } from './textures';
+import type { WebGPUBackend } from './webgpu-backend';
 
 /**
  * Per-BindGroup data (GPU resources).
@@ -121,7 +121,7 @@ function getData(state: BindingsState, bindGroup: BindGroup): BindGroupData {
 }
 
 /** Update all bindings for a RenderObject. */
-export function updateRenderBindings(b: BackendState, renderObject: RenderObject, frame: NodeFrame): void {
+export function updateRenderBindings(b: WebGPUBackend, renderObject: RenderObject, frame: NodeFrame): void {
     const { bindings: state, device, buffers: bufferCache } = b;
     const { textures: textureCache, samplers: samplerCache, renderObjectGpu: renderObjectGpuCache } = b;
     const nodeState = renderObject.nodeBuilderState;
@@ -157,7 +157,7 @@ export function updateRenderBindings(b: BackendState, renderObject: RenderObject
 
 /** Update all bindings for a compute pass and return GPUBindGroups. */
 export function updateComputeBindings(
-    b: BackendState,
+    b: WebGPUBackend,
     nodeBuilderState: NodeBuilderState,
     frame: NodeFrame,
     buffers: Record<string, GpuBuffer<Any>> | null,

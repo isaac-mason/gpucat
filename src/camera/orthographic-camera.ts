@@ -137,3 +137,15 @@ export class OrthographicCamera extends Camera {
         }
     }
 }
+
+/** The factory form, matching `createPerspectiveCamera` and the other object constructors. */
+export function createOrthographicCamera(
+    left?: number,
+    right?: number,
+    top?: number,
+    bottom?: number,
+    near?: number,
+    far?: number,
+): OrthographicCamera {
+    return new OrthographicCamera(left, right, top, bottom, near, far);
+}

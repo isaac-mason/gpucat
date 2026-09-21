@@ -14,8 +14,8 @@
 
 import type { GpuTexture } from '../../core/gpu-texture';
 
-/** Bytes per texel for the uncompressed formats gpucat uses. Unknown formats fall back to 4. */
-export function bytesPerTexel(format: GPUTextureFormat): number {
+/** The uncompressed formats gpucat uses; anything else, including every compressed and depth format. */
+function knownBytesPerTexel(format: GPUTextureFormat): number | undefined {
     switch (format) {
         case 'r8unorm':
         case 'r8snorm':
@@ -56,8 +56,22 @@ export function bytesPerTexel(format: GPUTextureFormat): number {
         case 'rgba32float':
             return 16;
         default:
-            return 4;
+            return undefined;
     }
+}
+
+/** A texel stride, for the row and offset arithmetic that has to be exact. */
+export function bytesPerTexel(format: GPUTextureFormat): number {
+    const bytes = knownBytesPerTexel(format);
+    if (bytes === undefined) {
+        throw new Error(`[gpucat] no texel stride known for '${format}'; add it rather than reading at a guessed one.`);
+    }
+    return bytes;
+}
+
+/** The debug panel's figure, which wants a number more than it wants to be right. */
+export function estimatedBytesPerTexel(format: GPUTextureFormat): number {
+    return knownBytesPerTexel(format) ?? 4;
 }
 
 /** Levels in a full mip chain down to 1x1, for a texture of this size. */
@@ -88,7 +102,7 @@ export function mipLevelCountFor(texture: GpuTexture): number {
  * undercount every atlas by a third.
  */
 export function gpuTextureBytes(texture: GpuTexture): number {
-    const perTexel = bytesPerTexel(texture.format);
+    const perTexel = estimatedBytesPerTexel(texture.format);
     const layers = Math.max(1, texture.depthOrArrayLayers);
     const mips = mipLevelCountFor(texture);
 

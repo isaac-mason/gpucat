@@ -3,18 +3,19 @@ import {
     bool,
     cameraProjectionMatrix,
     cameraViewMatrix,
-    createCanvasTarget,
     compileCompute,
+    createCanvasTarget,
     createIndexBuffer,
     createIndirectBuffer,
+    createMaterial,
     createStorageBuffer,
     createVertexBuffer,
     DrawIndexedIndirect,
     d,
     Fn,
     f32,
-    frustum,
     frame,
+    frustum,
     fullscreen,
     Geometry,
     globalId,
@@ -23,16 +24,15 @@ import {
     index,
     init,
     instanceIndex,
-    createMaterial,
     Mesh,
     mul,
     type Node,
     OrbitControls,
     PerspectiveCamera,
     packArray,
-    renderTexture,
     Return,
     renderOutput,
+    renderTexture,
     Scene,
     storage,
     struct,
@@ -741,7 +741,7 @@ async function main() {
     mesh.frustumCulled = false;
     scene.add(mesh);
 
-    await compileCompute(renderer, cullCompute);
+    await compileCompute(renderer, [cullCompute]);
 
     const scenePass = renderTexture(scene, camera);
     const composite = fullscreen(renderOutput(scenePass.getTextureNode()));

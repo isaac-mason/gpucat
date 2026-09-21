@@ -162,12 +162,12 @@ function update() {
     controls.update();
     camera.updateViewMatrix();
 
+    const f = frame(renderer);
+
     // capture the room into the cube (sphere hidden so it does not reflect itself)
     sphere.visible = false;
-    cubeCamera.update(renderer, scene);
+    cubeCamera.update(f, scene);
     sphere.visible = true;
-
-    const f = frame(renderer);
 
     const compositePass = f.pass({ target: view });
 

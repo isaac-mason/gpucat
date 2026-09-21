@@ -1,9 +1,9 @@
 import { type CompileGlslOptions, compileGlsl } from '../../nodes/builder';
 import { compileNodeState, type NodeManagerState, needsNodeUpdate } from '../core/node-manager';
 import { computeRenderObjectCacheKey, getBindings, type RenderObject } from '../core/render-object';
-import type { BackendState } from './backend-state';
 import { getProgram } from './programs';
 import { getRenderObjectGl } from './render-object-gl';
+import type { WebGLBackend } from './webgl-backend';
 
 /**
  * Compile the GLSL program + prepare the RenderObject for drawing. Returns whether it is drawable.
@@ -20,7 +20,7 @@ import { getRenderObjectGl } from './render-object-gl';
  *  depend on per-object frame state, so they stay in the draw loop. */
 export function prepareRenderObject(
     gl: WebGL2RenderingContext,
-    b: BackendState,
+    b: WebGLBackend,
     nodes: NodeManagerState,
     renderObject: RenderObject,
     glslOptions?: CompileGlslOptions,
@@ -52,7 +52,12 @@ export function prepareRenderObject(
     }
 
     const nodeState = renderObject.nodeBuilderState;
-    if (!nodeState || !nodeState.vertexCode) return false;
+    if (!nodeState || !nodeState.vertexCode) {
+        throw new Error(
+            `[webgl] '${renderObject.mesh.name || 'mesh'}' compiled to no vertex GLSL; skipping it here drops ` +
+                'it from the pass, which reads as a missing object rather than a failed compile.',
+        );
+    }
 
     // Ensure the RenderObject's bind groups exist (clones non-shared, reuses shared).
     getBindings(renderObject);

@@ -96,7 +96,7 @@ const sampler = new GpuSampler({ minFilter: 'linear', magFilter: 'linear' });
 const outputNode = texture(tex, sampler).sample(screenUV);
 const composite = fullscreen(outputNode);
 // Pre-warm the compute pipeline before the loop.
-await compileCompute(renderer, computePlasma);
+await compileCompute(renderer, [computePlasma]);
 
 function update() {
     time.value = performance.now() / 1000;

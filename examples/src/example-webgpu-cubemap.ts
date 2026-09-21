@@ -139,7 +139,7 @@ async function main() {
 
     scene.updateWorldMatrix();
 
-    await compile(renderer, mesh, view, camera);
+    await compile(renderer, [mesh], view, camera);
 
     const scenePass = renderTexture(scene, camera);
     const outputNode = renderOutput(scenePass.getTextureNode());

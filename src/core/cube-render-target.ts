@@ -45,19 +45,13 @@ export type CubeRenderTargetOptions = {
  *
  * Extends `RenderTarget`: the inherited 2D color texture carries the face format
  * for pipeline creation, and the inherited 2D depth texture is reused across all
- * six faces. The renderer attaches the cube face selected by `activeFace`.
+ * six faces. Each pass names the face and level it writes.
  */
 export class CubeRenderTarget extends RenderTarget {
     readonly isCubeRenderTarget = true;
 
     /** Face size in pixels (width = height). */
     size: number;
-
-    /** Which cube face the next `render()` targets: 0..5 = +X, -X, +Y, -Y, +Z, -Z. */
-    activeFace = 0;
-
-    /** Which mip level the next `render()` targets. */
-    activeMipmapLevel = 0;
 
     /** The cube texture rendered into and sampled by materials. */
     readonly _texture: CubeTexture;

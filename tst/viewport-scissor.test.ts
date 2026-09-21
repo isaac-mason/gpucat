@@ -1,24 +1,13 @@
 import { expect, test } from 'vitest';
-import { Renderer } from '../src/renderer/core/renderer';
-import { createRenderTarget, WebGPUBackend } from '../src/index';
+import { createRenderTarget } from '../src/index';
 import type { PassDesc } from '../src/renderer/core/frame';
-import type { RenderContext } from '../src/renderer/core/pass-context';
-import { resolvePassContext } from '../src/renderer/core/pass-desc';
-import { installWebGPUPolyfills } from './stub-gpu';
-
-installWebGPUPolyfills();
-
-// The pass-context cache is the renderer's, and a fresh one needs no device at all.
-function contexts(): Renderer<WebGPUBackend>['_renderContexts'] {
-    return new Renderer(new WebGPUBackend())._renderContexts;
-}
+import { resolvePassParams } from '../src/renderer/core/pass-desc';
+import type { RenderPassParams } from '../src/renderer/core/render-types';
+import { createPassParams } from '../src/renderer/core/render-types';
 
 /** Resolve one pass over a `width` x `height` target with whatever rects the desc names. */
-function resolve(width: number, height: number, desc: Pick<PassDesc, 'viewport' | 'scissor'>): RenderContext {
-    return resolvePassContext(contexts(), {
-        target: createRenderTarget(width, height, { depthBuffer: false }),
-        ...desc,
-    });
+function resolve(width: number, height: number, desc: Pick<PassDesc, 'viewport' | 'scissor'>): RenderPassParams {
+    return resolvePassParams({ target: createRenderTarget(width, height, { depthBuffer: false }), ...desc }, createPassParams());
 }
 
 test('a pass with no scissor leaves the scissor off', () => {
@@ -59,19 +48,21 @@ test('a viewport omitting its depth range spans the full range', () => {
 });
 
 test('a target is clipped only by what its own pass desc asks for', () => {
-    const state = contexts();
     const target = createRenderTarget(256, 256, { depthBuffer: false });
 
-    const clipped = resolvePassContext(state, {
-        target,
-        viewport: { x: 8, y: 8, width: 64, height: 64 },
-        scissor: { x: 32, y: 48, width: 64, height: 80 },
-    });
+    const clipped = resolvePassParams(
+        {
+            target,
+            viewport: { x: 8, y: 8, width: 64, height: 64 },
+            scissor: { x: 32, y: 48, width: 64, height: 80 },
+        },
+        createPassParams(),
+    );
     expect(clipped.viewport).toBe(true);
     expect(clipped.scissor).toBe(true);
 
     // Same target, a desc that names neither: the previous pass's rects must not carry over.
-    const plain = resolvePassContext(state, { target });
+    const plain = resolvePassParams({ target }, createPassParams());
     expect(plain.viewport).toBe(false);
     expect(plain.scissor).toBe(false);
 });

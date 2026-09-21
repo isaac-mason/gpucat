@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { expect, test } from 'vitest';
 
 /**
- * `PLAN-backend-symmetry.md` rule 2: whoever owns the cache owns the release, the stats and the
+ * Backend symmetry rule 2: whoever owns the cache owns the release, the stats and the
  * teardown. Layer 6.84 found WebGPU's `readMemoryStats` reading four counts straight off cache
  * fields while WebGL asked each owning module, and `getPipelineCacheStats` reporting a count that
  * belongs to `bind-group-layout.ts`.
@@ -29,17 +29,33 @@ const NO_STATS_YET: Record<string, string> = {
     'render-object-gpu.ts': 'per-draw payload counted by core through `getRenderObjectsStats`',
 };
 
+/**
+ * A cache whose every member is a WeakMap has no teardown to write: its entries go when their keys do,
+ * and the device objects inside go with the device. A review read the absence as four leaks.
+ */
+const WEAKMAP_ONLY: Record<string, string> = {
+    'bindings.ts': 'bind group / UBO data keyed by the binding it belongs to',
+    'render-object-gl.ts': 'per-RenderObject GL payload',
+    'render-object-gpu.ts': 'per-RenderObject device payload',
+};
+
 const CREATES_CACHE = /^export function create[A-Za-z]*(?:Cache|State)\b/m;
+const HAS_DISPOSE = /^export function dispose[A-Za-z]*\b/m;
 const HAS_STATS = /^export function get[A-Za-z]*Stats\b/m;
 
-function cacheOwners(): { file: string; module: string; hasStats: boolean }[] {
-    const out: { file: string; module: string; hasStats: boolean }[] = [];
+function cacheOwners(): { file: string; module: string; hasStats: boolean; hasDispose: boolean }[] {
+    const out: { file: string; module: string; hasStats: boolean; hasDispose: boolean }[] = [];
     for (const dir of BACKENDS) {
         for (const entry of readdirSync(dir)) {
             if (!entry.endsWith('.ts') || NOT_A_RESOURCE_CACHE.has(entry)) continue;
             const source = readFileSync(join(dir, entry), 'utf8');
             if (!CREATES_CACHE.test(source)) continue;
-            out.push({ file: join(dir, entry), module: entry, hasStats: HAS_STATS.test(source) });
+            out.push({
+                file: join(dir, entry),
+                module: entry,
+                hasStats: HAS_STATS.test(source),
+                hasDispose: HAS_DISPOSE.test(source),
+            });
         }
     }
     return out;
@@ -57,4 +73,18 @@ test('a recorded gap is removed once the module grows stats', () => {
             .map((o) => o.module),
     );
     expect(Object.keys(NO_STATS_YET).filter((m) => !silent.has(m))).toEqual([]);
+});
+
+test('a module that creates a resource cache tears it down, unless it holds nothing to tear down', () => {
+    const silent = cacheOwners().filter((o) => !o.hasDispose && !(o.module in WEAKMAP_ONLY));
+    expect(silent.map((o) => o.file).sort()).toEqual([]);
+});
+
+test('a module listed as holding nothing is removed once it grows a disposer', () => {
+    const silent = new Set(
+        cacheOwners()
+            .filter((o) => !o.hasDispose)
+            .map((o) => o.module),
+    );
+    expect(Object.keys(WEAKMAP_ONLY).filter((m) => !silent.has(m))).toEqual([]);
 });

@@ -117,3 +117,8 @@ export class Uniform<T extends Any = Any> {
         this._value = packed as UniformStored<T>;
     }
 }
+
+/** The factory form, matching `uniformGroup` and the other value constructors. */
+export function createUniform<T extends Any>(schema: T, initialValue?: UniformValue<T>, group?: UniformGroup): Uniform<T> {
+    return new Uniform(schema, initialValue, group);
+}

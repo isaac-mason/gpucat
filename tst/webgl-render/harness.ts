@@ -1,20 +1,21 @@
-import type { Object3D } from '../../src/core/object3d';
 import {
     ArrayTexture,
     arrayTexture,
     attribute,
+    BlendMode,
     bundle,
     CubeCamera,
     CubeTexture,
     cameraProjectionMatrix,
     cameraViewMatrix,
     compile,
-    createCanvasTarget,
     createBoxGeometry,
+    createCanvasTarget,
+    createCubeRenderTarget,
     createFullscreenTriangleGeometry,
     createIndirectBuffer,
+    createRenderTarget,
     createStructTexture,
-    createCubeRenderTarget,
     cubeTexture,
     DataTexture,
     DrawIndirect,
@@ -22,6 +23,7 @@ import {
     depthTexture,
     drawScene,
     f32,
+    frame,
     fullscreen,
     Geometry,
     GpuBuffer,
@@ -36,12 +38,13 @@ import {
     mrt,
     mul,
     normalize,
+    type Object3D,
     PerspectiveCamera,
     packArray,
+    type Renderer,
     type RenderTarget,
     read,
     renderOutput,
-    createRenderTarget,
     renderTexture,
     Scene,
     screenCoordinate,
@@ -50,6 +53,8 @@ import {
     storage,
     struct,
     Texture,
+    type TransformFeedbackDispatch,
+    type TransformFeedbackNode,
     texture,
     textureDimensions,
     transformFeedback,
@@ -65,9 +70,6 @@ import {
     type WebGLBackend,
     webgl,
 } from '../../src/index';
-import { BlendMode } from '../../src/material/blend-mode';
-import { frame } from '../../src/renderer/core/frame';
-import type { Renderer } from '../../src/renderer/core/renderer';
 import * as Programs from '../../src/renderer/webgl/programs';
 
 /**
@@ -117,6 +119,8 @@ const u8 = (v: number): number => Math.round(v * 255);
 let activeTarget: RenderTarget | null = null;
 let activeClear: [number, number, number, number] = [0, 0, 0, 1];
 let activeMrt: MRTNode | null = null;
+/** A cube pass names its face; the plain cases leave this undefined. */
+let activeLayer: number | undefined;
 
 function renderScene(renderer: Renderer<WebGLBackend>, scene: Object3D, camera: PerspectiveCamera): void {
     const f = frame(renderer);
@@ -125,8 +129,18 @@ function renderScene(renderer: Renderer<WebGLBackend>, scene: Object3D, camera: 
         camera,
         clear: activeClear,
         mrt: activeMrt ?? undefined,
+        layer: activeLayer,
     });
     drawScene(renderer, pass, scene, camera);
+    pass.end();
+    f.submit();
+}
+
+/** The pass form, in one call: WebGL2 runs the kernel at `end()`, so this is one frame per dispatch. */
+function runTf(renderer: Renderer<WebGLBackend>, node: TransformFeedbackNode, opts: TransformFeedbackDispatch): void {
+    const f = frame(renderer);
+    const pass = f.transformFeedback();
+    pass.dispatch(node, opts);
     pass.end();
     f.submit();
 }
@@ -176,50 +190,6 @@ async function caseCompilePrewarm(): Promise<CaseResult> {
         pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
         expected: [0, 255, 0, 255],
         note: `programs ${before} -> ${warmed} after compile -> ${afterDraw} after the draw`,
-    };
-}
-
-/**
- * tf-ordering: WebGL2 has no encoder, so a transform-feedback kernel runs the instant it is called
- * while the frame's passes encode at each `end()`. Calling it mid-frame would land the kernel between
- * the passes instead of before them, which `compute()` and `readPixels()` already refuse; this asserts
- * transform feedback refuses too, and still works either side of the frame.
- */
-async function caseTfOrdering(): Promise<CaseResult> {
-    const renderer = await newRenderer();
-    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
-
-    const N = 4;
-    const input = new GpuBuffer(d.vec4f, { data: new Float32Array(N * 4).fill(1) });
-    const output = new GpuBuffer(d.vec4f, { count: N });
-    const kernel = transformFeedback((io) => ({ pos: io.pos.add(io.pos) }), {
-        inputs: { pos: d.vec4f },
-        outputs: { pos: d.vec4f },
-    });
-    const run = () => renderer.backend.transformFeedback(kernel, { inputs: { pos: input }, outputs: { pos: output }, count: N });
-
-    run(); // before any frame: fine
-
-    const f = frame(renderer);
-    const pass = f.pass({ target, clear: [0, 0, 0, 1] });
-    let refused = false;
-    try {
-        run();
-    } catch {
-        refused = true;
-    }
-    pass.end();
-    f.submit();
-
-    run(); // after submit: fine again
-    const doubled = readTfFloat32(renderer, output, N * 4).every((v) => Math.abs(v - 2) < 1e-5);
-    renderer.dispose();
-
-    return {
-        name: 'tf-ordering',
-        pixel: refused && doubled ? [0, 255, 0, 255] : [255, 0, 0, 255],
-        expected: [0, 255, 0, 255],
-        note: refused ? 'refused mid-frame, ran either side' : 'ran mid-frame, out of order with the passes',
     };
 }
 
@@ -881,7 +851,7 @@ async function caseCubeRtt(): Promise<CaseResult> {
 
     // Render each of the six faces (an empty scene → the face clears to the target's clearColor).
     for (let face = 0; face < 6; face++) {
-        rt.activeFace = face;
+        activeLayer = face;
         const scene = new Scene();
         const camera = new PerspectiveCamera();
         scene.updateWorldMatrix();
@@ -889,6 +859,7 @@ async function caseCubeRtt(): Promise<CaseResult> {
         renderScene(renderer, scene, camera);
     }
     activeTarget = savedTarget;
+    activeLayer = undefined;
     activeClear = savedClear;
 
     // Sample the cube fullscreen onto the default framebuffer. Direction is a constant per-fragment
@@ -1705,7 +1676,7 @@ async function caseCubeMips(): Promise<CaseResult> {
     rt.texture.generateMipmaps = false;
     for (let face = 0; face < 6; face++) {
         if (face === 5) rt.texture.generateMipmaps = wantMips; // restore before the last face
-        rt.activeFace = face;
+        activeLayer = face;
         const scene = new Scene();
         scene.add(new Mesh(createFullscreenTriangleGeometry(), twoTone));
         const camera = new PerspectiveCamera();
@@ -1714,6 +1685,7 @@ async function caseCubeMips(): Promise<CaseResult> {
         renderScene(renderer, scene, camera);
     }
     activeTarget = savedTarget;
+    activeLayer = undefined;
     activeClear = savedClear;
 
     activeClear = [0, 0, 0, 1];
@@ -2018,7 +1990,9 @@ async function caseCubeCamera(): Promise<CaseResult> {
 
     const empty = new Scene();
     empty.updateWorldMatrix();
-    cubeCamera.update(renderer, empty);
+    const cubeFrame = frame(renderer);
+    cubeCamera.update(cubeFrame, empty);
+    cubeFrame.submit();
 
     activeClear = [0, 0, 0, 1];
     const material = new Material({
@@ -2131,7 +2105,7 @@ async function caseTransformFeedback(): Promise<CaseResult> {
         outputs: { pos: d.vec4f },
     });
 
-    renderer.backend.transformFeedback(kernel, { inputs: { pos: bufA, vel: velBuf }, outputs: { pos: bufB }, count: N });
+    runTf(renderer, kernel, { inputs: { pos: bufA, vel: velBuf }, outputs: { pos: bufB }, count: N });
 
     const got = readTfFloat32(renderer, bufB, N * 4);
     let ok = true;
@@ -2176,10 +2150,10 @@ async function caseTransformFeedbackPingPong(): Promise<CaseResult> {
     });
 
     // Step 1: front → back.
-    renderer.backend.transformFeedback(kernel, { inputs: { pos: front, vel: velBuf }, outputs: { pos: back }, count: N });
+    runTf(renderer, kernel, { inputs: { pos: front, vel: velBuf }, outputs: { pos: back }, count: N });
     [front, back] = [back, front];
     // Step 2: front(=old back) → back(=old front). back must hold pos + 2*vel.
-    renderer.backend.transformFeedback(kernel, { inputs: { pos: front, vel: velBuf }, outputs: { pos: back }, count: N });
+    runTf(renderer, kernel, { inputs: { pos: front, vel: velBuf }, outputs: { pos: back }, count: N });
 
     // `back` now (after the second swap target) holds the twice-advanced values.
     const got = readTfFloat32(renderer, back, N * 4);
@@ -2236,7 +2210,7 @@ async function caseTransformFeedbackReadbackAsync(): Promise<CaseResult> {
         outputs: { pos: d.vec4f },
     });
 
-    renderer.backend.transformFeedback(kernel, { inputs: { pos: bufA, vel: velBuf }, outputs: { pos: bufB }, count: N });
+    runTf(renderer, kernel, { inputs: { pos: bufA, vel: velBuf }, outputs: { pos: bufB }, count: N });
 
     // The real async fence path — this is what Phase 3 delivers.
     const got = await renderer.backend.readBufferAsync(bufB);
@@ -2294,7 +2268,7 @@ async function caseTransformFeedbackUniform(): Promise<CaseResult> {
 
     // First dispatch with dt = 0.5.
     dt.value = 0.5;
-    renderer.backend.transformFeedback(kernel, { inputs: { pos: posBuf, vel: velBuf }, outputs: { pos: outBuf }, count: N });
+    runTf(renderer, kernel, { inputs: { pos: posBuf, vel: velBuf }, outputs: { pos: outBuf }, count: N });
     const got1 = readTfFloat32(renderer, outBuf, N * 4);
 
     let ok = true;
@@ -2310,7 +2284,7 @@ async function caseTransformFeedbackUniform(): Promise<CaseResult> {
     // Second dispatch with dt = 2.0 — must take effect (per-dispatch re-pack).
     if (ok) {
         dt.value = 2.0;
-        renderer.backend.transformFeedback(kernel, {
+        runTf(renderer, kernel, {
             inputs: { pos: posBuf, vel: velBuf },
             outputs: { pos: outBuf },
             count: N,
@@ -2381,7 +2355,7 @@ async function caseTransformFeedbackNeighbour(): Promise<CaseResult> {
         },
     );
 
-    renderer.backend.transformFeedback(kernel, { inputs: { pos: posBuf }, outputs: { pos: outBuf }, count: N });
+    runTf(renderer, kernel, { inputs: { pos: posBuf }, outputs: { pos: outBuf }, count: N });
     const got = readTfFloat32(renderer, outBuf, N * 4);
 
     let ok = true;
@@ -2472,7 +2446,7 @@ async function caseTransformFeedbackUnboundOutput(): Promise<CaseResult> {
     const gl = renderer.backend.gl!;
     let threw = false;
     try {
-        renderer.backend.transformFeedback(kernel, {
+        runTf(renderer, kernel, {
             inputs: { pos: posBuf, vel: velBuf },
             outputs: {},
             count: N,
@@ -2510,7 +2484,7 @@ async function caseTransformFeedbackAliasGuard(): Promise<CaseResult> {
     let threw = false;
     let msg = '';
     try {
-        renderer.backend.transformFeedback(kernel, {
+        runTf(renderer, kernel, {
             inputs: { pos: shared, vel: velBuf },
             outputs: { pos: shared },
             count: N,
@@ -4188,6 +4162,35 @@ async function caseViewportCellPresent(): Promise<CaseResult> {
     };
 }
 
+/**
+ * clear-ignores-scissor: a scissor bounds the draws, never the clear. `gl.clear` obeys the scissor box
+ * and WebGPU's `loadOp` does not, so clearing under one made a single desc mean two different regions.
+ */
+async function caseClearIgnoresScissor(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const gl = renderer.backend.gl!;
+
+    const f = frame(renderer);
+    f.pass({ target: renderer.backend.target, clear: [0, 0, 1, 1], label: 'blue' }).end();
+    // A corner scissor, far from the centre this reads: the second clear must still reach it.
+    f.pass({
+        target: renderer.backend.target,
+        clear: [1, 0, 0, 1],
+        scissor: { x: 0, y: 0, width: 4, height: 4 },
+        label: 'red-under-scissor',
+    }).end();
+    f.submit();
+
+    const centre = readAt(gl, CENTER, CENTER);
+    renderer.dispose();
+    return {
+        name: 'clear-ignores-scissor',
+        pixel: isRed(centre) ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `centre=${centre.join(',')} (red = the clear reached past the scissor)`,
+    };
+}
+
 export async function run(): Promise<RunResult> {
     try {
         const cases: CaseResult[] = [];
@@ -4198,8 +4201,8 @@ export async function run(): Promise<RunResult> {
             caseGeomUvPresent,
             caseViewportCellPresent,
             caseClear,
+            caseClearIgnoresScissor,
             caseCompilePrewarm,
-            caseTfOrdering,
             caseSolid,
             caseFrameApi,
             caseFrameDone,

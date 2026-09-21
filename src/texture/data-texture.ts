@@ -1,11 +1,11 @@
-import type { StructDef } from '../nodes/lib/core';
+import { GpuSampler } from '../core/gpu-sampler';
 import { GpuTexture } from '../core/gpu-texture';
 import { regionsFromLinearRun, type TextureRegionInit } from '../core/texture-region';
-import { GpuSampler } from '../core/gpu-sampler';
+import type { StructDef } from '../nodes/lib/core';
 import { packTo, packToView, structFieldLayout } from '../schema/pack';
-import { Source, type DataTextureImage } from './source';
 import * as d from '../schema/schema';
-import type { WrapMode, FilterMode, MipmapFilterMode, TextureOptions } from './texture';
+import { type DataTextureImage, Source } from './source';
+import type { FilterMode, MipmapFilterMode, TextureOptions, WrapMode } from './texture';
 
 /** Valid typed array types for DataTexture */
 export type DataTextureData = Uint8Array | Uint8ClampedArray | Uint16Array | Uint32Array | Float32Array;
@@ -15,7 +15,7 @@ export type StructValue<S extends d.StructSchema> = { [K in keyof S]: d.Infer<S[
 
 /**
  * A texture created from raw typed array data.
- * 
+ *
  * Useful for procedural textures, LUTs, noise textures, heightmaps, etc.
  */
 export class DataTexture {
@@ -24,7 +24,7 @@ export class DataTexture {
 
     /** The underlying GPU texture resource */
     readonly _gpuTexture: GpuTexture<d.texture2d>;
-    
+
     /** The underlying sampler */
     readonly _gpuSampler: GpuSampler;
 
@@ -39,17 +39,10 @@ export class DataTexture {
      * @param height - Height of the texture
      * @param options - Texture options (including format)
      */
-    constructor(
-        data: DataTextureData | null,
-        width: number,
-        height: number,
-        options: TextureOptions = {},
-    ) {
+    constructor(data: DataTextureData | null, width: number, height: number, options: TextureOptions = {}) {
         // Create source with size info
-        const src = data !== null 
-            ? new Source<DataTextureImage>({ data, width, height })
-            : null;
-        
+        const src = data !== null ? new Source<DataTextureImage>({ data, width, height }) : null;
+
         // Derive the shader-facing sample type from the format: integer formats (…uint/…sint) must be
         // typed texture2d<u32>/texture2d<i32> so the GLSL emitter declares usampler2D/isampler2D and
         // textureLoad returns uvec4/ivec4; every other format is float-sampled (texture2d<f32>).
@@ -66,7 +59,7 @@ export class DataTexture {
             flipY: options.flipY ?? false,
             premultiplyAlpha: options.premultiplyAlpha ?? false,
         });
-        
+
         // Create the underlying sampler with defaults for data textures
         this._gpuSampler = new GpuSampler({
             addressModeU: options.wrapS ?? 'clamp-to-edge',
@@ -81,19 +74,25 @@ export class DataTexture {
     // ─── Convenience getters/setters that forward to internals ───
 
     /** Unique numeric ID */
-    get id(): number { return this._gpuTexture.id; }
-    
-    /** Returns the width of the texture. */
-    get width(): number { return this._gpuTexture.width; }
-    
-    /** Returns the height of the texture. */
-    get height(): number { return this._gpuTexture.height; }
-    
-    /** The data source for this texture. */
-    get source(): Source<DataTextureImage> | null { 
-        return this._gpuTexture.source as Source<DataTextureImage> | null; 
+    get id(): number {
+        return this._gpuTexture.id;
     }
-    
+
+    /** Returns the width of the texture. */
+    get width(): number {
+        return this._gpuTexture.width;
+    }
+
+    /** Returns the height of the texture. */
+    get height(): number {
+        return this._gpuTexture.height;
+    }
+
+    /** The data source for this texture. */
+    get source(): Source<DataTextureImage> | null {
+        return this._gpuTexture.source as Source<DataTextureImage> | null;
+    }
+
     /** Convenience getter for the source data. */
     get image(): DataTextureImage | null {
         return this._gpuTexture.source?.data as DataTextureImage | null;
@@ -106,47 +105,89 @@ export class DataTexture {
     }
 
     /** Horizontal wrap mode (U direction). */
-    get wrapS(): WrapMode { return this._gpuSampler.addressModeU as WrapMode; }
-    set wrapS(v: WrapMode) { this._gpuSampler.addressModeU = v; }
+    get wrapS(): WrapMode {
+        return this._gpuSampler.addressModeU as WrapMode;
+    }
+    set wrapS(v: WrapMode) {
+        this._gpuSampler.addressModeU = v;
+    }
 
     /** Vertical wrap mode (V direction). */
-    get wrapT(): WrapMode { return this._gpuSampler.addressModeV as WrapMode; }
-    set wrapT(v: WrapMode) { this._gpuSampler.addressModeV = v; }
+    get wrapT(): WrapMode {
+        return this._gpuSampler.addressModeV as WrapMode;
+    }
+    set wrapT(v: WrapMode) {
+        this._gpuSampler.addressModeV = v;
+    }
 
     /** Magnification filter. */
-    get magFilter(): FilterMode { return this._gpuSampler.magFilter as FilterMode; }
-    set magFilter(v: FilterMode) { this._gpuSampler.magFilter = v; }
+    get magFilter(): FilterMode {
+        return this._gpuSampler.magFilter as FilterMode;
+    }
+    set magFilter(v: FilterMode) {
+        this._gpuSampler.magFilter = v;
+    }
 
     /** Minification filter. */
-    get minFilter(): FilterMode { return this._gpuSampler.minFilter as FilterMode; }
-    set minFilter(v: FilterMode) { this._gpuSampler.minFilter = v; }
+    get minFilter(): FilterMode {
+        return this._gpuSampler.minFilter as FilterMode;
+    }
+    set minFilter(v: FilterMode) {
+        this._gpuSampler.minFilter = v;
+    }
 
     /** Mipmap filter mode. */
-    get mipmapFilter(): MipmapFilterMode { return this._gpuSampler.mipmapFilter as MipmapFilterMode; }
-    set mipmapFilter(v: MipmapFilterMode) { this._gpuSampler.mipmapFilter = v; }
+    get mipmapFilter(): MipmapFilterMode {
+        return this._gpuSampler.mipmapFilter as MipmapFilterMode;
+    }
+    set mipmapFilter(v: MipmapFilterMode) {
+        this._gpuSampler.mipmapFilter = v;
+    }
 
     /** Anisotropic filtering level. */
-    get anisotropy(): number { return this._gpuSampler.maxAnisotropy; }
-    set anisotropy(v: number) { this._gpuSampler.maxAnisotropy = v; }
+    get anisotropy(): number {
+        return this._gpuSampler.maxAnisotropy;
+    }
+    set anisotropy(v: number) {
+        this._gpuSampler.maxAnisotropy = v;
+    }
 
     /** WebGPU texture format. */
-    get format(): GPUTextureFormat { return this._gpuTexture.format; }
-    set format(v: GPUTextureFormat) { this._gpuTexture.format = v; }
+    get format(): GPUTextureFormat {
+        return this._gpuTexture.format;
+    }
+    set format(v: GPUTextureFormat) {
+        this._gpuTexture.format = v;
+    }
 
     /** Whether to auto-generate mipmaps. */
-    get generateMipmaps(): boolean { return this._gpuTexture.generateMipmaps; }
-    set generateMipmaps(v: boolean) { this._gpuTexture.generateMipmaps = v; }
+    get generateMipmaps(): boolean {
+        return this._gpuTexture.generateMipmaps;
+    }
+    set generateMipmaps(v: boolean) {
+        this._gpuTexture.generateMipmaps = v;
+    }
 
     /** Whether to flip the image vertically when uploading. */
-    get flipY(): boolean { return this._gpuTexture.flipY; }
-    set flipY(v: boolean) { this._gpuTexture.flipY = v; }
+    get flipY(): boolean {
+        return this._gpuTexture.flipY;
+    }
+    set flipY(v: boolean) {
+        this._gpuTexture.flipY = v;
+    }
 
     /** Whether to premultiply alpha. */
-    get premultiplyAlpha(): boolean { return this._gpuTexture.premultiplyAlpha; }
-    set premultiplyAlpha(v: boolean) { this._gpuTexture.premultiplyAlpha = v; }
+    get premultiplyAlpha(): boolean {
+        return this._gpuTexture.premultiplyAlpha;
+    }
+    set premultiplyAlpha(v: boolean) {
+        this._gpuTexture.premultiplyAlpha = v;
+    }
 
     /** Version for dirty tracking. */
-    get version(): number { return this._gpuTexture.version; }
+    get version(): number {
+        return this._gpuTexture.version;
+    }
 
     /** Set to `true` to trigger a GPU upload on the next render. */
     set needsUpdate(value: boolean) {
@@ -267,24 +308,19 @@ export class DataTexture {
             const DataArrayCtor = this.data.constructor as new (buffer: ArrayBufferLike) => DataTextureData;
             clonedData = new DataArrayCtor(this.data.buffer.slice(0));
         }
-        
-        const tex = new DataTexture(
-            clonedData,
-            this.width,
-            this.height,
-            {
-                wrapS: this.wrapS,
-                wrapT: this.wrapT,
-                magFilter: this.magFilter,
-                minFilter: this.minFilter,
-                mipmapFilter: this.mipmapFilter,
-                anisotropy: this.anisotropy,
-                format: this.format,
-                generateMipmaps: this.generateMipmaps,
-                flipY: this.flipY,
-                premultiplyAlpha: this.premultiplyAlpha,
-            }
-        );
+
+        const tex = new DataTexture(clonedData, this.width, this.height, {
+            wrapS: this.wrapS,
+            wrapT: this.wrapT,
+            magFilter: this.magFilter,
+            minFilter: this.minFilter,
+            mipmapFilter: this.mipmapFilter,
+            anisotropy: this.anisotropy,
+            format: this.format,
+            generateMipmaps: this.generateMipmaps,
+            flipY: this.flipY,
+            premultiplyAlpha: this.premultiplyAlpha,
+        });
         tex.name = this.name;
         return tex;
     }
@@ -322,4 +358,14 @@ export function createStructTexture<S extends d.StructSchema>(
         magFilter: 'nearest',
         minFilter: 'nearest',
     });
+}
+
+/** The factory form, matching `createStructTexture` and the other texture constructors. */
+export function createDataTexture(
+    data: DataTextureData | null,
+    width: number,
+    height: number,
+    options: TextureOptions = {},
+): DataTexture {
+    return new DataTexture(data, width, height, options);
 }

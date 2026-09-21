@@ -68,10 +68,9 @@ let _tfCounter = 0;
  * The kernel callback: receives an object of input attribute nodes keyed by the `inputs` names, and
  * returns an object of output value nodes keyed by the `outputs` names.
  */
-export type TransformFeedbackCallback<
-    In extends Record<string, Any>,
-    Out extends Record<string, Any>,
-> = (io: { [K in keyof In]: AttributeNode<In[K]> }) => { [K in keyof Out]: Node<Out[K]> };
+export type TransformFeedbackCallback<In extends Record<string, Any>, Out extends Record<string, Any>> = (
+    io: { [K in keyof In]: AttributeNode<In[K]> },
+) => { [K in keyof Out]: Node<Out[K]> };
 
 export type TransformFeedbackLayout<In extends Record<string, Any>, Out extends Record<string, Any>> = {
     /** Per-element attribute schemas, keyed by name. */
@@ -117,9 +116,7 @@ export function transformFeedback<In extends Record<string, Any>, Out extends Re
     for (const name of Object.keys(layout.outputs)) {
         const expr = (outputs as Record<string, Node<Any>>)[name];
         if (expr == null) {
-            throw new Error(
-                `[transformFeedback] kernel did not return an output for '${name}' declared in outputs.`,
-            );
+            throw new Error(`[transformFeedback] kernel did not return an output for '${name}' declared in outputs.`);
         }
         outputExprs[name] = expr;
     }

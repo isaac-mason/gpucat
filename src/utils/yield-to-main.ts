@@ -13,5 +13,5 @@ export function yieldToMain(): Promise<void> {
         return scheduler.yield();
     }
     // fallback: setTimeout with 0ms delay yields to the event loop
-    return new Promise(resolve => setTimeout(resolve, 0));
+    return new Promise((resolve) => setTimeout(resolve, 0));
 }

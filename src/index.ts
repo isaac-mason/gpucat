@@ -5,7 +5,7 @@ export { unproject } from './camera/camera';
 export * from './camera/cube-camera';
 export * from './camera/orthographic-camera';
 export * from './camera/perspective-camera';
-export { FlyControls } from './controls/fly-controls';
+export { createFlyControls, FlyControls } from './controls/fly-controls';
 export type {
     MouseAction,
     OrbitControlsEvent,
@@ -13,13 +13,13 @@ export type {
     OrbitControlsEventType,
     TouchAction,
 } from './controls/orbit-controls';
-export { MOUSE, OrbitControls, TOUCH } from './controls/orbit-controls';
+export { createOrbitControls, MOUSE, OrbitControls, TOUCH } from './controls/orbit-controls';
 export type { TransformMode, TransformSpace } from './controls/transform-controls';
-export { TransformControls } from './controls/transform-controls';
+export { createTransformControls, TransformControls } from './controls/transform-controls';
 export * from './core/coordinate-system';
 export * from './core/cube-render-target';
 export * from './core/gpu-buffer';
-export { GpuSampler, type GpuSamplerOptions } from './core/gpu-sampler';
+export { createSampler, GpuSampler, type GpuSamplerOptions } from './core/gpu-sampler';
 export {
     createStorageTexture,
     createStorageTexture1d,
@@ -44,11 +44,11 @@ export * from './core/uniform';
 export * from './geometry/geometry';
 export * from './geometry/geometry-helpers';
 export * from './inspector/inspector';
-export * from './material/material';
+export * from './material/blend-mode';
 export * from './material/material';
 export type { Frustum } from './math/frustum';
 export * as frustum from './math/frustum';
-export { type Intersection, Raycaster } from './math/raycaster';
+export { createRaycaster, type Intersection, Raycaster } from './math/raycaster';
 export {
     compileComputeWgsl,
     compileGlsl,
@@ -325,6 +325,11 @@ export {
 } from './nodes/nodes';
 export { fullscreen, fullscreenPosition, vertexCountGeometry } from './objects/fullscreen';
 export {
+    createLine,
+    createLineGeometry,
+    createLineMaterial,
+    createLineSegments,
+    createLineSegmentsGeometry,
     Line,
     LineGeometry,
     LineMaterial,
@@ -405,5 +410,6 @@ export * from './texture/cube-texture';
 export * from './texture/data-texture';
 export * from './texture/depth-texture';
 export type { DataTextureImage, ImageSize, SourceData } from './texture/source';
-export { Source } from './texture/source';
+export { createSource, Source } from './texture/source';
 export * from './texture/texture';
+export * from './texture/texture-3d';

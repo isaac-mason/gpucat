@@ -4,7 +4,7 @@ import ts from 'typescript';
 import { expect, test } from 'vitest';
 
 /**
- * `PLAN-backend-symmetry.md` rule 3: core holds decisions that must not differ and machinery with no
+ * Backend symmetry rule 3: core holds decisions that must not differ and machinery with no
  * device in it. That property is what lets one `Renderer` serve both backends, and until layer 6.83
  * the only thing checking any of it was `neutral-contract`, which reads two type declarations.
  */

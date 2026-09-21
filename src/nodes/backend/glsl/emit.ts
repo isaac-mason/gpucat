@@ -16,9 +16,9 @@
  */
 
 import { layoutAlignOf, layoutSizeOf, layoutStrideOf, structFieldLayout } from '../../../schema/pack';
-import { assertSchemaUniformValid, assertUniformLayoutConformant } from '../../../schema/validate-layout';
 import type { StructSchema } from '../../../schema/schema';
 import * as d from '../../../schema/schema';
+import { assertSchemaUniformValid, assertUniformLayoutConformant } from '../../../schema/validate-layout';
 import type { CompileSlots, Discovery, SamplerEntry, TextureEntry, UniformGroupBlock, UniformMember } from '../../builder';
 import { type AnyNode, getChildren } from '../../graph';
 import type { AttributeNode } from '../../lib/attribute';
@@ -1915,7 +1915,9 @@ export function emitGlslTextures(ctx: GlslBuildContext): {
         _flipYd: 'vec2 _flipYd(bool f, vec2 g) { return f ? vec2(g.x, -g.y) : g; }', // grad Y sign under flip
     };
     // Fixed key order for deterministic output regardless of reference order.
-    const flipHelpers = (['_flipY2f', '_flipY2i', '_flipYd'] as const).filter((fn) => ctx.flipHelperFns.has(fn)).map((fn) => flipHelperDefs[fn]);
+    const flipHelpers = (['_flipY2f', '_flipY2i', '_flipYd'] as const)
+        .filter((fn) => ctx.flipHelperFns.has(fn))
+        .map((fn) => flipHelperDefs[fn]);
     return { glsl: [...precisionDefaults, ...lines, ...flipHelpers].join('\n'), textures, samplers };
 }
 

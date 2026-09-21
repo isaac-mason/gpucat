@@ -233,3 +233,11 @@ function createRenderTargetTexture(
 export function createRenderTarget(width: number, height: number, opts: RenderTargetOptions = {}): RenderTarget {
     return new RenderTarget(width, height, opts);
 }
+
+/** The name of the first attachment whose texture is disposed, or null. Depth counts: a submit dies on either. */
+export function deadAttachment(rt: RenderTarget): string | null {
+    for (const tex of rt.textures) {
+        if (tex._gpuTexture.disposed) return tex.name;
+    }
+    return rt._depthAttachment?._gpuTexture.disposed === true ? 'depth' : null;
+}

@@ -298,3 +298,11 @@ export class Texture<out T extends SourceData = SourceData> {
         this._gpuSampler.dispose();
     }
 }
+
+/** The factory form, matching `createDataTexture` and the other texture constructors. */
+export function createTexture<T extends SourceData = SourceData>(
+    image: T | Source<T> | null,
+    options: TextureOptions = {},
+): Texture<T> {
+    return new Texture(image, options);
+}

@@ -1,10 +1,7 @@
 import { type Vec3, vec3 } from 'math';
 import type { CubeRenderTarget } from '../core/cube-render-target';
 import { Object3D } from '../core/object3d';
-import { frame } from '../renderer/core/frame';
-
-import type { Renderer } from '../renderer/core/renderer';
-import { drawScene } from '../scene/draw-scene';
+import type { Frame } from '../renderer/core/frame';
 import { PerspectiveCamera } from './perspective-camera';
 
 /*
@@ -64,20 +61,17 @@ export class CubeCamera extends Object3D {
         }
     }
 
-    /** Records six passes, one per face, on a frame of its own. */
-    update(renderer: Renderer, scene: Object3D): void {
+    /** Records six passes, one per face, on the caller's frame, so the cube and what samples it share a submit. */
+    update(f: Frame, scene: Object3D): void {
         if (this.parent === null) this.updateWorldMatrix();
         this.getWorldPosition(_worldPos);
 
-        const previousFace = this.renderTarget.activeFace;
-        const previousMip = this.renderTarget.activeMipmapLevel;
         const generateMipmaps = this.renderTarget.texture.generateMipmaps;
 
         // Mips fill once, on the face that completes the cube: earlier faces are not defined yet,
         // and regenerating per face would be 6x redundant.
         this.renderTarget.texture.generateMipmaps = false;
 
-        const f = frame(renderer);
         for (let face = 0; face < 6; face++) {
             if (face === 5) this.renderTarget.texture.generateMipmaps = generateMipmaps;
 
@@ -95,12 +89,13 @@ export class CubeCamera extends Object3D {
                 mipLevel: this.activeMipmapLevel,
                 label: 'cube-camera',
             });
-            drawScene(renderer, pass, scene, camera);
+            pass.scene(scene, camera);
             pass.end();
         }
-        f.submit();
-
-        this.renderTarget.activeFace = previousFace;
-        this.renderTarget.activeMipmapLevel = previousMip;
     }
+}
+
+/** The factory form; pair it with `createCubeRenderTarget` for the target it draws into. */
+export function createCubeCamera(near: number, far: number, renderTarget: CubeRenderTarget): CubeCamera {
+    return new CubeCamera(near, far, renderTarget);
 }

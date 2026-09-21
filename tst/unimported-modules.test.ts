@@ -6,12 +6,8 @@ import { expect, test } from 'vitest';
 /** The package entry, which nothing imports by design. */
 const ROOT = join('src', 'index.ts');
 
-/**
- * Written, never wired. `Texture3D` is the CPU-side wrapper for the `texture_3d` the schema already
- * describes, so it is an unfinished feature rather than a leftover; deleting it would throw away the
- * only 3D texture surface there is. Listed so it stays visible and a second one cannot join it quietly.
- */
-const UNWIRED = [join('src', 'texture', 'texture-3d.ts')];
+/** Written, never wired. Empty: a module that nothing imports is either finished or deleted. */
+const UNWIRED: string[] = [];
 
 function sourceFiles(dir: string, out: string[] = []): string[] {
     for (const entry of readdirSync(dir)) {

@@ -22,6 +22,7 @@ import type { Geometry } from '../../geometry/geometry';
 import type { NodeBuilderState } from '../core/node-builder-state';
 import { assertVertexBuffers } from '../core/node-builder-state';
 import * as Buffers from './buffers';
+import type { WebGLBackend } from './webgl-backend';
 
 /** Per-geometry GL resources. Only VAOs: the buffers themselves belong to `buffers.ts`, keyed by
  *  `GpuBuffer`, so two geometries sharing one buffer share its GL object rather than each uploading. */
@@ -175,17 +176,16 @@ export type GeometryDrawInfo = {
  */
 export function prepareGeometry(
     gl: WebGL2RenderingContext,
-    state: GeometriesState,
-    buffers: Buffers.BufferCache,
+    b: WebGLBackend,
     geometry: Geometry,
     nodeState: NodeBuilderState,
     program: WebGLProgram,
     label = 'geometry',
 ): GeometryDrawInfo {
-    const gb = getGeometryBuffers(gl, state, geometry);
+    const gb = getGeometryBuffers(gl, b.geometries, geometry);
 
     // Detach any currently-bound VAO before uploading. An index upload binds ELEMENT_ARRAY_BUFFER,
-    // which is captured as VAO state — doing that while a *previous* object's cached VAO is still
+    // which is captured as VAO b.geometries — doing that while a *previous* object's cached VAO is still
     // bound would rewrite that VAO's element binding to this geometry's index buffer, so its next
     // draw would run against the wrong (possibly smaller) buffer. Uploads must land on the default
     // VAO 0. The caller (the draw loop) rebinds the resolved VAO after this returns.
@@ -196,13 +196,13 @@ export function prepareGeometry(
     // Upload every buffer the compiled vertex-buffer groups read from (+ any re-uploads).
     for (const group of nodeState.vertexBufferGroups) {
         const buffer = groupBuffer(geometry, group);
-        if (buffer) Buffers.ensureUploaded(gl, buffers, buffer, gl.ARRAY_BUFFER, group.name ?? 'attribute');
+        if (buffer) Buffers.ensureUploaded(gl, b.buffers, buffer, gl.ARRAY_BUFFER, group.name ?? 'attribute');
     }
 
     // Upload the index buffer if present.
     let indexType: number | null = null;
     if (geometry.index) {
-        Buffers.ensureUploaded(gl, buffers, geometry.index, gl.ELEMENT_ARRAY_BUFFER, 'index');
+        Buffers.ensureUploaded(gl, b.buffers, geometry.index, gl.ELEMENT_ARRAY_BUFFER, 'index');
         indexType = glIndexType(gl, geometry.index.array);
     }
 
@@ -224,8 +224,13 @@ export function prepareGeometry(
 
         for (const group of nodeState.vertexBufferGroups) {
             const buffer = groupBuffer(geometry, group);
-            const glBuffer = buffer ? Buffers.getUploaded(buffers, buffer) : undefined;
-            if (!glBuffer) continue;
+            const glBuffer = buffer ? Buffers.getUploaded(b.buffers, buffer) : undefined;
+            if (!glBuffer) {
+                throw new Error(
+                    `[webgl] the shader reads vertex buffer '${group.name ?? '(direct)'}' and the geometry has none; ` +
+                        'the attributes it feeds would read whatever was last bound.',
+                );
+            }
 
             gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
 
@@ -242,13 +247,13 @@ export function prepareGeometry(
                     const offset = attr.offset + slot * columnBytes;
                     // Guard against the device attribute cap: a location past MAX_VERTEX_ATTRIBS is a
                     // silent no-op fetch (the shader reads zeros). Report it as a clear error instead.
-                    if (state.maxVertexAttribs == null) {
-                        state.maxVertexAttribs = gl.getParameter(gl.MAX_VERTEX_ATTRIBS) as number;
+                    if (b.geometries.maxVertexAttribs == null) {
+                        b.geometries.maxVertexAttribs = gl.getParameter(gl.MAX_VERTEX_ATTRIBS) as number;
                     }
-                    if (location >= state.maxVertexAttribs) {
+                    if (location >= b.geometries.maxVertexAttribs) {
                         throw new Error(
                             `[webgl] a geometry uses vertex attribute location ${location}, but this ` +
-                                `device's MAX_VERTEX_ATTRIBS=${state.maxVertexAttribs}; reduce the number of vertex ` +
+                                `device's MAX_VERTEX_ATTRIBS=${b.geometries.maxVertexAttribs}; reduce the number of vertex ` +
                                 `attributes on the WebGL2 backend.`,
                         );
                     }
@@ -263,8 +268,8 @@ export function prepareGeometry(
             }
         }
 
-        // Bind the index buffer inside the VAO so it is captured as element-array state.
-        const glIndex = geometry.index ? Buffers.getUploaded(buffers, geometry.index) : undefined;
+        // Bind the index buffer inside the VAO so it is captured as element-array b.geometries.
+        const glIndex = geometry.index ? Buffers.getUploaded(b.buffers, geometry.index) : undefined;
         if (glIndex) {
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, glIndex);
         }

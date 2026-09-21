@@ -1,7 +1,8 @@
 import { expect, test } from 'vitest';
-import { Material, createRenderTarget } from '../src/index';
+import { createRenderTarget, Material } from '../src/index';
 import { createCanvasTarget } from '../src/renderer/core/canvas-target';
-import { formatHasStencil, makeRenderPipelineKey } from '../src/renderer/webgpu/pipelines';
+import { formatHasStencil } from '../src/renderer/core/render-types';
+import { makeRenderPipelineKey } from '../src/renderer/webgpu/pipelines';
 import type { DepthTextureFormat } from '../src/texture/depth-texture';
 import { installWebGPUPolyfills } from './stub-gpu';
 
@@ -14,9 +15,12 @@ function mat(overrides: Partial<Material> = {}): Material {
     return Object.assign(m, overrides);
 }
 
+/** WebGL matched two formats exactly and WebGPU matched a substring, so they disagreed about stencil8. */
 test('formatHasStencil detects the stencil aspect', () => {
     expect(formatHasStencil('depth24plus')).toBe(false);
     expect(formatHasStencil('depth32float')).toBe(false);
+    expect(formatHasStencil('depth16unorm')).toBe(false);
+    expect(formatHasStencil(undefined)).toBe(false);
     expect(formatHasStencil('depth24plus-stencil8')).toBe(true);
     expect(formatHasStencil('depth32float-stencil8')).toBe(true);
     expect(formatHasStencil('stencil8')).toBe(true);

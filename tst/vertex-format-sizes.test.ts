@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { deriveVertexFormat } from '../src/core/gpu-buffer';
-import { getBytesPerElement, wgslTypeItemSize } from '../src/renderer/webgpu/pipelines';
+import { getBytesPerElement, wgslTypeItemSize, wgslTypeToVertexFormat } from '../src/renderer/webgpu/pipelines';
 
 const ARRAYS = [Float32Array, Int32Array, Uint32Array, Int16Array, Uint16Array, Int8Array, Uint8Array];
 
@@ -54,4 +54,10 @@ test('every attribute type gpucat can declare has a component count', () => {
 /** A stride guessed at four components is wrong geometry with no error, so an unknown type is refused. */
 test('an unknown attribute type is refused rather than assumed to be four components', () => {
     expect(() => wgslTypeItemSize('vec3h')).toThrow(/no component count/);
+});
+
+/** `float32x4` on a miss is a 16-byte stride for whatever the type really was. */
+test('wgslTypeToVertexFormat refuses a type it does not know', () => {
+    expect(wgslTypeToVertexFormat('vec2f')).toBe('float32x2');
+    expect(() => wgslTypeToVertexFormat('mat4x4f')).toThrow(/mat4x4f/);
 });

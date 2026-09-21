@@ -101,7 +101,7 @@ describe('blend mode translation', () => {
     test('subtractive and multiply are rejected without premultiplied alpha', () => {
         for (const blending of ['subtractive', 'multiply'] as const) {
             const mode = new BlendMode(blending);
-            expect(blendModeState(mode)).toEqual(defaultBlendState());
+            expect(() => blendModeState(mode)).toThrow(new RegExp(blending));
             mode.premultiplyAlpha = true;
             expect(blendModeState(mode)).not.toEqual(defaultBlendState());
         }

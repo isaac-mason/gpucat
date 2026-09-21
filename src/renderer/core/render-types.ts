@@ -1,7 +1,9 @@
 import type { RenderTarget } from '../../core/render-target';
 import type { CanvasTarget } from './canvas-target';
 import type { RenderBundle } from './frame';
+import type { ScissorValue, ViewportValue } from './pass-context';
 import type { RenderObject } from './render-object';
+import type { View } from './view';
 
 /**
  * An opaque texture/attachment handle. Neutral core code may hold and pass these around but never
@@ -13,7 +15,7 @@ export type BackendTexture = unknown;
 
 /**
  * A render object that survived preparation (compiled + pipeline built), paired with the render list
- * item that produced it. `executeRenderPass` consumes these in order to issue draws. Neutral: it only
+ * item that produced it. The draw loop consumes these in order. Neutral: it only
  * references the language-agnostic `RenderObject`/`RenderItem`; the device payload lives in a
  * side table keyed by `renderObject`.
  */
@@ -29,16 +31,34 @@ export type RenderPassParams = {
     /** The canvas this pass draws to when `renderTarget` is null. Each one owns its own attachments. */
     canvasTarget: CanvasTarget | null;
     clearColor: { r: number; g: number; b: number; a: number };
-    autoClear: boolean;
-    /** False preserves depth even when `autoClear` clears colour. */
-    autoClearDepth: boolean;
+    clearsColor: boolean;
+    /** False preserves depth even when `clearsColor` clears colour. */
+    clearsDepth: boolean;
     /** Depth the attachment clears to. 0 with a 'greater' depth compare is reversed-Z. */
     clearDepthValue: number;
-    autoClearStencil: boolean;
+    clearsStencil: boolean;
     clearStencilValue: number;
     /** Whether the swapchain depth format carries a stencil aspect (used only when renderTarget is null). */
     swapchainStencil: boolean;
     passId: string;
+
+    /** Framebuffer width in physical pixels. */
+    width: number;
+    /** Framebuffer height in physical pixels. */
+    height: number;
+    camera: View | null;
+    /** Whether a custom viewport is active (not the full framebuffer). */
+    viewport: boolean;
+    /** Viewport rect in physical pixels; meaningless unless `viewport`. */
+    viewportValue: ViewportValue;
+    /** Whether the scissor test is active; false when the rect covers the whole framebuffer. */
+    scissor: boolean;
+    /** Scissor rect in physical pixels, clamped to the framebuffer; meaningless unless `scissor`. */
+    scissorValue: ScissorValue;
+    /** Cube face this pass writes, 0 for every other kind of target. */
+    layer: number;
+    /** Mip level this pass writes, 0 unless the target is a cube with mips. */
+    mipLevel: number;
 };
 
 /**
@@ -51,3 +71,33 @@ export type PreparedSegment = {
     start: number;
     count: number;
 };
+
+/** Whether a depth format carries a stencil aspect. `stencil8` is stencil-only and still counts. */
+export function formatHasStencil(format: GPUTextureFormat | undefined): boolean {
+    return format !== undefined && format.includes('stencil');
+}
+
+/** A pass's own struct, filled in place by `resolvePassParams` so a steady-state frame allocates none. */
+export function createPassParams(): RenderPassParams {
+    return {
+        renderTarget: null,
+        canvasTarget: null,
+        clearColor: { r: 0, g: 0, b: 0, a: 1 },
+        clearsColor: true,
+        clearsDepth: true,
+        clearDepthValue: 1,
+        clearsStencil: true,
+        clearStencilValue: 0,
+        swapchainStencil: false,
+        passId: 'render',
+        width: 0,
+        height: 0,
+        camera: null,
+        viewport: false,
+        viewportValue: { x: 0, y: 0, width: 0, height: 0, minDepth: 0, maxDepth: 1 },
+        scissor: false,
+        scissorValue: { x: 0, y: 0, width: 0, height: 0 },
+        layer: 0,
+        mipLevel: 0,
+    };
+}

@@ -221,8 +221,8 @@ camera.updateViewMatrix();
 const scenePass = renderTexture(scene, camera);
 const outputNode = renderOutput(scenePass.getTextureNode());
 const composite = fullscreen(outputNode);
-await compileCompute(renderer, computeInit);
-await compileCompute(renderer, computeUpdate);
+await compileCompute(renderer, [computeInit]);
+await compileCompute(renderer, [computeUpdate]);
 
 function update() {
     time.value = performance.now() / 1000;

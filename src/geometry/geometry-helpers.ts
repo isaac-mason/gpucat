@@ -304,12 +304,7 @@ export function createFullscreenTriangleGeometry(flipY = false): Geometry {
  * @param height - Total height along Y.
  * @param radialSegments - Number of segments around the circumference.
  */
-export function createCylinderGeometry(
-    radiusTop = 1,
-    radiusBottom = 1,
-    height = 1,
-    radialSegments = 8,
-): Geometry {
+export function createCylinderGeometry(radiusTop = 1, radiusBottom = 1, height = 1, radialSegments = 8): Geometry {
     const halfHeight = height / 2;
     const hasTop = radiusTop > 0;
     const hasBottom = radiusBottom > 0;
@@ -582,17 +577,10 @@ export function createTorusGeometry(
  */
 export function createOctahedronGeometry(radius = 1, detail = 0): Geometry {
     // base octahedron vertices
-    const baseVertices = [
-         1,  0,  0,  -1,  0,  0,
-         0,  1,  0,   0, -1,  0,
-         0,  0,  1,   0,  0, -1,
-    ];
+    const baseVertices = [1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1];
 
     // base octahedron faces (indices into baseVertices, CCW from outside)
-    const baseFaces = [
-        0, 2, 4,  0, 4, 3,  0, 3, 5,  0, 5, 2,
-        1, 4, 2,  1, 3, 4,  1, 5, 3,  1, 2, 5,
-    ];
+    const baseFaces = [0, 2, 4, 0, 4, 3, 0, 3, 5, 0, 5, 2, 1, 4, 2, 1, 3, 4, 1, 5, 3, 1, 2, 5];
 
     // subdivide
     let verts = baseVertices.slice();
@@ -605,8 +593,12 @@ export function createOctahedronGeometry(radius = 1, detail = 0): Geometry {
         const cached = midpointCache.get(key);
         if (cached !== undefined) return cached;
 
-        const ax = verts[a * 3], ay = verts[a * 3 + 1], az = verts[a * 3 + 2];
-        const bx = verts[b * 3], by = verts[b * 3 + 1], bz = verts[b * 3 + 2];
+        const ax = verts[a * 3],
+            ay = verts[a * 3 + 1],
+            az = verts[a * 3 + 2];
+        const bx = verts[b * 3],
+            by = verts[b * 3 + 1],
+            bz = verts[b * 3 + 2];
         let mx = (ax + bx) / 2;
         let my = (ay + by) / 2;
         let mz = (az + bz) / 2;
@@ -627,7 +619,9 @@ export function createOctahedronGeometry(radius = 1, detail = 0): Geometry {
         const newFaces: number[] = [];
         midpointCache.clear();
         for (let i = 0; i < faces.length; i += 3) {
-            const a = faces[i], b = faces[i + 1], c = faces[i + 2];
+            const a = faces[i],
+                b = faces[i + 1],
+                c = faces[i + 2];
             const ab = getMidpoint(a, b);
             const bc = getMidpoint(b, c);
             const ca = getMidpoint(c, a);
@@ -648,20 +642,34 @@ export function createOctahedronGeometry(radius = 1, detail = 0): Geometry {
     const indexData = vertexCount <= 65536 ? new Uint16Array(vertexCount) : new Uint32Array(vertexCount);
 
     for (let f = 0; f < faceCount; f++) {
-        const ia = faces[f * 3], ib = faces[f * 3 + 1], ic = faces[f * 3 + 2];
+        const ia = faces[f * 3],
+            ib = faces[f * 3 + 1],
+            ic = faces[f * 3 + 2];
 
-        const ax = verts[ia * 3] * radius, ay = verts[ia * 3 + 1] * radius, az = verts[ia * 3 + 2] * radius;
-        const bx = verts[ib * 3] * radius, by = verts[ib * 3 + 1] * radius, bz = verts[ib * 3 + 2] * radius;
-        const cx = verts[ic * 3] * radius, cy = verts[ic * 3 + 1] * radius, cz = verts[ic * 3 + 2] * radius;
+        const ax = verts[ia * 3] * radius,
+            ay = verts[ia * 3 + 1] * radius,
+            az = verts[ia * 3 + 2] * radius;
+        const bx = verts[ib * 3] * radius,
+            by = verts[ib * 3 + 1] * radius,
+            bz = verts[ib * 3 + 2] * radius;
+        const cx = verts[ic * 3] * radius,
+            cy = verts[ic * 3 + 1] * radius,
+            cz = verts[ic * 3 + 2] * radius;
 
         // face normal
-        const e1x = bx - ax, e1y = by - ay, e1z = bz - az;
-        const e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
+        const e1x = bx - ax,
+            e1y = by - ay,
+            e1z = bz - az;
+        const e2x = cx - ax,
+            e2y = cy - ay,
+            e2z = cz - az;
         let nx = e1y * e2z - e1z * e2y;
         let ny = e1z * e2x - e1x * e2z;
         let nz = e1x * e2y - e1y * e2x;
         const nl = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-        nx /= nl; ny /= nl; nz /= nl;
+        nx /= nl;
+        ny /= nl;
+        nz /= nl;
 
         const base = f * 3;
         for (let v = 0; v < 3; v++) {

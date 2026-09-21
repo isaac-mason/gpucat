@@ -9,7 +9,6 @@ test('CubeRenderTarget wraps a sized cube texture with 6 faces', () => {
     const rt = createCubeRenderTarget(256);
     expect(rt.isCubeRenderTarget).toBe(true);
     expect(rt.size).toBe(256);
-    expect(rt.activeFace).toBe(0);
     expect(rt.texture.size).toBe(256);
     expect(rt.texture._gpuTexture.depthOrArrayLayers).toBe(6);
     expect(rt.texture._gpuTexture.viewDimension).toBe('cube');

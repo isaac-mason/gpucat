@@ -123,6 +123,9 @@ export class Viewer extends Tab {
         // indexes tracks insertion order within each folder
         const indexes: Record<string, number> = {};
 
+        // Every preview is a pass on one frame; this opened a frame per preview and submitted each.
+        const f = frame(renderer);
+
         for (const canvasData of canvasDataList) {
             const item = this._addNodeItem(canvasData);
             const path = canvasData.path;
@@ -145,12 +148,12 @@ export class Viewer extends Tab {
                 }
             }
 
-            const f = frame(renderer);
             const pass = f.pass({ target: canvasData.canvasTarget, clear: [0, 0, 0, 1], label: 'viewer' });
             pass.draw(canvasData.mesh);
             pass.end();
-            f.submit();
         }
+
+        f.submit();
     }
 
     // Private helpers

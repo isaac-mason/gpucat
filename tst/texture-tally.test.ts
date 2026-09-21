@@ -10,7 +10,7 @@ import {
     tallyClearTexture,
     tallySetTexture,
 } from '../src/renderer/core/info';
-import { bytesPerTexel, gpuTextureBytes } from '../src/renderer/core/texture-size';
+import { bytesPerTexel, estimatedBytesPerTexel, gpuTextureBytes } from '../src/renderer/core/texture-size';
 import type { Source } from '../src/texture/source';
 
 /** The fields `gpuTextureBytes` reads; a real GpuTexture needs a device to construct. */
@@ -39,8 +39,11 @@ describe('byte estimation', () => {
         expect(gpuTextureBytes(texture({ format: 'r8unorm' }))).toBe(16 * 16);
     });
 
-    test('an unknown format falls back rather than throwing', () => {
-        expect(bytesPerTexel('astc-4x4-unorm' as GPUTextureFormat)).toBe(4);
+    /** A stride is arithmetic; the panel's figure wants a number more than it wants to be right. */
+    test('the stride refuses an unknown format and the estimate still answers', () => {
+        expect(() => bytesPerTexel('astc-4x4-unorm' as GPUTextureFormat)).toThrow(/astc-4x4-unorm/);
+        expect(estimatedBytesPerTexel('astc-4x4-unorm' as GPUTextureFormat)).toBe(4);
+        expect(estimatedBytesPerTexel('rgba16float')).toBe(8);
     });
 
     test('array layers and cube faces multiply', () => {

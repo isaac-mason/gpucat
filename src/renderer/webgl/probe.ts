@@ -17,24 +17,12 @@
 import type { Geometry } from '../../geometry/geometry';
 import type { NodeFrame } from '../core/node-frame';
 import { getBindings, type RenderObject } from '../core/render-object';
+import * as Bindings from './bindings';
 import { FRAGMENT_STAGE_MARKER } from './constants';
-import * as Buffers from './buffers';
 import * as Geometries from './geometries';
 import type { ProgramInfo } from './programs';
-import type { SamplerCache } from './samplers';
 import { bindTextures } from './texture-bindings';
-import type { TextureCache } from './textures';
-import * as Bindings from './bindings';
-
-/** The device caches + node frame the probe render needs (a subset of the renderer's caches). */
-export type ProbeCaches = {
-    geometries: Geometries.GeometriesState;
-    buffers: Buffers.BufferCache;
-    uniforms: Bindings.BindingsState;
-    textures: TextureCache;
-    samplers: SamplerCache;
-    frame: NodeFrame;
-};
+import type { WebGLBackend } from './webgl-backend';
 
 /** A cached probe program: the linked GL program + its UBO binding points, plus the 1×1 readback FBO. */
 type ProbeGl = {
@@ -73,12 +61,7 @@ function compileShader(gl: WebGL2RenderingContext, type: number, source: string)
  * VERTEX GLSL with the caller's patched FRAGMENT GLSL, resolving the same std140 UBO binding points
  * the normal program does (so the object's uniform groups bind correctly).
  */
-function buildProbeGl(
-    gl: WebGL2RenderingContext,
-    ro: RenderObject,
-    patchedFragment: string,
-    previous: ProbeGl | null,
-): ProbeGl {
+function buildProbeGl(gl: WebGL2RenderingContext, ro: RenderObject, patchedFragment: string, previous: ProbeGl | null): ProbeGl {
     if (previous && previous.fragmentSrc === patchedFragment) return previous;
     if (previous) disposeProbeGl(gl, previous);
 
@@ -178,7 +161,8 @@ export function disposeProbeState(gl: WebGL2RenderingContext | null, state: Prob
 export function renderProbe(
     gl: WebGL2RenderingContext,
     state: ProbeState,
-    caches: ProbeCaches,
+    caches: WebGLBackend,
+    frame: NodeFrame,
     ro: RenderObject,
     patchedFragment: string,
 ): Uint8Array | null {
@@ -228,15 +212,15 @@ export function renderProbe(
             if (binding.kind !== 'uniform') continue;
             const bindingPoint = p.uboBindingPoints.get(binding.block.groupName);
             if (bindingPoint === undefined) continue;
-            Bindings.updateAndBindUniformGroup(gl, caches.uniforms, caches.buffers, binding, caches.frame, bindingPoint, ro.material);
+            Bindings.updateAndBindUniformGroup(gl, caches, binding, frame, bindingPoint, ro.material);
         }
     }
 
     // Textures + samplers → GL units + combined-sampler uniforms.
-    bindTextures(gl, caches.textures, caches.samplers, ro, programInfo);
+    bindTextures(gl, caches, ro, programInfo);
 
     // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
-    const drawInfo = Geometries.prepareGeometry(gl, caches.geometries, caches.buffers, geometry, nodeState, p.program);
+    const drawInfo = Geometries.prepareGeometry(gl, caches, geometry, nodeState, p.program);
     gl.bindVertexArray(drawInfo.vao);
 
     // Draw (triangle list, instance count = mesh.count), mirroring the render-pass draw selection.

@@ -1,8 +1,13 @@
-import { GpuTexture, TEXTURE_USAGE } from '../core/gpu-texture';
 import { GpuSampler } from '../core/gpu-sampler';
+import { GpuTexture, TEXTURE_USAGE } from '../core/gpu-texture';
 import * as d from '../schema/schema';
 
-export type DepthTextureFormat = 'depth16unorm' | 'depth24plus' | 'depth24plus-stencil8' | 'depth32float' | 'depth32float-stencil8';
+export type DepthTextureFormat =
+    | 'depth16unorm'
+    | 'depth24plus'
+    | 'depth24plus-stencil8'
+    | 'depth32float'
+    | 'depth32float-stencil8';
 
 /**
  * A texture for storing depth information.
@@ -17,10 +22,10 @@ export class DepthTexture {
     readonly isDepthTexture = true;
     /** The underlying GPU texture resource */
     readonly _gpuTexture: GpuTexture<d.textureDepth2d>;
-    
+
     /** The underlying sampler */
     readonly _gpuSampler: GpuSampler;
-    
+
     /** Optional name for debugging */
     name = '';
 
@@ -40,7 +45,7 @@ export class DepthTexture {
             // constructed under a WebGL2 context / headless where that global is undefined.
             usage: TEXTURE_USAGE.RENDER_ATTACHMENT | TEXTURE_USAGE.TEXTURE_BINDING,
         });
-        
+
         // Default to comparison sampler for shadow mapping
         this._gpuSampler = new GpuSampler({
             compare: 'less',
@@ -49,22 +54,36 @@ export class DepthTexture {
         });
     }
 
-    get id(): number { return this._gpuTexture.id; }
-    get width(): number { return this._gpuTexture.width; }
-    get height(): number { return this._gpuTexture.height; }
-    get format(): DepthTextureFormat { return this._gpuTexture.format as DepthTextureFormat; }
-    
-    get compareFunction(): GPUCompareFunction | undefined { return this._gpuSampler.compare; }
-    set compareFunction(v: GPUCompareFunction | undefined) { this._gpuSampler.compare = v; }
-    
+    get id(): number {
+        return this._gpuTexture.id;
+    }
+    get width(): number {
+        return this._gpuTexture.width;
+    }
+    get height(): number {
+        return this._gpuTexture.height;
+    }
+    get format(): DepthTextureFormat {
+        return this._gpuTexture.format as DepthTextureFormat;
+    }
+
+    get compareFunction(): GPUCompareFunction | undefined {
+        return this._gpuSampler.compare;
+    }
+    set compareFunction(v: GPUCompareFunction | undefined) {
+        this._gpuSampler.compare = v;
+    }
+
     /** Version for dirty tracking. */
-    get version(): number { return this._gpuTexture.version; }
-    
+    get version(): number {
+        return this._gpuTexture.version;
+    }
+
     /** Mark as needing re-upload. */
     set needsUpdate(v: boolean) {
         if (v) this._gpuTexture.needsUpdate = true;
     }
-    
+
     /** Set the size of the depth texture. */
     setSize(width: number, height: number): void {
         if (this._gpuTexture.width !== width || this._gpuTexture.height !== height) {
@@ -73,16 +92,21 @@ export class DepthTexture {
             this._gpuTexture.needsUpdate = true;
         }
     }
-    
+
     clone(): DepthTexture {
         const tex = new DepthTexture(this.width, this.height, this.format);
         tex.name = this.name;
         tex.compareFunction = this.compareFunction;
         return tex;
     }
-    
+
     dispose(): void {
         this._gpuTexture.dispose();
         this._gpuSampler.dispose();
     }
+}
+
+/** The factory form; the contents are written by the GPU, so there is no data argument. */
+export function createDepthTexture(width: number, height: number, format?: DepthTextureFormat): DepthTexture {
+    return new DepthTexture(width, height, format);
 }

@@ -6,12 +6,17 @@ import type { DeviceBackend } from '../core/device-backend';
 import type { ComputePassDesc, DispatchRecord, PassDesc, PassEntry, RenderBundle } from '../core/frame';
 import { GPUFeatureName } from '../core/gpu-constants';
 import * as Info from '../core/info';
-import type { RenderContext } from '../core/pass-context';
+import { aimNodeFrame } from '../core/node-frame';
 import type { RenderObject } from '../core/render-object';
+import type { RenderPassParams } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
 import * as ops from '../core/renderer-ops';
-import type { BackendState } from './backend-state';
-import { type BindGroupLayoutCache, createBindGroupLayoutCache, getBindGroupLayoutCacheStats } from './bind-group-layout';
+import {
+    type BindGroupLayoutCache,
+    createBindGroupLayoutCache,
+    disposeBindGroupLayoutCache,
+    getBindGroupLayoutCacheStats,
+} from './bind-group-layout';
 import * as Bindings from './bindings';
 import * as Buffers from './buffers';
 import * as Compute from './compute';
@@ -50,7 +55,7 @@ export type WebGPUBackendOptions = {
  * frame encoder. The node graph, render objects and pass contexts belong to the `Renderer` this is
  * given at `init`, which is also what drives it.
  */
-export class WebGPUBackend implements DeviceBackend, BackendState {
+export class WebGPUBackend implements DeviceBackend {
     readonly name = 'webgpu' as const;
 
     /** A context is acquired per canvas target, so no single canvas is the device's. */
@@ -62,12 +67,14 @@ export class WebGPUBackend implements DeviceBackend, BackendState {
     /** @internal */ renderer: Renderer<DeviceBackend> = null!;
     /** @internal */ device: GPUDevice = null!;
     /** @internal */ adapter: GPUAdapter = null!;
-    /** @internal */ format: GPUTextureFormat = null!;
+    /** The colour format every canvas on this device is configured with. @internal */
+    format: GPUTextureFormat = null!;
 
     /** The only cache `init` has to build, because it stores the renderer's `info` by reference. @internal */
     buffers: Buffers.BufferCache = null!;
 
-    /** @internal */ bindGroupLayoutCache: BindGroupLayoutCache = createBindGroupLayoutCache();
+    /** Value-keyed, shared by pipelines and bindings so one entry shape yields one layout. @internal */
+    bindGroupLayoutCache: BindGroupLayoutCache = createBindGroupLayoutCache();
     /** @internal */ textures: Textures.TextureCache = Textures.createTextureCache();
     samplers: Samplers.SamplerCache = Samplers.createSamplerCache();
     /** @internal */ pipelines: Pipelines.PipelinesState = Pipelines.createPipelinesState(this.bindGroupLayoutCache);
@@ -75,7 +82,8 @@ export class WebGPUBackend implements DeviceBackend, BackendState {
     /** @internal */ renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache = RenderObjectGpu.createRenderObjectGpuCache();
     /** @internal */ geometries: Geometries.GeometriesState = Geometries.createGeometriesState();
 
-    /** @internal */ readonly renderBundles = new WeakMap<
+    /** Per (bundle, camera, render context); here rather than on the neutral bundle, which may name no device object. @internal */
+    readonly renderBundles = new WeakMap<
         RenderBundle,
         WeakMap<object, Map<number, { gpu: GPURenderBundle; version: number; rebuilds: number }>>
     >();
@@ -170,6 +178,7 @@ export class WebGPUBackend implements DeviceBackend, BackendState {
     }
 
     /** Unreachable: `frame.transformFeedback()` rejects this backend before a pass can open. */
+    /** Unreachable: `frame.transformFeedback()` rejects this backend by name before a dispatch can be recorded. */
     encodeTransformFeedbackPass(): never {
         throw new Error('[webgpu] transform feedback is WebGL2-only');
     }
@@ -183,7 +192,7 @@ export class WebGPUBackend implements DeviceBackend, BackendState {
     }
 
     /** Phase 1 compiles every pipeline in parallel; phase 2's uploads are per drawable, not per material. */
-    async compileObjects(objects: RenderObject[], context: RenderContext): Promise<void> {
+    async compileObjects(objects: RenderObject[], params: RenderPassParams): Promise<void> {
         const nodes = this.renderer._nodes;
         const pipelinePromises: Promise<void>[] = [];
         for (const renderObject of objects) {
@@ -191,21 +200,18 @@ export class WebGPUBackend implements DeviceBackend, BackendState {
         }
         await Promise.all(pipelinePromises);
 
+        aimNodeFrame(this.renderer, params.camera, params.width, params.height);
         const preWarmFrame = nodes.nodeFrame;
         for (const renderObject of objects) {
-            preWarmFrame.renderer = this.renderer;
-            preWarmFrame.camera = context.camera;
             preWarmFrame.object = renderObject.mesh;
             preWarmFrame.material = renderObject.material;
-            preWarmFrame.width = context.width;
-            preWarmFrame.height = context.height;
             Prepare.uploadRenderObjectResources(this, renderObject, renderObject.geometry, preWarmFrame);
             await yieldToMain();
         }
     }
 
-    readPixels(renderTarget: RenderTarget, attachmentIndex: number, layer: number): Promise<Uint8Array> {
-        return ReadPixels.readPixels(this, renderTarget, attachmentIndex, layer);
+    readPixels(renderTarget: RenderTarget, attachmentIndex: number, layer: number, mipLevel: number): Promise<Uint8Array> {
+        return ReadPixels.readPixels(this, renderTarget, attachmentIndex, layer, mipLevel);
     }
 
     /** Off the `DeviceBackend` contract on purpose: a neutral signature would widen this to `string`. */
@@ -232,7 +238,15 @@ export class WebGPUBackend implements DeviceBackend, BackendState {
     }
 
     dispose(): void {
-        RenderPass.disposeDevice(this, this._deviceProvided);
+        RenderPass.disposeSwapchain(this);
+        Textures.disposeTextureCache(this.textures);
+        Samplers.disposeSamplerCache(this.samplers);
+        Buffers.disposeBufferCache(this.buffers);
+        Pipelines.disposePipelines(this.pipelines);
+        disposeBindGroupLayoutCache(this.bindGroupLayoutCache);
+
+        // A handed-in device is the caller's to destroy; the caches above are ours either way.
+        if (!this._deviceProvided && this.device) this.device.destroy();
     }
 
     /** The canvas context for a target, configured against this device. Acquired lazily per canvas. */
@@ -241,7 +255,7 @@ export class WebGPUBackend implements DeviceBackend, BackendState {
     }
 
     /** Pre-compile a compute pipeline; one promise list, since awaiting per node would serialize them. */
-    async compileCompute(nodes: ComputeNode[]): Promise<void> {
+    async compileCompute(nodes: readonly ComputeNode[]): Promise<void> {
         const promises: Promise<void>[] = [];
         for (const node of nodes) {
             Compute.compileComputePipeline(

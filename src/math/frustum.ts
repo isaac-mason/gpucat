@@ -1,18 +1,11 @@
-import { mat4, type Mat4 } from 'math';
-import { plane3, type Box3, type Plane3, type Sphere } from 'math/shapes';
+import { type Mat4, mat4 } from 'math';
+import { type Box3, type Plane3, plane3, type Sphere } from 'math/shapes';
 import { CoordinateSystem } from '../core/coordinate-system';
 
 export type Frustum = [Plane3, Plane3, Plane3, Plane3, Plane3, Plane3];
 
 export function create(): Frustum {
-    return [
-        plane3.create(),
-        plane3.create(),
-        plane3.create(),
-        plane3.create(),
-        plane3.create(),
-        plane3.create(),
-    ];
+    return [plane3.create(), plane3.create(), plane3.create(), plane3.create(), plane3.create(), plane3.create()];
 }
 
 export function clone(f: Frustum): Frustum {

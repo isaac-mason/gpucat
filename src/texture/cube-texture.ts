@@ -1,8 +1,8 @@
-import { Source, type SourceData } from './source';
+import { GpuSampler } from '../core/gpu-sampler';
 import { GpuTexture } from '../core/gpu-texture';
 import type { TextureRectInit, TextureRegionInit } from '../core/texture-region';
-import { GpuSampler } from '../core/gpu-sampler';
 import * as d from '../schema/schema';
+import { Source, type SourceData } from './source';
 
 /**
  * Cube texture mapping modes.
@@ -17,12 +17,12 @@ export type CubeTextureOptions = {
     magFilter?: GPUFilterMode;
     minFilter?: GPUFilterMode;
     mipmapFilter?: GPUMipmapFilterMode;
-    
+
     // Format/upload
     format?: GPUTextureFormat;
     generateMipmaps?: boolean;
     flipY?: boolean;
-    
+
     // Cube-specific
     mapping?: CubeTextureMapping;
 
@@ -45,7 +45,7 @@ export class CubeTexture {
 
     /** The underlying GPU texture resource */
     readonly _gpuTexture: GpuTexture<d.textureCube>;
-    
+
     /** The underlying sampler */
     readonly _gpuSampler: GpuSampler;
 
@@ -67,7 +67,7 @@ export class CubeTexture {
      */
     constructor(
         faces: [SourceData, SourceData, SourceData, SourceData, SourceData, SourceData] | SourceData[] = [],
-        options: CubeTextureOptions = {}
+        options: CubeTextureOptions = {},
     ) {
         // Determine size from the first face, or from options.size for a
         // render-only cube (no face images, e.g. a CubeRenderTarget).
@@ -83,7 +83,7 @@ export class CubeTexture {
 
         this._gpuTexture = new GpuTexture(d.textureCube(), {
             size,
-            faces: faces.map(f => f instanceof Source ? f : new Source(f)),
+            faces: faces.map((f) => (f instanceof Source ? f : new Source(f))),
             format: options.format,
             generateMipmaps: options.generateMipmaps ?? true,
             flipY: options.flipY ?? false,
@@ -93,7 +93,7 @@ export class CubeTexture {
         if (faces.length === 0) {
             this._gpuTexture.isRenderTargetTexture = true;
         }
-        
+
         this._gpuSampler = new GpuSampler({
             addressModeU: options.wrapS ?? 'clamp-to-edge',
             addressModeV: options.wrapT ?? 'clamp-to-edge',
@@ -102,29 +102,37 @@ export class CubeTexture {
             minFilter: options.minFilter ?? 'linear',
             mipmapFilter: options.mipmapFilter ?? 'linear',
         });
-        
+
         this.mapping = options.mapping ?? 'reflection';
     }
 
     // ─── Convenience getters/setters ───
 
-    get id(): number { return this._gpuTexture.id; }
-    get width(): number { return this._gpuTexture.width; }
-    get height(): number { return this._gpuTexture.height; }
-    get size(): number { return this._gpuTexture.size; }
-    
+    get id(): number {
+        return this._gpuTexture.id;
+    }
+    get width(): number {
+        return this._gpuTexture.width;
+    }
+    get height(): number {
+        return this._gpuTexture.height;
+    }
+    get size(): number {
+        return this._gpuTexture.size;
+    }
+
     /** Check if all 6 faces are present and ready */
-    get isComplete(): boolean { return this._gpuTexture.isComplete; }
+    get isComplete(): boolean {
+        return this._gpuTexture.isComplete;
+    }
 
     /** The 6 face images as SourceData */
     get images(): SourceData[] {
-        return this._gpuTexture.sources.map(s => s.data);
+        return this._gpuTexture.sources.map((s) => s.data);
     }
 
     set images(value: SourceData[]) {
-        this._gpuTexture.sources = value.map(img =>
-            img instanceof Source ? img : new Source(img)
-        );
+        this._gpuTexture.sources = value.map((img) => (img instanceof Source ? img : new Source(img)));
         // Update size from first face
         if (value.length > 0) {
             const first = this._gpuTexture.sources[0];
@@ -141,37 +149,79 @@ export class CubeTexture {
         return this._gpuTexture.sources;
     }
 
-    get wrapS(): GPUAddressMode { return this._gpuSampler.addressModeU; }
-    set wrapS(v: GPUAddressMode) { this._gpuSampler.addressModeU = v; }
+    get wrapS(): GPUAddressMode {
+        return this._gpuSampler.addressModeU;
+    }
+    set wrapS(v: GPUAddressMode) {
+        this._gpuSampler.addressModeU = v;
+    }
 
-    get wrapT(): GPUAddressMode { return this._gpuSampler.addressModeV; }
-    set wrapT(v: GPUAddressMode) { this._gpuSampler.addressModeV = v; }
+    get wrapT(): GPUAddressMode {
+        return this._gpuSampler.addressModeV;
+    }
+    set wrapT(v: GPUAddressMode) {
+        this._gpuSampler.addressModeV = v;
+    }
 
-    get magFilter(): GPUFilterMode { return this._gpuSampler.magFilter; }
-    set magFilter(v: GPUFilterMode) { this._gpuSampler.magFilter = v; }
+    get magFilter(): GPUFilterMode {
+        return this._gpuSampler.magFilter;
+    }
+    set magFilter(v: GPUFilterMode) {
+        this._gpuSampler.magFilter = v;
+    }
 
-    get minFilter(): GPUFilterMode { return this._gpuSampler.minFilter; }
-    set minFilter(v: GPUFilterMode) { this._gpuSampler.minFilter = v; }
+    get minFilter(): GPUFilterMode {
+        return this._gpuSampler.minFilter;
+    }
+    set minFilter(v: GPUFilterMode) {
+        this._gpuSampler.minFilter = v;
+    }
 
-    get mipmapFilter(): GPUMipmapFilterMode { return this._gpuSampler.mipmapFilter; }
-    set mipmapFilter(v: GPUMipmapFilterMode) { this._gpuSampler.mipmapFilter = v; }
+    get mipmapFilter(): GPUMipmapFilterMode {
+        return this._gpuSampler.mipmapFilter;
+    }
+    set mipmapFilter(v: GPUMipmapFilterMode) {
+        this._gpuSampler.mipmapFilter = v;
+    }
 
-    get anisotropy(): number { return this._gpuSampler.maxAnisotropy; }
-    set anisotropy(v: number) { this._gpuSampler.maxAnisotropy = v; }
+    get anisotropy(): number {
+        return this._gpuSampler.maxAnisotropy;
+    }
+    set anisotropy(v: number) {
+        this._gpuSampler.maxAnisotropy = v;
+    }
 
-    get format(): GPUTextureFormat { return this._gpuTexture.format; }
-    set format(v: GPUTextureFormat) { this._gpuTexture.format = v; }
+    get format(): GPUTextureFormat {
+        return this._gpuTexture.format;
+    }
+    set format(v: GPUTextureFormat) {
+        this._gpuTexture.format = v;
+    }
 
-    get generateMipmaps(): boolean { return this._gpuTexture.generateMipmaps; }
-    set generateMipmaps(v: boolean) { this._gpuTexture.generateMipmaps = v; }
+    get generateMipmaps(): boolean {
+        return this._gpuTexture.generateMipmaps;
+    }
+    set generateMipmaps(v: boolean) {
+        this._gpuTexture.generateMipmaps = v;
+    }
 
-    get flipY(): boolean { return this._gpuTexture.flipY; }
-    set flipY(v: boolean) { this._gpuTexture.flipY = v; }
+    get flipY(): boolean {
+        return this._gpuTexture.flipY;
+    }
+    set flipY(v: boolean) {
+        this._gpuTexture.flipY = v;
+    }
 
-    get premultiplyAlpha(): boolean { return this._gpuTexture.premultiplyAlpha; }
-    set premultiplyAlpha(v: boolean) { this._gpuTexture.premultiplyAlpha = v; }
+    get premultiplyAlpha(): boolean {
+        return this._gpuTexture.premultiplyAlpha;
+    }
+    set premultiplyAlpha(v: boolean) {
+        this._gpuTexture.premultiplyAlpha = v;
+    }
 
-    get version(): number { return this._gpuTexture.version; }
+    get version(): number {
+        return this._gpuTexture.version;
+    }
 
     set needsUpdate(v: boolean) {
         if (v) this._gpuTexture.needsUpdate = true;
@@ -215,4 +265,12 @@ export class CubeTexture {
         this._gpuTexture.dispose();
         this._gpuSampler.dispose();
     }
+}
+
+/** The factory form; pass no faces (and `options.size`) for a render-only cube. */
+export function createCubeTexture(
+    faces: [SourceData, SourceData, SourceData, SourceData, SourceData, SourceData] | SourceData[] = [],
+    options: CubeTextureOptions = {},
+): CubeTexture {
+    return new CubeTexture(faces, options);
 }

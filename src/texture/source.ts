@@ -99,3 +99,8 @@ export class Source<out T = SourceData> {
         return 0;
     }
 }
+
+/** The factory form; a `Source` is the uploadable image data a texture points at. */
+export function createSource<T extends SourceData = SourceData>(data: T): Source<T> {
+    return new Source(data);
+}

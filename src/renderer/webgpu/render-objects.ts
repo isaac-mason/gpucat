@@ -10,11 +10,11 @@ import type { NodeManagerState } from '../core/node-manager';
 import { compileNodeState, needsNodeUpdate } from '../core/node-manager';
 import type { RenderObject } from '../core/render-object';
 import { computeRenderObjectCacheKey } from '../core/render-object';
-import type { BackendState } from './backend-state';
 import { getRenderBindGroupLayouts, initRenderBindings, updateRenderBindings } from './bindings';
 import { updateForRender as updateGeometry } from './geometries';
 import * as pipelines from './pipelines';
 import { getRenderObjectGpu } from './render-object-gpu';
+import type { WebGPUBackend } from './webgpu-backend';
 
 // Re-export the neutral RenderObject cache so existing webgpu-side imports keep working.
 /**
@@ -33,7 +33,7 @@ import { getRenderObjectGpu } from './render-object-gpu';
  * @returns true if initialization succeeded
  */
 export function initRenderObject(
-    b: BackendState,
+    b: WebGPUBackend,
     nodes: NodeManagerState,
     renderObject: RenderObject,
     compile: (slots: CompileSlots) => CompileResult,
@@ -92,14 +92,14 @@ export function initRenderObject(
  * - Update uniform buffers
  * - Rebuild bind groups if needed
  */
-export function updateRenderObject(b: BackendState, renderObject: RenderObject, frame: NodeFrame): void {
+export function updateRenderObject(b: WebGPUBackend, renderObject: RenderObject, frame: NodeFrame): void {
     updateRenderBindings(b, renderObject, frame);
     updateGeometry(b, renderObject);
 }
 
 /** `initRenderObject` for the pre-warm: pipeline compilation is pushed onto `promises` instead of awaited. */
 export function initRenderObjectWithPromises(
-    b: BackendState,
+    b: WebGPUBackend,
     nodes: NodeManagerState,
     renderObject: RenderObject,
     promises: Promise<void>[],

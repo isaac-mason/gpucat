@@ -67,10 +67,6 @@ export class Renderer<B extends DeviceBackend = DeviceBackend> implements Render
         return this;
     }
 
-    /** The renderer's one reusable frame, reopened. */
-    /** Pre-warm the drawables a pass will look up, resolved through the context that pass resolves. */
-
-
     dispose(): void {
         this.backend.dispose();
         // Cleared, not disposed one by one: the backend's teardown invalidates every GPU resource, and

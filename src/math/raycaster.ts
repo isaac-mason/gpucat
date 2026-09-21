@@ -1,7 +1,7 @@
-import { vec3, mat4, type Vec3, type Mat4 } from 'math';
+import { type Mat4, mat4, type Vec3, vec3 } from 'math';
 import type { Box3 } from 'math/shapes';
+import { type Camera, unproject } from '../camera/camera';
 import type { Object3D } from '../core/object3d';
-import { Camera, unproject } from '../camera/camera';
 
 export type Ray = {
     origin: Vec3;
@@ -13,13 +13,20 @@ export type Ray = {
  * Returns raw t (distance along ray direction) or null if no hit.
  */
 export function rayTriangleIntersection(
-    origin: Vec3, direction: Vec3,
-    a: Vec3, b: Vec3, c: Vec3,
+    origin: Vec3,
+    direction: Vec3,
+    a: Vec3,
+    b: Vec3,
+    c: Vec3,
     backfaceCulling: boolean,
 ): number | null {
     // edge1 = b - a, edge2 = c - a
-    const e1x = b[0] - a[0], e1y = b[1] - a[1], e1z = b[2] - a[2];
-    const e2x = c[0] - a[0], e2y = c[1] - a[1], e2z = c[2] - a[2];
+    const e1x = b[0] - a[0],
+        e1y = b[1] - a[1],
+        e1z = b[2] - a[2];
+    const e2x = c[0] - a[0],
+        e2y = c[1] - a[1],
+        e2z = c[2] - a[2];
 
     // normal = edge1 × edge2
     const nx = e1y * e2z - e1z * e2y;
@@ -44,19 +51,19 @@ export function rayTriangleIntersection(
     const diffz = origin[2] - a[2];
 
     // barycentric coord b1
-    const DdQxE2 = sign * (
-        direction[0] * (diffy * e2z - diffz * e2y) +
-        direction[1] * (diffz * e2x - diffx * e2z) +
-        direction[2] * (diffx * e2y - diffy * e2x)
-    );
+    const DdQxE2 =
+        sign *
+        (direction[0] * (diffy * e2z - diffz * e2y) +
+            direction[1] * (diffz * e2x - diffx * e2z) +
+            direction[2] * (diffx * e2y - diffy * e2x));
     if (DdQxE2 < 0) return null;
 
     // barycentric coord b2
-    const DdE1xQ = sign * (
-        direction[0] * (e1y * diffz - e1z * diffy) +
-        direction[1] * (e1z * diffx - e1x * diffz) +
-        direction[2] * (e1x * diffy - e1y * diffx)
-    );
+    const DdE1xQ =
+        sign *
+        (direction[0] * (e1y * diffz - e1z * diffy) +
+            direction[1] * (e1z * diffx - e1x * diffz) +
+            direction[2] * (e1x * diffy - e1y * diffx));
     if (DdE1xQ < 0) return null;
 
     if (DdQxE2 + DdE1xQ > DdN) return null;
@@ -95,7 +102,11 @@ export function rayIntersectsBox3(origin: Vec3, direction: Vec3, aabb: Box3, max
             const invD = 1 / d;
             let t0 = (lo - origin[i]) * invD;
             let t1 = (hi - origin[i]) * invD;
-            if (invD < 0) { const tmp = t0; t0 = t1; t1 = tmp; }
+            if (invD < 0) {
+                const tmp = t0;
+                t0 = t1;
+                t1 = tmp;
+            }
             tmin = Math.max(tmin, t0);
             tmax = Math.min(tmax, t1);
             if (tmax < tmin) return false;
@@ -115,7 +126,6 @@ export type Intersection = {
     normal?: Vec3;
 };
 
-// Reusable temp objects
 const _target: Vec3 = [0, 0, 0];
 const _direction: Vec3 = [0, 0, 0];
 
@@ -333,8 +343,10 @@ function computeBarycentricUV(
     const uvC_u = uvs[ic * 2];
     const uvC_v = uvs[ic * 2 + 1];
 
-    return [
-        w * uvA_u + v * uvB_u + u * uvC_u,
-        w * uvA_v + v * uvB_v + u * uvC_v,
-    ];
+    return [w * uvA_u + v * uvB_u + u * uvC_u, w * uvA_v + v * uvB_v + u * uvC_v];
+}
+
+/** The factory form; set the ray later with `set` or `setFromCamera`. */
+export function createRaycaster(origin?: Vec3, direction?: Vec3, near?: number, far?: number): Raycaster {
+    return new Raycaster(origin, direction, near, far);
 }

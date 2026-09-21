@@ -2420,7 +2420,17 @@ export function struct<S extends d.StructSchema>(name: string, fields: S): Struc
         const args = members.map((m) => fieldNodes[m.name as keyof S] as Node<Any>);
         return new ConstructNode(def as unknown as StructDef<S>, args);
     }
-    const def: StructDef<S> = { type: 'struct', wgslType: name, glslType: name, name, fields, members, node, nestedDefs, construct };
+    const def: StructDef<S> = {
+        type: 'struct',
+        wgslType: name,
+        glslType: name,
+        name,
+        fields,
+        members,
+        node,
+        nestedDefs,
+        construct,
+    };
     return def;
 }
 

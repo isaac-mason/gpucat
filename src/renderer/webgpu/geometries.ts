@@ -2,9 +2,9 @@ import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
 import type { Any } from '../../schema/schema';
 import type { RenderObject } from '../core/render-object';
-import type { BackendState } from './backend-state';
 import type { BufferCache } from './buffers';
 import * as Buffers from './buffers';
+import type { WebGPUBackend } from './webgpu-backend';
 
 /**
  * @deprecated No longer used, all buffer types route through ensureUploaded.
@@ -198,7 +198,7 @@ function initGeometry(state: GeometriesState, bufferCache: BufferCache, device: 
  * Note: Version tracking is handled by buffers.ts. We just ensure each
  * buffer goes through the upload path (with per-frame deduplication).
  */
-export function updateForRender(b: BackendState, renderObject: RenderObject): void {
+export function updateForRender(b: WebGPUBackend, renderObject: RenderObject): void {
     const { geometries: state, buffers: bufferCache, device } = b;
     const geometry = renderObject.geometry;
     const data = state.geometryData.get(geometry);

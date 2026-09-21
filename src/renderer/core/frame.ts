@@ -1,6 +1,6 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Object3D } from '../../core/object3d';
-import type { RenderTarget } from '../../core/render-target';
+import { deadAttachment, type RenderTarget } from '../../core/render-target';
 import type { Material } from '../../material/material';
 import type { ComputeNode } from '../../nodes/lib/core';
 import type { MRTNode } from '../../nodes/lib/mrt';
@@ -42,7 +42,7 @@ export type DrawOptions = {
     material?: Material;
 };
 
-/** One recorded draw. `kind` is the seam a bundle entry joins at; see `PLAN-render-bundles.md`. */
+/** One recorded draw. `kind` discriminates it from a bundle entry in the same pass array. */
 export type DrawRecord = {
     kind: 'draw';
     mesh: Mesh;
@@ -82,7 +82,14 @@ export type DispatchOptions = {
 export type DispatchIndirectOptions = DispatchOptions & { offset?: number };
 
 /** Exactly one of `counts` and `indirect` is set, which `dispatch` and `dispatchIndirect` guarantee. */
-export type DispatchRecord = DispatchOptions & {
+/** Exactly one of `counts` and `indirect`, as a union rather than a comment the reader has to trust. */
+export type DispatchRecord = DispatchOptions & { node: ComputeNode } & (
+        | { counts: [number, number, number]; indirect?: undefined; indirectOffset?: undefined }
+        | { counts?: undefined; indirect: GpuBuffer<Any>; indirectOffset?: number }
+    );
+
+/** The pool writes every field of a slot whichever arm it held, which the union alone cannot express. */
+type DispatchRecordSlot = DispatchOptions & {
     node: ComputeNode;
     counts?: [number, number, number];
     indirect?: GpuBuffer<Any>;
@@ -186,6 +193,8 @@ export type Frame = {
     closed: boolean;
     /** Render targets this frame encoded into, so `submit` can see one disposed since. */
     targets: RenderTarget[];
+    /** True once this frame object has carried a submitted frame, so a reopen can be told from a first use. */
+    everSubmitted: boolean;
     /** Memoised by the `done` getter, so asking twice waits once and never asking waits not at all. */
     completion: Promise<void> | null;
     pass(desc: PassDesc): Pass;
@@ -216,6 +225,7 @@ export function createFrame(backend: FrameBackend): Frame {
         open: null,
         targets: [],
         completion: null,
+        everSubmitted: false,
         closed: true,
         pass: (desc) => openRenderPass(frame, desc),
         compute: (desc) => openComputePass(frame, desc ?? {}),
@@ -223,7 +233,13 @@ export function createFrame(backend: FrameBackend): Frame {
         submit: () => submitFrame(frame),
         abandon: () => abandonFrame(frame),
         get done(): Promise<void> {
-            if (!frame.closed) throw new Error('[frame] done read before submit(); there is no work to wait on yet');
+            if (!frame.closed) {
+                throw new Error(
+                    frame.everSubmitted
+                        ? '[frame] done is readable between submit() and the next frame(); this one has been reopened.'
+                        : '[frame] done read before submit(); there is no work to wait on yet',
+                );
+            }
             frame.completion ??= frame.backend.awaitCompletion();
             return frame.completion;
         },
@@ -428,9 +444,9 @@ function recordDispatch(
 ): void {
     if (pass.ended) throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
 
-    const existing = pass.records[pass.count];
+    const existing = pass.records[pass.count] as DispatchRecordSlot | undefined;
     if (existing === undefined) {
-        pass.records.push({ node, counts, indirect, indirectOffset, buffers });
+        pass.records.push({ node, counts, indirect, indirectOffset, buffers } as DispatchRecord);
     } else {
         existing.node = node;
         existing.counts = counts;
@@ -443,6 +459,12 @@ function recordDispatch(
 
 function recordDraw(pass: Pass, mesh: Mesh, opts?: DrawOptions): void {
     if (pass.ended) throw new Error(`[pass ${passLabel(pass)}] draw after end()`);
+    if (opts?.draws !== undefined && (opts.instances !== undefined || opts.range !== undefined)) {
+        throw new Error(
+            `[pass ${passLabel(pass)}] '${mesh.name || 'mesh'}' passes draws alongside instances or range; ` +
+                'each MeshDraw carries its own instanceCount and index range, so the single-draw fields are unreachable.',
+        );
+    }
 
     const record = pass.records[pass.count];
     const material = opts?.material ?? mesh.material;
@@ -472,6 +494,12 @@ function recordBundle(pass: Pass, bundle: RenderBundle): void {
 
 function endPass(frame: Frame, pass: AnyPass): void {
     if (pass.ended) throw new Error(`[pass ${passLabel(pass)}] end() called twice`);
+    if (frame.closed) {
+        throw new Error(
+            `[pass ${passLabel(pass)}] the frame this pass belongs to was closed while it was open; ` +
+                'its draws were never encoded. A frame opened between this pass and its end() is what does this.',
+        );
+    }
     pass.ended = true;
     frame.open = null; // cleared first: encoding evaluates the graph, which may open a nested pass
 
@@ -492,19 +520,18 @@ function submitFrame(frame: Frame): void {
         throw new Error(`[frame] submit() while "${passLabel(frame.open)}" is still open; end it first`);
     }
 
-    // A target disposed between its pass and this submit reaches the driver as "destroyed texture used
-    // in a submit", asynchronously and with no way back to the pass that named it. Swapping rooms
-    // mid-frame is the case that does this; `abandon()` is the answer, not a disposal race.
+    // `abandon()` is the answer to a mid-frame room swap, not a disposal race.
     for (const target of frame.targets) {
-        const dead = target.textures.find((tex) => tex._gpuTexture.disposed);
-        if (dead !== undefined) {
+        const dead = deadAttachment(target);
+        if (dead !== null) {
             throw new Error(
-                `[frame] '${dead.name}' was disposed after its pass recorded into it; abandon() the frame instead of disposing mid-frame.`,
+                `[frame] '${dead}' was disposed after its pass recorded into it; abandon() the frame instead of disposing mid-frame.`,
             );
         }
     }
 
     frame.closed = true;
+    frame.everSubmitted = true;
     frame.backend.submitFrame();
 }
 

@@ -934,3 +934,8 @@ function treelessPasses(record: FrameRecord, renderer: InspectableRenderer | nul
     }
     return [...drawn].map(([passId, drawCount]) => ({ passId, drawCount }));
 }
+
+/** The factory form; attach it by assigning to `renderer.inspector`. */
+export function createInspector(): Inspector {
+    return new Inspector();
+}

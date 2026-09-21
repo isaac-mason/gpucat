@@ -3,29 +3,24 @@ import { compileWgsl } from '../../nodes/builder';
 import type { NodeFrame } from '../core/node-frame';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderObject } from '../core/render-object';
-import type { BackendState } from './backend-state';
 import * as Buffers from './buffers';
 import * as RenderObjectGpu from './render-object-gpu';
 import * as RenderObjects from './render-objects';
+import type { WebGPUBackend } from './webgpu-backend';
 
 /**
  * Compile the node graph and build the pipeline / bind group layouts / geometry for one render
  * object. Returns whether it is drawable (initialized, pipeline present, node state present). The
  * neutral collect/getRenderObject/updateBefore steps stay in the render-loop orchestration.
  */
-export function prepareRenderObject(b: BackendState, nodes: NodeManagerState, renderObject: RenderObject): boolean {
+export function prepareRenderObject(b: WebGPUBackend, nodes: NodeManagerState, renderObject: RenderObject): boolean {
     const initialized = RenderObjects.initRenderObject(b, nodes, renderObject, compileWgsl);
     const gpu = RenderObjectGpu.getRenderObjectGpu(b.renderObjectGpu, renderObject);
-    if (!initialized || !gpu.pipeline) {
-        console.warn('[gpucat] initRenderObject failed or pipeline missing', {
-            initialized,
-            pipeline: gpu.pipeline,
-        });
-        return false;
-    }
-    if (!renderObject.nodeBuilderState) {
-        console.warn('[gpucat] no nodeBuilderState');
-        return false;
+    if (!initialized || !gpu.pipeline || !renderObject.nodeBuilderState) {
+        throw new Error(
+            `[gpucat] '${renderObject.mesh.name || 'mesh'}' has no pipeline after init; returning false here ` +
+                'drops it from the pass, which reads as a missing object rather than a failed compile.',
+        );
     }
     return true;
 }
@@ -36,7 +31,7 @@ export function prepareRenderObject(b: BackendState, nodes: NodeManagerState, re
  * pushing in-flight promises onto `promises`.
  */
 export function compileRenderObject(
-    b: BackendState,
+    b: WebGPUBackend,
     nodes: NodeManagerState,
     renderObject: RenderObject,
     promises: Promise<void>[],
@@ -49,7 +44,7 @@ export function compileRenderObject(
  * then (re)build its bind groups against the pre-warm frame.
  */
 export function uploadRenderObjectResources(
-    b: BackendState,
+    b: WebGPUBackend,
     renderObject: RenderObject,
     geometry: Geometry,
     frame: NodeFrame,

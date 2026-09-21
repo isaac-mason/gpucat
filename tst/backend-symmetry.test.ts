@@ -2,7 +2,7 @@ import { readdirSync } from 'node:fs';
 import { expect, test } from 'vitest';
 
 /**
- * `PLAN-backend-symmetry.md` rule 1: one module per engine resource, same filename on both sides.
+ * Backend symmetry rule 1: one module per engine resource, same filename on both sides.
  * Rule 4: a file with no sibling is justified by an API difference, not a decomposition preference.
  * Both were audited by hand in layers 6.3 and 6.72, and the plan's own module table went stale
  * between those audits, which is the argument for checking it here instead.

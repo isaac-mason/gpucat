@@ -14,3 +14,8 @@ export class CanvasTexture extends Texture<HTMLCanvasElement | OffscreenCanvas> 
         });
     }
 }
+
+/** The factory form; the canvas is re-uploaded whenever `needsUpdate` is set. */
+export function createCanvasTexture(canvas: HTMLCanvasElement | OffscreenCanvas): CanvasTexture {
+    return new CanvasTexture(canvas);
+}

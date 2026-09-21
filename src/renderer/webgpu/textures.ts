@@ -117,7 +117,12 @@ function getMipmapState(cache: TextureCache, device: GPUDevice): MipmapState {
  * Used for render-target textures (e.g. CubeRenderTarget) that are not uploaded
  * via updateTexture().
  */
-export function generateTextureMipmaps(cache: TextureCache, device: GPUDevice, texture: GpuTexture): void {
+export function generateTextureMipmaps(
+    cache: TextureCache,
+    device: GPUDevice,
+    texture: GpuTexture,
+    encoder?: GPUCommandEncoder,
+): void {
     const data = cache.textureMap.get(texture);
     if (!data || data.isDefaultTexture) return;
     if (data.texture.mipLevelCount <= 1) return;
@@ -126,7 +131,7 @@ export function generateTextureMipmaps(cache: TextureCache, device: GPUDevice, t
     const isArray = texture.viewDimension === '2d-array';
 
     const mipmapState = getMipmapState(cache, device);
-    generateMipmaps(mipmapState, data.texture, isCube, isArray ? texture.depthOrArrayLayers : 0);
+    generateMipmaps(mipmapState, data.texture, isCube, isArray ? texture.depthOrArrayLayers : 0, encoder);
 }
 
 /**
@@ -440,6 +445,9 @@ function uploadTextureData(device: GPUDevice, texture: GpuTexture, data: Texture
     const sourceData = source.data;
     const width = texture.width;
     const height = texture.height;
+    // Cube and array dimensions routed away above, so this is 1 for 1d/2d and the volume's slice count
+    // for 3d, where every slice lives in the one packed source and must reach the device in this write.
+    const depth = texture.depthOrArrayLayers;
 
     // Check if it's typed array data (DataTexture pattern)
     if (isTypedArrayData(sourceData)) {
@@ -449,7 +457,7 @@ function uploadTextureData(device: GPUDevice, texture: GpuTexture, data: Texture
             { texture: data.texture },
             view.buffer,
             { offset: view.byteOffset, bytesPerRow: width * bytesPerPixel, rowsPerImage: height },
-            [width, height],
+            [width, height, depth],
         );
     } else if (isExternalImage(sourceData)) {
         // HTMLImageElement, ImageBitmap, Canvas, Video, etc.

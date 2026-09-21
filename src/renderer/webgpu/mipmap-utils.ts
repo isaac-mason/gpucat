@@ -422,6 +422,11 @@ export function generateMipmaps(
     arrayLayerCount = 0,
     encoder?: GPUCommandEncoder,
 ): void {
+    // A 3d view cannot be a render-pass attachment, so the downsample-by-draw the other paths use has
+    // no 3d form. Said here, where the volume's own settings are still the visible cause.
+    if (texture.dimension === '3d') {
+        throw new Error('[mipmaps] a 3D texture cannot generate mipmaps; build it with `generateMipmaps: false`.');
+    }
     if (isCube) {
         generateMipmapsCube(state, texture, encoder);
     } else if (arrayLayerCount > 1) {

@@ -23,8 +23,7 @@ import type { ProbeTarget } from './probe-wgsl';
 // extractGlslProbeTarget, parse a hovered GLSL line into a ProbeTarget
 
 /** GLSL type-token prefixes that begin a declaration line (so we can tell a decl from an assignment). */
-const GLSL_TYPE_TOKEN =
-    /^(?:float|int|uint|bool|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234](?:x[234])?|[A-Z]\w*)\s+\w/;
+const GLSL_TYPE_TOKEN = /^(?:float|int|uint|bool|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234](?:x[234])?|[A-Z]\w*)\s+\w/;
 
 /**
  * Parse a single emitted GLSL fragment line into a {@link ProbeTarget}, or null if it isn't probeable.
@@ -342,7 +341,9 @@ export function buildProbeGLSL(fragmentSrc: string, target: ProbeTarget): ProbeG
         // `return`/`assignment` anchor the assignment line IS where we inject; for a `let_var` anchor
         // we inject after the declaration and stop, so we never reach these anyway.
         const isFragColorAssign = /^fragColor\s*=/.test(trimmed);
-        const isMrtOutAssign = /^\w+\s*=\s*/.test(trimmed) && !/^(?:float|int|uint|bool|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234])/.test(trimmed);
+        const isMrtOutAssign =
+            /^\w+\s*=\s*/.test(trimmed) &&
+            !/^(?:float|int|uint|bool|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234])/.test(trimmed);
 
         switch (target.anchorKind) {
             case 'return': {

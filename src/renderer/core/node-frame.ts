@@ -213,3 +213,12 @@ export class NodeFrame {
 export function createNodeFrame(): NodeFrame {
     return new NodeFrame();
 }
+
+/** What every pass and the pre-warm both point the node frame at before evaluating a graph. */
+export function aimNodeFrame(renderer: Renderer<DeviceBackend>, camera: View | null, width: number, height: number): void {
+    const frame = renderer._nodes.nodeFrame;
+    frame.renderer = renderer;
+    frame.camera = camera;
+    frame.width = width;
+    frame.height = height;
+}

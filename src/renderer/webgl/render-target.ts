@@ -29,7 +29,9 @@
 
 import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { RenderTarget } from '../../core/render-target';
+import { formatHasStencil } from '../core/render-types';
 import { getTextureData, type TextureCache, updateTexture } from './textures';
+import type { WebGLBackend } from './webgl-backend';
 
 /** Per-RenderTarget GL framebuffer + the color-texture generations it was built against. */
 type FboData = {
@@ -52,6 +54,7 @@ type FboData = {
     height: number;
     /** For a cube target: which face the color attachment currently points at (-1 = not a cube / unset). */
     attachedFace: number;
+    attachedMip: number;
     /** MSAA render FBO (multisample renderbuffers). Non-null only for a supported `samples > 1` target. */
     msaa: MsaaData | null;
 };
@@ -84,12 +87,8 @@ export function createGlRenderTargetsState(): GlRenderTargetsState {
 }
 
 /** Whether the target's depth format carries a stencil aspect. */
-function depthFormatHasStencil(format: string | undefined): boolean {
-    return format === 'depth24plus-stencil8' || format === 'depth32float-stencil8';
-}
-
 /** Sized GL internal format for a depth (/stencil) renderbuffer of the given depth-texture format. */
-function depthRenderbufferInternalFormat(gl: WebGL2RenderingContext, format: string | undefined): number {
+function depthRenderbufferInternalFormat(gl: WebGL2RenderingContext, format: GPUTextureFormat | undefined): number {
     switch (format) {
         case 'depth16unorm':
             return gl.DEPTH_COMPONENT16;
@@ -99,8 +98,15 @@ function depthRenderbufferInternalFormat(gl: WebGL2RenderingContext, format: str
             return gl.DEPTH24_STENCIL8;
         case 'depth32float-stencil8':
             return gl.DEPTH32F_STENCIL8;
+        // A target with no depth attachment asks for none; `depth24plus` is the one that maps here.
+        case undefined:
+        case 'depth24plus':
+            return gl.DEPTH_COMPONENT24;
         default:
-            return gl.DEPTH_COMPONENT24; // 'depth24plus' and the sensible default
+            throw new Error(
+                `[webgl] '${format}' is not a depth format; a renderbuffer allocated as depth24 would ` +
+                    'silently drop its stencil aspect.',
+            );
     }
 }
 
@@ -144,14 +150,15 @@ function isCube(rt: RenderTarget): rt is CubeRenderTarget {
  */
 export function bindRenderTargetFramebuffer(
     gl: WebGL2RenderingContext,
-    state: GlRenderTargetsState,
-    textures: TextureCache,
+    b: WebGLBackend,
     renderTarget: RenderTarget,
+    layer: number,
+    mipLevel: number,
 ): { hasStencil: boolean } {
     // Ensure each color texture's GL storage exists at the current size/format.
     const colorGenerations: number[] = [];
     for (const tex of renderTarget.textures) {
-        const data = updateTexture(gl, textures, tex._gpuTexture);
+        const data = updateTexture(gl, b.textures, tex._gpuTexture);
         colorGenerations.push(data.generation);
     }
 
@@ -160,11 +167,11 @@ export function bindRenderTargetFramebuffer(
     // leaner on the weaker devices the WebGL fallback runs on.
     let depthGeneration = -1;
     if (renderTarget._depthAttachment && renderTarget.depthSampled) {
-        const data = updateTexture(gl, textures, renderTarget._depthAttachment._gpuTexture);
+        const data = updateTexture(gl, b.textures, renderTarget._depthAttachment._gpuTexture);
         depthGeneration = data.generation;
     }
 
-    let fboData = state.data.get(renderTarget);
+    let fboData = b.renderTargets.data.get(renderTarget);
     const sizeChanged = fboData ? fboData.width !== renderTarget.width || fboData.height !== renderTarget.height : true;
     const depthModeChanged = fboData ? fboData.depthSampled !== renderTarget.depthSampled : false;
     const generationsChanged =
@@ -174,45 +181,47 @@ export function bindRenderTargetFramebuffer(
             fboData.colorGenerations.some((g, i) => g !== colorGenerations[i]));
 
     if (!fboData || sizeChanged || depthModeChanged || generationsChanged) {
-        fboData = rebuildFbo(gl, state, textures, renderTarget, fboData, colorGenerations, depthGeneration);
+        fboData = rebuildFbo(gl, b.renderTargets, b.textures, renderTarget, fboData, colorGenerations, depthGeneration);
     }
 
-    // Cube target: (re)attach the selected face as the color attachment if it changed.
-    if (isCube(renderTarget) && fboData.attachedFace !== renderTarget.activeFace) {
-        attachCubeFace(gl, textures, renderTarget, fboData);
+    // A level change needs the same re-attach as a face change: the level is baked into the attachment.
+    if (isCube(renderTarget) && (fboData.attachedFace !== layer || fboData.attachedMip !== mipLevel)) {
+        attachCubeFace(gl, b.textures, renderTarget, fboData, layer, mipLevel);
     }
 
-    const hasStencil = depthFormatHasStencil(renderTarget._depthAttachment?.format);
+    const hasStencil = formatHasStencil(renderTarget._depthAttachment?.format);
 
     // MSAA: render into the multisample FBO; remember the target so pass end resolves it.
     if (fboData.msaa) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, fboData.msaa.fbo);
-        state.pendingResolve = renderTarget;
+        b.renderTargets.pendingResolve = renderTarget;
     } else {
         gl.bindFramebuffer(gl.FRAMEBUFFER, fboData.fbo);
-        state.pendingResolve = null;
+        b.renderTargets.pendingResolve = null;
     }
 
     return { hasStencil };
 }
 
-/** Attach the cube target's `activeFace` as the FBO's `COLOR_ATTACHMENT0`. */
+/** Attach one face at one level as the FBO's `COLOR_ATTACHMENT0`. */
 function attachCubeFace(
     gl: WebGL2RenderingContext,
     textures: TextureCache,
     renderTarget: CubeRenderTarget,
     fboData: FboData,
+    layer: number,
+    mipLevel: number,
 ): void {
     const data = getTextureData(textures, renderTarget.texture._gpuTexture);
     if (!data) return;
     gl.bindFramebuffer(gl.FRAMEBUFFER, fboData.fbo);
-    const faceTarget = gl.TEXTURE_CUBE_MAP_POSITIVE_X + renderTarget.activeFace;
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, faceTarget, data.texture, renderTarget.activeMipmapLevel);
-    fboData.attachedFace = renderTarget.activeFace;
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X + layer, data.texture, mipLevel);
+    fboData.attachedFace = layer;
+    fboData.attachedMip = mipLevel;
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
         throw new Error(
-            `[webgl] cube framebuffer is incomplete (face ${renderTarget.activeFace}, status 0x${status.toString(16)}); ` +
+            `[webgl] cube framebuffer is incomplete (face ${layer} level ${mipLevel}, status 0x${status.toString(16)}); ` +
                 `rendering into an incomplete framebuffer is not supported on the WebGL2 backend.`,
         );
     }
@@ -239,7 +248,6 @@ function rebuildFbo(
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
 
     const cube = isCube(renderTarget);
-    let attachedFace = -1;
 
     // Color attachments.
     const drawBuffers: number[] = [];
@@ -248,20 +256,8 @@ function rebuildFbo(
         if (!data) return;
         ensureColorRenderable(gl, tex.format);
         const attachment = gl.COLOR_ATTACHMENT0 + i;
-        if (cube) {
-            // Attach the currently-selected cube face (attachment 0 only — a cube target has one color).
-            const faceTarget = gl.TEXTURE_CUBE_MAP_POSITIVE_X + (renderTarget as CubeRenderTarget).activeFace;
-            gl.framebufferTexture2D(
-                gl.FRAMEBUFFER,
-                attachment,
-                faceTarget,
-                data.texture,
-                (renderTarget as CubeRenderTarget).activeMipmapLevel,
-            );
-            attachedFace = (renderTarget as CubeRenderTarget).activeFace;
-        } else {
-            gl.framebufferTexture2D(gl.FRAMEBUFFER, attachment, gl.TEXTURE_2D, data.texture, 0);
-        }
+        // A cube's colour attachment is `attachCubeFace`'s, and the sentinels below make it run.
+        if (!cube) gl.framebufferTexture2D(gl.FRAMEBUFFER, attachment, gl.TEXTURE_2D, data.texture, 0);
         drawBuffers.push(attachment);
     });
     if (drawBuffers.length > 0) {
@@ -287,13 +283,13 @@ function rebuildFbo(
         freeDepthRenderbuffer();
         const data = getTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (data) {
-            const stencil = depthFormatHasStencil(renderTarget._depthAttachment.format);
+            const stencil = formatHasStencil(renderTarget._depthAttachment.format);
             const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
             gl.framebufferTexture2D(gl.FRAMEBUFFER, attachment, gl.TEXTURE_2D, data.texture, 0);
         }
     } else if (renderTarget._depthAttachment) {
         // Unsampled depth uses a renderbuffer (reused across rebuilds; re-specified at the current size).
-        const stencil = depthFormatHasStencil(renderTarget._depthAttachment.format);
+        const stencil = formatHasStencil(renderTarget._depthAttachment.format);
         const internalFormat = depthRenderbufferInternalFormat(gl, renderTarget._depthAttachment.format);
         if (!depthRenderbuffer) {
             const created = gl.createRenderbuffer();
@@ -383,7 +379,8 @@ function rebuildFbo(
         depthGeneration,
         width: renderTarget.width,
         height: renderTarget.height,
-        attachedFace,
+        attachedFace: -1,
+        attachedMip: -1,
         msaa,
     };
     state.data.set(renderTarget, fboData);
@@ -458,7 +455,7 @@ function buildMsaaFbo(
                 state.renderbuffers.add(rb);
                 gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
                 gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, depthData.fmt.internalFormat, w, h);
-                const stencil = depthFormatHasStencil(renderTarget._depthAttachment.format);
+                const stencil = formatHasStencil(renderTarget._depthAttachment.format);
                 const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
                 gl.framebufferRenderbuffer(gl.FRAMEBUFFER, attachment, gl.RENDERBUFFER, rb);
                 depthRenderbuffer = rb;

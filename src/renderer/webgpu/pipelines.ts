@@ -11,6 +11,7 @@ import * as NodeManager from '../core/node-manager';
 import type { ComputeContext, RenderContext } from '../core/pass-context';
 import type { RenderObject } from '../core/render-object';
 import * as RenderState from '../core/render-state';
+import { formatHasStencil } from '../core/render-types';
 import { type BindGroupLayoutCache, buildComputeBindGroupLayouts } from './bind-group-layout';
 
 export type ComputePipelineEntry = {
@@ -52,11 +53,6 @@ export type PipelinesState = {
      */
     canvasFormat: GPUTextureFormat;
 };
-
-/** Whether a depth format includes a stencil aspect (depth24plus-stencil8, depth32float-stencil8, stencil8). */
-export function formatHasStencil(format: GPUTextureFormat): boolean {
-    return format.includes('stencil');
-}
 
 /**
  * Build a per-face stencil state from a material. Back faces default to the front-face ops unless the
@@ -219,9 +215,16 @@ function buildRenderPipelineDescriptor(
     const mrt: MRTNode | null = renderContext.mrt;
     const colorTargets: GPUColorTargetState[] = [];
     for (let i = 0; i < targetCount; i++) {
-        const targetName = mrt !== null && textures !== null ? (textures[i]?.name ?? '') : null;
+        const format = colorFormats[i];
+        if (format === undefined) {
+            throw new Error(
+                `[webgpu] the fragment writes ${targetCount} colour output(s) and this pass's target has ` +
+                    `${colorFormats.length}; output ${i} has no attachment to take its format from.`,
+            );
+        }
+        const targetName = mrt !== null && textures !== null ? textures[i]!.name : null;
         colorTargets.push({
-            format: colorFormats[i] ?? colorFormats[0],
+            format,
             blend: RenderState.resolveTargetBlend(material, mrt, targetName),
             writeMask: material.colorWrite ? GPUColorWrite.ALL : 0,
         });
@@ -486,12 +489,12 @@ export function makeRenderPipelineKey(
  * from the geometry rather than the graph has to reach the key, or two geometries whose buffers have
  * different formats share one pipeline with the wrong stride.
  */
-function resolveVertexGroupStride(group: VertexBufferGroup, geometry: Geometry): number | null {
+function resolveVertexGroupStride(group: VertexBufferGroup, geometry: Geometry): number {
     if (group.stride > 0) return group.stride;
 
     if (group.name !== null) {
         const buffer = geometry.buffers.get(group.name);
-        if (!buffer) return null;
+        if (!buffer) throw new Error(`[pipeline] the shader reads vertex buffer '${group.name}' and the geometry has none.`);
         if (!buffer.format) {
             throw new Error(
                 `[pipeline] vertex buffer '${group.name}' has no vertex format: its usage must include 'vertex', and WebGPU has no format for ${buffer.array?.constructor.name ?? 'this array'} at itemSize ${buffer.itemSize}.`,
@@ -508,8 +511,7 @@ export function vertexLayoutKey(geometry: Geometry, nodeState: NodeBuilderState)
     let key = '';
 
     for (const group of nodeState.vertexBufferGroups) {
-        const stride = resolveVertexGroupStride(group, geometry);
-        key += stride === null ? 'skip|' : `${stride}:${group.instanced ? 'i' : 'v'}|`;
+        key += `${resolveVertexGroupStride(group, geometry)}:${group.instanced ? 'i' : 'v'}|`;
     }
 
     return key;
@@ -540,11 +542,8 @@ export function buildVertexBufferLayouts(
             });
         }
 
-        const arrayStride = resolveVertexGroupStride(group, geometry);
-        if (arrayStride === null) continue;
-
         layouts.push({
-            arrayStride,
+            arrayStride: resolveVertexGroupStride(group, geometry),
             stepMode: group.instanced ? 'instance' : 'vertex',
             attributes: gpuAttributes,
         });
@@ -588,7 +587,7 @@ export function getBytesPerElement(format: GPUVertexFormat): number {
 /**
  * Convert WGSL type to GPU vertex format.
  */
-function wgslTypeToVertexFormat(type: string): GPUVertexFormat {
+export function wgslTypeToVertexFormat(type: string): GPUVertexFormat {
     switch (type) {
         case 'f32':
             return 'float32';
@@ -615,7 +614,7 @@ function wgslTypeToVertexFormat(type: string): GPUVertexFormat {
         case 'vec4u':
             return 'uint32x4';
         default:
-            return 'float32x4';
+            throw new Error(`[webgpu] no vertex format for WGSL type '${type}'; add it rather than reading it as vec4f.`);
     }
 }
 

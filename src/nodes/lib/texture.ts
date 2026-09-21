@@ -10,6 +10,7 @@ import type { CubeTexture } from '../../texture/cube-texture';
 import type { DataTexture } from '../../texture/data-texture';
 import type { DepthTexture } from '../../texture/depth-texture';
 import type { Texture } from '../../texture/texture';
+import type { Data3DTexture } from '../../texture/texture-3d';
 import { uv } from './attribute';
 import {
     addToStack,
@@ -654,7 +655,7 @@ function buildRecordAccessor<S extends d.StructSchema>(
  * High-level texture types that have _gpuSampler.
  * All have ._gpuTexture and ._gpuSampler properties.
  */
-type HighLevelTexture = Texture | CubeTexture | DepthTexture | ArrayTexture;
+type HighLevelTexture = Texture | CubeTexture | DepthTexture | ArrayTexture | Data3DTexture;
 
 /** Counter for generating unique sampler IDs when using GpuSampler directly */
 let _samplerIdCounter = 0;
@@ -766,10 +767,10 @@ function sampledDescForStorage(desc: d.StorageTexture): FlatSampledTexture {
 }
 
 /**
- * Create a texture node for sampling a 2D texture.
+ * Create a texture node for sampling a flat (non-cube) texture.
  *
  * Accepts either:
- * - A high-level Texture object (auto-creates sampler from texture settings)
+ * - A high-level Texture, DataTexture or Data3DTexture (auto-creates sampler from texture settings)
  * - A GpuTexture + GpuSampler pair (low-level)
  *
  * @example
@@ -789,13 +790,14 @@ function sampledDescForStorage(desc: d.StorageTexture): FlatSampledTexture {
  */
 export function texture(tex: Texture): TextureNode<d.texture2d>;
 export function texture(dataTex: DataTexture): TextureNode<d.texture2d>;
+export function texture(tex3d: Data3DTexture): TextureNode<d.texture3d>;
 export function texture<D extends FlatSampledTexture>(gpuTex: GpuTexture<D>, gpuSampler: GpuSampler): TextureNode<D>;
 export function texture<S extends d.StorageTexture>(
     storageTex: GpuTexture<S>,
     gpuSampler: GpuSampler,
 ): TextureNode<StorageSampledOf<S>>;
 export function texture(
-    source: Texture | DataTexture | GpuTexture<FlatSampledTexture> | GpuTexture<d.StorageTexture>,
+    source: Texture | DataTexture | Data3DTexture | GpuTexture<FlatSampledTexture> | GpuTexture<d.StorageTexture>,
     gpuSampler?: GpuSampler,
 ): TextureNode<FlatSampledTexture> {
     if ('isGpuTexture' in source) {
@@ -822,10 +824,11 @@ export function texture(
         node.samplerNode = sampler(gpuSampler, binding.group);
         return node;
     } else {
-        // A high-level Texture or DataTexture — both expose `_gpuTexture` / `_gpuSampler` / `id`. The
-        // GpuTexture's descriptor carries the sampled type (a DataTexture backed by an integer format
-        // reports `texture2d<u32>`/`texture2d<i32>`, so the emitter declares usampler2D/isampler2D and
-        // `.load()` returns uvec4/ivec4) — so DataTexture rides this same branch, no cast needed.
+        // A high-level Texture, DataTexture or Data3DTexture — all expose `_gpuTexture` / `_gpuSampler` /
+        // `id`. The GpuTexture's descriptor carries the sampled type (a DataTexture backed by an integer
+        // format reports `texture2d<u32>`/`texture2d<i32>`, so the emitter declares usampler2D/isampler2D
+        // and `.load()` returns uvec4/ivec4; a Data3DTexture reports `texture3d<f32>`) — so all three ride
+        // this same branch, no cast needed.
         const gpuTex = source._gpuTexture;
         const desc = gpuTex.type as FlatSampledTexture;
         const binding = new TextureBindingNode(desc, `t${source.id}`);

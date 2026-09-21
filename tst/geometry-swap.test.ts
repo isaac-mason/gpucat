@@ -92,8 +92,7 @@ test('swapping a mesh onto a different geometry draws the new one', async () => 
 });
 
 /**
- * `vertexLayoutKey` is per shader vertex-group stride, so a geometry missing an attribute the shader
- * reads keys as `skip|` rather than a stride. The pipeline-key cache is guarded on
+ * `vertexLayoutKey` is per shader vertex-group stride. The pipeline-key cache is guarded on
  * `_pipelineKeyGeometryVersion === geometry.version`, and a fresh geometry can land on the same
  * version the old key was built at, which is how a swap reused a layout built for the old attributes.
  */

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { type RenderTarget, createRenderTarget } from '../src/core/render-target';
+import { createRenderTarget, type RenderTarget } from '../src/core/render-target';
 import { type CanvasTarget, createCanvasTarget } from '../src/renderer/core/canvas-target';
 import { createRenderContextsState, getRenderContext } from '../src/renderer/core/pass-context';
 

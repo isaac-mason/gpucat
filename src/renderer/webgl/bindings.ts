@@ -30,6 +30,7 @@ import { packToView } from '../../schema/pack';
 import { invokeUniformGroupCallbacks, type UniformBinding } from '../core/bind-group';
 import type { NodeFrame } from '../core/node-frame';
 import * as Buffers from './buffers';
+import type { WebGLBackend } from './webgl-backend';
 
 /** Per-uniform-BindGroup GL resources + change-tracking state. */
 type UboData = {
@@ -122,8 +123,7 @@ function uniformDetail(block: UniformGroupBlock, material: Material | null, chan
  */
 export function updateAndBindUniformGroup(
     gl: WebGL2RenderingContext,
-    state: BindingsState,
-    buffers: Buffers.BufferCache,
+    b: WebGLBackend,
     binding: UniformBinding,
     frame: NodeFrame,
     bindingPoint: number,
@@ -145,7 +145,7 @@ export function updateAndBindUniformGroup(
         // 'object' / 'none' always process.
     }
 
-    const data = getUboData(state, binding, block.totalBytes);
+    const data = getUboData(b.uniforms, binding, block.totalBytes);
     // Lazily claim the neutral key slot; `webgpu/bindings.ts` does the same, so both backends key a
     // uniform block's device buffer the same way.
     binding.bufferKey ??= {};
@@ -161,7 +161,7 @@ export function updateAndBindUniformGroup(
         const changedBytes = data.uploaded ? changedByteCount(scratch, data.staging) : block.totalBytes;
         if (changedBytes > 0) {
             data.staging = scratch;
-            Buffers.uploadUniformBlock(gl, buffers, binding.bufferKey, scratch, uniformDetail(block, material, changedBytes));
+            Buffers.uploadUniformBlock(gl, b.buffers, binding.bufferKey, scratch, uniformDetail(block, material, changedBytes));
             data.uploaded = true;
         }
     } else if (!data.uploaded) {
@@ -170,7 +170,7 @@ export function updateAndBindUniformGroup(
         packGroup(block, new DataView(data.staging), material);
         Buffers.uploadUniformBlock(
             gl,
-            buffers,
+            b.buffers,
             binding.bufferKey,
             data.staging,
             uniformDetail(block, material, block.totalBytes),
@@ -179,7 +179,7 @@ export function updateAndBindUniformGroup(
     }
 
     // Bind the group's UBO to its program binding point.
-    const ubo = Buffers.getRaw(buffers, binding.bufferKey);
+    const ubo = Buffers.getRaw(b.buffers, binding.bufferKey);
     if (ubo) gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, ubo);
 }
 
@@ -206,8 +206,7 @@ function getStandaloneUboData(state: BindingsState, block: UniformGroupBlock, by
  */
 export function updateAndBindStandaloneUniformGroup(
     gl: WebGL2RenderingContext,
-    state: BindingsState,
-    buffers: Buffers.BufferCache,
+    b: WebGLBackend,
     block: UniformGroupBlock,
     frame: NodeFrame,
     bindingPoint: number,
@@ -215,7 +214,7 @@ export function updateAndBindStandaloneUniformGroup(
     // Let any update callbacks (onFrame/onRender) assign node values; direct `.value` sets need nothing.
     invokeUniformGroupCallbacks(block, frame);
 
-    const data = getStandaloneUboData(state, block, block.totalBytes);
+    const data = getStandaloneUboData(b.uniforms, block, block.totalBytes);
 
     // Re-pack every dispatch: standalone-kernel uniforms change per frame and there is no dedup key.
     const scratch = new ArrayBuffer(block.totalBytes);
@@ -225,10 +224,10 @@ export function updateAndBindStandaloneUniformGroup(
     if (changedBytes > 0) {
         data.staging = scratch;
         // The block itself is the key: a standalone kernel has no BindGroup to hang one on.
-        Buffers.uploadUniformBlock(gl, buffers, block, scratch, uniformDetail(block, null, changedBytes));
+        Buffers.uploadUniformBlock(gl, b.buffers, block, scratch, uniformDetail(block, null, changedBytes));
         data.uploaded = true;
     }
 
-    const ubo = Buffers.getRaw(buffers, block);
+    const ubo = Buffers.getRaw(b.buffers, block);
     if (ubo) gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, ubo);
 }

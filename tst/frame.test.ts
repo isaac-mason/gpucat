@@ -395,3 +395,61 @@ test('a closed frame names the verb it is refusing', () => {
     expect(() => frame.pass({ target })).toThrow(/pass\(\) after the frame was closed/);
     expect(() => frame.compute()).toThrow(/compute\(\) after the frame was closed/);
 });
+
+/** `CubeCamera.update` opened a frame of its own, which is how a live pass met a submitted frame. */
+test('a pass that outlived its frame refuses to encode, rather than encoding into the next one', () => {
+    const { backend, calls } = recorder();
+    const frame = createFrame(backend);
+    beginFrame(frame);
+
+    const outer = frame.pass({ target, label: 'outer' });
+    outer.draw(mesh('a'));
+
+    // library code between the app's passes, opening and submitting a frame of its own
+    beginFrame(frame);
+    frame.submit();
+
+    expect(() => outer.end()).toThrow(/closed/);
+    expect(calls.filter((c) => c.label === 'outer')).toEqual([]);
+});
+
+/** `assertNotDisposed` checks colour and depth at record time; submit checked only colour. */
+test('a depth attachment disposed after its pass stops the submit too', () => {
+    const { backend } = recorder();
+    const frame = createFrame(backend);
+    beginFrame(frame);
+
+    const doomed = createRenderTarget(8, 8);
+    const pass = frame.pass({ target: doomed, label: 'depth' });
+    pass.end();
+
+    doomed._depthAttachment!._gpuTexture.dispose();
+
+    expect(() => frame.submit()).toThrow(/disposed/);
+});
+
+/** The frame object is reused, so a reopened one has no completion to hand out and must say which. */
+test('done on a reopened frame names the reopen, not a missing submit', () => {
+    const { backend } = recorder();
+    const frame = createFrame(backend);
+
+    beginFrame(frame);
+    frame.submit();
+    expect(frame.done).toBeInstanceOf(Promise);
+
+    beginFrame(frame);
+    expect(() => frame.done).toThrow(/reopened/);
+});
+
+/** Each `MeshDraw` carries its own count and range, so the single-draw fields have nowhere to apply. */
+test('draws cannot be combined with the single-draw fields it would silently ignore', () => {
+    const { backend } = recorder();
+    const frame = createFrame(backend);
+    beginFrame(frame);
+    const pass = frame.pass({ target });
+    const draws = [{ indexCount: 3, instanceCount: 1, firstIndex: 0, baseVertex: 0, firstInstance: 0 }];
+
+    expect(() => pass.draw(mesh('a'), { draws, instances: 4 })).toThrow(/instances/);
+    expect(() => pass.draw(mesh('b'), { draws, range: { start: 0, count: 3 } })).toThrow(/range/);
+    expect(() => pass.draw(mesh('c'), { draws })).not.toThrow();
+});

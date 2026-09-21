@@ -1,20 +1,20 @@
+import { layoutStrideOf, packTo, packToView } from '../schema/pack';
 import {
+    type Any,
+    type array,
+    type Infer,
     isArrayDesc,
     isSizedArrayDesc,
     isStructDesc,
     itemSizeOf,
-    typedArrayCtorOf,
-    wgslSizeOf,
-    u32 as u32Schema,
-    type Any,
-    type array,
-    type Infer,
-    type sizedArray,
     type StructDesc,
     type StructSchema,
+    type sizedArray,
     type TypedArrayFor,
+    typedArrayCtorOf,
+    u32 as u32Schema,
+    wgslSizeOf,
 } from '../schema/schema';
-import { layoutStrideOf, packTo, packToView } from '../schema/pack';
 
 /** determines how a buffer's lifecycle is managed */
 export enum BufferLifecycle {
@@ -293,7 +293,9 @@ export class GpuBuffer<T extends Any = Any> {
     packAtIndex<D extends Any>(schema: D, index: number, value: Infer<D>): this {
         const array = this.array;
         if (array == null) {
-            throw new Error('[GpuBuffer] packAtIndex(): buffer has no CPU `array` to write into (its data was released after upload).');
+            throw new Error(
+                '[GpuBuffer] packAtIndex(): buffer has no CPU `array` to write into (its data was released after upload).',
+            );
         }
         const strideBytes = layoutStrideOf(schema, 'std430');
         const elementStride = array.byteLength / this.count;
@@ -316,7 +318,9 @@ export class GpuBuffer<T extends Any = Any> {
     packAtByte<D extends Any>(schema: D, byteOffset: number, value: Infer<D>): this {
         const array = this.array;
         if (array == null) {
-            throw new Error('[GpuBuffer] packAtByte(): buffer has no CPU `array` to write into (its data was released after upload).');
+            throw new Error(
+                '[GpuBuffer] packAtByte(): buffer has no CPU `array` to write into (its data was released after upload).',
+            );
         }
         const bytesPerComponent = array.BYTES_PER_ELEMENT;
         if (byteOffset % bytesPerComponent !== 0) {

@@ -67,8 +67,10 @@ export function blendModeState(blendMode: BlendMode): GPUBlendState {
             break;
     }
 
-    console.error(`[render-state] ${blending} blending requires premultiplyAlpha=true.`);
-    return defaultBlendState();
+    throw new Error(
+        `[render-state] '${blending}' blending has no straight-alpha form; set premultiplyAlpha, or the ` +
+            'material blends normally and the difference only shows in the pixels.',
+    );
 }
 
 /**

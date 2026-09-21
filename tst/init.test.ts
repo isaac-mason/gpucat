@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import { createCanvasTarget } from '../src/renderer/core/canvas-target';
+import { frame } from '../src/renderer/core/frame';
 import { init } from '../src/renderer/core/init';
 import { Renderer } from '../src/renderer/core/renderer';
 import { webgl } from '../src/renderer/webgl/backend';
@@ -8,7 +9,6 @@ import { webgpu } from '../src/renderer/webgpu/backend';
 import { canvasFormat, gpuDevice, hasFeature } from '../src/renderer/webgpu/device-api';
 import { WebGPUBackend } from '../src/renderer/webgpu/webgpu-backend';
 import { createStubGPU, installWebGPUPolyfills } from './stub-gpu';
-import { frame } from '../src/renderer/core/frame';
 
 installWebGPUPolyfills();
 
@@ -24,9 +24,9 @@ test('a backend carries its own device options, so init takes nothing else', asy
 });
 
 /**
- * `webgpu()` and `webgl()` build a backend and nothing else; `init` is the only place a `Renderer`
- * is constructed. They returned `new Renderer(...).init()` until 6.91, which put the one line the
- * fronting class exists to own in two places and made each backend import the layer above it.
+ * `webgpu()` and `webgl()` build a backend and nothing else. They returned `new Renderer(...).init()`
+ * until 6.91, which put the one line the fronting class exists to own in two places and made each
+ * backend import the layer above it.
  */
 test('a backend factory makes a backend, and init is what makes the renderer', async () => {
     const stub = createStubGPU();
@@ -119,4 +119,18 @@ test('the device escape hatches are typed to their backend', async () => {
     // @ts-expect-error a WebGL2 renderer has no WebGPU device to hand back
     const wrongBackend = () => gpuDevice(webglRenderer);
     expect(typeof wrongBackend).toBe('function');
+});
+
+/**
+ * A consumer assembling render state synchronously has nowhere to await, so the object has to exist
+ * before its device: `init(backend)` is the one-call form, not the only one.
+ */
+test('a renderer can be held before its device exists, and names the gap if used', async () => {
+    const stub = createStubGPU();
+    const renderer = new Renderer(new WebGPUBackend(stub.getRendererOptions()));
+
+    expect(() => frame(renderer)).toThrow(/before init/);
+
+    await renderer.init();
+    expect(() => frame(renderer)).not.toThrow();
 });

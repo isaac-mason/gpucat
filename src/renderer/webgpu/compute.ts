@@ -6,11 +6,11 @@ import type { DispatchRecord } from '../core/frame';
 import type { NodeManagerState } from '../core/node-manager';
 import * as NodeManager from '../core/node-manager';
 import type { ComputeContext } from '../core/pass-context';
-import type { BackendState } from './backend-state';
 import * as Bindings from './bindings';
 import * as Buffers from './buffers';
 import * as Pipelines from './pipelines';
 import * as Textures from './textures';
+import type { WebGPUBackend } from './webgpu-backend';
 
 /**
  * Storage formats whose mips can be auto-generated. Render-pass mip generation samples
@@ -39,7 +39,7 @@ export function compileComputePipeline(
 
 /** An inspector splits the batch one pass per entry: `timestampWrites` is a pass-descriptor field. */
 export function encodeDispatches(
-    b: BackendState,
+    b: WebGPUBackend,
     nodes: NodeManagerState,
     computeContext: ComputeContext,
     encoder: GPUCommandEncoder,
@@ -107,7 +107,7 @@ export function encodeDispatches(
             const gpuBuf = Buffers.ensureUploaded(buffers, device, entry.indirect, 'indirect');
             computeDispatchWorkgroupsIndirect(computePass, inspector, gpuBuf, entry.indirectOffset ?? 0);
         } else {
-            const [dx, dy, dz] = entry.counts!;
+            const [dx, dy, dz] = entry.counts;
             computeDispatchWorkgroups(computePass, inspector, dx, dy, dz);
         }
 
@@ -125,10 +125,11 @@ export function regenerateComputeMips(
     device: GPUDevice,
     textures: Textures.TextureCache,
     mipDirty: Set<GpuTexture<d.StorageTexture>>,
+    encoder: GPUCommandEncoder,
 ): void {
     for (const tex of mipDirty) {
         if (isFilterableStorageFormat(tex.format)) {
-            Textures.generateTextureMipmaps(textures, device, tex as unknown as GpuTexture);
+            Textures.generateTextureMipmaps(textures, device, tex as unknown as GpuTexture, encoder);
         } else {
             console.warn(
                 `[webgpu] mipmapsAutoUpdate skipped: storage format '${tex.format}' is not ` +

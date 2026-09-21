@@ -1,6 +1,19 @@
 import { expect, test } from 'vitest';
-import { attribute, compileWgsl, createStorageTexture, createVertexBuffer, d, f32, Geometry, GpuSampler, texture, varying, vec4 } from '../src/index';
+import {
+    attribute,
+    compileWgsl,
+    createStorageTexture,
+    createVertexBuffer,
+    d,
+    f32,
+    Geometry,
+    GpuSampler,
+    texture,
+    varying,
+    vec4,
+} from '../src/index';
 import { assertVertexBuffers, type NodeBuilderState } from '../src/renderer/core/node-builder-state';
+import { buildVertexBufferLayouts } from '../src/renderer/webgpu/pipelines';
 
 /** `assertVertexBuffers` reads only the compiled vertex groups, so the rest of the state is irrelevant. */
 function stateFor(opts: Parameters<typeof compileWgsl>[0]): NodeBuilderState {
@@ -47,4 +60,15 @@ test('a geometry with every buffer the shader reads passes', () => {
     });
 
     expect(() => assertVertexBuffers(positionOnly(), state, 'mesh')).not.toThrow();
+});
+
+/** The draw loop does not assert, so this is the one path a group with no buffer can still reach. */
+test('a group whose buffer went missing after the assert is named, not skipped', () => {
+    const state = stateFor({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: vec4(1, 0, 0, 1),
+        depth: undefined,
+    });
+
+    expect(() => buildVertexBufferLayouts(new Geometry(), state)).toThrow(/position/);
 });

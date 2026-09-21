@@ -1006,3 +1006,28 @@ export class Line extends Mesh {
         raycastLine(this, this.material as LineMaterial, this.geometry as LineGeometry, raycaster, this.threshold, intersects);
     }
 }
+
+/** The factory form, matching `createGeometry` and the other resource constructors. */
+export function createLineGeometry(points: Float32Array | number[], closed = false, maxPoints?: number): LineGeometry {
+    return new LineGeometry(points, closed, maxPoints);
+}
+
+/** The factory form, matching `createLineGeometry`. */
+export function createLineSegmentsGeometry(points: Float32Array | number[], maxPoints?: number): LineSegmentsGeometry {
+    return new LineSegmentsGeometry(points, maxPoints);
+}
+
+/** The factory form, matching `createMaterial`. */
+export function createLineMaterial(opts: LineMaterialOptions = {}): LineMaterial {
+    return new LineMaterial(opts);
+}
+
+/** The factory form, matching `createMesh`. */
+export function createLine(geometry: LineGeometry, material: LineMaterial): Line {
+    return new Line(geometry, material);
+}
+
+/** The factory form, matching `createMesh`. */
+export function createLineSegments(geometry: LineSegmentsGeometry, material: LineMaterial): LineSegments {
+    return new LineSegments(geometry, material);
+}

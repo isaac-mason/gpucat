@@ -3,14 +3,15 @@ import {
     ArrayTexture,
     arrayTexture,
     attribute,
-    compile,
     bundle,
     CubeCamera,
     CubeTexture,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    compile,
     createBoxGeometry,
     createCubeRenderTarget,
+    createRenderTarget,
     cubeTexture,
     DataTexture,
     d,
@@ -31,11 +32,10 @@ import {
     mrt,
     mul,
     PerspectiveCamera,
-    renderTexture,
     type RenderTarget,
     read,
     renderOutput,
-    createRenderTarget,
+    renderTexture,
     Scene,
     screenCoordinate,
     screenUV,
@@ -58,9 +58,9 @@ import {
 } from '../../src/index';
 import { BlendMode } from '../../src/material/blend-mode';
 import type { MaterialOptions } from '../../src/material/material';
+import { frame } from '../../src/renderer/core/frame';
 import type { Renderer } from '../../src/renderer/core/renderer';
 import { createStructTexture } from '../../src/texture/data-texture';
-import { frame } from '../../src/renderer/core/frame';
 
 export type CaseResult = {
     name: string;
@@ -173,6 +173,26 @@ async function caseScene(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
 
     const pixel = centerPixel(await read(gpu, target));
     return { name: 'scene', pixel, expected: [0, 0, 255, 255] };
+}
+
+/**
+ * clear-ignores-scissor: a scissor bounds the draws, never the clear. GL's `gl.clear` obeys the
+ * scissor box and WebGPU's `loadOp` does not, so this is the case where one desc meant two regions.
+ */
+async function caseClearIgnoresScissor(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+
+    const f = frame(gpu);
+    const first = f.pass({ target, clear: [0, 0, 1, 1] });
+    first.end();
+    // A corner scissor, far from the centre this reads: the second clear must still reach it.
+    const second = f.pass({ target, clear: [1, 0, 0, 1], scissor: { x: 0, y: 0, width: 4, height: 4 } });
+    second.draw(fullscreen(vec4(0, 1, 0, 1)));
+    second.end();
+    f.submit();
+
+    const pixel = centerPixel(await read(gpu, target));
+    return { name: 'clear-ignores-scissor', pixel, expected: [255, 0, 0, 255], note: 'blue then red under a corner scissor' };
 }
 
 /** two-passes: a render target sampled by a later pass in the same frame. */
@@ -291,7 +311,7 @@ async function caseMsaa(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
 
 /**
  * bundle-replay: the same draws through `pass.execute(bundle)` must reach the device as they do
- * directly. This is the net for `PLAN-render-bundles.md` step 3, where WebGPU stops replaying the
+ * directly. This is the net for the step where WebGPU stops replaying the
  * records and records a real `GPURenderBundle` — the pixels are the only thing that proves the two
  * agree, so it is written before the change it guards.
  */
@@ -1403,7 +1423,9 @@ async function caseCubeMips(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
             vertex: vec4(attribute('position', d.vec3f), f32(1)),
             // A direction into the face's RED half, at the 1x1 level where the whole face has averaged to
             // half red. Aimed at the centre it would read the two-tone boundary and be 128 either way.
-            fragment: cubeTexture(cube.texture).level(f32(6)).sample(vec3(0, 0.6, 1)),
+            fragment: cubeTexture(cube.texture)
+                .level(f32(6))
+                .sample(vec3(0, 0.6, 1)),
             depthTest: false,
         }),
     );
@@ -1816,7 +1838,9 @@ async function caseCubeCamera(gpu: Renderer<WebGPUBackend>): Promise<CaseResult>
     cubeCamera.updateWorldMatrix();
     const empty = new Scene();
     empty.updateWorldMatrix();
-    cubeCamera.update(gpu, empty);
+    const emptyCubeFrame = frame(gpu);
+    cubeCamera.update(emptyCubeFrame, empty);
+    emptyCubeFrame.submit();
 
     const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
     const sampled = new Mesh(
@@ -1865,14 +1889,18 @@ async function caseCubeCameraMips(gpu: Renderer<WebGPUBackend>): Promise<CaseRes
 
     const cubeCamera = new CubeCamera(0.1, 100, cube);
     cubeCamera.updateWorldMatrix();
-    cubeCamera.update(gpu, scene);
+    const sceneCubeFrame = frame(gpu);
+    cubeCamera.update(sceneCubeFrame, scene);
+    sceneCubeFrame.submit();
 
     const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
     const sampled = new Mesh(
         fullscreenTriangle(),
         new Material({
             vertex: vec4(attribute('position', d.vec3f), f32(1)),
-            fragment: cubeTexture(cube.texture).level(f32(6)).sample(vec3(0, 0.6, 1)),
+            fragment: cubeTexture(cube.texture)
+                .level(f32(6))
+                .sample(vec3(0, 0.6, 1)),
             depthTest: false,
         }),
     );
@@ -2025,6 +2053,7 @@ const CASES: Record<string, Case> = {
     solid: caseSolid,
     uniform: caseUniform,
     scene: caseScene,
+    'clear-ignores-scissor': caseClearIgnoresScissor,
     'two-passes': caseTwoPasses,
     'viewport-scissor': caseScissor,
     mrt: caseMrt,

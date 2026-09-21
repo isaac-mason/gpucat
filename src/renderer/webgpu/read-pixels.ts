@@ -20,6 +20,7 @@ export async function readPixels(
     renderTarget: RenderTarget,
     attachmentIndex = 0,
     layer = 0,
+    mipLevel = 0,
 ): Promise<Uint8Array> {
     const tex = renderTarget.textures[attachmentIndex];
     if (!tex) {
@@ -37,7 +38,8 @@ export async function readPixels(
         throw new Error('[readPixels] render target has not been rendered to yet.');
     }
 
-    const { width, height } = renderTarget;
+    const width = Math.max(1, renderTarget.width >> mipLevel);
+    const height = Math.max(1, renderTarget.height >> mipLevel);
     const bytesPerPixel = 4;
     // copyTextureToBuffer requires bytesPerRow to be a multiple of 256.
     const bytesPerRow = Math.ceil((width * bytesPerPixel) / 256) * 256;
@@ -51,7 +53,7 @@ export async function readPixels(
 
     const encoder = device.createCommandEncoder();
     encoder.copyTextureToBuffer(
-        { texture: textureData.texture, origin: { x: 0, y: 0, z: layer } },
+        { texture: textureData.texture, mipLevel, origin: { x: 0, y: 0, z: layer } },
         { buffer: stagingBuffer, bytesPerRow, rowsPerImage: height },
         { width, height, depthOrArrayLayers: 1 },
     );

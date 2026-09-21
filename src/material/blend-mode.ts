@@ -1,11 +1,4 @@
-export type Blending =
-    | 'no'
-    | 'normal'
-    | 'additive'
-    | 'subtractive'
-    | 'multiply'
-    | 'custom'
-    | 'material';
+export type Blending = 'no' | 'normal' | 'additive' | 'subtractive' | 'multiply' | 'custom' | 'material';
 
 export class BlendMode {
     blending: Blending;

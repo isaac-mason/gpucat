@@ -66,7 +66,7 @@ export function handleDeviceLost(r: RendererState, info: DeviceLostInfo): void {
  */
 export function compileTargets(
     r: RendererState,
-    drawables: Mesh[],
+    drawables: readonly Mesh[],
     target: Target,
     camera: View,
 ): { context: RenderContext; objects: RenderObject[] } {
@@ -77,7 +77,7 @@ export function compileTargets(
     };
 }
 
-/** The recorded-draw counterpart to {@link prepareRenderObjects}: no render list, no scene walk. */
+/** Prepares what a pass recorded by hand: no render list, no scene walk, no sort. */
 export function prepareRecordedDraws(
     r: RendererState,
     records: readonly PassEntry[],

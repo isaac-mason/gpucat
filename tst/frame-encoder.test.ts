@@ -9,6 +9,7 @@ beforeAll(() => {
 
 import { PerspectiveCamera } from '../src/camera/perspective-camera';
 import { CoordinateSystem } from '../src/core/coordinate-system';
+import { createCubeRenderTarget } from '../src/core/cube-render-target';
 import { GpuBuffer } from '../src/core/gpu-buffer';
 import { createRenderTarget, type RenderTarget } from '../src/core/render-target';
 import { Geometry } from '../src/geometry/geometry';
@@ -24,6 +25,7 @@ import { read } from '../src/renderer/core/read';
 import { Renderer } from '../src/renderer/core/renderer';
 import type { View } from '../src/renderer/core/view';
 import { attachmentsFor } from '../src/renderer/webgpu/render-pass';
+import { getTextureData } from '../src/renderer/webgpu/textures';
 import { WebGPUBackend } from '../src/renderer/webgpu/webgpu-backend';
 import { drawScene } from '../src/scene/draw-scene';
 import { Scene } from '../src/scene/scene';
@@ -75,6 +77,69 @@ describe('frame encoder ownership', () => {
         expect(stub.stats.drawCalls).toBeGreaterThanOrEqual(2);
         expect(stub.stats.encoderCreations).toBe(1);
         expect(stub.stats.submits).toBe(1);
+    });
+
+    /** A later pass in the same frame samples the chain, so generating it after submit is one frame late. */
+    test('a mipmapped target generates its chain on the frame encoder', async () => {
+        const { stub, renderer } = await makeRenderer();
+        const camera = makeCamera();
+        const target = createCubeRenderTarget(64, { generateMipmaps: true });
+
+        stub.stats.reset();
+
+        const f = frame(renderer);
+        const pass = f.pass({ target, camera, layer: 0 });
+        pass.draw(boxMesh());
+        pass.end();
+        f.submit();
+
+        expect(stub.stats.encoderCreations, 'one encoder for the frame and its mips').toBe(1);
+        expect(stub.stats.submits, 'one submit').toBe(1);
+    });
+
+    /** A plain render target is allocated at one level, so its `generateMipmaps` has nothing to build. */
+    test('only a cube render target carries a mip chain', async () => {
+        const { renderer } = await makeRenderer();
+        const camera = makeCamera();
+
+        const plain = createRenderTarget(64, 64);
+        plain.textures[0]!.generateMipmaps = true;
+        const cube = createCubeRenderTarget(64, { generateMipmaps: true });
+
+        const f = frame(renderer);
+        for (const target of [plain, cube]) {
+            const pass = f.pass({ target, camera, layer: target === cube ? 0 : undefined });
+            pass.draw(boxMesh());
+            pass.end();
+        }
+        f.submit();
+
+        const levels = (t: RenderTarget) =>
+            getTextureData(renderer.backend.textures, t.textures[0]!._gpuTexture)?.texture.mipLevelCount;
+        expect(levels(plain), 'a plain target ignores the flag').toBe(1);
+        expect(levels(cube), 'a cube target honours it').toBeGreaterThan(1);
+    });
+
+    /** The pipeline is built with a layout per group; the draw loop skipped one by advancing its slot. */
+    test('a buffer removed after the pipeline was built is named, not bound at the wrong slot', async () => {
+        const { renderer } = await makeRenderer();
+        const camera = makeCamera();
+        const target = createRenderTarget(64, 64);
+        const mesh = boxMesh();
+
+        const first = frame(renderer);
+        const firstPass = first.pass({ target, camera });
+        firstPass.draw(mesh);
+        firstPass.end();
+        first.submit();
+
+        mesh.geometry.buffers.delete('position');
+
+        const second = frame(renderer);
+        const secondPass = second.pass({ target, camera });
+        secondPass.draw(mesh);
+        expect(() => secondPass.end()).toThrow(/position/);
+        second.abandon();
     });
 
     test('each frame is its own encoder and submit', async () => {
@@ -366,7 +431,7 @@ describe('compile pre-warms the pipeline a pass will look up', () => {
         scene.add(mesh);
         scene.updateWorldMatrix();
 
-        await compile(renderer, mesh, target, camera);
+        await compile(renderer, [mesh], target, camera);
         const warmed = renderer.backend.pipelines.renderPipelines.size;
         expect(warmed).toBeGreaterThan(0);
 
@@ -389,7 +454,7 @@ describe('compile pre-warms the pipeline a pass will look up', () => {
         scene.add(mesh);
         scene.updateWorldMatrix();
 
-        await compile(renderer, mesh, target, camera);
+        await compile(renderer, [mesh], target, camera);
         const warmed = renderer._renderObjects.renderObjects.size;
         expect(warmed).toBeGreaterThan(0);
 
