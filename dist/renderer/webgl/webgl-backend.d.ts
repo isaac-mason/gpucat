@@ -93,6 +93,7 @@ export declare class WebGLBackend implements DeviceBackend {
     submitFrame(): void;
     discardFrame(): void;
     /** WebGL2 has no async link, so this only moves the stall off the first frame and onto load. */
+    /** @internal */
     compileObjects(objects: RenderObject[], _params: RenderPassParams): Promise<void>;
     /**
      * GL-only counts go under `memory.backend` in GL's own vocabulary rather than a WebGPU-shaped field.

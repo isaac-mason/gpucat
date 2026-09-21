@@ -15,17 +15,17 @@ import type { Renderer } from './renderer';
  */
 export interface DeviceBackend extends FrameBackend {
     /** Acquire the device. The renderer is kept for the neutral state the encode path reads. */
-    init(renderer: Renderer<DeviceBackend>): Promise<void>;
-    dispose(): void;
+    /** @internal */ init(renderer: Renderer<DeviceBackend>): Promise<void>;
+    /** @internal */ dispose(): void;
     /** Warm whatever this API compiles per drawable, for objects `compileTargets` already resolved. */
-    compileObjects(objects: RenderObject[], params: RenderPassParams): Promise<void>;
+    /** @internal */ compileObjects(objects: RenderObject[], params: RenderPassParams): Promise<void>;
     /** Warm compute pipelines. WebGL2 implements it by refusing: it has no compute shaders. */
-    compileCompute(nodes: readonly ComputeNode[]): Promise<void>;
-    readPixels(target: RenderTarget, attachmentIndex: number, layer: number, mipLevel: number): Promise<Uint8Array>;
+    /** @internal */ compileCompute(nodes: readonly ComputeNode[]): Promise<void>;
+    /** @internal */ readPixels(target: RenderTarget, attachmentIndex: number, layer: number, mipLevel: number): Promise<Uint8Array>;
     /**
      * Fill the shared counts and this API's own, at the renderer's frame boundary. Read live off the
      * caches rather than mirrored at every create/dispose site, which would only ever approximate what
      * the maps already know exactly.
      */
-    readMemoryStats(memory: MemoryInfo): void;
+    /** @internal */ readMemoryStats(memory: MemoryInfo): void;
 }

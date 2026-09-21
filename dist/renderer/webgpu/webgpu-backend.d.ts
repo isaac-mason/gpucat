@@ -49,7 +49,7 @@ export declare class WebGPUBackend implements DeviceBackend {
     /** Value-keyed, shared by pipelines and bindings so one entry shape yields one layout. @internal */
     bindGroupLayoutCache: BindGroupLayoutCache;
     /** @internal */ textures: Textures.TextureCache;
-    samplers: Samplers.SamplerCache;
+    /** @internal */ samplers: Samplers.SamplerCache;
     /** @internal */ pipelines: Pipelines.PipelinesState;
     /** @internal */ bindings: Bindings.BindingsState;
     /** @internal */ renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache;
@@ -88,6 +88,7 @@ export declare class WebGPUBackend implements DeviceBackend {
     submitFrame(): void;
     discardFrame(): void;
     /** Phase 1 compiles every pipeline in parallel; phase 2's uploads are per drawable, not per material. */
+    /** @internal */
     compileObjects(objects: RenderObject[], params: RenderPassParams): Promise<void>;
     readPixels(renderTarget: RenderTarget, attachmentIndex: number, layer: number, mipLevel: number): Promise<Uint8Array>;
     /** Off the `DeviceBackend` contract on purpose: a neutral signature would widen this to `string`. */

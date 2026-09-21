@@ -24455,15 +24455,15 @@ class NodeFrame {
      * Used to control Node.update() calls.
      * Maps nodes to their last update frame/render IDs.
      */
-    updateMap = new WeakMap();
+    /** @internal */ updateMap = new WeakMap();
     /**
      * Used to control Node.updateBefore() calls.
      */
-    updateBeforeMap = new WeakMap();
+    /** @internal */ updateBeforeMap = new WeakMap();
     /**
      * Used to control Node.updateAfter() calls.
      */
-    updateAfterMap = new WeakMap();
+    /** @internal */ updateAfterMap = new WeakMap();
     // Methods
     _getMaps(map, node) {
         let maps = map.get(node);
@@ -40070,6 +40070,7 @@ class WebGLBackend {
         discardFrame$1(this._frame);
     }
     /** WebGL2 has no async link, so this only moves the stall off the first frame and onto load. */
+    /** @internal */
     async compileObjects(objects, _params) {
         const opts = { precision: this._opts.precision, maxTextureSize: this._maxTextureSize };
         for (const renderObject of objects) {
@@ -41586,7 +41587,7 @@ class WebGPUBackend {
     /** Value-keyed, shared by pipelines and bindings so one entry shape yields one layout. @internal */
     bindGroupLayoutCache = createBindGroupLayoutCache();
     /** @internal */ textures = createTextureCache$1();
-    samplers = createSamplerCache$1();
+    /** @internal */ samplers = createSamplerCache$1();
     /** @internal */ pipelines = createPipelinesState(this.bindGroupLayoutCache);
     /** @internal */ bindings = createBindingsState$1(this.bindGroupLayoutCache);
     /** @internal */ renderObjectGpu = createRenderObjectGpuCache();
@@ -41677,6 +41678,7 @@ class WebGPUBackend {
         discardFrame(this._frame);
     }
     /** Phase 1 compiles every pipeline in parallel; phase 2's uploads are per drawable, not per material. */
+    /** @internal */
     async compileObjects(objects, params) {
         const nodes = this.renderer._nodes;
         const pipelinePromises = [];
