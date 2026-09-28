@@ -1,6 +1,6 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Object3D } from '../../core/object3d';
-import { deadAttachment, type RenderTarget } from '../../core/render-target';
+import { deadAttachment } from '../../core/render-target';
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { Material } from '../../material/material';
 import type { ComputeNode } from '../../nodes/lib/core';
@@ -210,8 +210,8 @@ export type Frame = {
     /** @internal */ transformFeedbackPoolIndex: number;
     /** @internal */ open: AnyPass | null;
     /** @internal */ closed: boolean;
-    /** Render targets this frame encoded into, so `submit` can see one disposed since. @internal */
-    targets: RenderTarget[];
+    /** Targets this frame encoded into, so `submit` can see one disposed since. @internal */
+    targets: Target[];
     /** True once this frame object has carried a submitted frame, so a reopen can be told from a first use. @internal */
     everSubmitted: boolean;
     /** Memoised by the `done` getter, so asking twice waits once and never asking waits not at all. @internal */
@@ -575,7 +575,7 @@ function endPass(frame: Frame, pass: AnyPass): void {
         frame.backend.encodeTransformFeedbackPass(pass.desc);
     } else {
         const target = pass.desc.target;
-        if (isRenderTarget(target)) frame.targets.push(target);
+        frame.targets.push(target);
         frame.backend.encodePass(pass.desc);
     }
 }
@@ -588,7 +588,7 @@ function submitFrame(frame: Frame): void {
 
     // `abandon()` is the answer to a mid-frame room swap, not a disposal race.
     for (const target of frame.targets) {
-        const dead = deadAttachment(target);
+        const dead = isRenderTarget(target) ? deadAttachment(target) : target.disposed ? 'canvas' : null;
         if (dead !== null) {
             throw new Error(
                 `[frame] '${dead}' was disposed after its pass recorded into it; abandon() the frame instead of disposing mid-frame.`,

@@ -1,6 +1,6 @@
 /// <reference types="@webgpu/types" />
 
-import { beforeAll, describe, expect, test } from 'vitest';
+import { beforeAll, describe, expect, test, vi } from 'vitest';
 import { createStubGPU, installWebGPUPolyfills } from './stub-gpu';
 
 beforeAll(() => {
@@ -299,6 +299,60 @@ describe('a pass draws to the target in its desc', () => {
         const attachmentsB = attachmentsFor(renderer.backend.swapchain, b);
         expect(attachmentsA.depthTexture).not.toBeNull();
         expect(attachmentsA.depthTexture).not.toBe(attachmentsB.depthTexture);
+    });
+});
+
+describe('disposing a canvas target', () => {
+    function draw(renderer: Renderer, target: ReturnType<typeof createCanvasTarget>) {
+        const f = frame(renderer);
+        const pass = f.pass({ target, camera: makeCamera() });
+        pass.draw(boxMesh());
+        pass.end();
+        f.submit();
+    }
+
+    test('releases its context and attachments, and a later draw acquires them again', async () => {
+        const { stub, renderer } = await makeRenderer();
+        const preview = createCanvasTarget(stub.canvas, { samples: 4 });
+        draw(renderer, preview);
+
+        const swapchain = renderer.backend.swapchain;
+        const { depthTexture, msaaTexture } = attachmentsFor(swapchain, preview);
+        const context = renderer.backend.canvasContexts.get(preview)!;
+        const destroyDepth = vi.spyOn(depthTexture!, 'destroy');
+        const destroyMsaa = vi.spyOn(msaaTexture!, 'destroy');
+        const unconfigure = vi.spyOn(context, 'unconfigure');
+
+        preview.dispose();
+        expect(preview.disposed).toBe(true);
+        expect(destroyDepth).toHaveBeenCalledOnce();
+        expect(destroyMsaa).toHaveBeenCalledOnce();
+        expect(unconfigure).toHaveBeenCalledOnce();
+        expect(swapchain.targets.has(preview)).toBe(false);
+        expect(renderer.backend.canvasContexts.has(preview)).toBe(false);
+
+        draw(renderer, preview);
+        expect(preview.disposed).toBe(false);
+        expect(attachmentsFor(swapchain, preview).depthTexture).not.toBe(depthTexture);
+    });
+
+    test('after its pass recorded fails the submit, rather than presenting a released canvas', async () => {
+        const { stub, renderer } = await makeRenderer();
+        const preview = createCanvasTarget(stub.canvas);
+        draw(renderer, preview);
+
+        const f = frame(renderer);
+        const pass = f.pass({ target: preview, camera: makeCamera() });
+        pass.draw(boxMesh());
+        pass.end();
+        preview.dispose();
+        expect(() => f.submit()).toThrow(/'canvas' was disposed/);
+    });
+
+    test('that nothing drew to holds nothing, so stays usable', () => {
+        const target = createCanvasTarget(createStubGPU().canvas);
+        target.dispose();
+        expect(target.disposed).toBe(false);
     });
 });
 

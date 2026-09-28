@@ -280,7 +280,7 @@ export class WebGPUBackend implements DeviceBackend {
 
     /** The canvas context for a target, configured against this device. Acquired lazily per canvas. */
     getContext(canvasTarget: CanvasTarget, format: GPUTextureFormat, alphaMode?: GPUCanvasAlphaMode): GPUCanvasContext {
-        return RenderPass.getContext(this.canvasContexts, this.device, canvasTarget, format, alphaMode);
+        return RenderPass.getContext(this.canvasContexts, this.swapchain, this.device, canvasTarget, format, alphaMode);
     }
 
     /** Pre-compile a compute pipeline; one promise list, since awaiting per node would serialize them. */

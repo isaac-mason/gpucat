@@ -31,6 +31,7 @@ import type { WebGPUBackend } from './webgpu-backend';
  */
 export function getContext(
     contexts: WeakMap<CanvasTarget, GPUCanvasContext>,
+    sc: SwapchainState,
     device: GPUDevice,
     canvasTarget: CanvasTarget,
     format: GPUTextureFormat,
@@ -44,6 +45,8 @@ export function getContext(
         }
         acquired.configure({ device, format, alphaMode: alphaMode ?? canvasTarget.alphaMode });
         canvasTarget.colorFormat = format;
+        canvasTarget.disposed = false;
+        canvasTarget._onDispose = () => releaseCanvasTarget(contexts, sc, canvasTarget);
         ctx = acquired;
         contexts.set(canvasTarget, ctx);
     }
@@ -71,10 +74,7 @@ export function reconfigureContext(
     canvasTarget.colorFormat = format;
 }
 
-/**
- * Unconfigure and release the WebGPU context for a canvas target. Called from `dispose()` for the
- * swapchain canvas target. After this, `getContext()` creates a fresh context.
- */
+/** Unconfigure and release the WebGPU context for a canvas target. After this, `getContext()` creates a fresh context. */
 export function releaseContext(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, canvasTarget: CanvasTarget): void {
     const ctx = contexts.get(canvasTarget);
     if (ctx) {
@@ -296,7 +296,7 @@ function resolveSwapchainAttachments(
     params: RenderPassParams,
 ): ResolvedAttachments {
     const target = params.canvasTarget!;
-    const ctx = getContext(contexts, device, target, format);
+    const ctx = getContext(contexts, sc, device, target, format);
     const entry = attachmentsFor(sc, target);
 
     // Safari drops the context's configuration on every backing-store resize, and getCurrentTexture()
@@ -753,17 +753,20 @@ function encodeDrawRange(ctx: EncodeContext, from: number, to: number, { gpuPass
 /** The per-canvas attachments this module allocated; the caches are each module's own to tear down. */
 export function disposeSwapchain(b: WebGPUBackend): void {
     const { canvasContexts: contexts, swapchain: sc } = b;
-    for (const target of sc.targets) {
-        releaseContext(contexts, target);
-        const entry = attachmentsFor(sc, target);
+    for (const target of sc.targets) releaseCanvasTarget(contexts, sc, target);
+}
+
+/** What `CanvasTarget.dispose()` runs: the canvas's context and attachments go, and a later draw re-acquires them. */
+function releaseCanvasTarget(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, sc: SwapchainState, target: CanvasTarget): void {
+    releaseContext(contexts, target);
+    target._onDispose = null;
+    const entry = sc.byTarget.get(target);
+    if (entry) {
         entry.depthTexture?.destroy();
         entry.msaaTexture?.destroy();
-        entry.depthTexture = null;
-        entry.depthTextureView = null;
-        entry.msaaTexture = null;
-        entry.msaaTextureView = null;
+        sc.byTarget.delete(target);
     }
-    sc.targets.clear();
+    sc.targets.delete(target);
 }
 
 /** tracks currently set GPU state to avoid redundant setBindGroup/setVertexBuffer/setIndexBuffer calls */
