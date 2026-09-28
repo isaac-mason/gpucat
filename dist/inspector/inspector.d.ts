@@ -9,7 +9,7 @@
  *  - Viewer tab: inspectable node canvases
  */
 import { RendererInspector } from './renderer-inspector';
-export type { ComputeEntry, FrameRecord, MarkerEntry, PassRecord, RenderEntry, SceneRecord, TimelineEntry, } from './renderer-inspector';
+export type { ComputeEntry, FrameRecord, MarkerEntry, PassRecord, RecordedCall, RecordedPass, RenderEntry, SceneRecord, TimelineEntry, } from './renderer-inspector';
 import type { ComputeNode, InspectorNode } from '../nodes/nodes';
 import type { RenderObject } from '../renderer/core/render-object';
 import type { Any } from '../schema/schema';

@@ -67,8 +67,14 @@ export declare class Uniform<T extends Any = Any> {
     /** Determines @group index, update cadence, and packing. Mutable, but only
      *  read at compile time, set it before the owning node is first rendered. */
     group: UniformGroup;
+    /**
+     * Name this uniform reads under as a member of its block in emitted shader source
+     * (`uniforms_frame.<label>`). Unlabelled value-based uniforms fall back to `uniform0`, `uniform1`,
+     * … in discovery order — readable, but a label says what the value IS.
+     */
+    label: string | undefined;
     private _value;
-    constructor(schema: T, initialValue?: UniformValue<T>, group?: UniformGroup);
+    constructor(schema: T, initialValue?: UniformValue<T>, group?: UniformGroup, label?: string);
     get value(): UniformStored<T> | null;
     /** A typed array is adopted by reference, so writing through it keeps updating this uniform. */
     set value(next: UniformValue<T> | null);

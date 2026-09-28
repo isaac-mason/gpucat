@@ -15,6 +15,8 @@ import { SamplerNode, type StorageTextureBindingNode, type TextureBindingNode } 
 import type { UniformGroup, UniformNode } from '../../lib/uniform';
 import type { VaryingNode } from '../../lib/varying';
 import type { WgslFunctionNode } from '../../lib/wgsl-fn';
+import { type NameScope } from '../names';
+import { Prec } from '../print';
 type ShaderStage = 'vertex' | 'fragment' | 'compute';
 /** Traced FnNode data */
 export type TracedFn = {
@@ -32,11 +34,14 @@ export type BuildContext = {
     }>;
     storages: Map<string, StorageNode<d.Any>>;
     storageNames: Map<number, string>;
+    textureNames: Map<string, string>;
+    samplerNames: Map<string, string>;
+    uniformNames: Map<string, string>;
+    bindingNames: NameScope;
     textures: Map<string, TextureBindingNode>;
     storageTextures: Map<string, StorageTextureBindingNode>;
     samplers: Map<string, SamplerNode>;
     attributes: Map<number, AttributeEntry>;
-    attrCounter: number;
     varyings: Map<string, {
         node: VaryingNode<d.Any>;
         vertexExpr: string;
@@ -49,7 +54,11 @@ export type BuildContext = {
     usageCount: Map<number, number>;
     mutatedNodes: Set<number>;
     nodeVars: Map<number, string>;
-    varCounter: number;
+    /** node.id -> binding strength of the expression string generateExpr() produced for it. */
+    precOf: Map<number, Prec>;
+    /** Identifiers taken in this emission scope: locals, loop counters, CSE temps, and every global
+     *  name already in scope (seeded from the discovery — see {@link seedGlobalNames}). */
+    names: NameScope;
     hoistIndex: number;
     topScopeParamIds: Set<number>;
     hoistStableMemo: Map<number, boolean>;

@@ -25,6 +25,18 @@ export type UniformBinding = {
      */
     lastRenderId: number;
     /**
+     * Frame of the last pass or dispatch that used this binding's own buffer. Different bytes after
+     * such a use, in the same frame, cannot go into that buffer: every write lands before the frame's
+     * submit, so the earlier pass would read them. They take a dynamic allocation instead.
+     */
+    lastUseFrameId: number;
+    /**
+     * Where the current use reads from: -1 for the binding's own buffer, otherwise which of the backend's
+     * dynamic uniform buffers, with `sliceOffset` as the dynamic offset into it.
+     */
+    sliceBufferId: number;
+    sliceOffset: number;
+    /**
      * Double-buffered uniform packing: current holds last uploaded values,
      * scratch is used for packing new values before comparison.
      * Uses ArrayBuffer to support typed views (Float32Array, Int32Array, etc).

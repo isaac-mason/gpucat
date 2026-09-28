@@ -4,7 +4,11 @@ import type { Any, StructSchema } from '../../schema/schema';
 import { type ConstructNode, type LiteralNode, Node, NodeKind, type StructDef, type StructInstance } from './core';
 export declare class UniformNode<D extends Any> extends Node<D> {
     readonly kind = NodeKind.Uniform;
-    /** uniform name */
+    /**
+     * Identity: the key this uniform dedupes under. For a name-based uniform it is also the author's
+     * name; a value-based one gets a generated placeholder. Either way the SPELLING in emitted source
+     * comes from `uniform.label` — the resource carries the name, as GpuBuffer and GpuTexture do.
+     */
     name: string;
     /** The underlying Uniform data container */
     uniform: Uniform<D>;
@@ -19,7 +23,13 @@ export declare class UniformNode<D extends Any> extends Node<D> {
     get value(): UniformValue<D> | null;
     /** Set value directly */
     set value(v: UniformValue<D> | null);
-    constructor(uniform: Uniform<D>, name: string);
+    /**
+     * `name` is this uniform's identity — the key it dedupes under. When the author supplied it (the
+     * usual case) it also becomes the resource's label, which is what the emitters spell the block
+     * member with. `generatedName` marks the placeholder given to a uniform that has no author name;
+     * those are numbered per compile instead, because the placeholder carries a node id.
+     */
+    constructor(uniform: Uniform<D>, name: string, generatedName?: boolean);
     /**
      * Register an update callback that runs per frame/render/object.
      * The callback returns a value which is assigned to the uniform's value.

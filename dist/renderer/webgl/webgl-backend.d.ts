@@ -3,7 +3,7 @@ import type { RenderTarget } from '../../core/render-target';
 import type { ComputeNode } from '../../nodes/lib/core';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DeviceBackend } from '../core/device-backend';
-import type { PassDesc, PassEntry, TransformFeedbackPassDesc, TransformFeedbackRecord } from '../core/frame';
+import type { ComputePassDesc, DispatchRecord, PassDesc, PassEntry, TransformFeedbackPassDesc, TransformFeedbackRecord } from '../core/frame';
 import * as Info from '../core/info';
 import type { RenderObject } from '../core/render-object';
 import { type RenderPassParams } from '../core/render-types';
@@ -86,10 +86,17 @@ export declare class WebGLBackend implements DeviceBackend {
     /** Acquire the WebGL2 context and set the initial viewport. Async to match the WebGPU contract. */
     init(renderer: Renderer<DeviceBackend>): Promise<void>;
     beginFrame(): void;
-    encodePass(desc: PassDesc, records: readonly PassEntry[], count: number): void;
+    beginPass(desc: PassDesc): void;
+    recordEntry(entry: PassEntry): void;
+    beginTransformFeedbackPass(desc: TransformFeedbackPassDesc): void;
+    recordTransformFeedback(record: TransformFeedbackRecord): void;
+    /** Compute is WebGPU's; the frame refuses a compute pass on this backend before it records. */
+    beginComputePass(_desc: ComputePassDesc): void;
+    recordDispatch(_record: DispatchRecord): void;
+    encodePass(desc: PassDesc): void;
     /** Unreachable: `frame.compute()` rejects this backend by name before a dispatch can be recorded. */
     encodeComputePass(): never;
-    encodeTransformFeedbackPass(desc: TransformFeedbackPassDesc, records: readonly TransformFeedbackRecord[], count: number): void;
+    encodeTransformFeedbackPass(desc: TransformFeedbackPassDesc): void;
     submitFrame(): void;
     discardFrame(): void;
     /** WebGL2 has no async link, so this only moves the stall off the first frame and onto load. */

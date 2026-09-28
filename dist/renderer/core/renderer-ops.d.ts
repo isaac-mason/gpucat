@@ -1,13 +1,12 @@
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { Mesh } from '../../objects/mesh';
-import type { DrawOptions, PassEntry } from './frame';
+import type { DrawOptions, DrawRecord } from './frame';
 import type { NodeManagerState } from './node-manager';
 import type * as RenderContextModule from './pass-context';
 import type { RenderContext } from './pass-context';
 import type * as RenderLists from './render-list';
 import type { RenderObject } from './render-object';
 import * as RenderObjects from './render-objects';
-import type { PreparedRenderObject, PreparedSegment } from './render-types';
 import type { Target } from './target';
 import type { View } from './view';
 /** Neutral by construction: `api` names the backend and `reason` is a plain string, so no graphics
@@ -54,11 +53,10 @@ export declare function compileTargets(r: RendererState, drawables: readonly Mes
     context: RenderContext;
     objects: RenderObject[];
 };
-/** Prepares what a pass recorded by hand: no render list, no scene walk, no sort. */
-export declare function prepareRecordedDraws(r: RendererState, records: readonly PassEntry[], count: number, camera: View, passCtx: RenderContext, 
-/** Null unless an inspector is attached; only annotates each object for the draw-calls tab. */
-inspectorLabel: string | null, prepare: (nodes: NodeManagerState, renderObject: RenderObject) => boolean, out: PreparedRenderObject[], outOpts: (DrawOptions | null)[], 
-/** Runs of `out`, one per bundle plus the direct draws between them. WebGL has no use for these. */
-outSegments: PreparedSegment[]): number;
-/** A per-depth list, grown on demand so a steady-state frame reuses one array. */
-export declare function preparedAt<T>(byDepth: T[][], depth: number): T[];
+/**
+ * One recorded draw's render object, compiled and with its `updateBefore` nodes run. `updateBefore` may
+ * record and end a nested pass (a render texture the material samples).
+ */
+export declare function prepareRecordedDraw(r: RendererState, entry: DrawRecord, camera: View, passCtx: RenderContext, prepare: (nodes: NodeManagerState, renderObject: RenderObject) => void): RenderObject;
+/** A draw with no instances and no per-draw list resolves, but nothing of it reaches the GPU. */
+export declare function drawsNothing(renderObject: RenderObject, opts: DrawOptions | null): boolean;

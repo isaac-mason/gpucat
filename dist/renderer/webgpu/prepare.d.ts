@@ -5,10 +5,10 @@ import type { RenderObject } from '../core/render-object';
 import type { WebGPUBackend } from './webgpu-backend';
 /**
  * Compile the node graph and build the pipeline / bind group layouts / geometry for one render
- * object. Returns whether it is drawable (initialized, pipeline present, node state present). The
- * neutral collect/getRenderObject/updateBefore steps stay in the render-loop orchestration.
+ * object, or throw naming it. The neutral collect/getRenderObject/updateBefore steps stay in the
+ * render-loop orchestration.
  */
-export declare function prepareRenderObject(b: WebGPUBackend, nodes: NodeManagerState, renderObject: RenderObject): boolean;
+export declare function prepareRenderObject(b: WebGPUBackend, nodes: NodeManagerState, renderObject: RenderObject): void;
 /**
  * Pre-warm half of the renderer's `compile()`: kick off async pipeline compilation for one render
  * object (node graph + bind group layouts compiled synchronously, pipeline may still be building),

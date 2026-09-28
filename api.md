@@ -515,9 +515,11 @@ Drive the GPU: create a renderer, build pipelines, render to the canvas or a tar
 </tr><tr>
 <td><a href="#computepass"><code>ComputePass</code></a></td><td><a href="#transformfeedbackpassdesc"><code>TransformFeedbackPassDesc</code></a></td><td><a href="#transformfeedbackdispatch"><code>TransformFeedbackDispatch</code></a></td><td><a href="#transformfeedbackrecord"><code>TransformFeedbackRecord</code></a></td>
 </tr><tr>
-<td><a href="#transformfeedbackpass"><code>TransformFeedbackPass</code></a></td><td><a href="#anypass"><code>AnyPass</code></a></td><td><a href="#frame"><code>Frame</code></a></td><td><a href="#createframe"><code>createFrame</code></a></td>
+<td><a href="#callrecord"><code>CallRecord</code></a></td><td><a href="#transformfeedbackpass"><code>TransformFeedbackPass</code></a></td><td><a href="#anypass"><code>AnyPass</code></a></td><td><a href="#frame"><code>Frame</code></a></td>
 </tr><tr>
-<td><a href="#isframeopen"><code>isFrameOpen</code></a></td><td><a href="#passlabel"><code>passLabel</code></a></td><td><a href="#frame-2"><code>frame</code></a></td><td><a href="#beginframe"><code>beginFrame</code></a></td>
+<td><a href="#createframe"><code>createFrame</code></a></td><td><a href="#isframeopen"><code>isFrameOpen</code></a></td><td><a href="#passlabel"><code>passLabel</code></a></td><td><a href="#frame-2"><code>frame</code></a></td>
+</tr><tr>
+<td><a href="#beginframe"><code>beginFrame</code></a></td><td></td><td></td><td></td>
 </tr></table>
 
 **Pipelines & targets**
@@ -753,6 +755,12 @@ export type BaseOptions = {
     premultiplyAlpha?: boolean;
     /** Storage textures only: regenerate mips after a compute write (default true). */
     mipmapsAutoUpdate?: boolean;
+    /**
+     * Name this texture reads under in emitted shader source, and in devtools via `GPUTexture.label`.
+     * A high-level {@link Texture} passes its own `name` down, so this is for a bare GpuTexture built
+     * by hand. Unlabelled textures fall back to `t0`, `t1`, … in source order.
+     */
+    label?: string;
 };
 ```
 
@@ -824,6 +832,8 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
     generateMipmaps: boolean;
     /** Storage textures: regenerate mips after a compute pass writes this texture (if it has mips). */
     mipmapsAutoUpdate: boolean;
+    /** Name used for the emitted shader binding and for `GPUTexture.label`; see BaseOptions.label. */
+    label: string | undefined;
     /** Flip Y on upload (for image sources) */
     flipY: boolean;
     /** Premultiply alpha on upload */
@@ -1209,7 +1219,10 @@ export type StorageEntry = {
 
 ```ts
 export type StorageTextureEntry = {
+    /** Identity: dedup key for bind groups and the emitter's texture table. Never a shader spelling. */
     textureId: string;
+    /** The identifier this binding is declared under in the emitted source (see `nameBindings`). */
+    shaderName: string;
     /** Composed WGSL binding type, e.g. `texture_storage_2d<rgba8unorm, write>`. */
     type: string;
     format: d.StorageTextureFormat;
@@ -1225,7 +1238,10 @@ export type StorageTextureEntry = {
 
 ```ts
 export type TextureEntry = {
+    /** Identity: dedup key for bind groups and the emitter's texture table. Never a shader spelling. */
     textureId: string;
+    /** The identifier this binding is declared under in the emitted source (see `nameBindings`). */
+    shaderName: string;
     type: string;
     group: number;
     binding: number;
@@ -4400,7 +4416,7 @@ export type DrawOptions = {
 #### `DrawRecord`
 
 ```ts
-/** One recorded draw. `kind` discriminates it from a bundle entry in the same pass array. */
+/** One recorded draw. `kind` discriminates it from a bundle entry, in a pass or a bundle's own list. */
 export type DrawRecord = {
     kind: 'draw';
     mesh: Mesh;
@@ -4476,6 +4492,7 @@ export type DispatchIndirectOptions = DispatchOptions & {
 ```ts
 /** Exactly one of `counts` and `indirect`, as a union rather than a comment the reader has to trust. */
 export type DispatchRecord = DispatchOptions & {
+    kind: 'dispatch';
     node: ComputeNode;
 } & ({
     counts: [number, number, number];
@@ -4492,17 +4509,31 @@ export type DispatchRecord = DispatchOptions & {
 
 ```ts
 /**
- * Encoding a pass is atomic: preparing its draws evaluates the node graph, which may open and close
- * further passes, so no GPU pass may be open across it. Both encoders read `records[0..count)`.
+ * A render pass is resolved as it is recorded and encoded when it ends. `beginPass` opens it,
+ * `recordEntry` resolves each draw (or bundle) at the call that recorded it, so it uses the values set
+ * before that call, and `encodePass` encodes what was resolved. Resolving evaluates the node graph,
+ * which may open and close further passes, so no GPU pass is open until `encodePass`.
+ *
+ * A record is handed over for the length of the call and reused for the next one, so the backend keeps
+ * whatever it needs from it rather than the record itself.
  */
 export type FrameBackend = {
     name: BackendName;
     /** The one canvas this backend's device can present to, or null when any canvas target is reachable. */
     deviceCanvasTarget: CanvasTarget | null;
     beginFrame(): void;
-    encodePass(desc: PassDesc, records: readonly PassEntry[], count: number): void;
-    encodeComputePass(desc: ComputePassDesc, records: readonly DispatchRecord[], count: number): void;
-    encodeTransformFeedbackPass(desc: TransformFeedbackPassDesc, records: readonly TransformFeedbackRecord[], count: number): void;
+    beginPass(desc: PassDesc): void;
+    /** Resolves `entry` for the pass most recently begun and not yet encoded. */
+    recordEntry(entry: PassEntry): void;
+    encodePass(desc: PassDesc): void;
+    /** The compute mirror of `beginPass` / `recordEntry` / `encodePass`: a dispatch resolves when recorded. */
+    beginComputePass(desc: ComputePassDesc): void;
+    recordDispatch(record: DispatchRecord): void;
+    /** The transform-feedback mirror, on WebGL2. */
+    beginTransformFeedbackPass(desc: TransformFeedbackPassDesc): void;
+    recordTransformFeedback(record: TransformFeedbackRecord): void;
+    encodeComputePass(desc: ComputePassDesc): void;
+    encodeTransformFeedbackPass(desc: TransformFeedbackPassDesc): void;
     submitFrame(): void;
     discardFrame(): void;
     /**
@@ -4516,13 +4547,11 @@ export type FrameBackend = {
 #### `Pass`
 
 ```ts
-/** A recording render pass. `end()` prepares its draws, opens the GPU pass, encodes and closes it. */
+/** A recording render pass. Each draw resolves when recorded; `end()` opens the GPU pass, encodes and closes it. */
 export type Pass = {
     readonly kind: 'render';
+    /** The desc this pass was opened with; rewritten when its pool slot is reused. */
     desc: PassDesc;
-    records: PassEntry[];
-    count: number;
-    ended: boolean;
     /** Draws unconditionally: `mesh.visible` gates the scene walk, not a draw you recorded yourself. */
     draw(mesh: Mesh, opts?: DrawOptions): void;
     /** Replays a bundle here, keeping its order against the draws around it. */
@@ -4539,10 +4568,8 @@ export type Pass = {
 /** A recording compute pass. The batch shares one GPU pass unless an inspector wants per-node timings. */
 export type ComputePass = {
     readonly kind: 'compute';
+    /** The desc this pass was opened with; rewritten when its pool slot is reused. */
     desc: ComputePassDesc;
-    records: DispatchRecord[];
-    count: number;
-    ended: boolean;
     dispatch(node: ComputeNode, counts: [number, number, number], opts?: DispatchOptions): void;
     /** `indirect` needs `'indirect'` usage, and is typically written by an earlier compute pass. */
     dispatchIndirect(node: ComputeNode, indirect: GpuBuffer<Any>, opts?: DispatchIndirectOptions): void;
@@ -4573,8 +4600,16 @@ export type TransformFeedbackDispatch = {
 
 ```ts
 export type TransformFeedbackRecord = TransformFeedbackDispatch & {
+    kind: 'transform-feedback';
     node: TransformFeedbackNode;
 };
+```
+
+#### `CallRecord`
+
+```ts
+/** Any call a pass records, as an attached inspector is told of it. */
+export type CallRecord = PassEntry | DispatchRecord | TransformFeedbackRecord;
 ```
 
 #### `TransformFeedbackPass`
@@ -4587,10 +4622,8 @@ export type TransformFeedbackRecord = TransformFeedbackDispatch & {
  */
 export type TransformFeedbackPass = {
     readonly kind: 'transform-feedback';
+    /** The desc this pass was opened with; rewritten when its pool slot is reused. */
     desc: TransformFeedbackPassDesc;
-    records: TransformFeedbackRecord[];
-    count: number;
-    ended: boolean;
     dispatch(node: TransformFeedbackNode, opts: TransformFeedbackDispatch): void;
     end(): void;
 };
@@ -4607,23 +4640,6 @@ export type AnyPass = Pass | ComputePass | TransformFeedbackPass;
 ```ts
 /** Holds both pass pools for the life of the renderer, so a steady-state frame allocates nothing. */
 export type Frame = {
-    backend: FrameBackend;
-    /** Set by `frame(renderer)`; `pass.scene()` needs it for the per-(scene, camera) render-list cache. */
-    renderer: Renderer | null;
-    pool: Pass[];
-    poolIndex: number;
-    computePool: ComputePass[];
-    computePoolIndex: number;
-    transformFeedbackPool: TransformFeedbackPass[];
-    transformFeedbackPoolIndex: number;
-    open: AnyPass | null;
-    closed: boolean;
-    /** Render targets this frame encoded into, so `submit` can see one disposed since. */
-    targets: RenderTarget[];
-    /** True once this frame object has carried a submitted frame, so a reopen can be told from a first use. */
-    everSubmitted: boolean;
-    /** Memoised by the `done` getter, so asking twice waits once and never asking waits not at all. */
-    completion: Promise<void> | null;
     pass(desc: PassDesc): Pass;
     compute(desc?: ComputePassDesc): ComputePass;
     transformFeedback(desc?: TransformFeedbackPassDesc): TransformFeedbackPass;
@@ -6132,7 +6148,13 @@ export class Uniform<T extends Any = Any> {
     /** Determines @group index, update cadence, and packing. Mutable, but only
      *  read at compile time, set it before the owning node is first rendered. */
     group: UniformGroup;
-    constructor(schema: T, initialValue?: UniformValue<T>, group?: UniformGroup);
+    /**
+     * Name this uniform reads under as a member of its block in emitted shader source
+     * (`uniforms_frame.<label>`). Unlabelled value-based uniforms fall back to `uniform0`, `uniform1`,
+     * … in discovery order — readable, but a label says what the value IS.
+     */
+    label: string | undefined;
+    constructor(schema: T, initialValue?: UniformValue<T>, group?: UniformGroup, label?: string);
     get value(): UniformStored<T> | null;
     /** A typed array is adopted by reference, so writing through it keeps updating this uniform. */
     set value(next: UniformValue<T> | null);
@@ -6369,8 +6391,14 @@ export type TextureOptions = {
 export class Texture<out T extends SourceData = SourceData> {
     /** Type flag for runtime type checking */
     readonly isTexture = true;
-    /** Optional name for debugging */
-    name: string;
+    /**
+     * Optional name for debugging. Also the identifier this texture reads under in emitted shader
+     * source, and its `GPUTexture.label` in devtools. Forwards to the underlying `GpuTexture` — the
+     * single source of truth the backends and the emitters read — so setting it on the wrapper at any
+     * point takes effect, exactly as `isRenderTargetTexture` does.
+     */
+    get name(): string;
+    set name(value: string);
     /**
      * Callback fired when the texture is updated.
      */
@@ -6605,8 +6633,14 @@ export type CubeTextureOptions = {
 export class CubeTexture {
     /** Type flag for runtime checking */
     readonly isCubeTexture = true;
-    /** Optional name for debugging */
-    name: string;
+    /**
+     * Optional name for debugging. Also the identifier this texture reads under in emitted shader
+     * source, and its `GPUTexture.label` in devtools. Forwards to the underlying `GpuTexture` — the
+     * single source of truth the backends and the emitters read — so setting it on the wrapper at any
+     * point takes effect, exactly as `isRenderTargetTexture` does.
+     */
+    get name(): string;
+    set name(value: string);
     /**
      * Mapping mode - determines default UV vector.
      * - 'reflection': uses reflect(viewDir, normal)
@@ -6696,8 +6730,14 @@ export type DepthTextureFormat = 'depth16unorm' | 'depth24plus' | 'depth24plus-s
  */
 export class DepthTexture {
     readonly isDepthTexture = true;
-    /** Optional name for debugging */
-    name: string;
+    /**
+     * Optional name for debugging. Also the identifier this texture reads under in emitted shader
+     * source, and its `GPUTexture.label` in devtools. Forwards to the underlying `GpuTexture` — the
+     * single source of truth the backends and the emitters read — so setting it on the wrapper at any
+     * point takes effect, exactly as `isRenderTargetTexture` does.
+     */
+    get name(): string;
+    set name(value: string);
     /**
      * Constructs a new DepthTexture.
      *
@@ -6751,8 +6791,14 @@ export type ArrayTextureImage = DataTextureImage & {
 export class ArrayTexture {
     /** Type flag for runtime checking */
     readonly isArrayTexture = true;
-    /** Optional name for debugging */
-    name: string;
+    /**
+     * Optional name for debugging. Also the identifier this texture reads under in emitted shader
+     * source, and its `GPUTexture.label` in devtools. Forwards to the underlying `GpuTexture` — the
+     * single source of truth the backends and the emitters read — so setting it on the wrapper at any
+     * point takes effect, exactly as `isRenderTargetTexture` does.
+     */
+    get name(): string;
+    set name(value: string);
     /**
      * Constructs a new ArrayTexture.
      *
@@ -6867,8 +6913,14 @@ export type StructValue<S extends d.StructSchema> = {
 export class DataTexture {
     /** Type flag for runtime checking */
     readonly isDataTexture = true;
-    /** Optional name for debugging */
-    name: string;
+    /**
+     * Optional name for debugging. Also the identifier this texture reads under in emitted shader
+     * source, and its `GPUTexture.label` in devtools. Forwards to the underlying `GpuTexture` — the
+     * single source of truth the backends and the emitters read — so setting it on the wrapper at any
+     * point takes effect, exactly as `isRenderTargetTexture` does.
+     */
+    get name(): string;
+    set name(value: string);
     /**
      * Constructs a new DataTexture.
      *
@@ -7002,8 +7054,14 @@ export type Texture3DImage = DataTextureImage & {
 export class Data3DTexture {
     /** Type flag for runtime checking */
     readonly is3DTexture = true;
-    /** Optional name for debugging */
-    name: string;
+    /**
+     * Optional name for debugging. Also the identifier this texture reads under in emitted shader
+     * source, and its `GPUTexture.label` in devtools. Forwards to the underlying `GpuTexture` — the
+     * single source of truth the backends and the emitters read — so setting it on the wrapper at any
+     * point takes effect, exactly as `isRenderTargetTexture` does.
+     */
+    get name(): string;
+    set name(value: string);
     /**
      * Constructs a new Data3DTexture.
      *
@@ -7280,7 +7338,10 @@ export type StorageEntry = {
 
 ```ts
 export type TextureEntry = {
+    /** Identity: dedup key for bind groups and the emitter's texture table. Never a shader spelling. */
     textureId: string;
+    /** The identifier this binding is declared under in the emitted source (see `nameBindings`). */
+    shaderName: string;
     type: string;
     group: number;
     binding: number;
@@ -7292,7 +7353,10 @@ export type TextureEntry = {
 
 ```ts
 export type StorageTextureEntry = {
+    /** Identity: dedup key for bind groups and the emitter's texture table. Never a shader spelling. */
     textureId: string;
+    /** The identifier this binding is declared under in the emitted source (see `nameBindings`). */
+    shaderName: string;
     /** Composed WGSL binding type, e.g. `texture_storage_2d<rgba8unorm, write>`. */
     type: string;
     format: d.StorageTextureFormat;
@@ -7437,6 +7501,15 @@ export type Discovery = {
     textures: Map<string, TextureBindingNode>;
     storageTextures: Map<string, StorageTextureBindingNode>;
     samplers: Map<string, SamplerNode>;
+    /** textureId -> shader identifier. See {@link nameBindings}. */
+    textureNames: Map<string, string>;
+    /** sampler settingsKey -> shader identifier. See {@link nameBindings}. */
+    samplerNames: Map<string, string>;
+    /** uniform identity name -> shader identifier (the block member). See {@link nameBindings}. */
+    uniformNames: Map<string, string>;
+    /** The scope those names were allocated from, kept so a binding first reached while emitting a
+     *  function body can allocate one too (discovery only sees the graph as written). */
+    bindingNames: NameScope;
     uniforms: Map<string, {
         node: UniformNode<d.Any>;
         group: UniformGroup;

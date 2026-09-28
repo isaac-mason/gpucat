@@ -3217,6 +3217,8 @@ class GpuSampler {
     lodMaxClamp;
     /** For comparison samplers (shadow mapping) */
     compare;
+    /** Name used for the emitted shader binding; see GpuSamplerOptions.label. */
+    label;
     /** Renderer-set callback to clean up cache entry */
     _onDispose = null;
     disposed = false;
@@ -3231,6 +3233,7 @@ class GpuSampler {
         this.lodMinClamp = options.lodMinClamp ?? 0;
         this.lodMaxClamp = options.lodMaxClamp ?? 32;
         this.compare = options.compare;
+        this.label = options.label;
     }
     /** Is this a comparison sampler? */
     get isComparison() {
@@ -3621,7 +3624,7 @@ const samplerComparisonDesc = () => ({
     wgslType: 'sampler_comparison',
 });
 /* WGSL std430 layout utilities */
-function roundUp$1(n, align) {
+function roundUp$2(n, align) {
     return Math.ceil(n / align) * align;
 }
 function wgslAlignOf(desc) {
@@ -3672,9 +3675,9 @@ function wgslSizeOf(desc) {
         const structAlign = wgslAlignOf(desc);
         let offset = 0;
         for (const field of Object.values(desc.fields)) {
-            offset = roundUp$1(offset, wgslAlignOf(field)) + wgslSizeOf(field);
+            offset = roundUp$2(offset, wgslAlignOf(field)) + wgslSizeOf(field);
         }
-        return roundUp$1(offset, structAlign);
+        return roundUp$2(offset, structAlign);
     }
     if (isSizedArrayDesc(desc)) {
         return desc.length * wgslStrideOf(desc.element);
@@ -3740,7 +3743,7 @@ function wgslSizeOf(desc) {
     throw new Error(`[gpucat] wgslSizeOf: unsupported type '${t}'`);
 }
 function wgslStrideOf(desc) {
-    return roundUp$1(wgslSizeOf(desc), wgslAlignOf(desc));
+    return roundUp$2(wgslSizeOf(desc), wgslAlignOf(desc));
 }
 /* buffer packing helpers */
 function itemSizeOf(desc) {
@@ -4063,7 +4066,7 @@ var schema = /*#__PURE__*/Object.freeze({
     matColumnDesc: matColumnDesc,
     mulResultDesc: mulResultDesc,
     numericDescOf: numericDescOf,
-    roundUp: roundUp$1,
+    roundUp: roundUp$2,
     sampleResultOf: sampleResultOf,
     sampler: sampler$1,
     samplerComparison: samplerComparison,
@@ -4449,6 +4452,8 @@ class GpuTexture {
     generateMipmaps = false;
     /** Storage textures: regenerate mips after a compute pass writes this texture (if it has mips). */
     mipmapsAutoUpdate = true;
+    /** Name used for the emitted shader binding and for `GPUTexture.label`; see BaseOptions.label. */
+    label;
     /** Flip Y on upload (for image sources) */
     flipY = false;
     /** Premultiply alpha on upload */
@@ -4551,6 +4556,7 @@ class GpuTexture {
                     ? TEXTURE_USAGE.STORAGE_BINDING | TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST | TEXTURE_USAGE.COPY_SRC
                     : TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST);
         this.mipmapsAutoUpdate = options.mipmapsAutoUpdate ?? true;
+        this.label = options.label;
         // Mip levels
         this.mipLevelCount = options.mipLevelCount ?? 1;
         this.sampleCount = options.sampleCount ?? 1;
@@ -4679,8 +4685,18 @@ class CubeTexture {
     _gpuTexture;
     /** The underlying sampler */
     _gpuSampler;
-    /** Optional name for debugging */
-    name = '';
+    /**
+     * Optional name for debugging. Also the identifier this texture reads under in emitted shader
+     * source, and its `GPUTexture.label` in devtools. Forwards to the underlying `GpuTexture` — the
+     * single source of truth the backends and the emitters read — so setting it on the wrapper at any
+     * point takes effect, exactly as `isRenderTargetTexture` does.
+     */
+    get name() {
+        return this._gpuTexture.label ?? '';
+    }
+    set name(value) {
+        this._gpuTexture.label = value || undefined;
+    }
     /**
      * Mapping mode - determines default UV vector.
      * - 'reflection': uses reflect(viewDir, normal)
@@ -4887,8 +4903,18 @@ class DepthTexture {
     _gpuTexture;
     /** The underlying sampler */
     _gpuSampler;
-    /** Optional name for debugging */
-    name = '';
+    /**
+     * Optional name for debugging. Also the identifier this texture reads under in emitted shader
+     * source, and its `GPUTexture.label` in devtools. Forwards to the underlying `GpuTexture` — the
+     * single source of truth the backends and the emitters read — so setting it on the wrapper at any
+     * point takes effect, exactly as `isRenderTargetTexture` does.
+     */
+    get name() {
+        return this._gpuTexture.label ?? '';
+    }
+    set name(value) {
+        this._gpuTexture.label = value || undefined;
+    }
     /**
      * Constructs a new DepthTexture.
      *
@@ -4975,8 +5001,18 @@ class Texture {
     _gpuTexture;
     /** The underlying sampler */
     _gpuSampler;
-    /** Optional name for debugging */
-    name = '';
+    /**
+     * Optional name for debugging. Also the identifier this texture reads under in emitted shader
+     * source, and its `GPUTexture.label` in devtools. Forwards to the underlying `GpuTexture` — the
+     * single source of truth the backends and the emitters read — so setting it on the wrapper at any
+     * point takes effect, exactly as `isRenderTargetTexture` does.
+     */
+    get name() {
+        return this._gpuTexture.label ?? '';
+    }
+    set name(value) {
+        this._gpuTexture.label = value || undefined;
+    }
     /**
      * Callback fired when the texture is updated.
      */
@@ -5592,7 +5628,7 @@ function structFieldLayout(schema, memLayout = 'std430') {
     const fields = [];
     let offset = 0;
     for (const [name, fieldSchema] of Object.entries(schema.fields)) {
-        offset = roundUp(offset, alignOf(fieldSchema, memLayout));
+        offset = roundUp$1(offset, alignOf(fieldSchema, memLayout));
         fields.push({ name, type: fieldSchema, byteOffset: offset, byteSize: sizeOf$1(fieldSchema, memLayout) });
         offset += sizeOf$1(fieldSchema, memLayout);
     }
@@ -5617,7 +5653,7 @@ value, memLayout = 'std430') {
     layout.write(view, offset, value);
 }
 // Alignment and Size (address-space aware)
-function roundUp(n, align) {
+function roundUp$1(n, align) {
     return Math.ceil(n / align) * align;
 }
 /**
@@ -5641,14 +5677,14 @@ function naturalAlignOf(schema, memLayout) {
     // rounds that up to 16; WGSL layouts keep it tight.
     if (isSizedArrayDesc(schema) || isArrayDesc(schema)) {
         const elementAlign = alignOf(schema.element, memLayout);
-        return roundsElementsTo16(memLayout) ? roundUp(elementAlign, 16) : elementAlign;
+        return roundsElementsTo16(memLayout) ? roundUp$1(elementAlign, 16) : elementAlign;
     }
     if (isStructDesc(schema)) {
         let maxAlign = 4;
         for (const field of Object.values(schema.fields)) {
             maxAlign = Math.max(maxAlign, alignOf(field, memLayout));
         }
-        return roundsElementsTo16(memLayout) ? roundUp(maxAlign, 16) : maxAlign;
+        return roundsElementsTo16(memLayout) ? roundUp$1(maxAlign, 16) : maxAlign;
     }
     // std140: all f32 matrices align to 16 (columns padded to vec4), including 2-row matrices.
     // (f16 matrices aren't part of GLSL std140; they keep their std430 alignment.)
@@ -5723,10 +5759,10 @@ function sizeOf$1(schema, memLayout) {
         const structAlign = alignOf(schema, memLayout);
         let offset = 0;
         for (const field of Object.values(schema.fields)) {
-            offset = roundUp(offset, alignOf(field, memLayout));
+            offset = roundUp$1(offset, alignOf(field, memLayout));
             offset += sizeOf$1(field, memLayout);
         }
-        return roundUp(offset, structAlign);
+        return roundUp$1(offset, structAlign);
     }
     if (isSizedArrayDesc(schema)) {
         const elementStride = arrayElementStrideOf(schema.element, memLayout);
@@ -5793,7 +5829,7 @@ function sizeOf$1(schema, memLayout) {
  * Get stride (size with alignment padding) for array elements.
  */
 function strideOf(schema, memLayout) {
-    return roundUp(sizeOf$1(schema, memLayout), alignOf(schema, memLayout));
+    return roundUp$1(sizeOf$1(schema, memLayout), alignOf(schema, memLayout));
 }
 /**
  * Get stride for elements within an array (different from strideOf for uniform arrays).
@@ -5802,7 +5838,7 @@ function strideOf(schema, memLayout) {
 function arrayElementStrideOf(elementSchema, memLayout) {
     const baseStride = strideOf(elementSchema, memLayout);
     if (roundsElementsTo16(memLayout)) {
-        return roundUp(baseStride, 16);
+        return roundUp$1(baseStride, 16);
     }
     return baseStride;
 }
@@ -5823,12 +5859,12 @@ function emitWrites(ctx, schema, accessor) {
 }
 function emitStructWrites(ctx, schema, accessor) {
     for (const [key, fieldSchema] of Object.entries(schema.fields)) {
-        ctx.offset = roundUp(ctx.offset, alignOf(fieldSchema, ctx.memLayout));
+        ctx.offset = roundUp$1(ctx.offset, alignOf(fieldSchema, ctx.memLayout));
         emitWrites(ctx, fieldSchema, `${accessor}.${key}`);
     }
     // Struct tail padding
     const structAlign = alignOf(schema, ctx.memLayout);
-    ctx.offset = roundUp(ctx.offset, structAlign);
+    ctx.offset = roundUp$1(ctx.offset, structAlign);
 }
 function emitArrayWrites(ctx, schema, accessor) {
     const stride = arrayElementStrideOf(schema.element, ctx.memLayout);
@@ -6089,13 +6125,13 @@ function emitReads(ctx, schema) {
 function emitStructRead(ctx, schema) {
     const fields = [];
     for (const [key, fieldSchema] of Object.entries(schema.fields)) {
-        ctx.offset = roundUp(ctx.offset, alignOf(fieldSchema, ctx.memLayout));
+        ctx.offset = roundUp$1(ctx.offset, alignOf(fieldSchema, ctx.memLayout));
         const valueExpr = emitReads(ctx, fieldSchema);
         fields.push(`${key}:${valueExpr}`);
     }
     // Struct tail padding
     const structAlign = alignOf(schema, ctx.memLayout);
-    ctx.offset = roundUp(ctx.offset, structAlign);
+    ctx.offset = roundUp$1(ctx.offset, structAlign);
     return `{${fields.join(',')}}`;
 }
 function emitArrayRead(ctx, schema) {
@@ -6847,10 +6883,17 @@ class Uniform {
     /** Determines @group index, update cadence, and packing. Mutable, but only
      *  read at compile time, set it before the owning node is first rendered. */
     group;
+    /**
+     * Name this uniform reads under as a member of its block in emitted shader source
+     * (`uniforms_frame.<label>`). Unlabelled value-based uniforms fall back to `uniform0`, `uniform1`,
+     * … in discovery order — readable, but a label says what the value IS.
+     */
+    label;
     _value = null;
-    constructor(schema, initialValue, group = objectGroup) {
+    constructor(schema, initialValue, group = objectGroup, label) {
         this.schema = schema;
         this.group = group;
+        this.label = label;
         if (initialValue !== undefined) {
             this.value = initialValue;
         }
@@ -7638,10 +7681,23 @@ function createOctahedronGeometry(radius = 1, detail = 0) {
  * Hook call sites, all guarded by `if (inspector)` and all at a frame-API boundary:
  *   beginFrame             → inspector.begin(frameId)
  *   submitFrame / discard  → inspector.finish(frameId)
- *   encodePass             → inspector.beginRender(passId) / finishRender, one try/finally
+ *   beginPass / encodePass → inspector.beginRender(passId) / finishRender
  *   encodeComputePass      → inspector.beginCompute(node) / finishCompute
+ *   encodeTransformFeedbackPass → inspector.beginKernel(name) / finishKernel
  *   Node.inspect()         → inspector.inspect(node)
  *   drawScene()            → inspector.beginRenderScene(passId, scene, samples, colorFormat)
+ *
+ * What the frame was asked to do, in call order, from the frame API and the backend that resolves it:
+ *   frame.pass() / compute() / transformFeedback() → inspector.beginRecordedPass(kind, label)
+ *   a backend skipping that pass                    → inspector.skipRecordedPass(reason)
+ *   draw() / execute() / dispatch()                 → inspector.beginRecordedCall(record)
+ *   each draw resolved, a bundle's included         → inspector.resolvedDraw(renderObject, drawsNothing)
+ *   the call returning or throwing                  → inspector.endRecordedCall(error)
+ *   pass.end(), or a refused begin                  → inspector.endRecordedPass(error)
+ *
+ * GPU-work brackets, around the pass or dispatch itself rather than the work that prepares it:
+ *   webgl encodeOpenPass   → inspector.beginGpuWork(passId) / endGpuWork
+ *   webgl runTransformFeedback → inspector.beginGpuWork(name) / endGpuWork
  *
  * Per-draw-call hooks (inside a render pass):
  *   encodeDraws             → inspector.setPipeline(label)
@@ -7724,6 +7780,25 @@ class InspectorBase {
     beginCompute(_node) { }
     /** Called after a compute dispatch. */
     finishCompute(_nodeId) { }
+    // Kernel hooks
+    /**
+     * Called before a kernel that runs GPU work without being a compute dispatch — WebGL2's
+     * transform-feedback kernels. Opens the same GPU-timed timeline entry `beginCompute` does,
+     * without the compute-node registry behind it (a `TransformFeedbackNode` is not a `ComputeNode`).
+     */
+    beginKernel(_name) { }
+    /** Called after a kernel opened with `beginKernel`. */
+    finishKernel(_name) { }
+    // GPU-work brackets
+    /**
+     * Marks where the GPU work for the open render pass or kernel of this name begins — the pass or
+     * dispatch itself, not the uploads and compiles that prepare it. WebGL opens its `TIME_ELAPSED`
+     * query here; WebGPU says the same thing declaratively through `getTimestampWrites` at pass
+     * creation, so the pair is a no-op there.
+     */
+    beginGpuWork(_name) { }
+    /** Closes the bracket opened by `beginGpuWork`. */
+    endGpuWork(_name) { }
     // Scene hooks
     /**
      * Called at the start of renderScene(), before the GPU pass begins.
@@ -7731,6 +7806,19 @@ class InspectorBase {
      * the pipeline key parameters needed to retrieve compiled WGSL later.
      */
     beginRenderScene(_passId, _scene, _samples, _colorFormat) { }
+    // Recorded-frame hooks
+    /** A pass opened, before its backend begins it. Passes nest: one may open while a call of another resolves. */
+    beginRecordedPass(_kind, _label) { }
+    /** The backend will resolve and encode nothing in the pass just begun, for this reason. */
+    skipRecordedPass(_reason) { }
+    /** A call is about to resolve. `record` is reused by the next call, so copy what you keep. */
+    beginRecordedCall(_record) { }
+    /** A draw of the open call resolved to `renderObject`; a bundle reports each of its draws. @internal */
+    resolvedDraw(_renderObject, _drawsNothing) { }
+    /** The open call finished resolving, or threw with `error`. */
+    endRecordedCall(_error) { }
+    /** The open pass ended, or its begin was refused with `error`. */
+    endRecordedPass(_error) { }
     // Node inspection
     /**
      * Called when a node marked with .inspect() is encountered during rendering.
@@ -7799,6 +7887,7 @@ class InspectorBase {
  *   - finish(frameId) seals the frame record and optionally resolves GPU timestamps.
  *   - beginRender/finishRender track CPU wall-time per render pass.
  *   - beginCompute/finishCompute track CPU wall-time per compute dispatch.
+ *   - the recorded-frame hooks build `FrameRecord.passes`: every pass and call the frame was asked for.
  *   - resolveFrame() returns the just-completed frame (fresh CPU/stats).
  *   - latestResolvedFrame() returns the newest frame whose async GPU
  *     timestamps have landed — what the live GPU-time display reads.
@@ -7825,6 +7914,15 @@ const MAX_PASSES_PER_FRAME = 64;
 // readbacks stall (device lost / tab backgrounded) it turns an unbounded pool leak
 // into a logged, dropped frame. Buffers are tiny (~1 KiB).
 const READBACK_POOL_CAP = 8;
+/** Walk a timeline's render/compute entries, the ones that carry a GPU time, children included. */
+function forEachGpuEntry(entries, fn) {
+    for (const entry of entries) {
+        if (entry.kind === 'render' || entry.kind === 'compute')
+            fn(entry);
+        if (entry.children.length > 0)
+            forEachGpuEntry(entry.children, fn);
+    }
+}
 // RendererInspector
 class RendererInspector extends InspectorBase {
     /** Rolling ring buffer of frame records. */
@@ -7895,6 +7993,10 @@ class RendererInspector extends InspectorBase {
     _currentQuerySlot = 0;
     _pendingInspectables = [];
     _pendingScenes = [];
+    /** Top-level recorded passes this frame. */
+    _recordedPasses = [];
+    /** The passes and calls open right now, innermost last. */
+    _recordStack = [];
     // Timeline entry stack - entries nest inside the current stack top
     // The stack holds "in-progress" entries that haven't been closed yet
     _entryStack = [];
@@ -8044,14 +8146,17 @@ class RendererInspector extends InspectorBase {
     }
     /** End the GL timer query for an entry, stashing it until finish() attaches the frame record. */
     _glEndQuery(entry) {
-        if (!this._glActiveQuery || this._glActiveQuery.entry !== entry)
+        const active = this._glActiveQuery;
+        if (!active || active.entry !== entry)
             return;
+        // Cleared before the context checks below: only one TIME_ELAPSED query may be open, so an
+        // active query left behind on a torn-down context silences every later pass for good.
+        this._glActiveQuery = null;
         const r = this.renderer;
         if (!r || r.api !== 'webgl' || !r.backend.gl || !this._glTimerExt)
             return;
         r.backend.gl.endQuery(this._glTimerExt.TIME_ELAPSED_EXT);
-        this._glFrameQueries.push({ query: this._glActiveQuery.query, entry });
-        this._glActiveQuery = null;
+        this._glFrameQueries.push({ query: active.query, entry });
     }
     /**
      * Poll pending GL timer queries: any whose result is available is read (ns → ms) and back-patched
@@ -8063,19 +8168,36 @@ class RendererInspector extends InspectorBase {
         if (!r || r.api !== 'webgl' || !r.backend.gl || !this._glTimerExt)
             return;
         const gl = r.backend.gl;
-        // GPU_DISJOINT_EXT: if the GPU changed state during timing, ALL in-flight results are bogus.
-        const disjoint = gl.getParameter(this._glTimerExt.GPU_DISJOINT_EXT);
+        // GPU_DISJOINT_EXT: the GPU changed state during timing, so every result in flight is bogus —
+        // not just the ones readable right now. A query still pending was open across the same state
+        // change, and letting it land afterwards back-patches its record with a sum over the handful of
+        // passes that survived: a frame GPU time that reads as real and is a fraction of the truth.
+        // Reading the flag clears it, so this is the one chance to act on it.
+        if (gl.getParameter(this._glTimerExt.GPU_DISJOINT_EXT)) {
+            const spoiled = new Set();
+            for (const pending of this._glPendingQueries) {
+                // Deleted rather than pooled: these results were never read, and a disjoint is rare
+                // enough that re-creating a few queries costs nothing.
+                gl.deleteQuery(pending.query);
+                spoiled.add(pending.record);
+            }
+            this._glPendingQueries = [];
+            // A record whose other passes landed before the disjoint keeps no half-timing: the frame
+            // goes untimed rather than reporting part of its GPU cost as all of it.
+            for (const record of spoiled) {
+                record.gpuMs = null;
+                forEachGpuEntry(record.timeline, (e) => {
+                    e.gpuMs = null;
+                });
+            }
+            return;
+        }
         const stillPending = [];
         const touchedRecords = new Set();
         for (const pending of this._glPendingQueries) {
             const available = gl.getQueryParameter(pending.query, gl.QUERY_RESULT_AVAILABLE);
             if (!available) {
                 stillPending.push(pending);
-                continue;
-            }
-            if (disjoint) {
-                // Discard: timing invalid. Recycle the query.
-                this._glQueryPool.push(pending.query);
                 continue;
             }
             const ns = gl.getQueryParameter(pending.query, gl.QUERY_RESULT);
@@ -8094,15 +8216,10 @@ class RendererInspector extends InspectorBase {
             if (this._glPendingQueries.some((p) => p.record === record))
                 continue;
             let sumMs = 0;
-            const walk = (entries) => {
-                for (const e of entries) {
-                    if ((e.kind === 'render' || e.kind === 'compute') && e.gpuMs !== null)
-                        sumMs += e.gpuMs;
-                    if (e.children.length > 0)
-                        walk(e.children);
-                }
-            };
-            walk(record.timeline);
+            forEachGpuEntry(record.timeline, (e) => {
+                if (e.gpuMs !== null)
+                    sumMs += e.gpuMs;
+            });
             record.gpuMs = sumMs;
         }
     }
@@ -8115,6 +8232,8 @@ class RendererInspector extends InspectorBase {
         this._currentQuerySlot = 0;
         this._pendingInspectables = [];
         this._pendingScenes = [];
+        this._recordedPasses = [];
+        this._recordStack.length = 0;
         this._entryStack = [];
         this._rootTimeline = [];
         this._entryRefs.clear();
@@ -8141,6 +8260,8 @@ class RendererInspector extends InspectorBase {
         while (this._entryStack.length > 0) {
             this._closeCurrentEntry(now);
         }
+        // An abandoned frame leaves what it was recording open.
+        this._unwindRecordsTo(0);
         const renderer = this.renderer;
         const record = {
             frameId,
@@ -8149,16 +8270,15 @@ class RendererInspector extends InspectorBase {
             timeline: [...this._rootTimeline],
             inspectableNodes: [...this._pendingInspectables],
             scenes: [...this._pendingScenes],
+            passes: this._recordedPasses,
         };
         this.frameHead = (this.frameHead + 1) % FRAME_HISTORY;
         this.frames[this.frameHead] = record;
         if (renderer.api === 'webgpu') {
             // Async GPU timestamp resolution (WebGPU query set).
-            if (this.hasTimestamps &&
-                this._querySet &&
-                this._resolveBuffer &&
-                this._readbackPool.length > 0 &&
-                renderer.backend.device) {
+            // The readback pool is grown on demand inside _resolveTimestamps, so it is empty
+            // until the first resolve — never a precondition for running one.
+            if (this.hasTimestamps && this._querySet && this._resolveBuffer && renderer.backend.device) {
                 this._resolveTimestamps(record);
             }
         }
@@ -8187,27 +8307,40 @@ class RendererInspector extends InspectorBase {
             children: [],
         };
         this._pushEntry(entry);
-        if (this.renderer?.api === 'webgl')
-            this._glBeginQuery(entry);
     }
     finishRender(passId) {
-        if (this.renderer?.api === 'webgl') {
-            const stack = this._entryRefs.get(passId);
-            const entry = stack?.[stack.length - 1];
-            if (entry && entry.kind !== 'marker')
-                this._glEndQuery(entry);
-        }
         this._finishEntry(passId);
+    }
+    /**
+     * The GPU work for the open entry of this name starts here. On WebGL that is the `TIME_ELAPSED`
+     * query: opened around the pass or dispatch itself, so the uploads and compiles that precede it
+     * are not charged to it — the same span WebGPU's `timestampWrites` covers, which is why the pair
+     * is a no-op on that backend.
+     */
+    beginGpuWork(name) {
+        if (this.renderer?.api !== 'webgl')
+            return;
+        const entry = this._openEntry(name);
+        if (entry && entry.kind !== 'marker')
+            this._glBeginQuery(entry);
+    }
+    endGpuWork(name) {
+        if (this.renderer?.api !== 'webgl')
+            return;
+        const entry = this._openEntry(name);
+        if (entry && entry.kind !== 'marker')
+            this._glEndQuery(entry);
     }
     getTimestampWrites(passId) {
         if (!this.hasTimestamps || !this._querySet)
             return undefined;
-        // Find the most recently opened entry with this name
-        const stack = this._entryRefs.get(passId);
-        const entry = stack?.[stack.length - 1];
+        const entry = this._openEntry(passId);
         if (!entry || entry.kind === 'marker')
             return undefined;
         const slot = entry.querySlot;
+        // Past the query set's capacity: this pass goes untimed rather than writing out of range.
+        if (slot >= MAX_PASSES_PER_FRAME)
+            return undefined;
         return {
             querySet: this._querySet,
             beginningOfPassWriteIndex: slot * 2,
@@ -8215,26 +8348,111 @@ class RendererInspector extends InspectorBase {
         };
     }
     beginCompute(node) {
-        const nodeId = node.id;
-        this.computeNodes.set(nodeId, node);
+        this.computeNodes.set(node.id, node);
+        // friendly `ComputeNode.name` (from `.compute({ name })`) if set, else the auto id — so
+        // labelled dispatches read as e.g. "voxel-cull" in the timeline. `finishCompute` is handed
+        // the same string.
+        this.beginKernel(node.name ?? node.id);
+    }
+    finishCompute(nodeId) {
+        this._finishEntry(nodeId);
+    }
+    /**
+     * A kernel that runs GPU work without being a compute dispatch — a WebGL2 transform-feedback
+     * kernel. Same GPU-timed entry a compute node gets, minus the `computeNodes` registration: that
+     * map is keyed by `ComputeNode` for the Compute Calls tab, and a `TransformFeedbackNode` is not
+     * one.
+     */
+    beginKernel(name) {
         const now = performance.now();
-        const slot = this._currentQuerySlot++;
         const entry = {
             kind: 'compute',
-            // friendly `ComputeNode.name` (from `.compute({ name })`) if set, else the
-            // auto id — so labelled dispatches read as e.g. "voxel-cull" in the timeline.
-            name: node.name ?? nodeId,
+            name,
             startTime: now - this._frameStart,
             cpuMs: 0,
             gpuMs: null,
             gpuStartMs: null,
-            querySlot: slot,
+            querySlot: this._currentQuerySlot++,
             children: [],
         };
         this._pushEntry(entry);
     }
-    finishCompute(nodeId) {
-        this._finishEntry(nodeId);
+    finishKernel(name) {
+        this._finishEntry(name);
+    }
+    beginRecordedPass(kind, label) {
+        const pass = { kind, label, skipped: null, error: null, calls: [] };
+        const parent = this._recordStack.at(-1);
+        if (parent !== undefined && !isRecordedPass(parent))
+            parent.passes.push(pass);
+        else
+            this._recordedPasses.push(pass);
+        this._recordStack.push(pass);
+    }
+    skipRecordedPass(reason) {
+        const pass = this._recordStack.at(-1);
+        if (pass !== undefined && isRecordedPass(pass))
+            pass.skipped = reason;
+    }
+    beginRecordedCall(record) {
+        const pass = this._recordStack.at(-1);
+        if (pass === undefined || !isRecordedPass(pass))
+            return;
+        const call = {
+            kind: record.kind,
+            name: callName(record),
+            detail: callDetail(record),
+            renderObjects: [],
+            emptyDraws: 0,
+            error: null,
+            passes: [],
+        };
+        pass.calls.push(call);
+        this._recordStack.push(call);
+    }
+    resolvedDraw(renderObject, drawsNothing) {
+        const call = this._recordStack.at(-1);
+        if (call === undefined || isRecordedPass(call))
+            return;
+        if (drawsNothing)
+            call.emptyDraws++;
+        else
+            call.renderObjects.push(renderObject);
+    }
+    endRecordedCall(error) {
+        // A call that threw may have left a nested pass it recorded unended.
+        const index = this._innermostRecord(false);
+        if (index < 0)
+            return;
+        const call = this._recordStack[index];
+        this._unwindRecordsTo(index + 1);
+        this._recordStack.length = index;
+        call.error = error;
+    }
+    endRecordedPass(error) {
+        const index = this._innermostRecord(true);
+        if (index < 0)
+            return;
+        const pass = this._recordStack[index];
+        this._unwindRecordsTo(index + 1);
+        this._recordStack.length = index;
+        pass.error = error;
+    }
+    /** The stack index of the innermost open pass, or call, or -1. */
+    _innermostRecord(pass) {
+        for (let index = this._recordStack.length - 1; index >= 0; index--) {
+            if (isRecordedPass(this._recordStack[index]) === pass)
+                return index;
+        }
+        return -1;
+    }
+    /** Closes every recorded entry above `depth`, marking the passes among them as never ended. */
+    _unwindRecordsTo(depth) {
+        while (this._recordStack.length > depth) {
+            const entry = this._recordStack.pop();
+            if (isRecordedPass(entry))
+                entry.error ??= 'never ended';
+        }
     }
     inspect(node) {
         this._pendingInspectables.push(node);
@@ -8295,6 +8513,11 @@ class RendererInspector extends InspectorBase {
         else {
             this._entryRefs.set(entry.name, [entry]);
         }
+    }
+    /** The innermost entry still open under this name, the one a hook naming it refers to. */
+    _openEntry(name) {
+        const stack = this._entryRefs.get(name);
+        return stack?.[stack.length - 1];
     }
     /** Finish an entry by name - calculates duration and pops from stack */
     _finishEntry(name) {
@@ -8362,10 +8585,13 @@ class RendererInspector extends InspectorBase {
         return result;
     }
     // GPU timestamp resolution
-    /** Collect all GPU entries (render/compute) from timeline tree, mapped by querySlot */
+    /** Collect all GPU entries (render/compute) from timeline tree, mapped by querySlot.
+     *  Slots past the query set's capacity are skipped — those passes carry no timestamp
+     *  writes (see `getTimestampWrites`), so resolving their slots would read past the
+     *  resolved range. */
     _collectGpuEntries(entries, out) {
         for (const entry of entries) {
-            if (entry.kind === 'render' || entry.kind === 'compute') {
+            if ((entry.kind === 'render' || entry.kind === 'compute') && entry.querySlot < MAX_PASSES_PER_FRAME) {
                 out.set(entry.querySlot, entry);
             }
             if (entry.children.length > 0) {
@@ -8410,8 +8636,7 @@ class RendererInspector extends InspectorBase {
         // Collect GPU entries from timeline
         const gpuEntries = new Map();
         this._collectGpuEntries(record.timeline, gpuEntries);
-        const slotCount = Math.min(gpuEntries.size, MAX_PASSES_PER_FRAME);
-        if (slotCount === 0)
+        if (gpuEntries.size === 0)
             return;
         // Grab a free readback buffer, growing the pool on demand up to the cap.
         // Null means the whole pool is still in flight and we're at the cap — drop
@@ -8483,6 +8708,53 @@ class RendererInspector extends InspectorBase {
         this._pendingMaps.add(mapDone);
         void mapDone.finally(() => this._pendingMaps.delete(mapDone));
     }
+}
+function isRecordedPass(entry) {
+    return 'calls' in entry;
+}
+function callName(record) {
+    switch (record.kind) {
+        case 'draw':
+            return record.mesh.name || `Mesh #${record.mesh.objectId}`;
+        case 'bundle':
+            return record.bundle.label;
+        default:
+            return record.node.name ?? record.node.id;
+    }
+}
+function callDetail(record) {
+    const parts = [];
+    switch (record.kind) {
+        case 'draw': {
+            const opts = record.opts;
+            if (record.material !== record.mesh.material)
+                parts.push(`material ${record.material.name || 'override'}`);
+            if (opts?.instances !== undefined)
+                parts.push(`${opts.instances} instances`);
+            if (opts?.range !== undefined)
+                parts.push(`range ${opts.range.start}+${opts.range.count}`);
+            if (opts?.draws !== undefined)
+                parts.push(`${opts.draws.length} draws`);
+            break;
+        }
+        case 'bundle':
+            parts.push(`${record.bundle.count} draws`);
+            break;
+        case 'dispatch':
+            if (record.indirect !== undefined)
+                parts.push(`indirect at ${record.indirectOffset ?? 0}`);
+            else
+                parts.push(record.counts.join(' x '));
+            if (record.buffers !== undefined)
+                parts.push(`buffers ${Object.keys(record.buffers).join(', ')}`);
+            break;
+        case 'transform-feedback':
+            parts.push(`${record.count} elements`);
+            if (record.instanceCount !== undefined)
+                parts.push(`${record.instanceCount} instances`);
+            break;
+    }
+    return parts.join(', ');
 }
 
 function clamp$1(value, [min, max]) {
@@ -8643,6 +8915,9 @@ function createUniformBindGroup(block) {
         bufferKey: null,
         lastFrameId: -1,
         lastRenderId: -1,
+        lastUseFrameId: -1,
+        sliceBufferId: -1,
+        sliceOffset: 0,
         currentBuffer: null,
         scratchBuffer: null,
     };
@@ -8693,6 +8968,9 @@ function cloneBindGroup(source) {
                     bufferKey: null, // New buffer key for cloned group
                     lastFrameId: -1,
                     lastRenderId: -1,
+                    lastUseFrameId: -1,
+                    sliceBufferId: -1,
+                    sliceOffset: 0,
                     currentBuffer: null,
                     scratchBuffer: null,
                 };
@@ -9020,7 +9298,6 @@ function createRenderObject(mesh, material, camera, renderContext) {
         geometry: mesh.geometry,
         camera,
         renderContext,
-        lastPassLabel: '',
         // Compiled state (lazy)
         nodeBuilderState: null,
         _bindings: null,
@@ -9153,6 +9430,33 @@ function createPassParams() {
 }
 
 /**
+ * Whether a uniform block is bound at a dynamic offset. Anything but frame scope can hold different values
+ * for two passes or dispatches of one frame, and the second takes a dynamic allocation; frame scope is
+ * written once a frame. Both layout builders ask this, so render and compute layouts agree.
+ */
+function usesDynamicOffset(block) {
+    return block.group.updateType !== 'frame';
+}
+/**
+ * Throws, naming `label`, when a pipeline's groups bind more dynamic uniform buffers than the device
+ * allows in one pipeline layout (8 is guaranteed). WebGPU's own error would name neither the material nor
+ * the fix. A group holds at most one uniform block, so each counts once.
+ */
+function assertDynamicUniformLimit(device, bindGroups, label) {
+    let count = 0;
+    for (const bindGroup of bindGroups) {
+        const binding = bindGroup.bindings[0];
+        if (binding?.kind === 'uniform' && usesDynamicOffset(binding.block))
+            count++;
+    }
+    const limit = device.limits.maxDynamicUniformBuffersPerPipelineLayout;
+    if (count > limit) {
+        throw new Error(`[gpucat] '${label}' binds ${count} uniform groups that can change between passes or draws, and this ` +
+            `device allows ${limit} in one pipeline. Merge groups, or move values that change at most once a ` +
+            'frame into frame scope.');
+    }
+}
+/**
  * The bind-group-layout sample type for a sampled texture's actual format. A `texture_2d<f32>`
  * declaration is format-agnostic in WGSL, but the layout's `sampleType` must match the bound
  * texture's filterability: 32-bit float formats are `unfilterable-float` unless the device enables
@@ -9239,7 +9543,7 @@ function makeBindGroupLayoutKey(entries) {
     const normalized = entries.map((e) => ({
         b: e.binding,
         v: e.visibility,
-        buf: e.buffer ? { t: e.buffer.type } : null,
+        buf: e.buffer ? { t: e.buffer.type, d: e.buffer.hasDynamicOffset === true } : null,
         sam: e.sampler ? { t: e.sampler.type } : null,
         tex: e.texture ? { s: e.texture.sampleType, v: e.texture.viewDimension } : null,
         stor: e.storageTexture
@@ -9278,7 +9582,7 @@ function buildComputeBindGroupLayouts(device, bindings, layoutCache) {
                     entries.push({
                         binding: binding.block.binding,
                         visibility: vis,
-                        buffer: { type: 'uniform' },
+                        buffer: { type: 'uniform', hasDynamicOffset: usesDynamicOffset(binding.block) },
                     });
                     break;
                 case 'storage':
@@ -9462,7 +9766,15 @@ function createRendererInfo() {
     return {
         render: { calls: 0, frameCalls: 0, drawCalls: 0, triangles: 0 },
         compute: { calls: 0, frameCalls: 0 },
-        buffers: { writeCalls: 0, writeBytes: 0, writes: [], detailedWrites: false, writeCount: 0 },
+        buffers: {
+            writeCalls: 0,
+            writeBytes: 0,
+            dynamicAllocations: 0,
+            dynamicAllocationBytes: 0,
+            writes: [],
+            detailedWrites: false,
+            writeCount: 0,
+        },
         memory: {
             buffers: 0,
             geometries: 0,
@@ -9485,6 +9797,8 @@ function beginInfoFrame(info) {
     info.compute.frameCalls = 0;
     info.buffers.writeCalls = 0;
     info.buffers.writeBytes = 0;
+    info.buffers.dynamicAllocations = 0;
+    info.buffers.dynamicAllocationBytes = 0;
     // the records array is POOLED: reset the live count and reuse the entries rather
     // than reallocating a few hundred objects every frame.
     info.buffers.writeCount = 0;
@@ -9599,6 +9913,28 @@ function resetRendererInfo(info) {
 
 /** the one usage worth reporting, most specific first. A buffer often carries several
  *  flags (`storage` + `vertex`), and the specific one is what identifies it. */
+/** PlayCanvas's WebGPU device size for these buffers. */
+const DYNAMIC_BUFFER_BYTES = 100 * 1024;
+/**
+ * A mapped staging buffer only returns once `mapAsync` resolves, which needs the event loop to turn, so
+ * frames submitted back to back within one task would otherwise create one per frame without bound.
+ * Past this many, a dynamic buffer is filled through a CPU copy instead.
+ */
+const MAX_MAPPED_STAGING_BUFFERS = 8;
+function createDynamicUniformBuffers() {
+    return {
+        gpuBuffers: [],
+        stagingBuffers: [],
+        cpuStagingBuffers: [],
+        usedBuffers: [],
+        active: null,
+        pendingStagingBuffers: [],
+        mappedStagingCount: 0,
+        cpuStagingCount: 0,
+        nextBufferId: 0,
+        destroyed: false,
+    };
+}
 function createBufferCache$1(info) {
     return {
         bufferMap: new WeakMap(),
@@ -9606,6 +9942,7 @@ function createBufferCache$1(info) {
         bufferCount: 0,
         rawCount: 0,
         info,
+        dynamicUniforms: createDynamicUniformBuffers(),
     };
 }
 /**
@@ -9784,6 +10121,172 @@ function disposeBufferCache$1(cache) {
     cache.rawMap = new WeakMap();
     cache.bufferCount = 0;
     cache.rawCount = 0;
+    // A handed-in device outlives the renderer, so these are released here rather than with it.
+    destroyDynamicUniforms(cache.dynamicUniforms);
+    cache.dynamicUniforms = createDynamicUniformBuffers();
+}
+/**
+ * Takes an aligned allocation of `size` bytes and returns its offset. It lands in `dynamicUniforms.active`,
+ * whose staging view the caller packs into and whose GPU buffer the caller binds at that offset.
+ */
+function allocDynamicUniform(cache, device, size) {
+    if (size > DYNAMIC_BUFFER_BYTES) {
+        throw new Error(`[gpucat] a ${size}-byte uniform block is larger than a ${DYNAMIC_BUFFER_BYTES}-byte dynamic buffer`);
+    }
+    const buffers = cache.dynamicUniforms;
+    const align = device.limits.minUniformBufferOffsetAlignment;
+    // A full active buffer is done: schedule it for the submit.
+    if (buffers.active !== null && DYNAMIC_BUFFER_BYTES - roundUp(buffers.active.size, align) < size) {
+        buffers.usedBuffers.push(buffers.active);
+        buffers.active = null;
+    }
+    if (buffers.active === null) {
+        const gpuBuffer = buffers.gpuBuffers.pop() ?? {
+            buffer: device.createBuffer({
+                label: 'dynamic-uniforms',
+                size: DYNAMIC_BUFFER_BYTES,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            }),
+            id: buffers.nextBufferId++,
+        };
+        buffers.active = { gpuBuffer, staging: takeStagingBuffer(buffers, device), size: 0 };
+    }
+    const active = buffers.active;
+    const offset = roundUp(active.size, align);
+    active.size = offset + size;
+    cache.info.buffers.dynamicAllocations++;
+    cache.info.buffers.dynamicAllocationBytes += size;
+    return offset;
+}
+/** A remapped staging buffer when one is back, a new one under the cap, else a CPU copy. */
+function takeStagingBuffer(buffers, device) {
+    const mapped = buffers.stagingBuffers.pop();
+    if (mapped !== undefined)
+        return mapped;
+    if (buffers.mappedStagingCount < MAX_MAPPED_STAGING_BUFFERS) {
+        buffers.mappedStagingCount++;
+        return createStagingBuffer(device);
+    }
+    const cpuCopy = buffers.cpuStagingBuffers.pop();
+    if (cpuCopy !== undefined)
+        return cpuCopy;
+    buffers.cpuStagingCount++;
+    return { buffer: null, view: new DataView(new ArrayBuffer(DYNAMIC_BUFFER_BYTES)) };
+}
+/**
+ * Resident dynamic uniform buffers and staging (mapped or CPU). Pools only grow until dispose, so these
+ * settle at the peak a scene needs; one that climbs frame over frame means allocations are not returning.
+ */
+function getDynamicUniformStats(cache) {
+    const buffers = cache.dynamicUniforms;
+    return { gpuBuffers: buffers.nextBufferId, stagingBuffers: buffers.mappedStagingCount + buffers.cpuStagingCount };
+}
+function createStagingBuffer(device) {
+    const buffer = device.createBuffer({
+        label: 'dynamic-uniforms-staging',
+        size: DYNAMIC_BUFFER_BYTES,
+        usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
+        mappedAtCreation: true,
+    });
+    return { buffer, view: new DataView(buffer.getMappedRange()) };
+}
+/** The GPU buffer a binding recorded by id, for building the bind group that addresses it. */
+function dynamicUniformBuffer(cache, id) {
+    const buffers = cache.dynamicUniforms;
+    if (buffers.active?.gpuBuffer.id === id)
+        return buffers.active.gpuBuffer.buffer;
+    for (const used of buffers.usedBuffers)
+        if (used.gpuBuffer.id === id)
+            return used.gpuBuffer.buffer;
+    throw new Error(`[gpucat] dynamic uniform buffer ${id} is not part of this frame`);
+}
+/**
+ * Unmaps every staging buffer filled since the last submit and records their copies into their GPU
+ * buffers, in a command buffer the frame submits ahead of its own. Returns null when nothing was written.
+ */
+function submitDynamicUniforms(cache, device) {
+    const buffers = cache.dynamicUniforms;
+    if (buffers.active !== null) {
+        buffers.usedBuffers.push(buffers.active);
+        buffers.active = null;
+    }
+    const used = buffers.usedBuffers;
+    if (used.length === 0)
+        return null;
+    const encoder = device.createCommandEncoder({ label: 'dynamic-uniforms' });
+    // Backwards, so the next frame pops the GPU buffers in the order this one used them.
+    for (let index = used.length - 1; index >= 0; index--) {
+        const { gpuBuffer, staging, size } = used[index];
+        const bytes = alignTo4(size);
+        if (staging.buffer === null) {
+            // Lands ahead of the submit, like the copies, and frees the CPU copy at once.
+            device.queue.writeBuffer(gpuBuffer.buffer, 0, staging.view.buffer, 0, bytes);
+            buffers.cpuStagingBuffers.push(staging);
+        }
+        else {
+            staging.buffer.unmap();
+            encoder.copyBufferToBuffer(staging.buffer, 0, gpuBuffer.buffer, 0, bytes);
+            buffers.pendingStagingBuffers.push(staging);
+        }
+        recordBufferWrite(cache.info, bytes, 'uniform', false, 'dynamic-uniforms');
+        buffers.gpuBuffers.push(gpuBuffer);
+    }
+    used.length = 0;
+    return encoder.finish({ label: 'dynamic-uniforms' });
+}
+/** After the submit: remaps the staging buffers it copied from, which resolves once the GPU is done reading them. */
+function onDynamicUniformsSubmitted(cache) {
+    const buffers = cache.dynamicUniforms;
+    for (const staging of buffers.pendingStagingBuffers) {
+        const buffer = staging.buffer;
+        buffer.mapAsync(GPUMapMode.WRITE).then(() => {
+            // A renderer disposed while the map was pending has already released this buffer.
+            if (buffers.destroyed)
+                return;
+            staging.view = new DataView(buffer.getMappedRange());
+            buffers.stagingBuffers.push(staging);
+        }, 
+        // The map fails when the device is lost; the buffer cannot be reused.
+        () => {
+            buffer.destroy();
+            buffers.mappedStagingCount--;
+        });
+    }
+    buffers.pendingStagingBuffers.length = 0;
+}
+/** For a frame discarded rather than submitted: its buffers go back unsubmitted, the staging ones still mapped. */
+function rewindDynamicUniforms(cache) {
+    const buffers = cache.dynamicUniforms;
+    if (buffers.active !== null) {
+        buffers.usedBuffers.push(buffers.active);
+        buffers.active = null;
+    }
+    for (let index = buffers.usedBuffers.length - 1; index >= 0; index--) {
+        const { gpuBuffer, staging } = buffers.usedBuffers[index];
+        buffers.gpuBuffers.push(gpuBuffer);
+        (staging.buffer === null ? buffers.cpuStagingBuffers : buffers.stagingBuffers).push(staging);
+    }
+    buffers.usedBuffers.length = 0;
+}
+function destroyDynamicUniforms(buffers) {
+    buffers.destroyed = true;
+    for (const gpuBuffer of buffers.gpuBuffers)
+        gpuBuffer.buffer.destroy();
+    for (const staging of buffers.stagingBuffers)
+        staging.buffer?.destroy();
+    for (const staging of buffers.pendingStagingBuffers)
+        staging.buffer?.destroy();
+    for (const used of buffers.usedBuffers) {
+        used.gpuBuffer.buffer.destroy();
+        used.staging.buffer?.destroy();
+    }
+    if (buffers.active !== null) {
+        buffers.active.gpuBuffer.buffer.destroy();
+        buffers.active.staging.buffer?.destroy();
+    }
+}
+function roundUp(value, multiple) {
+    return Math.ceil(value / multiple) * multiple;
 }
 // Stats
 /**
@@ -9797,50 +10300,6 @@ function getBufferCacheStats$1(cache) {
 }
 function alignTo4(n) {
     return Math.ceil(n / 4) * 4;
-}
-
-/**
- * render-object-gpu.ts - WebGPU-owned per-draw device payload for RenderObjects.
- *
- * RenderObject (in core/) is backend-neutral and must not reference raw WebGPU
- * types. The per-draw GPU handles (pipeline, bind groups, resolved attribute
- * buffers) live here instead, keyed by RenderObject identity in a WeakMap -
- * mirroring how GpuBuffer/GpuTexture keep their GPU handles in renderer-side
- * caches (see buffers.ts BufferCache).
- *
- * The cache is a per-renderer instance (held on WebGPUBackend as
- * `_renderObjectGpu`), not a module-global.
- */
-/** Create a new RenderObjectGpu cache. */
-function createRenderObjectGpuCache() {
-    return {
-        data: new WeakMap(),
-    };
-}
-/** Create an empty device payload. */
-function createRenderObjectGpu() {
-    return {
-        pipeline: null,
-        bindGroups: null,
-    };
-}
-/**
- * Get the WebGPU device payload for a RenderObject, lazily creating the entry.
- */
-function getRenderObjectGpu(cache, renderObject) {
-    let gpu = cache.data.get(renderObject);
-    if (!gpu) {
-        gpu = createRenderObjectGpu();
-        cache.data.set(renderObject, gpu);
-    }
-    return gpu;
-}
-/**
- * Peek at the WebGPU device payload for a RenderObject without creating it.
- * Returns undefined if the RenderObject has no entry yet.
- */
-function peekRenderObjectGpu(cache, renderObject) {
-    return cache.data.get(renderObject);
 }
 
 /*
@@ -10596,6 +11055,9 @@ function createGPUTexture(device, texture) {
     const isStorage = texture.type.type.startsWith('texture_storage_');
     const usage = !isStorage || mipLevelCount > 1 ? texture.usage | GPUTextureUsage.RENDER_ATTACHMENT : texture.usage;
     const gpuTexture = device.createTexture({
+        // Spread rather than always-present: handing the descriptor an explicit `label: undefined`
+        // is not the same as omitting it for every implementation that reads it.
+        ...(texture.label !== undefined && { label: texture.label }),
         dimension: texture.dimension,
         size: [texture.width, texture.height, texture.depthOrArrayLayers],
         format: texture.format,
@@ -11103,7 +11565,6 @@ function createBindingsState$1(layoutCache) {
     return {
         layoutCache,
         data: new WeakMap(),
-        bindGroupRebuilds: 0,
     };
 }
 /** Map a storage texture WGSL dimension tag to a GPU view dimension. */
@@ -11139,6 +11600,7 @@ function getData(state, bindGroup) {
     if (!data) {
         data = {
             bindGroup: null,
+            dynamicBindGroups: [],
             bindGroupLayout: null,
             needsUpdate: true,
         };
@@ -11146,55 +11608,79 @@ function getData(state, bindGroup) {
     }
     return data;
 }
-/** Update all bindings for a RenderObject. */
-function updateRenderBindings(b, renderObject, frame) {
+/** Update all bindings for one draw of a RenderObject, into `out`. */
+function updateRenderBindings(b, renderObject, frame, out) {
     const { bindings: state, device, buffers: bufferCache } = b;
-    const { textures: textureCache, samplers: samplerCache, renderObjectGpu: renderObjectGpuCache } = b;
+    const { textures: textureCache, samplers: samplerCache } = b;
+    out.groups.length = 0;
+    out.offsets.length = 0;
     const nodeState = renderObject.nodeBuilderState;
     if (!nodeState)
         return;
     // Get BindGroups for this RenderObject (shared groups reused, non-shared cloned)
     const bindGroups = getBindings(renderObject);
-    // Update each BindGroup
-    const gpuBindGroups = [];
     for (const bindGroup of bindGroups) {
         // Initialize bind group layout if needed
         initBindGroup(state, bindGroup, device, GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT);
-        // Update uniforms and check if bind group needs rebuild
+        // Update uniforms, which decides where this use of each uniform block reads from
         const data = getData(state, bindGroup);
         updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache, samplerCache);
-        if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, renderObject.geometry, null);
-            data.needsUpdate = false;
-            state.bindGroupRebuilds++;
-        }
-        if (data.bindGroup) {
-            gpuBindGroups.push(data.bindGroup);
+        const gpuBindGroup = currentGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, renderObject.geometry, null);
+        if (gpuBindGroup) {
+            out.groups.push(gpuBindGroup);
+            out.offsets.push(dynamicOffsetOf(bindGroup));
         }
     }
-    // Store on the WebGPU device side table for this RenderObject
-    getRenderObjectGpu(renderObjectGpuCache, renderObject).bindGroups = gpuBindGroups;
 }
-/** Update all bindings for a compute pass and return GPUBindGroups. */
-function updateComputeBindings(b, nodeBuilderState, frame, buffers) {
+/** Update all bindings for one compute dispatch, into `out`. */
+function updateComputeBindings(b, nodeBuilderState, frame, buffers, out) {
     const { bindings: state, device, buffers: bufferCache, textures: textureCache, samplers: samplerCache } = b;
-    const gpuBindGroups = [];
+    out.groups.length = 0;
+    out.offsets.length = 0;
     for (const bindGroup of nodeBuilderState.bindings) {
         // Initialize bind group layout if needed
         initBindGroup(state, bindGroup, device, GPUShaderStage.COMPUTE);
         // Update bindings
         const data = getData(state, bindGroup);
         updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, device, bindGroup, frame, buffers);
-        // Rebuild GPU bind group if needed
-        if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, null, buffers);
-            data.needsUpdate = false;
-        }
-        if (data.bindGroup) {
-            gpuBindGroups.push(data.bindGroup);
+        const gpuBindGroup = currentGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, null, buffers);
+        if (gpuBindGroup) {
+            out.groups.push(gpuBindGroup);
+            out.offsets.push(dynamicOffsetOf(bindGroup));
         }
     }
-    return gpuBindGroups;
+}
+/**
+ * The GPU bind group for the current use of `bindGroup`: its own when the uniform block reads its own
+ * buffer (or it has no such block), else the one addressing the dynamic uniform buffer this use was
+ * allocated from. Built on first need; a resource change (`needsUpdate`) drops every variant.
+ */
+function currentGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, buffers) {
+    if (data.needsUpdate) {
+        data.bindGroup = null;
+        data.dynamicBindGroups.length = 0;
+        data.needsUpdate = false;
+    }
+    const uniform = dynamicUniformBinding(bindGroup);
+    if (uniform === null || uniform.sliceBufferId < 0) {
+        data.bindGroup ??= buildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, buffers, null);
+        return data.bindGroup;
+    }
+    const bufferId = uniform.sliceBufferId;
+    const cached = data.dynamicBindGroups[bufferId];
+    if (cached !== undefined)
+        return cached;
+    const built = buildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, buffers, dynamicUniformBuffer(bufferCache, bufferId));
+    if (built !== null)
+        data.dynamicBindGroups[bufferId] = built;
+    return built;
+}
+/** The dynamic offset the current use binds at: -1 for a group without one, 0 for the block's own buffer. */
+function dynamicOffsetOf(bindGroup) {
+    const uniform = dynamicUniformBinding(bindGroup);
+    if (uniform === null)
+        return -1;
+    return uniform.sliceBufferId < 0 ? 0 : uniform.sliceOffset;
 }
 /** Initialize bindings for a RenderObject. */
 function initRenderBindings(state, renderObject, device) {
@@ -11246,7 +11732,7 @@ function buildLayoutEntries(bindGroup, visibility, device) {
                 entries.push({
                     binding: binding.block.binding,
                     visibility,
-                    buffer: { type: 'uniform' },
+                    buffer: { type: 'uniform', hasDynamicOffset: usesDynamicOffset(binding.block) },
                 });
                 break;
             case 'storage':
@@ -11298,7 +11784,7 @@ function updateRenderBindGroup(data, bindGroup, renderObject, frame, device, buf
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
             case 'uniform':
-                updateUniformBinding(bufferCache, device, binding, frame, data, renderObject.material);
+                updateUniformBinding(bufferCache, device, binding, frame, data, renderObject.material, usesDynamicOffset(binding.block));
                 break;
             case 'texture':
                 updateTextureBinding(textureCache, device, binding, data);
@@ -11315,8 +11801,18 @@ function updateRenderBindGroup(data, bindGroup, renderObject, frame, device, buf
         }
     }
 }
-/** Update a uniform binding */
-function updateUniformBinding(bufferCache, device, binding, frame, data, material = null) {
+/** The group's uniform binding when it binds at a dynamic offset. A group holds at most one uniform block. */
+function dynamicUniformBinding(bindGroup) {
+    const binding = bindGroup.bindings[0];
+    return binding?.kind === 'uniform' && usesDynamicOffset(binding.block) ? binding : null;
+}
+/**
+ * Update a uniform binding for one use (a draw, or a compute dispatch). The block's own buffer holds its
+ * bytes and is only written when they change. `perUse` marks a block bound at a dynamic offset: once a use
+ * has read the buffer this frame, different bytes for a later use go to a dynamic allocation instead, since
+ * a write to the buffer would land before the frame's submit and the earlier use would read it.
+ */
+function updateUniformBinding(bufferCache, device, binding, frame, data, material, perUse) {
     const block = binding.block;
     // Deduplication gate: skip if this binding was already processed at the current frame/render ID.
     // Based on group.updateType:
@@ -11350,10 +11846,23 @@ function updateUniformBinding(bufferCache, device, binding, frame, data, materia
         binding.currentBuffer = new ArrayBuffer(requiredBytes);
         binding.scratchBuffer = new ArrayBuffer(requiredBytes);
     }
-    // Pack into scratch buffer, then compare with current
+    // Pack into scratch buffer, then compare with what the block's own buffer holds
     const changedBytes = packAndCompare(block, binding.currentBuffer, binding.scratchBuffer, material);
     const changed = changedBytes > 0;
     const uploaded = !!getRaw$1(bufferCache, binding.bufferKey);
+    const readThisFrame = perUse && binding.lastUseFrameId === frame.frameId;
+    if (perUse)
+        binding.lastUseFrameId = frame.frameId;
+    if (changed && uploaded && readThisFrame) {
+        // The buffer keeps the bytes the earlier use read; this use reads its own allocation.
+        const offset = allocDynamicUniform(bufferCache, device, requiredBytes);
+        const active = bufferCache.dynamicUniforms.active;
+        new Uint8Array(active.staging.view.buffer, offset, requiredBytes).set(new Uint8Array(binding.scratchBuffer));
+        binding.sliceBufferId = active.gpuBuffer.id;
+        binding.sliceOffset = offset;
+        return;
+    }
+    binding.sliceBufferId = -1;
     if (changed || !uploaded) {
         if (changed) {
             // Swap buffers: scratch becomes current
@@ -11372,16 +11881,8 @@ function updateUniformBinding(bufferCache, device, binding, frame, data, materia
         }
     }
 }
-/**
- * Pack uniforms into scratch buffer and compare against current buffer.
- * Uses compiled layout for correct WGSL alignment.
- * Returns true if any values changed.
- */
-/** packs the block into `scratchBuffer` and returns how many BYTES differ from
- *  `currentBuffer`. Zero means nothing changed. */
-function packAndCompare(block, currentBuffer, scratchBuffer, material) {
-    const view = new DataView(scratchBuffer);
-    // Pack each uniform member using compiled layout
+/** Writes every member that has a value, from the uniform or the material, at its compiled offset. */
+function packMembers(block, view, material) {
     for (const m of block.members) {
         let value = m.node.uniform.value;
         if (value === null && material) {
@@ -11394,12 +11895,25 @@ function packAndCompare(block, currentBuffer, scratchBuffer, material) {
             continue;
         packToView(m.schema, view, m.offset, value, 'wgsl-uniform');
     }
+}
+/**
+ * Pack uniforms into scratch buffer and compare against current buffer.
+ * Uses compiled layout for correct WGSL alignment.
+ * Returns true if any values changed.
+ */
+/** packs the block into `scratchBuffer` and returns how many BYTES differ from
+ *  `currentBuffer`. Zero means nothing changed. */
+function packAndCompare(block, currentBuffer, scratchBuffer, material) {
+    const current = new Uint32Array(currentBuffer);
+    const scratch = new Uint32Array(scratchBuffer);
+    // Seeded with the current bytes, so a member with no value this time keeps its last one rather
+    // than whatever the scratch held two packs ago, which would read as a change and upload it.
+    scratch.set(current);
+    packMembers(block, new DataView(scratchBuffer), material);
     // Compare word by word, COUNTING rather than early-returning. The count is what
     // separates "a few bytes of a large block moved" - a per-frame value dragging a
     // static payload up with it, fixable by splitting the block - from "the block
     // genuinely changed". Same single pass either way; only the exit differs.
-    const current = new Uint32Array(currentBuffer);
-    const scratch = new Uint32Array(scratchBuffer);
     const len = current.length;
     let changedWords = 0;
     for (let i = 0; i < len; i++) {
@@ -11498,14 +12012,24 @@ function updateStorageBinding(bufferCache, device, binding, data, geometry, buff
     ensureUploaded$1(bufferCache, device, buffer, binding.entry.name);
 }
 /** Rebuild the GPU bind group for a BindGroup */
-function rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, buffers) {
+/**
+ * Builds the GPU bind group for `bindGroup`. `dynamicBuffer` is the dynamic uniform buffer a transient
+ * uniform block is bound from, one block's size at a time, at the dynamic offset given when drawing.
+ */
+function buildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, buffers, dynamicBuffer) {
     if (!data.bindGroupLayout)
-        return;
+        return null;
     const entries = [];
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
             case 'uniform': {
-                if (binding.bufferKey) {
+                if (dynamicBuffer !== null) {
+                    entries.push({
+                        binding: binding.block.binding,
+                        resource: { buffer: dynamicBuffer, size: binding.block.totalBytes },
+                    });
+                }
+                else if (binding.bufferKey) {
                     const buffer = getRaw$1(bufferCache, binding.bufferKey);
                     if (buffer) {
                         entries.push({ binding: binding.block.binding, resource: { buffer } });
@@ -11575,19 +12099,16 @@ function rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bi
     }
     // Sort entries by binding
     entries.sort((a, b) => a.binding - b.binding);
-    if (entries.length > 0) {
-        data.bindGroup = device.createBindGroup({
-            layout: data.bindGroupLayout,
-            entries,
-        });
-    }
+    if (entries.length === 0)
+        return null;
+    return device.createBindGroup({ layout: data.bindGroupLayout, entries });
 }
 /** Update a compute BindGroup (uniforms, textures, samplers, storage). */
 function updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, device, bindGroup, frame, buffers) {
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
             case 'uniform':
-                updateUniformBinding(bufferCache, device, binding, frame, data);
+                updateUniformBinding(bufferCache, device, binding, frame, data, null, usesDynamicOffset(binding.block));
                 break;
             case 'storage':
                 updateStorageBinding(bufferCache, device, binding, data, null, buffers);
@@ -12728,23 +13249,28 @@ class LiteralNode extends Node {
         this.value = value;
     }
 }
+/**
+ * `label` is what the author called the value, not its shader identifier — the emitters allocate that
+ * per function scope, so the same name can be requested twice without the graph having to disambiguate.
+ * Undefined for an unnamed `.toVar()` / `.toConst()`.
+ */
 class LetNode extends Node {
-    varName;
+    label;
     init;
     kind = NodeKind.Let;
-    constructor(type, varName, init) {
+    constructor(type, label, init) {
         super(type);
-        this.varName = varName;
+        this.label = label;
         this.init = init;
     }
 }
 class VarNode extends Node {
-    varName;
+    label;
     init;
     kind = NodeKind.Var;
-    constructor(type, varName, init) {
+    constructor(type, label, init) {
         super(type);
-        this.varName = varName;
+        this.label = label;
         this.init = init;
     }
 }
@@ -13415,8 +13941,7 @@ const cond = (condition, ifTrue, ifFalse) => new ConditionalNode(condition, ifTr
  */
 const select = (falseVal, trueVal, condition) => new ConditionalNode(condition, trueVal, falseVal);
 function makeVar(init, label) {
-    const varName = label ? `var_${_nodeId}_${label}` : `var_${_nodeId}`;
-    const v = new VarNode(init.type, varName, init);
+    const v = new VarNode(init.type, label, init);
     // Add to current stack if building inside Fn, otherwise return standalone node.
     // The standalone VarNode still participates in the graph via its `init` reference.
     if (currentStack !== null)
@@ -13424,8 +13949,7 @@ function makeVar(init, label) {
     return v;
 }
 function makeLet(init, label) {
-    const varName = label ? `let_${_nodeId}_${label}` : `let_${_nodeId}`;
-    const v = new LetNode(init.type, varName, init);
+    const v = new LetNode(init.type, label, init);
     if (currentStack !== null)
         currentStack.push(v);
     return v;
@@ -13840,7 +14364,11 @@ const computeIndex = /*@__PURE__*/ new ComputeIndexNode();
 
 class UniformNode extends Node {
     kind = NodeKind.Uniform;
-    /** uniform name */
+    /**
+     * Identity: the key this uniform dedupes under. For a name-based uniform it is also the author's
+     * name; a value-based one gets a generated placeholder. Either way the SPELLING in emitted source
+     * comes from `uniform.label` — the resource carries the name, as GpuBuffer and GpuTexture do.
+     */
     name;
     /** The underlying Uniform data container */
     uniform;
@@ -13863,10 +14391,18 @@ class UniformNode extends Node {
     set value(v) {
         this.uniform.value = v;
     }
-    constructor(uniform, name) {
+    /**
+     * `name` is this uniform's identity — the key it dedupes under. When the author supplied it (the
+     * usual case) it also becomes the resource's label, which is what the emitters spell the block
+     * member with. `generatedName` marks the placeholder given to a uniform that has no author name;
+     * those are numbered per compile instead, because the placeholder carries a node id.
+     */
+    constructor(uniform, name, generatedName = false) {
         super(uniform.schema);
         this.uniform = uniform;
         this.name = name;
+        if (!generatedName)
+            uniform.label ??= name;
     }
     /**
      * Register an update callback that runs per frame/render/object.
@@ -13900,7 +14436,9 @@ function uniform(init, nameOrSchema) {
     // Value-based: uniform(Uniform)
     if (typeof init === 'object' && init !== null && 'isUniform' in init) {
         const u = init;
-        return new UniformNode(u, `uniform_${_nodeId}`);
+        // `name` is identity only — the emitted spelling comes from the Uniform's label (or a
+        // numbered fallback allocated per compile), so a node id never reaches the source.
+        return new UniformNode(u, `uniform_${_nodeId}`, true);
     }
     // Name-based: uniform('name', schema) or uniform('name', StructDef)
     if (typeof init === 'string') {
@@ -13924,7 +14462,7 @@ function uniform(init, nameOrSchema) {
     // Extract initial value from the node
     const initialValue = extractValue(initNode);
     const u = new Uniform(initNode.type, initialValue);
-    return new UniformNode(u, uniformId);
+    return new UniformNode(u, uniformId, name === undefined);
 }
 /**
  * Extract a concrete value from a LiteralNode or ConstructNode.
@@ -15085,7 +15623,17 @@ function comparisonSampler(source, compare = 'less', group = objectGroup) {
     return node;
 }
 /** Counter for generating unique texture IDs when using GpuTexture directly */
-let _textureIdCounter = 0;
+/**
+ * Identity of a texture binding, taken from the backing GpuTexture's own id.
+ *
+ * It MUST come from that one counter. Two paths used to number independently — a high-level Texture's
+ * `id` and a module-local counter for a bare GpuTexture — and both formatted `t<n>`, so a Texture and a
+ * GpuTexture could claim the same id. The emitters key their texture table on it, so the second
+ * binding was dropped and both sampled the first texture.
+ */
+function textureBindingId(gpuTexture) {
+    return `t${gpuTexture.id}`;
+}
 /** Build the sampled texture descriptor for sampling a storage texture (dual-usage). */
 function sampledDescForStorage(desc) {
     const channel = STORAGE_FORMATS[desc.format].channel;
@@ -15111,7 +15659,7 @@ function texture(source, gpuSampler) {
         // sample type matches the storage format's channel.
         if (isStorageTextureDesc(source.type)) {
             const sampledDesc = sampledDescForStorage(source.type);
-            const binding = new TextureBindingNode(sampledDesc, `t${_textureIdCounter++}`);
+            const binding = new TextureBindingNode(sampledDesc, textureBindingId(source));
             binding.value = source;
             const node = new TextureNode(binding);
             node.samplerNode = sampler(gpuSampler, binding.group);
@@ -15120,7 +15668,7 @@ function texture(source, gpuSampler) {
         // Widen the type for the binding to FlatSampledTexture
         const sampledSource = source;
         const desc = sampledSource.type;
-        const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
+        const binding = new TextureBindingNode(desc, textureBindingId(sampledSource));
         binding.value = sampledSource;
         const node = new TextureNode(binding);
         node.samplerNode = sampler(gpuSampler, binding.group);
@@ -15134,7 +15682,7 @@ function texture(source, gpuSampler) {
         // this same branch, no cast needed.
         const gpuTex = source._gpuTexture;
         const desc = gpuTex.type;
-        const binding = new TextureBindingNode(desc, `t${source.id}`);
+        const binding = new TextureBindingNode(desc, textureBindingId(gpuTex));
         binding.value = gpuTex;
         const node = new TextureNode(binding);
         node.samplerNode = sampler(source._gpuSampler, binding.group);
@@ -15149,7 +15697,7 @@ function texture(source, gpuSampler) {
  * sampling API.
  */
 const textureBinding = (tex, textureDesc) => {
-    const binding = new TextureBindingNode(textureDesc, `t${tex.id}`);
+    const binding = new TextureBindingNode(textureDesc, textureBindingId(tex._gpuTexture));
     binding.value = tex._gpuTexture;
     return binding;
 };
@@ -15255,7 +15803,7 @@ function cubeTexture(source, gpuSampler) {
             throw new Error('cubeTexture(): GpuSampler required when passing GpuTexture directly');
         }
         const desc = source.type;
-        const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
+        const binding = new TextureBindingNode(desc, textureBindingId(source));
         binding.value = source;
         const node = new CubeTextureNode(binding);
         node.samplerNode = sampler(gpuSampler, binding.group);
@@ -15264,7 +15812,7 @@ function cubeTexture(source, gpuSampler) {
     else {
         const gpuTex = source._gpuTexture;
         const desc = gpuTex.type;
-        const binding = new TextureBindingNode(desc, `t${source.id}`);
+        const binding = new TextureBindingNode(desc, textureBindingId(gpuTex));
         binding.value = gpuTex;
         const node = new CubeTextureNode(binding);
         node.samplerNode = sampler(source._gpuSampler, binding.group);
@@ -15405,7 +15953,7 @@ function depthTexture(source, gpuSampler) {
             throw new Error('depthTexture(): GpuSampler required when passing GpuTexture directly');
         }
         const desc = source.type;
-        const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
+        const binding = new TextureBindingNode(desc, textureBindingId(source));
         binding.value = source;
         const node = new DepthTextureNode(binding);
         node.samplerNode = sampler(plainDepthSampler(gpuSampler), binding.group);
@@ -15414,7 +15962,7 @@ function depthTexture(source, gpuSampler) {
     else {
         const gpuTex = source._gpuTexture;
         const desc = gpuTex.type;
-        const binding = new TextureBindingNode(desc, `t${source.id}`);
+        const binding = new TextureBindingNode(desc, textureBindingId(gpuTex));
         binding.value = gpuTex;
         const node = new DepthTextureNode(binding);
         node.samplerNode = sampler(plainDepthSampler(source._gpuSampler), binding.group);
@@ -15559,7 +16107,7 @@ function arrayTexture(source, samplerOrLayer, maybeLayerNode) {
     if ('isGpuTexture' in source) {
         const gpuSampler = samplerOrLayer;
         const layerNode = maybeLayerNode;
-        const binding = new TextureBindingNode(source.type, `t${_textureIdCounter++}`);
+        const binding = new TextureBindingNode(source.type, textureBindingId(source));
         binding.value = source;
         const node = new ArrayTextureNode(binding, layerNode);
         node.samplerNode = sampler(gpuSampler, binding.group);
@@ -15568,7 +16116,7 @@ function arrayTexture(source, samplerOrLayer, maybeLayerNode) {
     else {
         const layerNode = samplerOrLayer;
         const gpuTex = source._gpuTexture;
-        const binding = new TextureBindingNode(gpuTex.type, `t${source.id}`);
+        const binding = new TextureBindingNode(gpuTex.type, textureBindingId(gpuTex));
         binding.value = gpuTex;
         const node = new ArrayTextureNode(binding, layerNode);
         node.samplerNode = sampler(source._gpuSampler, binding.group);
@@ -17298,6 +17846,344 @@ function walkTypeForStructs(type, register) {
 }
 
 /**
+ * backend/names.ts — shader identifier allocation, shared by the WGSL and GLSL emitters.
+ *
+ * Names in the emitted source are allocated per function scope rather than stamped with a node id.
+ * A `Var('contrast', …)` becomes `contrast`, and only collides its way to `contrast_1` when the same
+ * scope already holds that name. Two consequences beyond looking better:
+ *
+ *  - Emission is deterministic. Node ids come from a process-wide counter and function bodies are
+ *    re-traced on every compile, so id-derived names differed between two compiles of the SAME graph.
+ *    The WebGL program cache keys on the emitted source string, so that churn cost a redundant
+ *    compile + link per shader.
+ *  - The two backends agree. Both allocate from the same reserved set in the same traversal order, so
+ *    a graph's WGSL and its GLSL name the same value the same way and can be read side by side.
+ *
+ * The reserved set is the UNION of both languages' keywords and built-ins, so any name that survives
+ * allocation is safe on either backend — that union is what keeps the two in step.
+ *
+ * ## Where a name comes from
+ *
+ * Two kinds of naming field exist, and the difference decides whether this module may rename it:
+ *
+ *  - **`label`** — a HINT, which the emitters may adapt or suffix. It lives on the GPU resource
+ *    (`GpuBuffer`, `GpuTexture`, `GpuSampler`, `Uniform`), or on the node itself when there is no
+ *    resource to hang it on (a `Var`/`Let` local). A high-level wrapper exposes it as `name`
+ *    (`Texture.name` forwards to `GpuTexture.label`), matching the rest of its API.
+ *  - **`name` / `varName` / `textureId` / `bufferName` / `samplerId`** — IDENTITY, which must keep
+ *    matching something outside the shader: a geometry buffer slot, the other stage's varying, a
+ *    bind-group dedup key, a module-scope declaration. Emitted verbatim and never reallocated here.
+ *
+ * A node therefore carries at most ONE naming field. When it references a resource, the label lives
+ * on the resource and the node holds only identity — which is why `UniformNode` reads
+ * `node.uniform.label` rather than keeping a label of its own.
+ */
+/** Space-separated word lists, split once at module load — kept as prose for readability. */
+const words = (s) => s.split(' ');
+/**
+ * WGSL keywords plus its (long) reserved-word list. A reserved word is not usable as an identifier
+ * even though nothing is declared with it, so it has to be here as well.
+ */
+const WGSL_KEYWORDS = words('alias break case const const_assert continue continuing default diagnostic discard else enable false fn for if let loop override requires return struct switch true var while with ' +
+    'NULL Self abstract active alignas alignof as asm asm_fragment async attribute auto await become binding_array cast catch class co_await co_return co_yield coherent column_major common compile compile_fragment concept const_cast consteval constexpr constinit crate debugger decltype delete demote demote_to_helper do dynamic_cast enum explicit export extends extern external fallthrough filter final finally friend from fxgroup get goto groupshared highp impl implements import inline instanceof interface layout lowp macro macro_rules match mediump meta mod module move mut mutable namespace new nil noexcept noinline nointerpolation non_coherent noncoherent noperspective null nullptr of operator package packoffset partition pass patch pixelfragment precise precision premerge priv protected pub public readonly ref regardless register reinterpret_cast require resource restrict self set shared sizeof smooth snorm static static_assert static_cast std subroutine super target template this thread_local throw trait try type typedef typeid typename typeof union unless unorm unsafe unsized use using varying virtual volatile wgsl where writeonly yield');
+/** GLSL ES 3.00 keywords and reserved words (spec §3.6), including the desktop-only ones it reserves. */
+const GLSL_KEYWORDS = words('const uniform buffer shared attribute varying coherent volatile restrict readonly writeonly atomic_uint layout centroid flat smooth noperspective patch sample break continue do for while switch case default if else subroutine in out inout float double int void bool true false invariant precise discard return struct lowp mediump highp precision ' +
+    'mat2 mat3 mat4 mat2x2 mat2x3 mat2x4 mat3x2 mat3x3 mat3x4 mat4x2 mat4x3 mat4x4 vec2 vec3 vec4 ivec2 ivec3 ivec4 bvec2 bvec3 bvec4 uvec2 uvec3 uvec4 dvec2 dvec3 dvec4 uint ' +
+    'dmat2 dmat3 dmat4 dmat2x2 dmat2x3 dmat2x4 dmat3x2 dmat3x3 dmat3x4 dmat4x2 dmat4x3 dmat4x4 sampler3DRect ' +
+    'sampler2D sampler3D samplerCube sampler2DShadow samplerCubeShadow sampler2DArray sampler2DArrayShadow isampler2D isampler3D isamplerCube isampler2DArray usampler2D usampler3D usamplerCube usampler2DArray ' +
+    'common partition active asm class union enum typedef template this resource goto inline noinline public static extern external interface long short half fixed unsigned superp input output hvec2 hvec3 hvec4 fvec2 fvec3 fvec4 filter sizeof cast namespace using');
+/**
+ * Built-in function names in either language. A local variable may legally shadow one, but that makes
+ * every later call to it in the same scope a compile error, so they are treated as taken.
+ */
+const BUILTIN_FNS = words('radians degrees sin cos tan asin acos atan atan2 sinh cosh tanh asinh acosh atanh pow exp log exp2 log2 sqrt inversesqrt inverseSqrt abs sign floor trunc round roundEven ceil fract mod modf min max clamp mix step smoothstep saturate isnan isinf ' +
+    'floatBitsToInt floatBitsToUint intBitsToFloat uintBitsToFloat bitcast packSnorm2x16 unpackSnorm2x16 packUnorm2x16 unpackUnorm2x16 packHalf2x16 unpackHalf2x16 pack4x8snorm pack4x8unorm unpack4x8snorm unpack4x8unorm pack2x16float unpack2x16float ' +
+    'length distance dot cross normalize faceforward reflect refract fma ldexp frexp countOneBits reverseBits firstLeadingBit firstTrailingBit extractBits insertBits ' +
+    'matrixCompMult outerProduct transpose determinant inverse lessThan lessThanEqual greaterThan greaterThanEqual equal notEqual any all not select arrayLength ' +
+    'textureSize texture textureProj textureLod textureOffset texelFetch texelFetchOffset textureProjOffset textureLodOffset textureProjLod textureProjLodOffset textureGrad textureGradOffset textureProjGrad textureProjGradOffset ' +
+    'textureSample textureSampleLevel textureSampleBias textureSampleGrad textureSampleCompare textureSampleCompareLevel textureLoad textureStore textureDimensions textureNumLayers textureNumLevels textureNumSamples ' +
+    'dFdx dFdy fwidth dpdx dpdy dpdxCoarse dpdyCoarse dpdxFine dpdyFine ' +
+    'atomicAdd atomicSub atomicMax atomicMin atomicAnd atomicOr atomicXor atomicStore atomicLoad atomicExchange atomicCompareExchangeWeak workgroupBarrier storageBarrier textureBarrier');
+/**
+ * Names the emitters themselves put in scope: the entry points, the stage I/O struct locals, the
+ * compute builtin parameters, and the `gl_*` family GLSL predeclares.
+ */
+const EMITTER_GLOBALS = words('main vs_main fs_main cs_main input output VertexInput VertexOutput FragmentInput FragmentOutput ' +
+    'global_id local_id local_index workgroup_id num_workgroups computeIndex ' +
+    'gl_Position gl_PointSize gl_FragCoord gl_FragDepth gl_FrontFacing gl_PointCoord gl_VertexID gl_InstanceID gl_FragColor gl_FragData');
+/** Identifiers no allocated name may take, on either backend. */
+const RESERVED_NAMES = new Set([
+    ...WGSL_KEYWORDS,
+    ...GLSL_KEYWORDS,
+    ...BUILTIN_FNS,
+    ...EMITTER_GLOBALS,
+]);
+/** A fresh, empty scope. */
+function createNameScope() {
+    return new Set();
+}
+/** Mark a name as already in scope (a binding, a parameter, a function). Never renames it. */
+function reserveName(scope, name) {
+    scope.add(name);
+}
+/** `preferred` if free, else `preferred_1`, `preferred_2`, … — and the result is now taken. */
+function allocName(scope, preferred) {
+    const base = sanitizeIdentifier(preferred);
+    if (!scope.has(base) && !RESERVED_NAMES.has(base)) {
+        scope.add(base);
+        return base;
+    }
+    for (let n = 1;; n++) {
+        const candidate = `${base}_${n}`;
+        if (!scope.has(candidate) && !RESERVED_NAMES.has(candidate)) {
+            scope.add(candidate);
+            return candidate;
+        }
+    }
+}
+/** Longest identifier a derived (non-user-supplied) name may reach before being cut. */
+const MAX_DERIVED_LENGTH = 28;
+/** Strip anything not valid in a shader identifier and make sure the result cannot start with a digit. */
+function sanitizeIdentifier(name) {
+    const cleaned = name.replace(/[^A-Za-z0-9_]/g, '_');
+    if (cleaned === '' || cleaned === '_')
+        return 'v';
+    return /^[0-9]/.test(cleaned) ? `_${cleaned}` : cleaned;
+}
+const BINARY_OP_WORD = {
+    '+': 'add',
+    '-': 'sub',
+    '*': 'mul',
+    '/': 'div',
+    '%': 'mod',
+    '<': 'lt',
+    '>': 'gt',
+    '<=': 'le',
+    '>=': 'ge',
+    '==': 'eq',
+    '!=': 'ne',
+    '&&': 'and',
+    '||': 'or',
+    '&': 'bitAnd',
+    '|': 'bitOr',
+    '^': 'bitXor',
+    '<<': 'shl',
+    '>>': 'shr',
+};
+/**
+ * Name to give a common-subexpression temp, derived from what the node computes: the callee for a
+ * call, the operation for an operator, the type for a constructor. Always `_`-prefixed, which both
+ * marks it as emitter-generated and keeps it clear of every keyword and built-in.
+ */
+function cseBaseName(rawNode) {
+    const node = rawNode;
+    let base;
+    switch (node.kind) {
+        case NodeKind.Call:
+            base = node.fn;
+            break;
+        case NodeKind.BinaryOp:
+            base = BINARY_OP_WORD[node.op] ?? 'op';
+            break;
+        case NodeKind.Construct:
+            base = node.type.wgslType;
+            break;
+        case NodeKind.Field:
+            // A swizzle (`.xyz`) says nothing about the value; anything else is a real field name.
+            base = /^[xyzwrgba]{1,4}$/.test(node.fieldName) ? 'swizzle' : node.fieldName;
+            break;
+        case NodeKind.Index:
+            base = 'elem';
+            break;
+        case NodeKind.Conditional:
+            base = 'sel';
+            break;
+        case NodeKind.Array:
+            base = 'arr';
+            break;
+        case NodeKind.Wgsl:
+            base = 'inline';
+            break;
+        default:
+            base = 'v';
+    }
+    base = sanitizeIdentifier(base);
+    // `FxaaSample` → `fxaaSample`: emitter temps read as values, not as the types/functions they came from.
+    if (/^[A-Z]/.test(base))
+        base = base[0].toLowerCase() + base.slice(1);
+    return `_${base.slice(0, MAX_DERIVED_LENGTH)}`;
+}
+/**
+ * Name for a sampler with no label, from what actually distinguishes it. Samplers dedupe on their
+ * settings and several textures share one, so naming it after a texture would mislead; its filter is
+ * the thing a reader wants to know at the sample site.
+ */
+function derivedSamplerName(sampler) {
+    const filter = sampler.minFilter === sampler.magFilter ? sampler.minFilter : `${sampler.minFilter}${sampler.magFilter}`;
+    return `${filter}Sampler`;
+}
+/** Conventional counter names by nesting depth, so the common single/double loop reads as `i` / `j`. */
+const LOOP_VAR_NAMES = ['i', 'j', 'k', 'l'];
+/** Preferred loop-counter name for a nesting depth (the allocator resolves any collision). */
+function loopVarName(depth) {
+    return LOOP_VAR_NAMES[depth] ?? 'i';
+}
+/**
+ * The DSL functions a traced body calls, in first-encounter order. Both emitters use this to emit
+ * definitions callees-first: GLSL requires declaration before use, and WGSL — which permits any
+ * module-scope order — reads the same way for free.
+ *
+ * Returns the function NODES, not just their names, because a callee reached only through another
+ * body may not be in the emitter's function table yet — the caller can register it from this.
+ */
+function tracedFnCallees(traced) {
+    const callees = [];
+    const seen = new Set();
+    const walk = (rawNode) => {
+        const node = rawNode;
+        if (seen.has(node.id))
+            return;
+        seen.add(node.id);
+        if (node.kind === NodeKind.Call) {
+            const fnNode = node.fnNode;
+            if (fnNode)
+                callees.push(fnNode);
+        }
+        for (const child of getChildren(node))
+            walk(child);
+    };
+    walk(traced.body);
+    walk(traced.output);
+    return callees;
+}
+
+/**
+ * backend/print.ts — expression spelling rules shared by the WGSL and GLSL emitters.
+ *
+ * Both target languages use the same C-style operator precedence, so one table serves both. An
+ * emitter asks {@link exprPrec}-style questions of its own node kinds and calls {@link paren} to wrap
+ * an operand only when the operand binds looser than the position it lands in. Nothing here touches
+ * the node graph — it is string + precedence arithmetic only.
+ */
+/**
+ * Binding strength of the top-level operator in an emitted expression string. An operand is
+ * parenthesised only when its strength is below the minimum its position demands.
+ *
+ * `Lowest` is the safe answer for anything whose shape is not known (raw inline source), since it
+ * parenthesises unconditionally.
+ */
+const Prec = {
+    Lowest: 0,
+    Ternary: 1,
+    LogicalOr: 2,
+    LogicalAnd: 3,
+    BitOr: 4,
+    BitXor: 5,
+    BitAnd: 6,
+    Equality: 7,
+    Relational: 8,
+    Shift: 9,
+    Additive: 10,
+    Multiplicative: 11,
+    Unary: 12,
+    /** Literals, identifiers, calls, constructors, and `a.b` / `a[i]` chains — never need parens. */
+    Postfix: 13,
+};
+const BINARY_PREC = {
+    '||': Prec.LogicalOr,
+    '&&': Prec.LogicalAnd,
+    '|': Prec.BitOr,
+    '^': Prec.BitXor,
+    '&': Prec.BitAnd,
+    '==': Prec.Equality,
+    '!=': Prec.Equality,
+    '<': Prec.Relational,
+    '>': Prec.Relational,
+    '<=': Prec.Relational,
+    '>=': Prec.Relational,
+    '<<': Prec.Shift,
+    '>>': Prec.Shift,
+    '+': Prec.Additive,
+    '-': Prec.Additive,
+    '*': Prec.Multiplicative,
+    '/': Prec.Multiplicative,
+    '%': Prec.Multiplicative,
+};
+/** Precedence of a binary operator, or `Lowest` for one not in the table (wrap it to be safe). */
+function binaryPrec(op) {
+    return BINARY_PREC[op] ?? Prec.Lowest;
+}
+/**
+ * Minimum precedence each operand of a left-associative binary operator must have to appear unwrapped.
+ *
+ * The right operand is held one level higher than the left, so a same-precedence chain keeps the
+ * grouping the graph actually describes: `a - (b - c)` and `a * (b / c)` retain their parentheses.
+ * That is not cosmetic — float addition and multiplication are not associative, so dropping those
+ * parens would change results.
+ *
+ * Comparison, equality, bitwise and logical operators additionally keep parens around an operand from
+ * that same family, so `a == (b >= c)` and `(x && y) || z` do not collapse into chains whose grouping
+ * a reader has to work out from the precedence table. Arithmetic operands stay bare, which is where
+ * nearly all the noise was.
+ */
+function binaryOperandMin(prec) {
+    if (prec <= Prec.Relational)
+        return [Prec.Additive, Prec.Additive];
+    return [prec, prec + 1];
+}
+/** Wrap `expr` in parentheses if its top-level operator binds looser than the position requires. */
+function paren(expr, prec, min) {
+    return prec < min ? `(${expr})` : expr;
+}
+/**
+ * Prefix unary operator applied to an already-emitted operand.
+ *
+ * The operand only needs wrapping below unary strength, with one extra case: an operand that itself
+ * starts with the same symbol is parenthesised so `-` and `-` cannot paste into the `--` token GLSL
+ * reads as a decrement.
+ */
+function unary(op, operand, prec) {
+    const wrapped = paren(operand, prec, Prec.Unary);
+    return wrapped.startsWith(op) ? `${op}(${wrapped})` : `${op}${wrapped}`;
+}
+/**
+ * Join sections with a blank line between them, dropping the empty ones — heading included, so a
+ * shader with no module-scope variables does not open on a comment announcing that it has none.
+ */
+function joinSections(sections) {
+    return sections
+        .filter((s) => s.body.trim() !== '')
+        .map((s) => (s.title === undefined ? s.body.trimEnd() : `${s.title}\n${s.body.trimEnd()}`))
+        .join('\n\n');
+}
+/**
+ * Shortest decimal spelling that round-trips to the same f32 as `value`.
+ *
+ * Shader float literals are parsed at f32, so printing a JavaScript number's full f64 decimal
+ * expansion (`0.08333333333333333` for 1/12) adds 8 digits that the target cannot represent. This
+ * finds the fewest significant digits that still land on the same f32 (`0.083333336`). Callers handle
+ * whole numbers themselves — those already have a short exact form and a required `.0` suffix.
+ */
+function shortestF32(value) {
+    if (!Number.isFinite(value))
+        return `${value}`;
+    const target = Math.fround(value);
+    for (let digits = 1; digits <= 9; digits++) {
+        const candidate = target.toPrecision(digits);
+        if (Math.fround(Number(candidate)) === target)
+            return trimFloat(candidate);
+    }
+    return trimFloat(`${target}`);
+}
+/** Drop the trailing zeros `toPrecision` pads with (`0.30000` → `0.3`), keeping at least one decimal. */
+function trimFloat(s) {
+    if (s.includes('e') || s.includes('E') || !s.includes('.'))
+        return s;
+    const trimmed = s.replace(/0+$/, '');
+    return trimmed.endsWith('.') ? `${trimmed}0` : trimmed;
+}
+
+/**
  * backend/glsl/emit.ts — the GLSL ES 3.00 emitter.
  *
  * A sibling of backend/wgsl/emit.ts. It consumes the SAME backend-neutral node graph +
@@ -17342,6 +18228,36 @@ function glslScalarKind(desc) {
     if (!('len' in desc) || desc.scalar === 'f16')
         return null;
     return desc.scalar;
+}
+/**
+ * The value a numeric scalar conversion of a literal collapses to, or undefined if the node is not
+ * one. `uint(0.0)` means `0u`, which is what an array index should look like; the constructor form
+ * only obscured it. Bool is excluded on both sides — those conversions are value tests, not a
+ * respelling.
+ */
+function foldScalarConversion$1(node) {
+    const isNumericScalar = (desc) => glslVecLen(desc) === 1 && glslScalarKind(desc) !== null && glslScalarKind(desc) !== 'bool';
+    if (node.args.length !== 1 || !isNumericScalar(node.type))
+        return undefined;
+    const arg = node.args[0];
+    if (arg.kind !== NodeKind.Literal || typeof arg.value !== 'number')
+        return undefined;
+    return isNumericScalar(arg.type) ? arg.value : undefined;
+}
+/**
+ * The operand of a one-argument conversion whose target type is ALREADY the argument's type — a
+ * `vec2i(v)` where `v` is a vec2i, which spells out nothing. Mirrors three.js's NodeBuilder.format(),
+ * which returns the operand untouched when the two types match.
+ *
+ * Composites are excluded: a one-field struct or array constructor is a construction, not a respelling.
+ */
+function identityConversionArg$1(node) {
+    if (node.args.length !== 1)
+        return undefined;
+    if (isStructDesc(node.type) || isArrayDesc(node.type) || isSizedArrayDesc(node.type))
+        return undefined;
+    const arg = node.args[0];
+    return arg.type.wgslType === node.type.wgslType ? arg : undefined;
 }
 /** Component count (1 for scalars, 2..4 for vectors) of a scalar/vector descriptor, or null otherwise. */
 function glslVecLen(desc) {
@@ -17458,7 +18374,9 @@ function glslLiteral(wgslType, value) {
     const scalar = (t, v) => {
         switch (t) {
             case 'f32':
-                return Number.isInteger(v) ? `${v}.0` : `${v}`;
+                // Printed at the fewest digits that still round-trip through f32 — the full f64
+                // expansion of something like 1/12 carries eight digits GLSL cannot represent.
+                return Number.isInteger(v) ? `${v}.0` : shortestF32(v);
             case 'i32':
                 return `${Math.trunc(v)}`;
             case 'u32':
@@ -17485,6 +18403,7 @@ function glslLiteral(wgslType, value) {
     return `${desc.glslType}(${components.join(', ')})`;
 }
 function createGlslContext(stage, discovery) {
+    const globalNames = seedGlslGlobalNames(discovery);
     return {
         stage,
         uniforms: discovery.uniforms,
@@ -17494,6 +18413,9 @@ function createGlslContext(stage, discovery) {
         fnDefs: discovery.fnDefs,
         rawFnDefs: discovery.wgslFnDefs,
         structDefs: discovery.structDefs,
+        textureNames: discovery.textureNames,
+        uniformNames: discovery.uniformNames,
+        bindingNames: discovery.bindingNames,
         // Fresh per-context: the emitter registers textures/samplers as it walks each stage.
         textures: new Map(),
         textureSamplers: new Map(),
@@ -17505,13 +18427,37 @@ function createGlslContext(stage, discovery) {
         varyings: new Map(),
         builtins: new Set(),
         nodeVars: new Map(),
-        varCounter: 0,
+        precOf: new Map(),
+        names: new Set(globalNames),
+        globalNames,
         indentLevel: 1,
         code: [],
         hoistBuffer: [],
         hoistedIds: new Set(),
         paramIds: new Set(),
     };
+}
+/**
+ * A name scope holding every identifier the shader's GLOBALS already occupy, so a local allocated
+ * later cannot take one. GLSL puts more names in the flat namespace than WGSL does — combined
+ * samplers and their flip flags, the flip helper — and varyings are bare identifiers rather than
+ * struct members, so those are reserved as they are collected (see {@link generateVarying}).
+ */
+function seedGlslGlobalNames(discovery) {
+    const names = createNameScope();
+    for (const helper of FLIP_HELPER_NAMES)
+        reserveName(names, helper);
+    for (const name of discovery.textureNames.values()) {
+        reserveName(names, `u_${name}`);
+        reserveName(names, `u_flipY_${name}`);
+    }
+    for (const { group } of discovery.uniforms.values())
+        reserveName(names, `uniforms_${group.name}`);
+    for (const node of discovery.privateVars.values())
+        reserveName(names, node.varName);
+    for (const fnName of discovery.fnDefs.keys())
+        reserveName(names, glslFnName(fnName));
+    return names;
 }
 /** Guard: reject node kinds outside this slice with a clear, uniform error. */
 function unsupported(kind) {
@@ -17589,13 +18535,30 @@ function matchStorageRead(ctx, node) {
     }
     return null;
 }
-/** Emit a matched storage read through the same `decodeField` path as `texture(t).load(schema, i)`. */
-function lowerStorageRead(ctx, m) {
-    return generateExpr$1(ctx, decodeField(m.base, m.texelBase, m.width, m.byteOffset, m.type));
+/** Lower a matched storage read to the same `decodeField` graph as `texture(t).load(schema, i)`. */
+function storageReadNode(m) {
+    return decodeField(m.base, m.texelBase, m.width, m.byteOffset, m.type);
 }
 function storageTexelBase(indexNode, texelStride) {
     const idx = u32(indexNode);
     return texelStride === 1 ? idx : idx.mul(u32(texelStride));
+}
+/**
+ * Binding strength of the string {@link generateExpr} returned for `node`, recorded by that function
+ * as it emits. Reading it back — rather than re-deriving it from the node kind — keeps the two in step
+ * by construction. Only meaningful AFTER generateExpr(node) has run.
+ */
+function emittedPrec$1(ctx, node) {
+    // A node bound to a name — a CSE local, a Let/Var, a loop counter, a parameter — emits as a bare
+    // identifier. Several of those are registered outside generateExpr, so this is checked first.
+    if (ctx.nodeVars.has(node.id))
+        return Prec.Postfix;
+    return ctx.precOf.get(node.id) ?? Prec.Lowest;
+}
+/** Generate an operand and wrap it if it binds looser than `min`. */
+function generateOperand$1(ctx, node, min) {
+    const expr = generateExpr$1(ctx, node);
+    return paren(expr, emittedPrec$1(ctx, node), min);
 }
 function generateExpr$1(ctx, rawNode) {
     const node = rawNode;
@@ -17604,9 +18567,16 @@ function generateExpr$1(ctx, rawNode) {
         return ctx.nodeVars.get(node.id);
     }
     let expr;
+    // Binding strength of `expr`, recorded into ctx.precOf at the bottom so callers can decide whether
+    // to parenthesise it. Nearly every branch below emits a name, a call, a constructor or a member
+    // chain, so Postfix is the default; a branch that emits anything looser MUST say so.
+    let prec = Prec.Postfix;
     switch (node.kind) {
         case NodeKind.Literal:
             expr = glslLiteral(node.type.wgslType, node.value);
+            // A negative scalar literal lexes as unary minus applied to a literal.
+            if (typeof node.value === 'number' && node.value < 0)
+                prec = Prec.Unary;
             break;
         case NodeKind.Uniform:
             expr = generateUniform$1(ctx, node);
@@ -17616,6 +18586,9 @@ function generateExpr$1(ctx, rawNode) {
             break;
         case NodeKind.Varying:
             expr = generateVarying$1(ctx, node);
+            // In the vertex stage a varying emits its SOURCE expression rather than a name.
+            if (ctx.stage === 'vertex')
+                prec = emittedPrec$1(ctx, node.node.node);
             break;
         case NodeKind.Builtin:
             expr = generateBuiltin$1(ctx, node);
@@ -17623,6 +18596,8 @@ function generateExpr$1(ctx, rawNode) {
         case NodeKind.BinaryOp: {
             let left = generateExpr$1(ctx, node.left);
             let right = generateExpr$1(ctx, node.right);
+            let leftPrec = emittedPrec$1(ctx, node.left);
+            let rightPrec = emittedPrec$1(ctx, node.right);
             // Operand coercion: GLSL ES 3.00 has no implicit numeric conversions, so a mixed-kind binary
             // op (int with uint, int/uint with float) is a hard compile error unless one side is wrapped
             // in an explicit conversion. Shifts are exempt — GLSL allows a differing-kind shift amount —
@@ -17634,8 +18609,15 @@ function generateExpr$1(ctx, rawNode) {
                 const target = leftKind === 'f32' || rightKind === 'f32'
                     ? 'f32'
                     : (glslScalarKind(node.type) ?? 'i32');
+                const rawLeft = left;
+                const rawRight = right;
                 left = coerceOperandScalar(node.left, left, target);
                 right = coerceOperandScalar(node.right, right, target);
+                // A coerced operand is now a conversion constructor, which never needs parens.
+                if (left !== rawLeft)
+                    leftPrec = Prec.Postfix;
+                if (right !== rawRight)
+                    rightPrec = Prec.Postfix;
             }
             // Componentwise vector comparisons: GLSL ES rejects the relational/equality OPERATORS on
             // vectors and instead provides built-in functions returning a bvec. Detect via the result
@@ -17650,11 +18632,26 @@ function generateExpr$1(ctx, rawNode) {
                 expr = `mod(${left}, ${right})`;
             }
             else {
-                expr = `(${left} ${node.op} ${right})`;
+                prec = binaryPrec(node.op);
+                const [leftMin, rightMin] = binaryOperandMin(prec);
+                expr = `${paren(left, leftPrec, leftMin)} ${node.op} ${paren(right, rightPrec, rightMin)}`;
             }
             break;
         }
         case NodeKind.Construct: {
+            const folded = foldScalarConversion$1(node);
+            if (folded !== undefined) {
+                expr = glslLiteral(node.type.wgslType, folded);
+                if (folded < 0)
+                    prec = Prec.Unary;
+                break;
+            }
+            const identity = identityConversionArg$1(node);
+            if (identity) {
+                expr = generateExpr$1(ctx, identity);
+                prec = emittedPrec$1(ctx, identity);
+                break;
+            }
             const args = node.args.map((a) => generateExpr$1(ctx, a));
             // A struct construct uses the struct's own name (e.g. `Foo(...)`), not a WGSL→GLSL scalar
             // mapping; the struct declaration is emitted ahead of use by emitGlslStructs.
@@ -17674,31 +18671,36 @@ function generateExpr$1(ctx, rawNode) {
             // target it samples). Depth-scope passes read the linear-depth node instead.
             const textureNode = node.read === 'depth' ? node.getLinearDepthNode() : node.getTextureNode();
             expr = generateExpr$1(ctx, textureNode);
+            prec = emittedPrec$1(ctx, textureNode);
             break;
         }
         case NodeKind.Field: {
             const storageRead = matchStorageRead(ctx, node);
             if (storageRead) {
-                expr = lowerStorageRead(ctx, storageRead);
+                const decoded = storageReadNode(storageRead);
+                expr = generateExpr$1(ctx, decoded);
+                prec = emittedPrec$1(ctx, decoded);
                 break;
             }
-            const obj = generateExpr$1(ctx, node.object);
-            expr = `${obj}.${node.fieldName}`;
+            expr = `${generateOperand$1(ctx, node.object, Prec.Postfix)}.${node.fieldName}`;
             break;
         }
         case NodeKind.Index: {
             const storageRead = matchStorageRead(ctx, node);
             if (storageRead) {
-                expr = lowerStorageRead(ctx, storageRead);
+                const decoded = storageReadNode(storageRead);
+                expr = generateExpr$1(ctx, decoded);
+                prec = emittedPrec$1(ctx, decoded);
                 break;
             }
-            const arr = generateExpr$1(ctx, node.array);
+            const arr = generateOperand$1(ctx, node.array, Prec.Postfix);
             const idx = generateExpr$1(ctx, node.index);
             expr = `${arr}[${idx}]`;
             break;
         }
         case NodeKind.Call:
             expr = generateCall$1(ctx, node);
+            prec = callPrec$1(ctx, node);
             break;
         case NodeKind.TextureBinding:
             // A bare texture handle used as an expression resolves to its combined-sampler name.
@@ -17738,9 +18740,9 @@ function generateExpr$1(ctx, rawNode) {
                     unsupported(`componentwise select producing '${node.type.wgslType}'`);
                 }
                 const ind = '    '.repeat(ctx.indentLevel);
-                const cv = `_sc${ctx.varCounter++}`;
-                const tv = `_st${ctx.varCounter++}`;
-                const fv = `_sf${ctx.varCounter++}`;
+                const cv = allocName(ctx.names, '_selCond');
+                const tv = allocName(ctx.names, '_selTrue');
+                const fv = allocName(ctx.names, '_selFalse');
                 const ifFalse = node.ifFalse;
                 if (!ifFalse)
                     unsupported(`componentwise select of '${node.type.wgslType}' without an ifFalse value`);
@@ -17752,13 +18754,16 @@ function generateExpr$1(ctx, rawNode) {
                 break;
             }
             const cond = generateExpr$1(ctx, node.condition);
+            const condPrec = emittedPrec$1(ctx, node.condition);
             const t = generateExpr$1(ctx, node.ifTrue);
             // A missing ifFalse only has a well-defined zero for scalar/vec/mat numeric types; struct and
             // array results have no `T(0)` form, so reject rather than emit un-compilable GLSL. (In
             // practice select() always carries an ifFalse — this guards the degenerate graph.)
             let f;
+            let fPrec = Prec.Postfix;
             if (node.ifFalse) {
                 f = generateExpr$1(ctx, node.ifFalse);
+                fPrec = emittedPrec$1(ctx, node.ifFalse);
             }
             else if (isStructDesc(node.type) || isSizedArrayDesc(node.type)) {
                 unsupported(`select without an ifFalse value producing '${node.type.wgslType}' (no zero literal for struct/array)`);
@@ -17766,20 +18771,23 @@ function generateExpr$1(ctx, rawNode) {
             else {
                 f = `${glslType(node.type)}(0)`;
             }
-            expr = condIsVec ? `mix(${f}, ${t}, ${cond})` : `(${cond} ? ${t} : ${f})`;
+            if (condIsVec) {
+                expr = `mix(${f}, ${t}, ${cond})`;
+            }
+            else {
+                // `?:` binds looser than every operator, so it is wrapped almost everywhere it lands.
+                // Its own condition must bind at least as tightly as `||`, so a nested ternary there is
+                // parenthesised; the else-branch may be a bare ternary, which chains right as written.
+                prec = Prec.Ternary;
+                expr = `${paren(cond, condPrec, Prec.LogicalOr)} ? ${t} : ${paren(f, fPrec, Prec.Ternary)}`;
+            }
             break;
         }
         case NodeKind.Let:
         case NodeKind.Var: {
             // A Let/Var node used as an expression resolves to its variable name; if it hasn't been
             // emitted as a statement yet, emit its declaration now (lazy, like the WGSL emitter).
-            if (!ctx.nodeVars.has(node.id)) {
-                const ind = '    '.repeat(ctx.indentLevel);
-                const init = generateExpr$1(ctx, node.init);
-                ctx.code.push(`${ind}${glslLocalDecl(node.type, node.varName)} = ${init};`);
-                ctx.nodeVars.set(node.id, node.varName);
-            }
-            expr = node.varName;
+            expr = ctx.nodeVars.get(node.id) ?? declareLocal$1(ctx, node);
             break;
         }
         case NodeKind.PrivateVar:
@@ -17803,21 +18811,26 @@ function generateExpr$1(ctx, rawNode) {
                 glslStr = glslStr.replace(new RegExp(`\\$${i}`, 'g'), depExpr);
             }
             expr = glslStr;
+            // Hand-written source of unknown shape: wrap it wherever it lands, so a template holding
+            // `a + b` cannot silently re-associate against the operator it is spliced into.
+            prec = Prec.Lowest;
             break;
         }
         case NodeKind.Inspector:
             // Inspector is transparent — emit the wrapped node.
             expr = generateExpr$1(ctx, node.wrappedNode);
+            prec = emittedPrec$1(ctx, node.wrappedNode);
             break;
         // Everything else is explicitly out-of-scope: fail loudly with a clear message rather than
         // emit wrong GLSL.
         default:
             unsupported(`node kind '${node.constructor.name}'`);
     }
+    ctx.precOf.set(node.id, prec);
     // CSE: hoist multi-use, non-trivial expressions into a local.
     const usage = ctx.usageCount.get(node.id) ?? 1;
-    if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr$1(node)) {
-        const varName = `_v${ctx.varCounter++}`;
+    if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr$1(ctx, node)) {
+        const varName = allocName(ctx.names, cseBaseName(node));
         const decl = glslLocalDecl(node.type, varName);
         // A CSE local first materialized inside a nested block (indentLevel > 1) but read again outside
         // it would be out of GLSL block scope. When the value depends ONLY on always-in-scope inputs
@@ -17898,8 +18911,11 @@ function glslLocalDecl(desc, varName) {
     return `${glslType(desc)} ${varName}`;
 }
 /** Trivial expressions (cheap to repeat / global names) are not worth hoisting. */
-function isTrivialExpr$1(node) {
+function isTrivialExpr$1(ctx, node) {
     return (node.kind === NodeKind.Literal ||
+        // A varying READ is a bare `in` variable, as cheap to repeat as an attribute. In the VERTEX
+        // stage it is the varying's whole source expression instead, which is not.
+        (node.kind === NodeKind.Varying && ctx.stage !== 'vertex') ||
         node.kind === NodeKind.Builtin ||
         node.kind === NodeKind.Field ||
         node.kind === NodeKind.Uniform ||
@@ -17915,7 +18931,21 @@ function isTrivialExpr$1(node) {
 function generateUniform$1(ctx, node) {
     ctx.uniforms.set(node.name, { node, group: node.group });
     // std140 UBO instance name mirrors the WGSL `uniforms_<group>` binding instance.
-    return `uniforms_${node.group.name}.${node.name}`;
+    return `uniforms_${node.group.name}.${uniformMemberName$1(ctx, node)}`;
+}
+/**
+ * The block-member spelling for a uniform, allocated on first sight. `node.name` is identity — for a
+ * value-based uniform that is a node-id placeholder, which must never reach the source: node ids come
+ * from a process-wide counter, so emitting one makes the shader text differ between two compiles of
+ * the same graph (and the WebGL program cache keys on that text).
+ */
+function uniformMemberName$1(ctx, node) {
+    const existing = ctx.uniformNames.get(node.name);
+    if (existing !== undefined)
+        return existing;
+    const name = allocName(ctx.bindingNames, node.uniform.label || `uniform${ctx.uniformNames.size}`);
+    ctx.uniformNames.set(node.name, name);
+    return name;
 }
 /**
  * The number of DISTINCT attributes registered (distinct `location`s). Because named attributes are
@@ -18164,6 +19194,18 @@ const GLSL_RESERVED_NAMES = new Set([
  * Map a user `Fn` name to a GLSL-safe identifier: reserved / builtin names are prefixed `fn_`, all
  * others pass through unchanged. Must be applied consistently at the definition and every call site.
  */
+/**
+ * A texel coordinate as GLSL's `ivec2`. WGSL's textureLoad accepts signed OR unsigned coords, so the
+ * conversion has to be available — but `vec2i` is the common case and converting it to the type it
+ * already has is pure noise, so the wrap is emitted only when the node is something else.
+ */
+function texelCoord(ctx, node) {
+    const expr = generateExpr$1(ctx, node);
+    const glsl = 'glslType' in node.type ? node.type.glslType : null;
+    return glsl === 'ivec2' ? expr : `ivec2(${expr})`;
+}
+/** The Y-flip helper functions the texture wrappers may emit (see emitGlslTextures). */
+const FLIP_HELPER_NAMES = ['_flipY2f', '_flipY2i', '_flipYd'];
 function glslFnName(name) {
     return GLSL_RESERVED_NAMES.has(name) ? `fn_${name}` : name;
 }
@@ -18191,12 +19233,10 @@ function generateAttribute$1(ctx, node) {
     // one 32-byte-stride buffer): they must get distinct locations, matching vertexBufferGroups. Aliasing
     // them by name alone collapses both to offset 0, so the second's data (which the VAO binds to its own
     // location) is silently dropped by the shader. Unnamed/buffer attributes stay deduped by id.
-    let sameNameSeen = false;
     if (node.isNamedReference && node.name) {
         for (const entry of ctx.attributes.values()) {
             if (!entry.node.isNamedReference || entry.node.name !== node.name)
                 continue;
-            sameNameSeen = true;
             if (entry.node.offset === node.offset && entry.node.stride === node.stride) {
                 ctx.attributes.set(node.id, entry);
                 return entry.shaderName;
@@ -18206,19 +19246,18 @@ function generateAttribute$1(ctx, node) {
     // Next location counts DISTINCT attributes (distinct locations), not aliased map entries — aliasing
     // multiple node ids to one entry would make `ctx.attributes.size` overcount.
     const location = distinctAttributeCount(ctx);
-    // Prefix with `a_` so attribute names never collide with GLSL keywords or varyings. When a same-named
-    // but distinct-offset attribute already exists, suffix with the location to keep the `in` decls unique
-    // (the VAO binds by layout(location), so this identifier is cosmetic).
-    const shaderName = node.isNamedReference && node.name
-        ? sameNameSeen
-            ? `a_${node.name}_${location}`
-            : `a_${node.name}`
-        : `a_buf_${location}`;
+    // Prefix with `a_` so attribute names read as vertex inputs, and allocate through the scope so a
+    // same-named attribute at a distinct offset — or a local that got there first — cannot shadow this
+    // `in` decl. The VAO binds by layout(location), so the identifier itself is cosmetic.
+    const shaderName = allocName(ctx.names, node.isNamedReference && node.name ? `a_${node.name}` : 'a_buf');
     ctx.attributes.set(node.id, { shaderName, type: node.type, location, node });
     return shaderName;
 }
 function generateVarying$1(ctx, node) {
     const name = node.name ?? `v_${node.id}`;
+    // A GLSL varying is a bare identifier, and both stages must spell it the same way for the program
+    // to link — so it keeps the name it was given and locals allocate around it.
+    reserveName(ctx.names, name);
     if (ctx.stage === 'vertex') {
         // In the vertex stage a varying evaluates to its source expression (assigned to `out` in main).
         const sourceNode = node.node.node;
@@ -18293,6 +19332,31 @@ const TEXTURE_FNS = new Set([
     'textureGatherCompare',
     'textureStore',
 ]);
+/**
+ * Binding strength of what {@link generateCall} emits. Every call is a `f(…)` postfix form except the
+ * lowerings that spell out an operator instead — keep this in step with them.
+ */
+function callPrec$1(ctx, node) {
+    if (node.fn === node.type.wgslType && 'glslType' in node.type) {
+        const folded = foldScalarConversion$1(node);
+        if (folded !== undefined)
+            return folded < 0 ? Prec.Unary : Prec.Postfix;
+        const identity = identityConversionArg$1(node);
+        if (identity)
+            return emittedPrec$1(ctx, identity);
+    }
+    if (node.args.length === 1) {
+        if (node.fn === 'negate' || node.fn === 'not')
+            return Prec.Unary;
+        // `x * 0.5 + 0.5`
+        if (node.fn === 'ndcDepthToStorage')
+            return Prec.Additive;
+        // `vec4(uvec4(…))/255.0`
+        if (node.fn === 'unpack4x8unorm')
+            return Prec.Multiplicative;
+    }
+    return Prec.Postfix;
+}
 function generateCall$1(ctx, node) {
     // Raw escape-hatch functions (wgslFn / glslFn): emit the GLSL companion (defined by
     // emitGlslRawFunctions) and call it by name. Reject if there is no GLSL variant.
@@ -18319,12 +19383,13 @@ function generateCall$1(ctx, node) {
     }
     const args = node.args.map((a) => generateExpr$1(ctx, a));
     if (node.fn === 'negate' && args.length === 1)
-        return `(-${args[0]})`;
+        return unary('-', args[0], emittedPrec$1(ctx, node.args[0]));
     if (node.fn === 'not' && args.length === 1)
-        return `(!${args[0]})`;
+        return unary('!', args[0], emittedPrec$1(ctx, node.args[0]));
     // NDC depth → stored [0,1]. WebGL NDC z is [-1,1] (NO projection), so remap; WGSL passes through.
-    if (node.fn === 'ndcDepthToStorage' && args.length === 1)
-        return `((${args[0]}) * 0.5 + 0.5)`;
+    if (node.fn === 'ndcDepthToStorage' && args.length === 1) {
+        return `${paren(args[0], emittedPrec$1(ctx, node.args[0]), Prec.Multiplicative)} * 0.5 + 0.5`;
+    }
     if (UNSUPPORTED_DERIVATIVES.has(node.fn)) {
         throw new Error(`[glsl] ${node.fn} (coarse/fine derivative) is not supported on the WebGL2 backend; use dpdx/dpdy/fwidth`);
     }
@@ -18351,12 +19416,14 @@ function generateCall$1(ctx, node) {
         return `unpackUnorm2x16(${args[0]})`;
     if (node.fn === 'unpack2x16snorm')
         return `unpackSnorm2x16(${args[0]})`;
+    // The 4×8 emulations splice their operand into shift/mask expressions, so it has to be tight
+    // enough to bind ahead of `&` and `>>`; anything below a postfix form gets wrapped.
     if (node.fn === 'unpack4x8unorm') {
-        const p = args[0];
-        return `(vec4(uvec4(${p}&0xFFu,(${p}>>8u)&0xFFu,(${p}>>16u)&0xFFu,(${p}>>24u)&0xFFu))/255.0)`;
+        const p = paren(args[0], emittedPrec$1(ctx, node.args[0]), Prec.Postfix);
+        return `vec4(uvec4(${p}&0xFFu,(${p}>>8u)&0xFFu,(${p}>>16u)&0xFFu,(${p}>>24u)&0xFFu))/255.0`;
     }
     if (node.fn === 'unpack4x8snorm') {
-        const p = args[0];
+        const p = paren(args[0], emittedPrec$1(ctx, node.args[0]), Prec.Postfix);
         return `max(vec4(ivec4(int(${p}<<24u)>>24,int(${p}<<16u)>>24,int(${p}<<8u)>>24,int(${p})>>24))/127.0,vec4(-1.0))`;
     }
     // Integer bit-count/scan builtins are GLSL ES 3.10+ / desktop-4.0 only — WebGL2 is ES 3.00, which
@@ -18371,6 +19438,13 @@ function generateCall$1(ctx, node) {
     // produces that type; emit the GLSL type name from the descriptor's `glslType` companion. Types with
     // no GLSL form (e.g. f16 vectors) lack `glslType` and fall through to the rename table / verbatim.
     if (node.fn === node.type.wgslType && 'glslType' in node.type) {
+        const folded = foldScalarConversion$1(node);
+        if (folded !== undefined)
+            return glslLiteral(node.type.wgslType, folded);
+        // A conversion to the type the operand already has spells out nothing.
+        const identity = identityConversionArg$1(node);
+        if (identity)
+            return generateExpr$1(ctx, identity);
         return `${node.type.glslType}(${args.join(', ')})`;
     }
     const fn = CALL_RENAMES[node.fn] ?? node.fn;
@@ -18496,9 +19570,8 @@ function generateTextureCall(ctx, node) {
         }
         case 'textureLoad': {
             // (t, coords, level) → texelFetch(name, ivec2(coords), level).
-            const coords = generateExpr$1(ctx, rawArgs[1]);
             const level = rawArgs[2] ? generateExpr$1(ctx, rawArgs[2]) : '0';
-            const coordExpr = f.texel(`ivec2(${coords})`, `textureSize(${name}, ${level}).y`);
+            const coordExpr = f.texel(texelCoord(ctx, rawArgs[1]), `textureSize(${name}, ${level}).y`);
             return `texelFetch(${name}, ${coordExpr}, ${level})`;
         }
         case 'textureDimensions': {
@@ -18531,6 +19604,20 @@ function generateTextureCall(ctx, node) {
  * runtime settings, folded into the texture's metadata. See {@link emitGlslTextures}.
  */
 /** Combined-sampler uniform name for a texture binding. */
+/**
+ * The shader spelling for a texture binding, allocating one if this is the first time it has been
+ * seen. Discovery names everything it can reach, but a texture sampled only inside an Fn body first
+ * appears when that body is traced during emission — so the name is allocated here, from the same
+ * scope, and recorded for the declaration pass that follows.
+ */
+function textureShaderName$1(ctx, binding) {
+    const existing = ctx.textureNames.get(binding.textureId);
+    if (existing !== undefined)
+        return existing;
+    const name = allocName(ctx.bindingNames, binding.value?.label || `t${ctx.textureNames.size}`);
+    ctx.textureNames.set(binding.textureId, name);
+    return name;
+}
 function samplerUniformName$1(textureId) {
     // Collapse runs of underscores: texture ids that begin with '_' (e.g. a pass output like
     // '_pass0_output') would otherwise yield `u__…`, and GLSL ES reserves any '__' sequence.
@@ -18561,7 +19648,7 @@ function textureNeedsFlip(binding) {
  */
 function textureFlip(ctx, binding) {
     const flip = textureNeedsFlip(binding) && !isStorageMirrorTexture(ctx, binding.textureId);
-    const name = flipUniformName$1(binding.textureId);
+    const name = flipUniformName$1(textureShaderName$1(ctx, binding));
     const wrap = (fn, ...args) => {
         ctx.flipYTextures.add(binding.textureId);
         ctx.flipHelperFns.add(fn); // only emit the helper functions actually referenced
@@ -18628,7 +19715,7 @@ function registerTexture(ctx, binding, samplerNode) {
     if (samplerNode && !ctx.textureSamplers.has(id)) {
         ctx.textureSamplers.set(id, samplerNode);
     }
-    return samplerUniformName$1(id);
+    return samplerUniformName$1(textureShaderName$1(ctx, binding));
 }
 /** Bare texture handle used as an expression → its combined-sampler uniform name. */
 function generateTextureBinding$1(ctx, node) {
@@ -18655,10 +19742,8 @@ function generateTexture$1(ctx, node) {
         if (!node.loadCoords)
             throw new Error(`[glsl] TextureNode '${id}' in load mode has no loadCoords`);
         const name = registerTexture(ctx, binding, null);
-        const coords = generateExpr$1(ctx, node.loadCoords);
         const level = node.loadLevel ? generateExpr$1(ctx, node.loadLevel) : '0';
-        // WGSL loadCoords are already integer (vec2i); wrap defensively for GLSL's ivec2 texelFetch.
-        const coordExpr = f.texel(`ivec2(${coords})`, `textureSize(${name}, ${level}).y`);
+        const coordExpr = f.texel(texelCoord(ctx, node.loadCoords), `textureSize(${name}, ${level}).y`);
         return `texelFetch(${name}, ${coordExpr}, ${level})`;
     }
     const name = registerTexture(ctx, binding, ensureSampler(node));
@@ -18698,7 +19783,7 @@ function generateCubeTexture$1(ctx, node) {
     if (!node.directionNode)
         throw new Error(`[glsl] CubeTextureNode '${id}' has no directionNode. Use cube.sample(dir).`);
     // Mirror the WGSL emitter: negate the sample direction's X to un-do the CubeCamera's face swap.
-    const dir = `((${generateExpr$1(ctx, node.directionNode)}) * vec3(-1.0, 1.0, 1.0))`;
+    const dir = `${generateOperand$1(ctx, node.directionNode, Prec.Multiplicative)} * vec3(-1.0, 1.0, 1.0)`;
     switch (node.samplingMode) {
         case 'grad': {
             if (!node.gradNode)
@@ -18736,9 +19821,8 @@ function generateDepthTexture$1(ctx, node) {
         if (!node.loadCoords)
             throw new Error(`[glsl] DepthTextureNode '${id}' in load mode has no loadCoords`);
         const name = registerTexture(ctx, binding, null);
-        const coords = generateExpr$1(ctx, node.loadCoords);
         const level = node.loadLevel ? generateExpr$1(ctx, node.loadLevel) : '0';
-        const coordExpr = f.texel(`ivec2(${coords})`, `textureSize(${name}, ${level}).y`);
+        const coordExpr = f.texel(texelCoord(ctx, node.loadCoords), `textureSize(${name}, ${level}).y`);
         return `texelFetch(${name}, ${coordExpr}, ${level}).x`;
     }
     const name = registerTexture(ctx, binding, node.samplerNode);
@@ -18861,7 +19945,7 @@ function emitGlslUniformBlocks(ctx) {
             // glslLocalDecl (not glslType) so struct and fixed-size-array members declare correctly: a
             // struct member uses its name, and an array member uses GLSL's `<elem> <name>[N]` syntax
             // (sized-array descriptors have no scalar `glslType`, so glslType() would throw on them).
-            lines.push(`    ${glslLocalDecl(u.type, u.name)};`);
+            lines.push(`    ${glslLocalDecl(u.type, uniformMemberName$1(ctx, u))};`);
             members.push({ uniformId: u.name, schema: u.type, offset, size, node: u });
             offset += size;
             structAlign = Math.max(structAlign, align);
@@ -18927,7 +20011,8 @@ function emitGlslTextures(ctx) {
     sortedGroups.forEach((entry, groupIndex) => {
         for (const binding of entry.textures) {
             const id = binding.textureId;
-            const name = samplerUniformName$1(id);
+            const shaderName = textureShaderName$1(ctx, binding);
+            const name = samplerUniformName$1(shaderName);
             // A depth texture's GLSL sampler shape depends on whether a COMPARISON sampler is bound to
             // it (shadow sampler) or a regular one (plain sampler2D read).
             const isComparison = Boolean(ctx.textureSamplers.get(id)?.compare);
@@ -18939,9 +20024,10 @@ function emitGlslTextures(ctx) {
             // (see the flipNorm/flipTexel wrap in generateTextureCall). Declared only for textures whose
             // 2D samples are wrapped, so ordinary textures pay nothing.
             if (ctx.flipYTextures.has(id))
-                lines.push(`uniform bool ${flipUniformName$1(id)};`);
+                lines.push(`uniform bool ${flipUniformName$1(shaderName)};`);
             textures.push({
                 textureId: id,
+                shaderName,
                 // The declared combined-sampler type — the GLSL analogue of WGSL's texture var type.
                 type: samplerType,
                 group: groupIndex,
@@ -18992,24 +20078,28 @@ function emitGlslTextures(ctx) {
  * control-flow / variable-declaration statements to GLSL ES 3.00. Statement nodes append lines to
  * ctx.code at the current ctx.indentLevel; nested blocks bump the level and restore it.
  */
+/**
+ * Emit the declaration for a Let/Var and bind its node to the allocated name. The author's label is
+ * only a preference — the scope decides the final identifier.
+ *
+ * GLSL ES 3.00 has `const`, but a Let init here is a runtime expression (not a const-expression),
+ * which `const` forbids, so both forms emit a plain typed local — Let is immutable by convention.
+ */
+function declareLocal$1(ctx, node) {
+    const init = generateExpr$1(ctx, node.init);
+    const name = allocName(ctx.names, node.label ?? 'v');
+    ctx.code.push(`${'    '.repeat(ctx.indentLevel)}${glslLocalDecl(node.type, name)} = ${init};`);
+    ctx.nodeVars.set(node.id, name);
+    return name;
+}
 function generateStmt$1(ctx, rawNode) {
     const node = rawNode;
     const ind = '    '.repeat(ctx.indentLevel);
     switch (node.kind) {
-        case NodeKind.Let: {
-            const init = generateExpr$1(ctx, node.init);
-            // GLSL ES 3.00 has `const`, but a Let init here is a runtime expression (not a const-
-            // expression), which `const` forbids. Emit a plain typed local — immutable by convention.
-            ctx.code.push(`${ind}${glslLocalDecl(node.type, node.varName)} = ${init};`);
-            ctx.nodeVars.set(node.id, node.varName);
+        case NodeKind.Let:
+        case NodeKind.Var:
+            declareLocal$1(ctx, node);
             break;
-        }
-        case NodeKind.Var: {
-            const init = generateExpr$1(ctx, node.init);
-            ctx.code.push(`${ind}${glslLocalDecl(node.type, node.varName)} = ${init};`);
-            ctx.nodeVars.set(node.id, node.varName);
-            break;
-        }
         case NodeKind.Assign: {
             const target = generateExpr$1(ctx, node.target);
             const value = generateExpr$1(ctx, node.value);
@@ -19092,16 +20182,16 @@ function generateIfStmt$1(ctx, node) {
  */
 function generateLoopStmt$1(ctx, node) {
     const { config, loopVar, body } = node;
-    // Unique loop-variable name per nesting depth (mirrors the WGSL emitter's naming).
+    // Conventional counter name for the nesting depth; the scope resolves any collision.
     const depth = ctx.indentLevel - 1;
-    const varName = `i_${depth}_${ctx.varCounter++}`;
+    const varName = allocName(ctx.names, loopVarName(depth));
     ctx.nodeVars.set(loopVar.id, varName);
     let loopHeader;
     if (typeof config === 'number') {
         loopHeader = `for (int ${varName} = 0; ${varName} < ${config}; ${varName}++)`;
     }
     else if (isNode(config) && (config.kind === NodeKind.Literal || config.kind === NodeKind.Uniform)) {
-        const endExpr = generateExpr$1(ctx, config);
+        const endExpr = generateOperand$1(ctx, config, Prec.Relational + 1);
         loopHeader = `for (int ${varName} = 0; ${varName} < ${endExpr}; ${varName}++)`;
     }
     else if (isNode(config)) {
@@ -19118,7 +20208,8 @@ function generateLoopStmt$1(ctx, node) {
                 return undefined;
             if (typeof v === 'number')
                 return glslLiteral(typeDesc.wgslType, v);
-            return generateExpr$1(ctx, v);
+            // Both land beside the loop variable in a comparison or an initialiser.
+            return generateOperand$1(ctx, v, Prec.Relational + 1);
         };
         const startExpr = getExpr(cfg.start) ?? '0';
         const endExpr = getExpr(cfg.end) ?? '0';
@@ -19220,26 +20311,6 @@ function emitGlslRawFunctions(ctx, allow) {
  * (which allows out-of-order module functions). Discovery registers callers before callees, so without
  * this reorder a `step` that calls `wrap` would emit `step` first and fail ("no matching function").
  */
-function tracedFnCallees(traced) {
-    const callees = [];
-    const seen = new Set();
-    const walk = (rawNode) => {
-        const node = rawNode;
-        if (seen.has(node.id))
-            return;
-        seen.add(node.id);
-        if (node.kind === NodeKind.Call) {
-            const fnNode = node.fnNode;
-            if (fnNode)
-                callees.push(fnNode.fnName);
-        }
-        for (const child of getChildren(node))
-            walk(child);
-    };
-    walk(traced.body);
-    walk(traced.output);
-    return callees;
-}
 /**
  * The DSL Fn names and raw (wgslFn/glslFn) functions reachable from a stage's root nodes, transitively
  * through called Fn bodies. Functions are emitted PER STAGE from this set (see the builder assembly) so
@@ -19307,7 +20378,7 @@ function emitGlslDslFunctions(ctx, allow) {
         const entry = ctx.fnDefs.get(name);
         if (entry) {
             for (const callee of tracedFnCallees(entry.traced))
-                visit(callee);
+                visit(callee.fnName);
         }
         visiting.delete(name);
         done.add(name);
@@ -19337,7 +20408,8 @@ function emitGlslDslFunctions(ctx, allow) {
             varyings: new Map(),
             builtins: ctx.builtins,
             nodeVars: new Map(),
-            varCounter: 0,
+            precOf: new Map(),
+            names: new Set(ctx.globalNames),
             indentLevel: 1,
             code: [],
             hoistBuffer: [],
@@ -19346,7 +20418,9 @@ function emitGlslDslFunctions(ctx, allow) {
         };
         // Register param names so parameter references resolve to them (and mark them top-hoist-safe).
         for (const p of traced.params) {
-            fnCtx.nodeVars.set(p.id, p.paramName ?? `p${p.paramIndex}`);
+            const paramName = p.paramName ?? `p${p.paramIndex}`;
+            fnCtx.nodeVars.set(p.id, paramName);
+            reserveName(fnCtx.names, paramName);
             fnCtx.paramIds.add(p.id);
         }
         for (const stmt of traced.body.body)
@@ -19693,7 +20767,9 @@ function constLiteral(type, value) {
     if (typeof value === 'number') {
         switch (type) {
             case 'f32':
-                return Number.isInteger(value) ? `${value}.0` : `${value}`;
+                // Fractions print at the fewest digits that still round-trip through f32: the full f64
+                // expansion of something like 1/12 carries eight digits the target cannot represent.
+                return Number.isInteger(value) ? `${value}.0` : shortestF32(value);
             case 'f16':
                 return Number.isInteger(value) ? `${value}.0h` : `${value}h`;
             case 'i32':
@@ -19708,7 +20784,7 @@ function constLiteral(type, value) {
     }
     const components = value.map((v) => {
         if (type.startsWith('vec') && type.endsWith('f'))
-            return Number.isInteger(v) ? `${v}.0` : `${v}`;
+            return Number.isInteger(v) ? `${v}.0` : shortestF32(v);
         if (type.startsWith('vec') && type.endsWith('h'))
             return Number.isInteger(v) ? `${v}.0h` : `${v}h`;
         if (type.startsWith('vec') && type.endsWith('i'))
@@ -19720,7 +20796,7 @@ function constLiteral(type, value) {
         if (type.startsWith('mat') && type.endsWith('h'))
             return Number.isInteger(v) ? `${v}.0h` : `${v}h`;
         if (type.startsWith('mat'))
-            return Number.isInteger(v) ? `${v}.0` : `${v}`;
+            return Number.isInteger(v) ? `${v}.0` : shortestF32(v);
         return `${v}`;
     });
     if (components.length === 0)
@@ -19749,6 +20825,10 @@ function emptyDiscovery() {
         wgslFnDefs: new Map(),
         structDefs: new Map(),
         storageNames: new Map(),
+        textureNames: new Map(),
+        samplerNames: new Map(),
+        uniformNames: new Map(),
+        bindingNames: createNameScope(),
         textures: new Map(),
         storageTextures: new Map(),
         samplers: new Map(),
@@ -19777,6 +20857,10 @@ function createContext$1(stage, isRender, discovery) {
         uniforms: discovery.uniforms,
         storages: discovery.storages,
         storageNames: discovery.storageNames,
+        textureNames: discovery.textureNames,
+        samplerNames: discovery.samplerNames,
+        uniformNames: discovery.uniformNames,
+        bindingNames: discovery.bindingNames,
         textures: discovery.textures,
         storageTextures: discovery.storageTextures,
         samplers: discovery.samplers,
@@ -19789,12 +20873,12 @@ function createContext$1(stage, isRender, discovery) {
         wgslFnDefs: discovery.wgslFnDefs,
         // Per-stage emission scratch — fresh each call.
         attributes: new Map(),
-        attrCounter: 0,
         varyings: new Map(),
         builtins: new Set(),
         structs: new Map(),
         nodeVars: new Map(),
-        varCounter: 0,
+        precOf: new Map(),
+        names: seedGlobalNames(discovery),
         hoistIndex: -1,
         topScopeParamIds: new Set(),
         hoistStableMemo: new Map(),
@@ -19804,6 +20888,29 @@ function createContext$1(stage, isRender, discovery) {
         graphEdges: new Map(),
         graphInfo: new Map(),
     };
+}
+/**
+ * A name scope holding every identifier the shader's GLOBALS already occupy, so a local allocated
+ * later cannot take one. Bindings, module-scope variables and function names are all known from the
+ * discovery pass, before a single statement is emitted; varyings are reserved as they are collected.
+ */
+function seedGlobalNames(discovery) {
+    const names = createNameScope();
+    for (const name of discovery.storageNames.values())
+        reserveName(names, name);
+    for (const name of discovery.textureNames.values())
+        reserveName(names, name);
+    for (const name of discovery.samplerNames.values())
+        reserveName(names, name);
+    for (const { group } of discovery.uniforms.values())
+        reserveName(names, `uniforms_${group.name}`);
+    for (const node of discovery.privateVars.values())
+        reserveName(names, node.varName);
+    for (const node of discovery.workgroupVars.values())
+        reserveName(names, node.varName);
+    for (const fnName of discovery.fnDefs.keys())
+        reserveName(names, fnName);
+    return names;
 }
 /** Pre-collect VaryingNodes from roots and generate their vertex expressions. */
 function collectVaryings(roots, ctx) {
@@ -19876,6 +20983,26 @@ function isHoistStable(node, paramIds, memo) {
     memo.set(node.id, result);
     return result;
 }
+/**
+ * Binding strength of the string {@link generateExpr} returned for `node`, recorded by that function
+ * as it emits. Reading it back — rather than re-deriving it from the node kind — keeps the two in step
+ * by construction: a branch cannot change shape without changing what it records.
+ *
+ * Only meaningful AFTER generateExpr(node) has run; before that (and for a node whose branch never
+ * recorded one) it answers `Prec.Lowest`, which parenthesises unconditionally.
+ */
+function emittedPrec(ctx, node) {
+    // A node bound to a name — a CSE temp, a Let/Var, a loop counter, a parameter — emits as a bare
+    // identifier. Several of those are registered outside generateExpr, so this is checked first.
+    if (ctx.nodeVars.has(node.id))
+        return Prec.Postfix;
+    return ctx.precOf.get(node.id) ?? Prec.Lowest;
+}
+/** Generate an operand and wrap it if it binds looser than `min`. */
+function generateOperand(ctx, node, min) {
+    const expr = generateExpr(ctx, node);
+    return paren(expr, emittedPrec(ctx, node), min);
+}
 /* expression generation */
 function generateExpr(ctx, rawNode) {
     const node = rawNode;
@@ -19886,8 +21013,15 @@ function generateExpr(ctx, rawNode) {
         return ctx.nodeVars.get(node.id);
     }
     let expr;
+    // Binding strength of `expr`, recorded into ctx.precOf at the bottom so callers can decide whether
+    // to parenthesise it. Nearly every branch below emits a name, a call, a constructor or a member
+    // chain, so Postfix is the default; a branch that emits anything looser MUST say so.
+    let prec = Prec.Postfix;
     if (node.kind === NodeKind.Literal) {
         expr = constLiteral(node.type.wgslType, node.value);
+        // A negative scalar literal lexes as unary minus applied to a literal.
+        if (typeof node.value === 'number' && node.value < 0)
+            prec = Prec.Unary;
     }
     else if (node.kind === NodeKind.Uniform) {
         expr = generateUniform(ctx, node);
@@ -19902,6 +21036,7 @@ function generateExpr(ctx, rawNode) {
         // RenderTextureNode used as expression delegates to its texture node
         const textureNode = node.read === 'depth' ? node.getLinearDepthNode() : node.getTextureNode();
         expr = generateExpr(ctx, textureNode);
+        prec = emittedPrec(ctx, textureNode);
     }
     else if (node.kind === NodeKind.TextureBinding) {
         expr = generateTextureBinding(ctx, node);
@@ -19926,28 +21061,55 @@ function generateExpr(ctx, rawNode) {
     }
     else if (node.kind === NodeKind.Varying) {
         expr = generateVarying(ctx, node);
+        // In the vertex stage a varying emits its SOURCE expression rather than a name.
+        if (ctx.stage === 'vertex')
+            prec = emittedPrec(ctx, node.node.node);
     }
     else if (node.kind === NodeKind.BinaryOp) {
-        const [left, right] = coerceBinaryOperands(node, generateExpr(ctx, node.left), generateExpr(ctx, node.right));
-        expr = `(${left} ${node.op} ${right})`;
+        const rawLeft = generateExpr(ctx, node.left);
+        const rawRight = generateExpr(ctx, node.right);
+        let leftPrec = emittedPrec(ctx, node.left);
+        let rightPrec = emittedPrec(ctx, node.right);
+        const [left, right] = coerceBinaryOperands(node, rawLeft, rawRight);
+        // A coerced operand has been wrapped in a conversion constructor, so it no longer needs parens.
+        if (left !== rawLeft)
+            leftPrec = Prec.Postfix;
+        if (right !== rawRight)
+            rightPrec = Prec.Postfix;
+        prec = binaryPrec(node.op);
+        const [leftMin, rightMin] = binaryOperandMin(prec);
+        expr = `${paren(left, leftPrec, leftMin)} ${node.op} ${paren(right, rightPrec, rightMin)}`;
     }
     else if (node.kind === NodeKind.Call) {
         expr = generateCall(ctx, node);
+        prec = callPrec(ctx, node);
     }
     else if (node.kind === NodeKind.Array) {
         const args = node.elements.map((e) => generateExpr(ctx, e));
         expr = `array<${node.type.element.wgslType}, ${node.elements.length}>(${args.join(', ')})`;
     }
     else if (node.kind === NodeKind.Construct) {
-        const args = node.args.map((a) => generateExpr(ctx, a));
-        expr = `${node.type.wgslType}(${args.join(', ')})`;
+        const folded = foldScalarConversion(node);
+        const identity = identityConversionArg(node);
+        if (folded !== undefined) {
+            expr = constLiteral(node.type.wgslType, folded);
+            if (folded < 0)
+                prec = Prec.Unary;
+        }
+        else if (identity) {
+            expr = generateExpr(ctx, identity);
+            prec = emittedPrec(ctx, identity);
+        }
+        else {
+            const args = node.args.map((a) => generateExpr(ctx, a));
+            expr = `${node.type.wgslType}(${args.join(', ')})`;
+        }
     }
     else if (node.kind === NodeKind.Field) {
-        const obj = generateExpr(ctx, node.object);
-        expr = `${obj}.${node.fieldName}`;
+        expr = `${generateOperand(ctx, node.object, Prec.Postfix)}.${node.fieldName}`;
     }
     else if (node.kind === NodeKind.Index) {
-        const arr = generateExpr(ctx, node.array);
+        const arr = generateOperand(ctx, node.array, Prec.Postfix);
         const idx = generateExpr(ctx, node.index);
         expr = `${arr}[${idx}]`;
     }
@@ -19974,26 +21136,14 @@ function generateExpr(ctx, rawNode) {
             wgsl = wgsl.replace(new RegExp(`\\$${i}`, 'g'), depExpr);
         }
         expr = wgsl;
+        // Hand-written source of unknown shape: wrap it wherever it lands, so a template holding
+        // `a + b` cannot silently re-associate against the operator it is spliced into.
+        prec = Prec.Lowest;
     }
-    else if (node.kind === NodeKind.Let) {
-        // LetNode as expression returns the variable name
-        // If not yet declared, emit the declaration now
-        if (!ctx.nodeVars.has(node.id)) {
-            const init = generateExpr(ctx, node.init);
-            ctx.code.push(`    let ${node.varName} = ${init};`);
-            ctx.nodeVars.set(node.id, node.varName);
-        }
-        expr = node.varName;
-    }
-    else if (node.kind === NodeKind.Var) {
-        // VarNode as expression returns the variable name
-        // If not yet declared, emit the declaration now
-        if (!ctx.nodeVars.has(node.id)) {
-            const init = generateExpr(ctx, node.init);
-            ctx.code.push(`    var ${node.varName} = ${init};`);
-            ctx.nodeVars.set(node.id, node.varName);
-        }
-        expr = node.varName;
+    else if (node.kind === NodeKind.Let || node.kind === NodeKind.Var) {
+        // A Let/Var used as an expression resolves to its name; if the statement that declares it has
+        // not run yet, declare it here.
+        expr = ctx.nodeVars.get(node.id) ?? declareLocal(ctx, node, '    ');
     }
     else if (node.kind === NodeKind.PrivateVar) {
         // PrivateVarNode is module-scope, emitted separately
@@ -20016,6 +21166,7 @@ function generateExpr(ctx, rawNode) {
     else if (node.kind === NodeKind.Inspector) {
         // inspector is transparent - just generate the wrapped node
         expr = generateExpr(ctx, node.wrappedNode);
+        prec = emittedPrec(ctx, node.wrappedNode);
     }
     else if (node.kind === NodeKind.OutputStruct || node.kind === NodeKind.MRT) {
         // these are handled specially at the fragment output level
@@ -20024,23 +21175,28 @@ function generateExpr(ctx, rawNode) {
     else {
         console.warn(`[builder] Unknown node kind for expr: ${node.constructor.name}`, node);
         expr = `/* unknown: ${node.constructor.name} */`;
+        prec = Prec.Lowest;
     }
+    ctx.precOf.set(node.id, prec);
     // CSE: if multi-use, extract to variable
     const usage = ctx.usageCount.get(node.id) ?? 1;
-    if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr(node) && !isNonCopyable(node)) {
-        const varName = `_v${ctx.varCounter++}`;
+    if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr(ctx, node) && !isNonCopyable(node)) {
+        const varName = allocName(ctx.names, cseBaseName(node));
         const keyword = ctx.mutatedNodes.has(node.id) ? 'var' : 'let';
-        const line = `    ${keyword} ${varName} = ${expr};`;
+        const decl = `${keyword} ${varName} = ${expr};`;
         // A pure temp used more than once may be used across a block boundary (e.g. inside an if AND
         // after it). Declaring it at first use would leave it out of scope for the later use, so if it's
         // stable at body top, splice it there. Only immutable (`let`) values built from function-scope
         // inputs qualify; anything touching a loop var or a block-local `let`/`var` stays at first use.
         if (ctx.hoistIndex >= 0 && keyword === 'let' && isHoistStable(node, ctx.topScopeParamIds, ctx.hoistStableMemo)) {
-            ctx.code.splice(ctx.hoistIndex, 0, line);
+            // The body top is always one level in, whatever block the temp was first reached from.
+            ctx.code.splice(ctx.hoistIndex, 0, `    ${decl}`);
             ctx.hoistIndex++;
         }
         else {
-            ctx.code.push(line);
+            // Declared where it is first used, so it takes the indentation of THAT block — not the
+            // body's. (This read `    ` regardless, so a temp inside an if landed a level out.)
+            ctx.code.push(`${'    '.repeat(ctx.indentLevel)}${decl}`);
         }
         ctx.nodeVars.set(node.id, varName);
         // record CSE info for graph
@@ -20051,6 +21207,40 @@ function generateExpr(ctx, rawNode) {
         return varName;
     }
     return expr;
+}
+/** Component kind of a numeric SCALAR descriptor (not a vector, not bool), else null. */
+function numericScalarKind(desc) {
+    if (!('len' in desc) || desc.len !== 1)
+        return null;
+    return desc.scalar === 'bool' ? null : desc.scalar;
+}
+/**
+ * The value a numeric scalar conversion of a literal collapses to, or undefined if the node is not
+ * one. `u32(0.0)` means `0u`, which is what an array index should look like; the constructor form only
+ * obscured it. Bool is excluded on both sides — those conversions are value tests, not a respelling.
+ */
+function foldScalarConversion(node) {
+    if (node.args.length !== 1 || numericScalarKind(node.type) === null)
+        return undefined;
+    const arg = node.args[0];
+    if (arg.kind !== NodeKind.Literal || typeof arg.value !== 'number')
+        return undefined;
+    return numericScalarKind(arg.type) === null ? undefined : arg.value;
+}
+/**
+ * The operand of a one-argument conversion whose target type is ALREADY the argument's type — a
+ * `vec2i(v)` where `v` is a vec2i, which spells out nothing. Mirrors three.js's NodeBuilder.format(),
+ * which returns the operand untouched when the two types match.
+ *
+ * Composites are excluded: a one-field struct or array constructor is a construction, not a respelling.
+ */
+function identityConversionArg(node) {
+    if (node.args.length !== 1)
+        return undefined;
+    if (isStructDesc(node.type) || isArrayDesc(node.type) || isSizedArrayDesc(node.type))
+        return undefined;
+    const arg = node.args[0];
+    return arg.type.wgslType === node.type.wgslType ? arg : undefined;
 }
 /** Check if a type descriptor contains atomic types (recursively) */
 function containsAtomics(desc) {
@@ -20068,8 +21258,11 @@ function containsAtomics(desc) {
     return false;
 }
 /** Check if expression is trivial enough that repeating it is cheap (no need to extract) */
-function isTrivialExpr(node) {
+function isTrivialExpr(ctx, node) {
     return (node.kind === NodeKind.Literal ||
+        // A varying READ is `input.name`, as cheap to repeat as an attribute. In the VERTEX stage it
+        // is the varying's whole source expression instead, which is not.
+        (node.kind === NodeKind.Varying && ctx.stage !== 'vertex') ||
         node.kind === NodeKind.Let ||
         node.kind === NodeKind.Var ||
         node.kind === NodeKind.PrivateVar ||
@@ -20107,10 +21300,23 @@ function isStorageElementAccess(rawNode) {
 }
 /* binding generation */
 function generateUniform(ctx, node) {
-    const name = node.name;
     const group = node.group;
-    ctx.uniforms.set(name, { node, group });
-    return `uniforms_${group.name}.${name}`;
+    ctx.uniforms.set(node.name, { node, group });
+    return `uniforms_${group.name}.${uniformMemberName(ctx, node)}`;
+}
+/**
+ * The block-member spelling for a uniform, allocated on first sight. `node.name` is identity — for a
+ * value-based uniform that is a node-id placeholder, which must never reach the source: node ids come
+ * from a process-wide counter, so emitting one makes the shader text differ between two compiles of
+ * the same graph (and the WebGL program cache keys on that text).
+ */
+function uniformMemberName(ctx, node) {
+    const existing = ctx.uniformNames.get(node.name);
+    if (existing !== undefined)
+        return existing;
+    const name = allocName(ctx.bindingNames, node.uniform.label || `uniform${ctx.uniformNames.size}`);
+    ctx.uniformNames.set(node.name, name);
+    return name;
 }
 function generateAttribute(ctx, node) {
     if (ctx.stage !== 'vertex') {
@@ -20126,10 +21332,11 @@ function generateAttribute(ctx, node) {
         return `input.${existing.shaderName}`;
     }
     const location = ctx.attributes.size;
-    const index = ctx.attrCounter++;
     if (node.isNamedReference) {
         const geomName = node.name;
-        const shaderName = `_${geomName}_${index}`;
+        // A VertexInput member, so it cannot collide with anything outside the struct; only distinct
+        // attributes sharing a geometry name need separating, which the suffix below handles.
+        const shaderName = uniqueAttributeName(ctx, geomName);
         ctx.attributes.set(node.id, {
             kind: 'geometry',
             name: geomName,
@@ -20143,7 +21350,7 @@ function generateAttribute(ctx, node) {
         });
         return `input.${shaderName}`;
     }
-    const shaderName = `_buf_${index}`;
+    const shaderName = uniqueAttributeName(ctx, 'buf');
     ctx.attributes.set(node.id, {
         kind: 'buffer',
         name: null,
@@ -20157,6 +21364,18 @@ function generateAttribute(ctx, node) {
     });
     return `input.${shaderName}`;
 }
+/** `name`, or `name_1`, `name_2`, … if the VertexInput struct already has a member spelled that way. */
+function uniqueAttributeName(ctx, name) {
+    const taken = new Set();
+    for (const attr of ctx.attributes.values())
+        taken.add(attr.shaderName);
+    if (!taken.has(name))
+        return name;
+    for (let n = 1;; n++) {
+        if (!taken.has(`${name}_${n}`))
+            return `${name}_${n}`;
+    }
+}
 function generateStorage(ctx, node) {
     // name was assigned globally during discover()
     const name = ctx.storageNames.get(node.id);
@@ -20166,19 +21385,31 @@ function generateStorage(ctx, node) {
     }
     return name;
 }
-function generateTextureBinding(ctx, node) {
-    const name = node.textureId;
-    if (!ctx.textures.has(name)) {
-        ctx.textures.set(name, node);
-    }
+/**
+ * The shader spelling for a texture binding, allocating one if this is the first time it has been
+ * seen. Discovery names everything it can reach, but a texture sampled only inside an Fn body first
+ * appears when that body is traced during emission — so the name is allocated here, from the same
+ * scope, and recorded for the declaration pass that follows.
+ */
+function textureShaderName(ctx, node, prefix) {
+    const existing = ctx.textureNames.get(node.textureId);
+    if (existing !== undefined)
+        return existing;
+    const name = allocName(ctx.bindingNames, node.value?.label || `${prefix}${ctx.textureNames.size}`);
+    ctx.textureNames.set(node.textureId, name);
     return name;
 }
-function generateStorageTextureBinding(ctx, node) {
-    const name = node.textureId;
-    if (!ctx.storageTextures.has(name)) {
-        ctx.storageTextures.set(name, node);
+function generateTextureBinding(ctx, node) {
+    if (!ctx.textures.has(node.textureId)) {
+        ctx.textures.set(node.textureId, node);
     }
-    return name;
+    return textureShaderName(ctx, node, 't');
+}
+function generateStorageTextureBinding(ctx, node) {
+    if (!ctx.storageTextures.has(node.textureId)) {
+        ctx.storageTextures.set(node.textureId, node);
+    }
+    return textureShaderName(ctx, node, 'st');
 }
 function generateTexture(ctx, node) {
     const binding = node.bindingNode;
@@ -20260,8 +21491,7 @@ function generateCubeTexture(ctx, node) {
     // Always negate the sample direction's X for WebGPU cube sampling. The CubeCamera stores
     // faces with swapped X (by design), and negating the sample direction un-does the swap so
     // the correct face is selected by the hardware.
-    const rawDir = generateExpr(ctx, node.directionNode);
-    const sampleDir = `((${rawDir}) * vec3f(-1.0, 1.0, 1.0))`;
+    const sampleDir = `${generateOperand(ctx, node.directionNode, Prec.Multiplicative)} * vec3f(-1.0, 1.0, 1.0)`;
     // Cube textures do NOT support offset
     // textureSampleGrad (vec3f gradients for cube textures)
     if (node.samplingMode === 'grad') {
@@ -20396,9 +21626,17 @@ function generateSampler(ctx, node) {
     if (!ctx.samplers.has(key)) {
         ctx.samplers.set(key, node);
     }
-    // Return the sampler variable name (uses the registered sampler's ID for deduplication)
-    const registeredSampler = ctx.samplers.get(key);
-    return `${registeredSampler.samplerId}_sampler`;
+    // The registered sampler's name — deduplicated by settings, so several textures share one.
+    return samplerShaderName(ctx, ctx.samplers.get(key), key);
+}
+/** The shader spelling for a sampler, allocated on first sight (see {@link textureShaderName}). */
+function samplerShaderName(ctx, node, settingsKey) {
+    const existing = ctx.samplerNames.get(settingsKey);
+    if (existing !== undefined)
+        return existing;
+    const name = allocName(ctx.bindingNames, node.value.label || derivedSamplerName(node));
+    ctx.samplerNames.set(settingsKey, name);
+    return name;
 }
 function generateVarying(ctx, node) {
     if (ctx.stage === 'compute') {
@@ -20436,6 +21674,28 @@ function generateBuiltin(ctx, node) {
     return builtinMap[node.builtinKind] ?? `/* unknown builtin: ${node.builtinKind} */`;
 }
 /* function call generation */
+/**
+ * Binding strength of what {@link generateCall} emits. Every call is a `f(…)` postfix form except the
+ * three lowerings below, which spell out an operator instead — keep this in step with them.
+ */
+function callPrec(ctx, node) {
+    if (node.fn === node.type.wgslType) {
+        const folded = foldScalarConversion(node);
+        if (folded !== undefined)
+            return folded < 0 ? Prec.Unary : Prec.Postfix;
+        const identity = identityConversionArg(node);
+        if (identity)
+            return emittedPrec(ctx, identity);
+    }
+    if (node.args.length === 1) {
+        if (node.fn === 'negate' || node.fn === 'not')
+            return Prec.Unary;
+        // A passthrough forwards its operand's spelling verbatim, so it inherits its strength.
+        if (node.fn === 'ndcDepthToStorage')
+            return emittedPrec(ctx, node.args[0]);
+    }
+    return Prec.Postfix;
+}
 function generateCall(ctx, node) {
     // if this calls an FnNode, make sure it's registered
     if (node.fnNode) {
@@ -20461,17 +21721,27 @@ function generateCall(ctx, node) {
             }
         }
     }
+    if (node.fn === node.type.wgslType) {
+        // A scalar conversion of a literal (`u32(0.0)`) is that literal in the target type (`0u`).
+        const folded = foldScalarConversion(node);
+        if (folded !== undefined)
+            return constLiteral(node.type.wgslType, folded);
+        // A conversion to the type the operand already has spells out nothing.
+        const identity = identityConversionArg(node);
+        if (identity)
+            return generateExpr(ctx, identity);
+    }
     const args = node.args.map((a) => generateExpr(ctx, a));
     // handle special cases
     if (node.fn === 'negate' && args.length === 1) {
-        return `(-${args[0]})`;
+        return unary('-', args[0], emittedPrec(ctx, node.args[0]));
     }
     if (node.fn === 'not' && args.length === 1) {
-        return `(!${args[0]})`;
+        return unary('!', args[0], emittedPrec(ctx, node.args[0]));
     }
     // NDC depth → stored [0,1]. WebGPU NDC z is already [0,1] (ZO projection) — passthrough; GLSL remaps.
     if (node.fn === 'ndcDepthToStorage' && args.length === 1) {
-        return `(${args[0]})`;
+        return args[0];
     }
     // atomic functions need pointer reference
     const atomicFns = [
@@ -20489,23 +21759,30 @@ function generateCall(ctx, node) {
     ];
     if (atomicFns.includes(node.fn) && args.length >= 1) {
         const [ptr, ...rest] = args;
-        return `${node.fn}(&${ptr}, ${rest.join(', ')})`;
+        // atomicLoad takes the pointer alone, so the remaining args may be empty.
+        return `${node.fn}(${[`&${ptr}`, ...rest].join(', ')})`;
     }
     return `${node.fn}(${args.join(', ')})`;
+}
+/**
+ * Emit the declaration for a Let/Var and bind its node to the allocated name. The author's label is
+ * only a preference — the scope decides the final identifier, so two `Var('t', …)` in one function
+ * become `t` and `t_1` instead of both being stamped with their node ids.
+ */
+function declareLocal(ctx, node, indent) {
+    const init = generateExpr(ctx, node.init);
+    const name = allocName(ctx.names, node.label ?? 'v');
+    const keyword = node.kind === NodeKind.Var ? 'var' : 'let';
+    ctx.code.push(`${indent}${keyword} ${name} = ${init};`);
+    ctx.nodeVars.set(node.id, name);
+    return name;
 }
 /* statement generation */
 function generateStmt(ctx, rawNode) {
     const node = rawNode;
     const ind = '    '.repeat(ctx.indentLevel);
-    if (node.kind === NodeKind.Let) {
-        const init = generateExpr(ctx, node.init);
-        ctx.code.push(`${ind}let ${node.varName} = ${init};`);
-        ctx.nodeVars.set(node.id, node.varName);
-    }
-    else if (node.kind === NodeKind.Var) {
-        const init = generateExpr(ctx, node.init);
-        ctx.code.push(`${ind}var ${node.varName} = ${init};`);
-        ctx.nodeVars.set(node.id, node.varName);
+    if (node.kind === NodeKind.Let || node.kind === NodeKind.Var) {
+        declareLocal(ctx, node, ind);
     }
     else if (node.kind === NodeKind.Assign) {
         const target = generateExpr(ctx, node.target);
@@ -20586,9 +21863,9 @@ function generateIfStmt(ctx, node) {
 }
 function generateLoopStmt(ctx, node) {
     const { config, loopVar, body } = node;
-    // Generate a unique WGSL variable name for this loop
+    // Conventional counter name for the nesting depth; the scope resolves any collision.
     const depth = ctx.indentLevel - 1;
-    const wgslVarName = `i_${depth}_${ctx.varCounter++}`;
+    const wgslVarName = allocName(ctx.names, loopVarName(depth));
     // Register the loop variable so references resolve to the WGSL name
     ctx.nodeVars.set(loopVar.id, wgslVarName);
     // Build loop header based on config type
@@ -20597,7 +21874,7 @@ function generateLoopStmt(ctx, node) {
         loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${config}i; ${wgslVarName}++)`;
     }
     else if (isNode(config) && (config.kind === NodeKind.Literal || config.kind === NodeKind.Uniform)) {
-        const endExpr = generateExpr(ctx, config);
+        const endExpr = generateOperand(ctx, config, Prec.Relational + 1);
         loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${endExpr}; ${wgslVarName}++)`;
     }
     else if (isNode(config)) {
@@ -20615,7 +21892,8 @@ function generateLoopStmt(ctx, node) {
                 return undefined;
             if (typeof v === 'number')
                 return constLiteral(typeStr, v);
-            return generateExpr(ctx, v);
+            // Both land beside the loop variable in a comparison or an initialiser.
+            return generateOperand(ctx, v, Prec.Relational + 1);
         };
         const startExpr = getExpr(cfg.start) ?? '0i';
         const endExpr = getExpr(cfg.end) ?? '0i';
@@ -20726,18 +22004,17 @@ function emitAllBindings(ctx) {
     for (const [name, node] of ctx.storages) {
         getGroup(node.group).storages.push({ name, node });
     }
-    // collect textures
-    for (const [name, node] of ctx.textures) {
-        getGroup(node.group).textures.push({ name, node });
+    // collect textures (`name` is the shader spelling, the map key is the binding's identity)
+    for (const [, node] of ctx.textures) {
+        getGroup(node.group).textures.push({ name: textureShaderName(ctx, node, 't'), node });
     }
     // collect storage textures
-    for (const [name, node] of ctx.storageTextures) {
-        getGroup(node.group).storageTextures.push({ name, node });
+    for (const [, node] of ctx.storageTextures) {
+        getGroup(node.group).storageTextures.push({ name: textureShaderName(ctx, node, 'st'), node });
     }
     // collect samplers (deduplicated by settingsKey)
-    for (const [_settingsKey, node] of ctx.samplers) {
-        const name = node.samplerId;
-        getGroup(node.group).samplers.push({ name, node });
+    for (const [settingsKey, node] of ctx.samplers) {
+        getGroup(node.group).samplers.push({ name: samplerShaderName(ctx, node, settingsKey), node });
     }
     // step 2: sort groups by their order, then assign sequential group indices
     // @group(N) is the sorted array position
@@ -20797,7 +22074,8 @@ function emitAllBindings(ctx) {
                 const size = layoutSizeOf(u.type, 'wgsl-uniform');
                 // align offset
                 offset = Math.ceil(offset / align) * align;
-                lines.push(`    @align(${align}) @size(${size}) ${u.name}: ${u.type.wgslType},`);
+                const memberName = uniformMemberName(ctx, u);
+                lines.push(`    @align(${align}) @size(${size}) ${memberName}: ${u.type.wgslType},`);
                 members.push({
                     uniformId: u.name,
                     schema: u.type,
@@ -20848,7 +22126,8 @@ function emitAllBindings(ctx) {
         for (const { name, node } of bindGroup.textures) {
             lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}: ${node.type.wgslType};`);
             textureEntries.push({
-                textureId: name,
+                textureId: node.textureId,
+                shaderName: name,
                 type: node.type.wgslType,
                 group: groupIndex,
                 binding: bindingIndex,
@@ -20868,7 +22147,8 @@ function emitAllBindings(ctx) {
             const wgslType = `texture_storage_${node.dim}<${node.format}, ${access}>`;
             lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}: ${wgslType};`);
             storageTextureEntries.push({
-                textureId: name,
+                textureId: node.textureId,
+                shaderName: name,
                 type: wgslType,
                 format: node.format,
                 access,
@@ -20882,9 +22162,9 @@ function emitAllBindings(ctx) {
         for (const { name, node } of bindGroup.samplers) {
             // node is now a SamplerNode - get sampler type from its compare property
             const samplerType = node.compare ? 'sampler_comparison' : 'sampler';
-            lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}_sampler: ${samplerType};`);
+            lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}: ${samplerType};`);
             samplerEntries.push({
-                samplerId: `${name}_sampler`,
+                samplerId: name,
                 type: samplerType,
                 group: groupIndex,
                 binding: bindingIndex,
@@ -20923,9 +22203,46 @@ function emitWgslFunctions(ctx) {
     }
     return lines.join('\n');
 }
+/**
+ * The DSL function table, closed over the call graph and ordered callee-before-caller. WGSL accepts
+ * module-scope declarations in any order, so the ordering is purely so the source reads bottom-up
+ * like the GLSL backend's does. A `visiting` guard tolerates self/mutual recursion by emitting each
+ * function once.
+ *
+ * Closing the table matters: discovery only sees the graph as written, and a function called solely
+ * from ANOTHER function's body first appears when that body is traced. Emission used to pick those up
+ * by iterating the live table as it grew; ordering needs the full set up front, so the walk traces and
+ * registers each callee it meets, exactly as {@link generateCall} would have.
+ */
+function orderedFnDefs(ctx) {
+    const ordered = [];
+    const done = new Set();
+    const visiting = new Set();
+    const visit = (name) => {
+        if (done.has(name) || visiting.has(name))
+            return;
+        visiting.add(name);
+        const entry = ctx.fnDefs.get(name);
+        if (entry) {
+            for (const callee of tracedFnCallees(entry.traced)) {
+                if (!ctx.fnDefs.has(callee.fnName)) {
+                    ctx.fnDefs.set(callee.fnName, { fn: callee, traced: callee.trace() });
+                }
+                visit(callee.fnName);
+            }
+        }
+        visiting.delete(name);
+        done.add(name);
+        if (entry)
+            ordered.push([name, entry]);
+    };
+    for (const name of [...ctx.fnDefs.keys()])
+        visit(name);
+    return ordered;
+}
 function emitDslFunctions(ctx) {
     const lines = [];
-    for (const [name, { fn, traced }] of ctx.fnDefs) {
+    for (const [name, { fn, traced }] of orderedFnDefs(ctx)) {
         // build parameter list
         const params = traced.params
             .map((p, i) => {
@@ -20945,10 +22262,20 @@ function emitDslFunctions(ctx) {
         fnDiscovery.uniforms = ctx.uniforms;
         fnDiscovery.storages = ctx.storages;
         fnDiscovery.storageNames = ctx.storageNames;
+        fnDiscovery.textureNames = ctx.textureNames;
+        fnDiscovery.uniformNames = ctx.uniformNames;
+        fnDiscovery.samplerNames = ctx.samplerNames;
+        fnDiscovery.bindingNames = ctx.bindingNames;
+        // Spliced in for name reservation only (the body may READ a module-scope variable, so a local
+        // must not take its name); emitModuleScopeVars runs on the stage context, never on this one.
+        fnDiscovery.privateVars = ctx.privateVars;
+        fnDiscovery.workgroupVars = ctx.workgroupVars;
         const fnCtx = createContext$1(ctx.stage, ctx.isRender, fnDiscovery);
         // register param names in context
         for (const p of traced.params) {
-            fnCtx.nodeVars.set(p.id, p.paramName ?? `p${p.paramIndex}`);
+            const paramName = p.paramName ?? `p${p.paramIndex}`;
+            fnCtx.nodeVars.set(p.id, paramName);
+            reserveName(fnCtx.names, paramName);
         }
         // Enable CSE hoisting to this body's top (params are the top-scope stable inputs).
         fnCtx.topScopeParamIds = new Set(traced.params.map((p) => p.id));
@@ -21173,7 +22500,9 @@ function generateFragmentShader(fragmentNode, ctx, varyings, depthNode = null) {
         }
         lines.push('}');
     }
-    lines.push('');
+    // One blank line before the entry point, whether or not an I/O struct just closed one.
+    if (lines[lines.length - 1] !== '')
+        lines.push('');
     // emit main function - omit input parameter if no inputs
     lines.push('@fragment');
     if (useStruct) {
@@ -21321,22 +22650,16 @@ function compileWgsl(slots) {
     const wgslFnsCode = emitWgslFunctions(vertexCtx);
     const dslFnsCode = emitDslFunctions(vertexCtx);
     // assemble full shader
-    const codeParts = [
-        '// Bindings (uniforms, storage, textures, samplers)',
-        bindingsWgsl,
-        '// Module-scope variables',
-        moduleScopeVarsWgsl,
-        '// WGSL Functions',
-        wgslFnsCode,
-        '// DSL Functions',
-        dslFnsCode,
-        '// Vertex Shader',
-        vertexBody,
+    const sections = [
+        { title: '// Bindings (uniforms, storage, textures, samplers)', body: bindingsWgsl },
+        { title: '// Module-scope variables', body: moduleScopeVarsWgsl },
+        { title: '// WGSL Functions', body: wgslFnsCode },
+        { title: '// DSL Functions', body: dslFnsCode },
+        { title: '// Vertex Shader', body: vertexBody },
     ];
-    if (emitFragment) {
-        codeParts.push('', '// Fragment Shader', fragmentBody);
-    }
-    const code = codeParts.filter(Boolean).join('\n');
+    if (emitFragment)
+        sections.push({ title: '// Fragment Shader', body: fragmentBody });
+    const code = joinSections(sections);
     // collect graph info
     const graphNodes = new Map();
     const graphEdges = new Map();
@@ -21579,61 +22902,41 @@ function compileGlsl(slots, opts = {}) {
         vertexCtx.flipHelperFns.add(fn);
     const { glsl: samplersGlsl, textures: textureEntries, samplers: samplerEntries } = emitGlslTextures(vertexCtx);
     const version = '#version 300 es';
-    // Only prefix the header when there are combined-sampler declarations, so texture-free shaders
-    // stay byte-clean. Both stages get the same declarations; unused ones are harmless in GLSL.
-    const structsSection = structsGlsl ? `// Structs\n${structsGlsl}` : '';
-    const samplersSection = samplersGlsl ? `// Combined samplers\n${samplersGlsl}` : '';
-    const moduleScopeSection = moduleScopeVarsGlsl ? `// Module-scope variables\n${moduleScopeVarsGlsl}` : '';
-    // Function sections are per-stage (only the fns reachable in that stage), so the vertex shader never
-    // carries a fragment-only fn definition and vice versa.
-    const vertexRawFnsSection = rawFnsGlsl ? `// Raw functions (wgslFn/glslFn)\n${rawFnsGlsl}` : '';
-    const vertexDslFnsSection = dslFnsGlsl ? `// Functions\n${dslFnsGlsl}` : '';
-    const fragmentRawFnsSection = fragmentRawFnsGlsl ? `// Raw functions (wgslFn/glslFn)\n${fragmentRawFnsGlsl}` : '';
-    const fragmentDslFnsSection = fragmentDslFnsGlsl ? `// Functions\n${fragmentDslFnsGlsl}` : '';
-    const vertexParts = [
-        version,
-        '',
-        structsSection,
-        '// Uniform blocks (std140)',
-        uniformBlocksGlsl,
-        samplersSection,
-        moduleScopeSection,
-        vertexRawFnsSection,
-        vertexDslFnsSection,
-        '// Vertex shader',
-        vertexBody,
+    // Sections emitted into BOTH stages; unused declarations are harmless in GLSL. An empty one is
+    // dropped whole by joinSections, so a texture-free shader carries no combined-sampler heading.
+    // The function sections below are per-stage (only the fns reachable in that stage), so the vertex
+    // shader never carries a fragment-only fn definition.
+    const sharedSections = [
+        { title: '// Structs', body: structsGlsl },
+        { title: '// Uniform blocks (std140)', body: uniformBlocksGlsl },
+        { title: '// Combined samplers', body: samplersGlsl },
+        { title: '// Module-scope variables', body: moduleScopeVarsGlsl },
     ];
-    const fragmentParts = emitFragment
-        ? [
-            version,
-            '',
-            // GLSL ES 3.00 fragment shaders have no default float precision — one must be declared
-            // before any float-typed declaration (struct fields, UBO members, varyings). It sits at
-            // the very top so every downstream section is covered. (Vertex defaults to highp, so it
-            // needs none.) The qualifier is 'highp' by default (byte-identical to the golden
-            // snapshots); the WebGL backend can request 'mediump'/'lowp' via CompileGlslOptions.
-            `precision ${opts.precision ?? 'highp'} float;`,
-            `precision ${opts.precision ?? 'highp'} int;`,
-            '',
-            structsSection,
-            '// Uniform blocks (std140)',
-            uniformBlocksGlsl,
-            samplersSection,
-            moduleScopeSection,
-            fragmentRawFnsSection,
-            fragmentDslFnsSection,
-            '// Fragment shader',
-            fragmentBody,
-        ]
-        : [];
+    const vertexCode = joinSections([
+        { body: version },
+        ...sharedSections,
+        { title: '// Raw functions (wgslFn/glslFn)', body: rawFnsGlsl },
+        { title: '// Functions', body: dslFnsGlsl },
+        { title: '// Vertex shader', body: vertexBody },
+    ]);
+    // GLSL ES 3.00 fragment shaders have no default float precision — one must be declared before any
+    // float-typed declaration (struct fields, UBO members, varyings). It sits at the very top so every
+    // downstream section is covered. (Vertex defaults to highp, so it needs none.) The qualifier is
+    // 'highp' by default; the WebGL backend can request 'mediump'/'lowp' via CompileGlslOptions.
+    const precision = opts.precision ?? 'highp';
+    const fragmentCode = emitFragment
+        ? joinSections([
+            { body: `${version}\nprecision ${precision} float;\nprecision ${precision} int;` },
+            ...sharedSections,
+            { title: '// Raw functions (wgslFn/glslFn)', body: fragmentRawFnsGlsl },
+            { title: '// Functions', body: fragmentDslFnsGlsl },
+            { title: '// Fragment shader', body: fragmentBody },
+        ])
+        : '';
     // Emit vertex + fragment as a single string, separated by a stage marker. WebGL compiles the
     // two stages from distinct sources; this combined `.code` is the snapshot/regression surface,
     // mirroring how the WGSL path returns one combined module string.
-    const codeParts = [vertexParts.filter(Boolean).join('\n')];
-    if (emitFragment) {
-        codeParts.push('', '// ---- fragment stage ----', '', fragmentParts.filter(Boolean).join('\n'));
-    }
-    const code = codeParts.join('\n');
+    const code = emitFragment ? `${vertexCode}\n\n// ---- fragment stage ----\n\n${fragmentCode}` : vertexCode;
     // Graph info (same shape as compile(), for inspector parity).
     const graphNodes = new Map();
     const graphEdges = new Map();
@@ -21713,20 +23016,13 @@ function compileComputeWgsl(node) {
     const wgslFnsCode = emitWgslFunctions(ctx);
     const dslFnsCode = emitDslFunctions(ctx);
     // assemble full shader
-    const code = [
-        '// Bindings (uniforms, storage, textures, samplers)',
-        bindingsWgsl,
-        '// Module-scope variables',
-        moduleScopeVarsWgsl,
-        '// WGSL Functions',
-        wgslFnsCode,
-        '// DSL Functions',
-        dslFnsCode,
-        '// Compute Shader',
-        computeBody,
-    ]
-        .filter(Boolean)
-        .join('\n');
+    const code = joinSections([
+        { title: '// Bindings (uniforms, storage, textures, samplers)', body: bindingsWgsl },
+        { title: '// Module-scope variables', body: moduleScopeVarsWgsl },
+        { title: '// WGSL Functions', body: wgslFnsCode },
+        { title: '// DSL Functions', body: dslFnsCode },
+        { title: '// Compute Shader', body: computeBody },
+    ]);
     // convert storage entries to compute format
     const computeStorage = storageEntries.map((e) => ({
         node: e.node,
@@ -21800,31 +23096,21 @@ function compileTransformFeedback(node, opts = {}) {
     // is emitted above, not during the kernel walk. Emitting the declarations first would miss it,
     // leaving the sampler undeclared. The declarations still precede the functions in the output.
     const { glsl: samplersGlsl, textures: textureEntries, samplers: samplerEntries } = emitGlslTextures(ctx);
-    const version = '#version 300 es';
-    const structsSection = structsGlsl ? `// Structs\n${structsGlsl}` : '';
-    const samplersSection = samplersGlsl ? `// Combined samplers\n${samplersGlsl}` : '';
-    const moduleScopeSection = moduleScopeVarsGlsl ? `// Module-scope variables\n${moduleScopeVarsGlsl}` : '';
-    const rawFnsSection = rawFnsGlsl ? `// Raw functions (wgslFn/glslFn)\n${rawFnsGlsl}` : '';
-    const dslFnsSection = dslFnsGlsl ? `// Functions\n${dslFnsGlsl}` : '';
-    const vertexCode = [
-        version,
-        // The vertex stage defaults to highp; a precision qualifier is emitted only when a non-default
-        // was requested, keeping texture-free kernels byte-clean.
-        opts.precision && opts.precision !== 'highp'
-            ? `precision ${opts.precision} float;\nprecision ${opts.precision} int;\n`
-            : '',
-        structsSection,
-        '// Uniform blocks (std140)',
-        uniformBlocksGlsl,
-        samplersSection,
-        moduleScopeSection,
-        rawFnsSection,
-        dslFnsSection,
-        '// Transform-feedback vertex shader',
-        main,
-    ]
-        .filter(Boolean)
-        .join('\n');
+    // The vertex stage defaults to highp; a precision qualifier is emitted only when a non-default was
+    // requested, keeping texture-free kernels byte-clean.
+    const header = opts.precision && opts.precision !== 'highp'
+        ? `#version 300 es\nprecision ${opts.precision} float;\nprecision ${opts.precision} int;`
+        : '#version 300 es';
+    const vertexCode = joinSections([
+        { body: header },
+        { title: '// Structs', body: structsGlsl },
+        { title: '// Uniform blocks (std140)', body: uniformBlocksGlsl },
+        { title: '// Combined samplers', body: samplersGlsl },
+        { title: '// Module-scope variables', body: moduleScopeVarsGlsl },
+        { title: '// Raw functions (wgslFn/glslFn)', body: rawFnsGlsl },
+        { title: '// Functions', body: dslFnsGlsl },
+        { title: '// Transform-feedback vertex shader', body: main },
+    ]);
     // No-op fragment shader — rasterization is discarded, but the program must still link.
     const fragmentCode = ['#version 300 es', 'precision highp float;', 'void main() {}'].join('\n');
     const feedbackVaryings = outputs.map((o) => o.varyingName);
@@ -21903,6 +23189,63 @@ function groupAttributesByBuffer(entries) {
     }
     // Combine both maps into a single array, preserving order (name-based first, then buffer-based)
     return [...nameGroups.values(), ...bufferGroups.values()];
+}
+/**
+ * Assign every binding its shader identifier, once per compile.
+ *
+ * Names come from what the author already labelled: a `Texture`'s `name` (forwarded to
+ * `GpuTexture.label`), a `GpuBuffer`'s `label`, or the slot name a `storage('slot', …)` was declared
+ * with. Unlabelled bindings fall back to `t0`, `storage0`, … numbered in discovery order. Samplers
+ * have no resource to name them — several textures share one, deduped by settings — so they read as
+ * what they are: `linearSampler`, `nearestSampler`.
+ *
+ * Assigned HERE, not per stage or per backend, for three reasons: a WGSL module declares its bindings
+ * once but both stages reference them, the two backends should spell the same binding the same way,
+ * and the result has to be deterministic (the WebGL program cache keys on the emitted source). The
+ * identity of a binding stays its `textureId` / settingsKey — this is only how it is spelled.
+ */
+function nameBindings(textures, storageTextures, samplers, storages, storageNames, uniforms) {
+    const scope = createNameScope();
+    const textureNames = new Map();
+    const samplerNames = new Map();
+    const uniformNames = new Map();
+    // Sampled and storage textures keep distinct fallback prefixes (`t0` / `st0`), so an unlabelled
+    // binding still says which kind it is.
+    let unnamedTextures = 0;
+    for (const [textureId, binding] of textures) {
+        textureNames.set(textureId, allocName(scope, binding.value?.label || `t${unnamedTextures++}`));
+    }
+    let unnamedStorageTextures = 0;
+    for (const [textureId, binding] of storageTextures) {
+        textureNames.set(textureId, allocName(scope, binding.value?.label || `st${unnamedStorageTextures++}`));
+    }
+    for (const [key, sampler] of samplers) {
+        samplerNames.set(key, allocName(scope, sampler.value.label || derivedSamplerName(sampler)));
+    }
+    // The walk filled storageNames with placeholders and keyed `storages` by them; respell from the
+    // buffer's own label (or the slot name it was declared with) and re-key in step. `storages` is
+    // aliased into every emission context, so it is refilled in place rather than replaced.
+    let unnamedStorages = 0;
+    const renamedStorages = new Map();
+    for (const storage of storages.values()) {
+        const label = storage.bufferName ?? storage.value?.label;
+        const name = allocName(scope, label || `storage${unnamedStorages++}`);
+        storageNames.set(storage.id, name);
+        renamedStorages.set(name, storage);
+    }
+    storages.clear();
+    for (const [name, storage] of renamedStorages)
+        storages.set(name, storage);
+    // Uniform block members. A name-based uniform already reads as what the author called it; a
+    // value-based one carries the Uniform's label, and an unlabelled one is numbered here rather than
+    // keeping the node-id placeholder it was given for identity. Members live inside `uniforms_<group>`
+    // so they allocate from their own scope, free to reuse a name a binding took.
+    const memberScope = createNameScope();
+    let unnamedUniforms = 0;
+    for (const [identity, { node }] of uniforms) {
+        uniformNames.set(identity, allocName(memberScope, node.uniform.label || `uniform${unnamedUniforms++}`));
+    }
+    return { textureNames, samplerNames, uniformNames, bindingNames: scope };
 }
 function discover(roots) {
     const nodeIdToNode = new Map();
@@ -22095,6 +23438,7 @@ function discover(roots) {
     for (const node of nodeIdToNode.values()) {
         walkTypeForStructs(node.type, registerStructDef);
     }
+    const { textureNames, samplerNames, uniformNames, bindingNames } = nameBindings(textures, storageTextures, samplers, storages, storageNames, uniforms);
     return {
         nodeIdToNode,
         nodeIdToUsages,
@@ -22103,6 +23447,10 @@ function discover(roots) {
         wgslFnDefs,
         structDefs,
         storageNames,
+        textureNames,
+        samplerNames,
+        uniformNames,
+        bindingNames,
         updateBeforeNodes,
         updateAfterNodes,
         updateNodes,
@@ -22846,6 +24194,7 @@ function getForCompute(state, device, nodes, node, computeContext, promises = nu
     // Use NodeManager to get compiled compute state (pass context for bind group caching)
     const nodeBuilderState = getForCompute$1(nodes, node, computeContext);
     // Build bind group layouts from NodeBuilderState bindings
+    assertDynamicUniformLimit(device, nodeBuilderState.bindings, node.name ?? node.id);
     const bindGroupLayouts = buildComputeBindGroupLayouts(device, nodeBuilderState.bindings, state.bindGroupLayoutCache);
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts });
     const shaderModule = device.createShaderModule({ code: nodeBuilderState.computeCode });
@@ -23117,6 +24466,50 @@ function wgslTypeItemSize(type) {
         default:
             throw new Error(`[pipeline] no component count for attribute type '${type}'; its vertex stride cannot be derived.`);
     }
+}
+
+/**
+ * render-object-gpu.ts - WebGPU-owned device payload for RenderObjects.
+ *
+ * RenderObject (in core/) is backend-neutral and must not reference raw WebGPU
+ * types. Its GPU pipeline lives here instead (bind groups are per draw, see
+ * `DrawBindings`), keyed by RenderObject identity in a WeakMap -
+ * mirroring how GpuBuffer/GpuTexture keep their GPU handles in renderer-side
+ * caches (see buffers.ts BufferCache).
+ *
+ * The cache is a per-renderer instance (held on WebGPUBackend as
+ * `_renderObjectGpu`), not a module-global.
+ */
+/** Create a new RenderObjectGpu cache. */
+function createRenderObjectGpuCache() {
+    return {
+        data: new WeakMap(),
+    };
+}
+/** Create an empty device payload. */
+function createRenderObjectGpu() {
+    return {
+        pipeline: null,
+        probeBindings: null,
+    };
+}
+/**
+ * Get the WebGPU device payload for a RenderObject, lazily creating the entry.
+ */
+function getRenderObjectGpu(cache, renderObject) {
+    let gpu = cache.data.get(renderObject);
+    if (!gpu) {
+        gpu = createRenderObjectGpu();
+        cache.data.set(renderObject, gpu);
+    }
+    return gpu;
+}
+/**
+ * Peek at the WebGPU device payload for a RenderObject without creating it.
+ * Returns undefined if the RenderObject has no entry yet.
+ */
+function peekRenderObjectGpu(cache, renderObject) {
+    return cache.data.get(renderObject);
 }
 
 /**
@@ -24799,25 +26192,26 @@ class ShaderPanel {
 /**
  * draw-calls.ts, Inspector "Draw Calls" tab.
  *
- * Surfaces renderer-level RenderObject data, one entry per GPU draw call.
- * ROs are grouped under their render pass (via ro.passId).
+ * The frame as it was asked for: every pass in call order, render, compute and transform feedback,
+ * each with the calls it recorded and what became of them. A pass recorded while a call resolved (a
+ * render texture its material samples) sits under that call.
  *
- * When a RO is selected a detail panel appears with three sub-tabs:
+ * Selecting a draw opens a detail panel on the render object it resolved to:
  *   [Shader], reuses ShaderPanel (with probe hover/selection support)
  *   [Pipeline], material / render-context state table
  *   [Bindings], bind group layout table (uniform groups, textures, samplers, storage)
  *
- * Update strategy (60 fps concern):
- *   update() diffs by ro.id, only adds/removes items on structural changes.
- *   The static detail panel is only rebuilt when _selectedRO changes.
+ * The list is rebuilt only when the frame's shape changes, so a steady frame touches no DOM.
  */
 // DrawCalls Tab
 class DrawCalls extends Tab {
     list;
-    /** ro.id → RONode for every currently-displayed RenderObject */
-    _roNodes = new Map();
-    /** Pass header items keyed by passId */
-    _passHeaders = new Map();
+    /** The top-level pass rows of the frame on show. */
+    _passItems = [];
+    /** Every row that selects a render object, by its id; one object can be drawn in several passes. */
+    _rowsByRenderObject = new Map();
+    /** The shape of the frame on show, so an unchanged frame keeps its rows. */
+    _shownShape = '';
     /** Currently selected RO */
     _selectedRO = null;
     // Detail panel
@@ -24885,124 +26279,83 @@ class DrawCalls extends Tab {
         this._showDetailSubTab('shader');
     }
     // Public API
-    /**
-     * Called by Inspector._processFrame() every frame.
-     * Only diffs by ro.id, does NOT repaint the detail panel unless the
-     * selected RO changed.
-     *
-     * Structure: pass header items are top-level in the List; RO items are
-     * children of their respective pass header (Item.add).  This gives proper
-     * indent and uses the existing header-wrapper styling automatically.
-     */
-    update(inspector, renderer) {
-        const liveROs = renderer._renderObjects.renderObjects;
-        // 1. Build a snapshot: passId → RO[] (skip internal meshes)
-        const passBuckets = new Map();
-        for (const ro of liveROs) {
-            if (_isInternalMesh(ro))
-                continue;
-            const passId = ro.lastPassLabel || 'default';
-            let bucket = passBuckets.get(passId);
-            if (!bucket) {
-                bucket = [];
-                passBuckets.set(passId, bucket);
+    /** Called by Inspector._processFrame() every frame the panel is open. */
+    update(inspector, record) {
+        const shape = passesShape(record.passes);
+        if (shape !== this._shownShape) {
+            this._shownShape = shape;
+            for (const item of this._passItems)
+                this.list.remove(item);
+            this._passItems.length = 0;
+            this._rowsByRenderObject.clear();
+            for (const pass of record.passes) {
+                const item = this._passItem(pass, inspector);
+                this.list.add(item);
+                this._passItems.push(item);
             }
-            bucket.push(ro);
+            this._highlight(this._selectedRO);
         }
-        // 2. Remove stale pass headers (and their children are auto-removed)
-        for (const [passId, headerItem] of this._passHeaders) {
-            if (!passBuckets.has(passId)) {
-                this.list.remove(headerItem);
-                this._passHeaders.delete(passId);
-                // Clean up tracked RO nodes that belonged to this pass
-                for (const [id, node] of this._roNodes) {
-                    if (node.passId === passId) {
-                        this._roNodes.delete(id);
-                        if (this._selectedRO?.id === id) {
-                            this._selectedRO = null;
-                            this._detailPanel.style.display = 'none';
-                        }
-                    }
-                }
-            }
-        }
-        // 3. Remove stale RO items that disappeared from their pass
-        const liveIds = new Set();
-        for (const bucket of passBuckets.values()) {
-            for (const ro of bucket)
-                liveIds.add(ro.id);
-        }
-        for (const [id, node] of this._roNodes) {
-            if (!liveIds.has(id)) {
-                // Remove from parent header item
-                const headerItem = this._passHeaders.get(node.passId);
-                headerItem?.remove(node.item);
-                this._roNodes.delete(id);
-                if (this._selectedRO?.id === id) {
-                    this._selectedRO = null;
-                    this._detailPanel.style.display = 'none';
-                }
-            }
-        }
-        // 4. Ensure pass header items exist and add new RO children
-        for (const [passId, ros] of passBuckets) {
-            // Ensure pass header exists in the List
-            if (!this._passHeaders.has(passId)) {
-                const nameEl = document.createElement('span');
-                nameEl.className = 'hierarchy-name';
-                nameEl.textContent = passId;
-                const headerItem = new Item(nameEl);
-                // Keep it open by default (header shows its children)
-                this.list.add(headerItem);
-                this._passHeaders.set(passId, headerItem);
-            }
-            const headerItem = this._passHeaders.get(passId);
-            for (const ro of ros) {
-                if (this._roNodes.has(ro.id))
-                    continue;
-                const nameEl = document.createElement('span');
-                nameEl.className = 'hierarchy-name';
-                nameEl.textContent = _roDisplayName(ro);
-                const item = new Item(nameEl);
-                item.itemRow.classList.add('actionable');
-                const capturedRO = ro;
-                item.itemRow.addEventListener('click', (e) => {
-                    if (e.target.closest('.item-toggler'))
-                        return;
-                    this.selectRO(capturedRO, inspector);
-                });
-                // Nest under the pass header
-                headerItem.add(item);
-                this._roNodes.set(ro.id, {
-                    id: ro.id,
-                    ro,
-                    item,
-                    passId,
-                });
-            }
-        }
-        // 5. Refresh shader panel if a RO is currently selected
         if (this._selectedRO) {
             this._shaderPanel.updateFromRO(inspector, this._selectedRO);
         }
     }
     /**
      * Select a RO programmatically (also called on click).
-     * Highlights the item and populates the detail panel.
+     * Highlights its rows and populates the detail panel.
      */
     selectRO(ro, inspector) {
-        // Clear previous highlight
-        if (this._selectedRO) {
-            const prev = this._roNodes.get(this._selectedRO.id);
-            prev?.item.itemRow.classList.remove('hierarchy-selected');
-        }
+        this._highlight(null);
         this._selectedRO = ro;
-        const node = this._roNodes.get(ro.id);
-        if (node)
-            node.item.itemRow.classList.add('hierarchy-selected');
-        // Show and populate detail panel
+        this._highlight(ro);
         this._detailPanel.style.display = 'flex';
         this._populateDetail(ro, inspector);
+    }
+    _highlight(ro) {
+        const selected = this._selectedRO === null ? undefined : this._rowsByRenderObject.get(this._selectedRO.id);
+        if (ro === null) {
+            for (const row of selected ?? [])
+                row.itemRow.classList.remove('hierarchy-selected');
+            return;
+        }
+        for (const row of this._rowsByRenderObject.get(ro.id) ?? [])
+            row.itemRow.classList.add('hierarchy-selected');
+    }
+    _passItem(pass, inspector) {
+        const status = pass.error ?? (pass.skipped === null ? '' : `skipped: ${pass.skipped}`);
+        const item = new Item(rowLabel(pass.kind, pass.label, `${pass.calls.length} calls`, status, pass.error !== null));
+        for (const call of pass.calls)
+            item.add(this._callItem(call, inspector));
+        return item;
+    }
+    _callItem(call, inspector) {
+        const item = new Item(rowLabel(call.kind, call.name, call.detail, callStatus(call), call.error !== null));
+        if (call.kind === 'draw' && call.renderObjects.length === 1) {
+            this._selectsRenderObject(item, call.renderObjects[0], inspector);
+        }
+        else if (call.kind === 'bundle') {
+            for (const ro of call.renderObjects) {
+                const drawItem = new Item(rowLabel('draw', _roDisplayName(ro), '', '', false));
+                this._selectsRenderObject(drawItem, ro, inspector);
+                item.add(drawItem);
+            }
+        }
+        for (const pass of call.passes)
+            item.add(this._passItem(pass, inspector));
+        return item;
+    }
+    _selectsRenderObject(item, ro, inspector) {
+        item.itemRow.classList.add('actionable');
+        item.itemRow.addEventListener('click', (e) => {
+            if (e.target.closest('.item-toggler'))
+                return;
+            this.selectRO(ro, inspector);
+        });
+        let rows = this._rowsByRenderObject.get(ro.id);
+        if (rows === undefined) {
+            rows = [];
+            this._rowsByRenderObject.set(ro.id, rows);
+        }
+        rows.push(item);
     }
     // Detail panel population
     _populateDetail(ro, inspector) {
@@ -25041,10 +26394,51 @@ class DrawCalls extends Tab {
     }
 }
 // Helpers
-function _isInternalMesh(ro) {
-    // Skip gpucat-internal meshes (e.g. fullscreen quad used by post-processing)
-    const name = ro.mesh.name ?? '';
-    return name.startsWith('__') && name.endsWith('__');
+/** Everything a row shows, so two frames with the same shape can keep the same rows. */
+function passesShape(passes) {
+    let shape = '';
+    for (const pass of passes) {
+        shape += `[${pass.kind}|${pass.label}|${pass.skipped}|${pass.error}`;
+        for (const call of pass.calls) {
+            shape += `(${call.kind}|${call.name}|${call.detail}|${call.emptyDraws}|${call.error}`;
+            for (const ro of call.renderObjects)
+                shape += `,${ro.id}`;
+            shape += `${passesShape(call.passes)})`;
+        }
+        shape += ']';
+    }
+    return shape;
+}
+function callStatus(call) {
+    if (call.error !== null)
+        return call.error;
+    if (call.kind === 'bundle' && call.emptyDraws > 0)
+        return `${call.emptyDraws} draw nothing`;
+    if (call.kind === 'draw' && call.emptyDraws > 0)
+        return 'draws nothing';
+    return '';
+}
+function rowLabel(kind, name, detail, status, failed) {
+    const row = document.createElement('span');
+    row.className = 'hierarchy-name';
+    const badge = document.createElement('span');
+    badge.className = `hierarchy-type-badge dc-kind--${kind}`;
+    badge.textContent = kind === 'transform-feedback' ? 'tf' : kind;
+    row.appendChild(badge);
+    row.append(` ${name}`);
+    if (detail !== '') {
+        const detailEl = document.createElement('span');
+        detailEl.className = 'dc-call-detail';
+        detailEl.textContent = ` ${detail}`;
+        row.appendChild(detailEl);
+    }
+    if (status !== '') {
+        const statusEl = document.createElement('span');
+        statusEl.className = failed ? 'dc-call-status dc-call-status--failed' : 'dc-call-status';
+        statusEl.textContent = ` ${status}`;
+        row.appendChild(statusEl);
+    }
+    return row;
 }
 function _roDisplayName(ro) {
     const meshName = ro.mesh.name || `Mesh #${ro.mesh.objectId}`;
@@ -28640,10 +30034,10 @@ function openRenderPass(frame, desc) {
     }
     else {
         pass.desc = desc;
-        pass.count = 0;
         pass.ended = false;
     }
     frame.poolIndex++;
+    beginOnBackend(frame, pass);
     frame.open = pass;
     return pass;
 }
@@ -28651,11 +30045,11 @@ function createRenderPass(frame, desc) {
     const pass = {
         kind: 'render',
         desc,
-        records: [],
-        count: 0,
+        drawRecord: null,
+        bundleRecord: null,
         ended: false,
-        draw: (mesh, opts) => recordDraw(pass, mesh, opts),
-        execute: (bundle) => recordBundle(pass, bundle),
+        draw: (mesh, opts) => recordDraw(frame, pass, mesh, opts),
+        execute: (bundle) => recordBundle(frame, pass, bundle),
         scene: (root, camera) => recordScene(frame, pass, root, camera),
         end: () => endPass$2(frame, pass),
     };
@@ -28681,10 +30075,10 @@ function openComputePass(frame, desc) {
     }
     else {
         pass.desc = desc;
-        pass.count = 0;
         pass.ended = false;
     }
     frame.computePoolIndex++;
+    beginOnBackend(frame, pass);
     frame.open = pass;
     return pass;
 }
@@ -28700,10 +30094,10 @@ function openTransformFeedbackPass(frame, desc) {
     }
     else {
         pass.desc = desc;
-        pass.count = 0;
         pass.ended = false;
     }
     frame.transformFeedbackPoolIndex++;
+    beginOnBackend(frame, pass);
     frame.open = pass;
     return pass;
 }
@@ -28711,92 +30105,141 @@ function createTransformFeedbackPass(frame, desc) {
     const pass = {
         kind: 'transform-feedback',
         desc,
-        records: [],
-        count: 0,
+        record: null,
         ended: false,
-        dispatch: (node, opts) => recordTransformFeedback(pass, node, opts),
+        dispatch: (node, opts) => recordTransformFeedback$1(frame, pass, node, opts),
         end: () => endPass$2(frame, pass),
     };
     return pass;
 }
-function recordTransformFeedback(pass, node, opts) {
+function recordTransformFeedback$1(frame, pass, node, opts) {
     if (pass.ended)
         throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
-    const existing = pass.records[pass.count];
-    if (existing === undefined) {
-        pass.records.push({ node, ...opts });
+    let record = pass.record;
+    if (record === null) {
+        record = { kind: 'transform-feedback', node, ...opts };
+        pass.record = record;
     }
     else {
-        existing.node = node;
-        existing.inputs = opts.inputs;
-        existing.outputs = opts.outputs;
-        existing.count = opts.count;
-        existing.instanceCount = opts.instanceCount;
+        record.node = node;
+        record.inputs = opts.inputs;
+        record.outputs = opts.outputs;
+        record.count = opts.count;
+        record.instanceCount = opts.instanceCount;
     }
-    pass.count++;
+    resolveCall(frame, pass, record);
 }
 function createComputePass(frame, desc) {
     const pass = {
         kind: 'compute',
         desc,
-        records: [],
-        count: 0,
+        record: null,
         ended: false,
-        dispatch: (node, counts, opts) => recordDispatch(pass, node, counts, undefined, 0, opts?.buffers),
-        dispatchIndirect: (node, indirect, opts) => recordDispatch(pass, node, undefined, indirect, opts?.offset ?? 0, opts?.buffers),
+        dispatch: (node, counts, opts) => recordDispatch$1(frame, pass, node, counts, undefined, 0, opts?.buffers),
+        dispatchIndirect: (node, indirect, opts) => recordDispatch$1(frame, pass, node, undefined, indirect, opts?.offset ?? 0, opts?.buffers),
         end: () => endPass$2(frame, pass),
     };
     return pass;
 }
-function recordDispatch(pass, node, counts, indirect, indirectOffset, buffers) {
+function recordDispatch$1(frame, pass, node, counts, indirect, indirectOffset, buffers) {
     if (pass.ended)
         throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
-    const existing = pass.records[pass.count];
-    if (existing === undefined) {
-        pass.records.push({ node, counts, indirect, indirectOffset, buffers });
+    let record = pass.record;
+    if (record === null) {
+        record = { kind: 'dispatch', node, counts, indirect, indirectOffset, buffers };
+        pass.record = record;
     }
     else {
-        existing.node = node;
-        existing.counts = counts;
-        existing.indirect = indirect;
-        existing.indirectOffset = indirectOffset;
-        existing.buffers = buffers;
+        record.node = node;
+        record.counts = counts;
+        record.indirect = indirect;
+        record.indirectOffset = indirectOffset;
+        record.buffers = buffers;
     }
-    pass.count++;
+    resolveCall(frame, pass, record);
 }
-function recordDraw(pass, mesh, opts) {
+function inspectorOf(frame) {
+    return frame.renderer?.inspector ?? null;
+}
+function errorMessage(error) {
+    return error instanceof Error ? error.message : String(error);
+}
+/** Opens `pass` on the backend, telling an attached inspector first, so a pass the backend skips or refuses is still seen. */
+function beginOnBackend(frame, pass) {
+    const inspector = inspectorOf(frame);
+    inspector?.beginRecordedPass(pass.kind, passLabel(pass));
+    try {
+        if (pass.kind === 'render')
+            frame.backend.beginPass(pass.desc);
+        else if (pass.kind === 'compute')
+            frame.backend.beginComputePass(pass.desc);
+        else
+            frame.backend.beginTransformFeedbackPass(pass.desc);
+    }
+    catch (error) {
+        inspector?.endRecordedPass(errorMessage(error));
+        throw error;
+    }
+}
+/**
+ * Resolves a just-recorded call, so it takes the values set before it. The open pass is set aside
+ * meanwhile: resolving evaluates the node graph, which may record a nested pass.
+ */
+function resolveCall(frame, pass, record) {
+    const inspector = inspectorOf(frame);
+    inspector?.beginRecordedCall(record);
+    frame.open = null;
+    try {
+        if (record.kind === 'dispatch')
+            frame.backend.recordDispatch(record);
+        else if (record.kind === 'transform-feedback')
+            frame.backend.recordTransformFeedback(record);
+        else
+            frame.backend.recordEntry(record);
+    }
+    catch (error) {
+        inspector?.endRecordedCall(errorMessage(error));
+        throw error;
+    }
+    finally {
+        frame.open = pass;
+    }
+    inspector?.endRecordedCall(null);
+}
+function recordDraw(frame, pass, mesh, opts) {
     if (pass.ended)
         throw new Error(`[pass ${passLabel(pass)}] draw after end()`);
     if (opts?.draws !== undefined && (opts.instances !== undefined || opts.range !== undefined)) {
         throw new Error(`[pass ${passLabel(pass)}] '${mesh.name || 'mesh'}' passes draws alongside instances or range; ` +
             'each MeshDraw carries its own instanceCount and index range, so the single-draw fields are unreachable.');
     }
-    const record = pass.records[pass.count];
     const material = opts?.material ?? mesh.material;
-    // A pooled slot that last held a bundle has no draw fields to overwrite, so it is replaced whole.
-    if (record === undefined || record.kind !== 'draw') {
-        pass.records[pass.count] = { kind: 'draw', mesh, material, opts: opts ?? null };
+    let record = pass.drawRecord;
+    if (record === null) {
+        record = { kind: 'draw', mesh, material, opts: opts ?? null };
+        pass.drawRecord = record;
     }
     else {
         record.mesh = mesh;
         record.material = material;
         record.opts = opts ?? null;
     }
-    pass.count++;
+    resolveCall(frame, pass, record);
 }
-function recordBundle(pass, bundle) {
+function recordBundle(frame, pass, bundle) {
     if (pass.ended)
         throw new Error(`[pass ${passLabel(pass)}] execute after end()`);
     if (bundle.disposed)
         throw new Error(`[bundle ${bundle.label}] execute after dispose()`);
-    const record = pass.records[pass.count];
-    if (record === undefined || record.kind !== 'bundle') {
-        pass.records[pass.count] = { kind: 'bundle', bundle };
+    let record = pass.bundleRecord;
+    if (record === null) {
+        record = { kind: 'bundle', bundle };
+        pass.bundleRecord = record;
     }
     else {
         record.bundle = bundle;
     }
-    pass.count++;
+    resolveCall(frame, pass, record);
 }
 function endPass$2(frame, pass) {
     if (pass.ended)
@@ -28807,17 +30250,18 @@ function endPass$2(frame, pass) {
     }
     pass.ended = true;
     frame.open = null; // cleared first: encoding evaluates the graph, which may open a nested pass
+    inspectorOf(frame)?.endRecordedPass(null);
     if (pass.kind === 'compute') {
-        frame.backend.encodeComputePass(pass.desc, pass.records, pass.count);
+        frame.backend.encodeComputePass(pass.desc);
     }
     else if (pass.kind === 'transform-feedback') {
-        frame.backend.encodeTransformFeedbackPass(pass.desc, pass.records, pass.count);
+        frame.backend.encodeTransformFeedbackPass(pass.desc);
     }
     else {
         const target = pass.desc.target;
         if (isRenderTarget(target))
             frame.targets.push(target);
-        frame.backend.encodePass(pass.desc, pass.records, pass.count);
+        frame.backend.encodePass(pass.desc);
     }
 }
 function submitFrame$2(frame) {
@@ -30586,6 +32030,38 @@ const CSS = `
 .hierarchy-type-badge--object3d {
 	background: rgba(255,152,0,0.12);
 	color: var(--color-orange);
+}
+
+/* Draw Calls, the recorded frame */
+
+.dc-kind--render,
+.dc-kind--draw {
+	background: rgba(74,158,255,0.15);
+	color: var(--accent-color);
+}
+
+.dc-kind--bundle {
+	background: rgba(156,39,176,0.18);
+	color: var(--color-call);
+}
+
+.dc-kind--compute,
+.dc-kind--dispatch,
+.dc-kind--transform-feedback {
+	background: rgba(255,152,0,0.12);
+	color: var(--color-orange);
+}
+
+.dc-call-detail {
+	color: var(--text-muted);
+}
+
+.dc-call-status {
+	color: var(--color-yellow);
+}
+
+.dc-call-status--failed {
+	color: var(--color-red);
 }
 
 .list-item-row.hierarchy-selected {
@@ -32708,16 +34184,16 @@ class Inspector extends RendererInspector {
             this.viewer.show();
             this.resolveViewer(record.inspectableNodes);
         }
-        const treeless = treelessPasses(record, this.getRenderer());
+        const treeless = treelessPasses(record);
         if (record.scenes.length > 0 || treeless.length > 0) {
             this.sceneHierarchy.show();
             this.sceneHierarchy.update(this, record.scenes, treeless);
         }
-        const renderer = this.getRenderer();
-        if (renderer && renderer._renderObjects.renderObjects.size > 0) {
+        if (record.passes.length > 0) {
             this.drawCalls.show();
-            this.drawCalls.update(this, renderer);
+            this.drawCalls.update(this, record);
         }
+        const renderer = this.getRenderer();
         // Update compute calls tab if compute passes were dispatched this frame. Compute is
         // WebGPU-only, so this never fires on WebGL (computeNodes stays empty); the backend check also
         // narrows `renderer` to WebGPUBackend for the WebGPU-typed update().
@@ -32800,10 +34276,10 @@ class Inspector extends RendererInspector {
         const ro = probe.sourceRO;
         if (ro.mesh.count === 0)
             return;
-        // Bind groups updated this frame by the main render loop (camera at [0]).
-        // These live in the WebGPU device side table keyed by RenderObject.
-        const bindGroups = peekRenderObjectGpu(renderer.backend.renderObjectGpu, ro)?.bindGroups;
-        if (!bindGroups || bindGroups.length === 0)
+        // What the object's most recent draw bound (camera at [0]), kept for the probe while an inspector
+        // is attached. These live in the WebGPU device side table keyed by RenderObject.
+        const bindings = peekRenderObjectGpu(renderer.backend.renderObjectGpu, ro)?.probeBindings;
+        if (!bindings || bindings.groups.length === 0)
             return;
         // Vertex buffers must be uploaded already (main render loop does this)
         const nodeState = ro.nodeBuilderState;
@@ -32830,9 +34306,13 @@ class Inspector extends RendererInspector {
             },
         });
         pass.setPipeline(probe.pipeline);
-        // Bind groups (camera, object uniforms, textures, same as main draw)
-        for (let i = 0; i < bindGroups.length; i++) {
-            pass.setBindGroup(i, bindGroups[i]);
+        // Bind groups (camera, object uniforms, textures, same as main draw), at the same dynamic offsets
+        for (let i = 0; i < bindings.groups.length; i++) {
+            const offset = bindings.offsets[i];
+            if (offset < 0)
+                pass.setBindGroup(i, bindings.groups[i]);
+            else
+                pass.setBindGroup(i, bindings.groups[i], [offset]);
         }
         // Vertex buffers, look up uploaded GPU buffers from the geometry
         let slot = 0;
@@ -32931,20 +34411,25 @@ class Inspector extends RendererInspector {
     }
 }
 /**
- * Render passes in the frame that produced no `SceneRecord`, with the draw count Draw Calls buckets
- * under the same label. `drawScene` is the only producer of scene records, so a pass whose draws were
- * recorded directly has nothing for the hierarchy tab to walk.
+ * Render passes in the frame that produced no `SceneRecord`, with the draws they resolved. `drawScene`
+ * is the only producer of scene records, so a pass whose draws were recorded directly has nothing for
+ * the hierarchy tab to walk. Passes sharing a label share a row, as they share a pass id.
  */
-function treelessPasses(record, renderer) {
+function treelessPasses(record) {
     const walked = new Set(record.scenes.map((s) => s.passId));
     const drawn = new Map();
-    if (renderer) {
-        for (const ro of renderer._renderObjects.renderObjects) {
-            const label = ro.lastPassLabel;
-            if (label !== '' && !walked.has(label))
-                drawn.set(label, (drawn.get(label) ?? 0) + 1);
+    const visit = (passes) => {
+        for (const pass of passes) {
+            let draws = 0;
+            for (const call of pass.calls) {
+                draws += call.renderObjects.length;
+                visit(call.passes);
+            }
+            if (pass.kind === 'render' && !walked.has(pass.label))
+                drawn.set(pass.label, (drawn.get(pass.label) ?? 0) + draws);
         }
-    }
+    };
+    visit(record.passes);
     return [...drawn].map(([passId, drawCount]) => ({ passId, drawCount }));
 }
 /** The factory form; attach it by assigning to `renderer.inspector`. */
@@ -33945,67 +35430,25 @@ function compileTargets(r, drawables, target, camera) {
         objects: drawables.map((mesh) => getRenderObject(r._renderObjects, mesh, mesh.material, camera, context)),
     };
 }
-/** Prepares what a pass recorded by hand: no render list, no scene walk, no sort. */
-function prepareRecordedDraws(r, records, count, camera, passCtx, 
-/** Null unless an inspector is attached; only annotates each object for the draw-calls tab. */
-inspectorLabel, prepare, out, outOpts, 
-/** Runs of `out`, one per bundle plus the direct draws between them. WebGL has no use for these. */
-outSegments) {
+/**
+ * One recorded draw's render object, compiled and with its `updateBefore` nodes run. `updateBefore` may
+ * record and end a nested pass (a render texture the material samples).
+ */
+function prepareRecordedDraw(r, entry, camera, passCtx, prepare) {
     const inspector = r.inspector;
-    let prepared = 0;
-    const prepareEntry = (entry) => {
-        const { mesh, material, opts } = entry;
-        const renderObject = getRenderObject(r._renderObjects, mesh, material, camera, passCtx);
-        if (inspectorLabel !== null)
-            renderObject.lastPassLabel = inspectorLabel;
-        if (!prepare(r._nodes, renderObject))
-            return;
-        if (inspector)
-            inspector.perf.start('updateBefore');
-        updateBefore(r._nodes, renderObject);
-        if (inspector)
-            inspector.perf.end('updateBefore');
-        outOpts[prepared] = opts;
-        out[prepared++] = renderObject;
-    };
-    // Bundles stay whole as segments so WebGPU can record one device bundle per run; their draws are
-    // still prepared here, because a bundle has to be prepared before it can be recorded.
-    let segments = 0;
-    let runStart = prepared;
-    const closeRun = (bundle) => {
-        if (prepared === runStart)
-            return;
-        outSegments[segments++] = {
-            bundle: bundle === null ? null : bundle.bundle,
-            start: runStart,
-            count: prepared - runStart,
-        };
-        runStart = prepared;
-    };
-    for (let i = 0; i < count; i++) {
-        const entry = records[i];
-        if (entry.kind !== 'bundle') {
-            prepareEntry(entry);
-            continue;
-        }
-        closeRun(null);
-        const { records: inner, count: innerCount } = entry.bundle;
-        for (let j = 0; j < innerCount; j++)
-            prepareEntry(inner[j]);
-        closeRun(entry);
-    }
-    closeRun(null);
-    outSegments.length = segments;
-    return prepared;
+    const renderObject = getRenderObject(r._renderObjects, entry.mesh, entry.material, camera, passCtx);
+    prepare(r._nodes, renderObject);
+    if (inspector)
+        inspector.perf.start('updateBefore');
+    updateBefore(r._nodes, renderObject);
+    if (inspector)
+        inspector.perf.end('updateBefore');
+    return renderObject;
 }
-/** A per-depth list, grown on demand so a steady-state frame reuses one array. */
-function preparedAt(byDepth, depth) {
-    let list = byDepth[depth];
-    if (list === undefined) {
-        list = [];
-        byDepth[depth] = list;
-    }
-    return list;
+/** A draw with no instances and no per-draw list resolves, but nothing of it reaches the GPU. */
+function drawsNothing(renderObject, opts) {
+    const mesh = renderObject.mesh;
+    return (opts?.instances ?? mesh.count) === 0 && (opts?.draws ?? mesh.draws) === undefined;
 }
 
 /**
@@ -34321,7 +35764,8 @@ function getBufferCacheStats(cache) {
  * Same resource (a `BindGroup` from `core/bind-group.ts`), same filename, different mechanism. WebGPU
  * builds a `GPUBindGroup` object that is created, cached, invalidated and bound as a unit, so its
  * surface is init/get/delete/invalidate. WebGL2 has no bind-group object at all: uniform buffers are
- * bound to numbered binding points per draw, so the surface is update-and-bind. Those names are not
+ * bound to numbered binding points per draw, so the surface is capture (when a draw is recorded, so it
+ * uses the values set before it) and upload-and-bind (when its pass executes). Those names are not
  * drift; aligning them would misdescribe both.
  *
  * gpucat's GLSL emitter declares every uniform group as `layout(std140) uniform Uniforms_<group> {…}
@@ -34336,19 +35780,19 @@ function getBufferCacheStats(cache) {
  *     backends share from `core/bind-group.ts`,
  *   - reading each member's value from `m.node.uniform.value`, falling back to the material's named
  *     uniforms, then packing it with `packToView(schema, view, offset, value, 'std140')`.
- * Per-BindGroup GL state (the UBO + a CPU staging buffer + change tracking) is cached in a WeakMap
- * keyed by the `UniformBinding` object, which lives on the RenderObject's cloned bind groups — so
- * shared groups (camera) share one entry and per-object groups get their own, exactly as WebGPU.
+ * Per-group GL state (the latest packed values, what the UBO holds, change tracking) is cached in a
+ * WeakMap keyed by the binding's `bufferKey`, the same key `buffers.ts` holds the UBO under, so shared
+ * groups (camera) share one entry and per-object groups get their own, exactly as WebGPU.
  */
 /** Create an empty bindings state. */
 function createBindingsState() {
-    return { data: new WeakMap(), standalone: new WeakMap() };
+    return { byKey: new WeakMap() };
 }
-function getUboData(state, binding, byteLength) {
-    let data = state.data.get(binding);
+function getUboData(state, key, byteLength) {
+    let data = state.byKey.get(key);
     if (!data || data.staging.byteLength !== byteLength) {
-        data = { staging: new ArrayBuffer(byteLength), uploaded: false };
-        state.data.set(binding, data);
+        data = { packed: new ArrayBuffer(byteLength), staging: new ArrayBuffer(byteLength), uploaded: false };
+        state.byKey.set(key, data);
     }
     return data;
 }
@@ -34393,15 +35837,13 @@ function uniformDetail(block, material, changedBytes) {
     return { material: material?.name, updateType: block.group?.updateType, changedBytes };
 }
 /**
- * Update a single uniform BindGroup for the current draw and bind its UBO to `bindingPoint`.
+ * Captures a uniform BindGroup's values for one recorded draw into `pool[index]`.
  *
- * Runs the same update gating as WebGPU: shared groups with a 'frame'/'render' updateType are
- * processed at most once per frameId/renderId; 'object'/'none' groups always process. Then invokes
- * member update callbacks, packs into a scratch buffer, uploads to the GL UBO if changed, and binds.
- *
- * @param bindingPoint the GL uniform-buffer binding point this group's block was bound to (from the program)
+ * Runs the same update gating as WebGPU: shared groups with a 'frame'/'render' updateType are evaluated
+ * at most once per frameId/renderId, so every draw of a pass shares the pass's values; 'object'/'none'
+ * groups evaluate per draw. The bytes are the group's persistent packed copy at this moment.
  */
-function updateAndBindUniformGroup(gl, b, binding, frame, bindingPoint, material) {
+function captureUniformGroup(b, binding, frame, bindingPoint, material, pool, index) {
     const block = binding.block;
     // Update-type gate (identical to webgpu/bindings.ts updateUniformBinding).
     let skipCallbacks = false;
@@ -34421,72 +35863,63 @@ function updateAndBindUniformGroup(gl, b, binding, frame, bindingPoint, material
         }
         // 'object' / 'none' always process.
     }
-    const data = getUboData(b.uniforms, binding, block.totalBytes);
     // Lazily claim the neutral key slot; `webgpu/bindings.ts` does the same, so both backends key a
     // uniform block's device buffer the same way.
     binding.bufferKey ??= {};
+    const data = getUboData(b.uniforms, binding.bufferKey, block.totalBytes);
     if (!skipCallbacks) {
         // Invoke each member node's update callback (assigns node.value, respects updateType).
         invokeUniformGroupCallbacks(block, frame);
-        // Pack current values into a fresh scratch buffer, compare against the staging buffer.
-        const scratch = new ArrayBuffer(block.totalBytes);
-        packGroup(block, new DataView(scratch), material);
-        const changedBytes = data.uploaded ? changedByteCount(scratch, data.staging) : block.totalBytes;
-        if (changedBytes > 0) {
-            data.staging = scratch;
-            uploadUniformBlock(gl, b.buffers, binding.bufferKey, scratch, uniformDetail(block, material, changedBytes));
-            data.uploaded = true;
-        }
+        packGroup(block, new DataView(data.packed), material);
     }
-    else if (!data.uploaded) {
-        // First time we see a skipped-shared group (already updated by another object this render):
-        // still needs its bytes on the GPU. Pack + upload once.
-        packGroup(block, new DataView(data.staging), material);
-        uploadUniformBlock(gl, b.buffers, binding.bufferKey, data.staging, uniformDetail(block, material, block.totalBytes));
-        data.uploaded = true;
-    }
-    // Bind the group's UBO to its program binding point.
-    const ubo = getRaw(b.buffers, binding.bufferKey);
-    if (ubo)
-        gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, ubo);
-}
-function getStandaloneUboData(state, block, byteLength) {
-    let data = state.standalone.get(block);
-    if (!data || data.staging.byteLength !== byteLength) {
-        data = { staging: new ArrayBuffer(byteLength), uploaded: false };
-        state.standalone.set(block, data);
-    }
-    return data;
+    captureInto(pool, index, binding.bufferKey, block, bindingPoint, data.packed);
 }
 /**
- * Update + bind a STANDALONE kernel's uniform group (transform-feedback) to `bindingPoint`.
- *
- * Unlike {@link updateAndBindUniformGroup}, there is no RenderObject/BindGroup and no per-frame update
- * gating: the group is keyed by its `UniformGroupBlock` and re-packed on every dispatch, because a
- * standalone kernel's uniforms (e.g. a `dt` timestep) commonly change per invocation and the caller
- * assigns them directly on each `uniform()` node's `.uniform.value`. Member update callbacks (if any)
- * are still invoked through the frame so `onFrame`/`onRender` uniforms resolve. Values are sourced from
- * `m.node.uniform.value` (no material fallback — standalone kernels have no material) and packed std140.
- *
- * @param bindingPoint the GL uniform-buffer binding point this group's block was bound to (from the program)
+ * Captures a STANDALONE kernel's uniform group (transform feedback) for one recorded dispatch into
+ * `pool[index]`. There is no RenderObject/BindGroup and no per-frame gating: the group is keyed by its
+ * block and re-packed on every dispatch, because a standalone kernel's uniforms (e.g. a `dt` timestep)
+ * commonly change per invocation. Member update callbacks still run so `onFrame`/`onRender` uniforms
+ * resolve. Values come from `m.node.uniform.value` (no material fallback).
  */
-function updateAndBindStandaloneUniformGroup(gl, b, block, frame, bindingPoint) {
-    // Let any update callbacks (onFrame/onRender) assign node values; direct `.value` sets need nothing.
+function captureStandaloneUniformGroup(b, block, frame, bindingPoint, pool, index) {
     invokeUniformGroupCallbacks(block, frame);
-    const data = getStandaloneUboData(b.uniforms, block, block.totalBytes);
-    // Re-pack every dispatch: standalone-kernel uniforms change per frame and there is no dedup key.
-    const scratch = new ArrayBuffer(block.totalBytes);
-    packGroup(block, new DataView(scratch), null);
-    const changedBytes = data.uploaded ? changedByteCount(scratch, data.staging) : block.totalBytes;
+    const data = getUboData(b.uniforms, block, block.totalBytes);
+    packGroup(block, new DataView(data.packed), null);
+    captureInto(pool, index, block, block, bindingPoint, data.packed);
+}
+/**
+ * Uploads a captured group if its bytes differ from what its UBO holds, then binds the UBO to its
+ * binding point. Runs as the pass executes, draw by draw, which GL orders for us.
+ */
+function uploadAndBindCapture(gl, b, capture, material) {
+    const { key, block, bytes } = capture;
+    const data = getUboData(b.uniforms, key, block.totalBytes);
+    const changedBytes = data.uploaded ? changedByteCount(bytes.buffer, data.staging) : block.totalBytes;
     if (changedBytes > 0) {
-        data.staging = scratch;
-        // The block itself is the key: a standalone kernel has no BindGroup to hang one on.
-        uploadUniformBlock(gl, b.buffers, block, scratch, uniformDetail(block, null, changedBytes));
+        new Uint8Array(data.staging).set(bytes);
+        uploadUniformBlock(gl, b.buffers, key, data.staging, uniformDetail(block, material, changedBytes));
         data.uploaded = true;
     }
-    const ubo = getRaw(b.buffers, block);
+    const ubo = getRaw(b.buffers, key);
     if (ubo)
-        gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, ubo);
+        gl.bindBufferBase(gl.UNIFORM_BUFFER, capture.bindingPoint, ubo);
+}
+/** Fills the pooled capture at `index`, creating it on first use. */
+function captureInto(pool, index, key, block, bindingPoint, packed) {
+    let capture = pool[index];
+    if (capture === undefined) {
+        capture = { key, block, bindingPoint, bytes: new Uint8Array(packed.byteLength) };
+        pool[index] = capture;
+    }
+    capture.key = key;
+    capture.block = block;
+    capture.bindingPoint = bindingPoint;
+    if (capture.bytes.byteLength !== packed.byteLength)
+        capture.bytes = new Uint8Array(packed.byteLength);
+    capture.bytes.set(new Uint8Array(packed));
+}
+function createRecordCapture() {
+    return { uniforms: [], uniformCount: 0, textures: { textures: [], samplers: [] } };
 }
 
 /**
@@ -34739,18 +36172,9 @@ function getRenderObjectGl(cache, renderObject) {
 }
 
 /**
- * Compile the GLSL program + prepare the RenderObject for drawing. Returns whether it is drawable.
- *
- * @param gl the WebGL2 context
- * @param nodes the node manager (owns compilation + the NodeFrame)
- * @param b.programs the program cache
- * @param geometries the geometries cache (VAOs built lazily at draw time)
- * @param b.renderObjectGl the per-RenderObject GL payload cache
- * @param renderObject the object to prepare
- * @param glslOptions GLSL emitter options (e.g. shader `precision`), threaded into compileGlsl
+ * Everything an object needs once: GLSL, bind groups, a linked program. VAOs and UBO uploads depend
+ * on per-object frame state, so they stay in the draw loop. Throws naming the object it cannot draw.
  */
-/** Everything an object needs once: GLSL, bind groups, a linked program. VAOs and UBO uploads
- *  depend on per-object frame state, so they stay in the draw loop. */
 function prepareRenderObject$1(gl, b, nodes, renderObject, glslOptions) {
     // Indirect draw is WebGPU-only. WebGL2 has no drawElementsIndirect / drawArraysIndirect (it can't
     // read draw args from a GPU buffer), and the WEBGL_multi_draw translation is patchy across drivers,
@@ -34781,7 +36205,6 @@ function prepareRenderObject$1(gl, b, nodes, renderObject, glslOptions) {
     if (!payload.program) {
         payload.program = getProgram(gl, b.programs, nodeState.vertexCode, nodeState.uniformGroups);
     }
-    return true;
 }
 
 /**
@@ -36842,13 +38265,15 @@ function getSamplerCacheStats(state) {
  * for the texture and `entry.samplerNode.value` for the sampler — so the value resolution is shared,
  * only the GL binding is new here.
  */
-/** The combined-sampler uniform name for a texture id (mirrors the GLSL emitter's `samplerUniformName`). */
-function samplerUniformName(textureId) {
-    return `u_${textureId}`;
+/** The combined-sampler uniform name for a binding's SHADER name (mirrors the GLSL emitter's own
+ *  `samplerUniformName`). Keyed on the emitted spelling, not the binding's identity — the two differ
+ *  once a texture carries a label. */
+function samplerUniformName(shaderName) {
+    return `u_${shaderName}`;
 }
-/** The per-texture flipY uniform name (mirrors the GLSL emitter's `flipUniformName`). */
-function flipUniformName(textureId) {
-    return `u_flipY_${textureId}`.replace(/_{2,}/g, '_');
+/** The per-texture flipY uniform name, likewise keyed on the emitted spelling. */
+function flipUniformName(shaderName) {
+    return `u_flipY_${shaderName}`.replace(/_{2,}/g, '_');
 }
 /** Cached OES_texture_float_linear support (probed once): null = unprobed, then true/false. */
 let floatLinearSupported = null;
@@ -36950,8 +38375,25 @@ function resolveStorageSource(gl, textures, renderObject, source) {
     const width = Math.min(totalTexels, textures.maxTextureSize);
     return { buffer, width, height: Math.ceil(totalTexels / width), bytesPerTexel };
 }
-function bindTextures(gl, b, renderObject, programInfo) {
+/** Captures what `renderObject`'s texture bindings hold now, so its draw binds the values set before it. */
+function captureTextures(renderObject, out) {
+    out.textures.length = 0;
+    out.samplers.length = 0;
     const bindGroups = getBindings(renderObject);
+    for (const bindGroup of bindGroups) {
+        for (const binding of bindGroup.bindings) {
+            if (binding.kind !== 'texture')
+                continue;
+            const storageLowered = !!binding.entry.node.storageBufferSource;
+            out.textures.push(storageLowered ? null : (binding.entry.node.value ?? null));
+            out.samplers.push(storageLowered ? null : findSamplerForUnit(bindGroups, binding.entry.binding));
+        }
+    }
+}
+/** `capture` is what the draw recorded; null binds the live values (the inspector probe redraws now). */
+function bindTextures(gl, b, renderObject, programInfo, capture) {
+    const bindGroups = getBindings(renderObject);
+    let captured = 0;
     // First pass: collect the GpuSampler assigned to each texture unit (b.samplers share the unit of
     // their paired texture, per the combined-sampler model).
     // We look them up per-unit as we bind b.textures below.
@@ -36966,6 +38408,7 @@ function bindTextures(gl, b, renderObject, programInfo) {
                 continue;
             const entry = binding.entry;
             const unit = entry.binding;
+            const capturedIndex = captured++;
             // Guard the flat texture-unit assignment against the device cap. Units are `entry.binding`,
             // a 0-based index across every texture + storage-buffer a material samples; once it reaches
             // MAX_COMBINED_TEXTURE_IMAGE_UNITS, `activeTexture(TEXTURE0 + unit)` addresses a non-existent
@@ -36997,12 +38440,12 @@ function bindTextures(gl, b, renderObject, programInfo) {
                 gl.activeTexture(gl.TEXTURE0 + unit); // updateStorageBufferTexture may have left another unit active
                 gl.bindTexture(gl.TEXTURE_2D, glTexture);
                 gl.bindSampler(unit, null);
-                const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.textureId));
+                const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.shaderName));
                 if (loc)
                     gl.uniform1i(loc, unit);
                 continue;
             }
-            const gpuTexture = entry.node.value;
+            const gpuTexture = capture === null ? entry.node.value : capture.textures[capturedIndex];
             if (!gpuTexture)
                 continue;
             // Upload / allocate the GL texture (version-gated). Render-target b.textures are allocated
@@ -37019,7 +38462,7 @@ function bindTextures(gl, b, renderObject, programInfo) {
             gl.activeTexture(gl.TEXTURE0 + unit); // updateTexture may have left another unit active
             gl.bindTexture(texData.target, texData.texture);
             // Find the sampler assigned to this same unit and bind its GL sampler object.
-            const gpuSampler = findSamplerForUnit(bindGroups, unit);
+            const gpuSampler = capture === null ? findSamplerForUnit(bindGroups, unit) : capture.samplers[capturedIndex];
             // Reject a linear filter on a float32 texture when float-linear isn't available (would
             // sample as incomplete/black = wrong output, not just lower quality).
             assertFloatLinearFilterable(gl, gpuTexture.format, gpuSampler);
@@ -37035,14 +38478,14 @@ function bindTextures(gl, b, renderObject, programInfo) {
                 gl.bindSampler(unit, null);
             }
             // Set the combined-sampler uniform to this texture unit.
-            const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.textureId));
+            const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.shaderName));
             if (loc)
                 gl.uniform1i(loc, unit);
             // Drive the per-texture flipY conditional (declared only for flip-wrapped 2D samples): a
             // render-target texture was rendered bottom-up vs WebGPU's top-down, so its 2D samples flip V;
             // an ordinary texture (flipped at upload instead) does not. `getFlipLocation` returns null when
             // this texture's samples weren't wrapped, so the set is skipped.
-            const flipLoc = getFlipLocation(gl, programInfo, flipUniformName(entry.textureId));
+            const flipLoc = getFlipLocation(gl, programInfo, flipUniformName(entry.shaderName));
             if (flipLoc)
                 gl.uniform1i(flipLoc, gpuTexture.isRenderTargetTexture ? 1 : 0);
         }
@@ -37057,10 +38500,21 @@ function bindTextures(gl, b, renderObject, programInfo) {
  * combined-sampler uniform `u_<textureId>` is set to that unit. The user binds neighbour data as an
  * explicit `DataTexture` referenced by the kernel's `textureLoad` — there is no hidden mirror.
  */
-function bindStandaloneTextures(gl, b, textureEntries, samplerEntries, programInfo) {
+/** A standalone kernel's texture and sampler values, captured when its dispatch is recorded, in entry order. */
+function captureStandaloneTextures(textureEntries, samplerEntries, out) {
+    out.textures.length = 0;
+    out.samplers.length = 0;
     for (const entry of textureEntries) {
+        out.textures.push(entry.node.value ?? null);
+        out.samplers.push(findStandaloneSamplerForUnit(samplerEntries, entry.binding));
+    }
+}
+/** `capture` holds the values the dispatch recorded, one per texture entry. */
+function bindStandaloneTextures(gl, b, textureEntries, programInfo, capture) {
+    for (let index = 0; index < textureEntries.length; index++) {
+        const entry = textureEntries[index];
         const unit = entry.binding;
-        const gpuTexture = entry.node.value;
+        const gpuTexture = capture.textures[index];
         if (!gpuTexture) {
             throw new Error(`[webgl] transform-feedback kernel samples texture '${entry.textureId}' but no ` +
                 `GpuTexture is bound to it (set the DataTexture on the texture node before dispatch).`);
@@ -37076,7 +38530,7 @@ function bindStandaloneTextures(gl, b, textureEntries, samplerEntries, programIn
             continue;
         gl.activeTexture(gl.TEXTURE0 + unit);
         gl.bindTexture(texData.target, texData.texture);
-        const gpuSampler = findStandaloneSamplerForUnit(samplerEntries, unit);
+        const gpuSampler = capture.samplers[index];
         assertFloatLinearFilterable(gl, gpuTexture.format, gpuSampler);
         assertIntegerNotFiltered(gpuTexture.format, gpuSampler);
         if (gpuSampler) {
@@ -37087,7 +38541,7 @@ function bindStandaloneTextures(gl, b, textureEntries, samplerEntries, programIn
         else {
             gl.bindSampler(unit, null);
         }
-        const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.textureId));
+        const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.shaderName));
         if (loc)
             gl.uniform1i(loc, unit);
     }
@@ -37250,7 +38704,7 @@ function planPassBlend(passCtx) {
     }
     return { targetName, opaqueOnly: sawMaterial && sawNo };
 }
-function beginPass$1(caches, passCtx, params) {
+function beginPass$3(caches, passCtx, params) {
     const gl = caches.gl;
     const passBlend = planPassBlend(passCtx);
     const { hasStencil: targetStencil } = bindFramebuffer(gl, caches, params);
@@ -37269,7 +38723,34 @@ function endPass$1(caches) {
     gl.bindVertexArray(null);
     resolveActiveRenderTarget(gl, caches.renderTargets);
 }
-function encodeDraws$1(gl, caches, nodes, passCtx, params, prepared, preparedOpts, count, inspector, info, { passBlend }) {
+/**
+ * Runs a draw's node updates and captures its uniforms and textures into `out`, at the call that
+ * recorded it, so the draw uses the values set before that call.
+ */
+function captureDraw(caches, nodes, renderObject, out) {
+    const frame = nodes.nodeFrame;
+    frame.object = renderObject.mesh;
+    frame.material = renderObject.material;
+    frame.camera = renderObject.camera;
+    updateForRender$1(nodes, renderObject);
+    const programInfo = getRenderObjectGl(caches.renderObjectGl, renderObject).program;
+    if (!programInfo) {
+        throw new Error(`[webgl] '${renderObject.mesh.name || 'mesh'}' was recorded with no linked program.`);
+    }
+    out.uniformCount = 0;
+    for (const bindGroup of getBindings(renderObject)) {
+        for (const binding of bindGroup.bindings) {
+            if (binding.kind !== 'uniform')
+                continue;
+            const bindingPoint = programInfo.uboBindingPoints.get(binding.block.groupName);
+            if (bindingPoint === undefined)
+                continue; // block optimized out / unused
+            captureUniformGroup(caches, binding, frame, bindingPoint, renderObject.material, out.uniforms, out.uniformCount++);
+        }
+    }
+    captureTextures(renderObject, out.textures);
+}
+function encodeDraws$1(gl, caches, nodes, passCtx, params, prepared, preparedOpts, captures, count, inspector, info, { passBlend }) {
     const hasStencil = !!passCtx.stencil;
     // Pin the GL globals the fresh state cache assumes but the per-draw material state doesn't set
     // (winding, stencil write mask, rasterizer discard) — see establishPassBaseline.
@@ -37277,7 +38758,6 @@ function encodeDraws$1(gl, caches, nodes, passCtx, params, prepared, preparedOpt
     const stateCache = createGlStateCache();
     let currentProgram = null;
     let currentVao = null;
-    const frame = nodes.nodeFrame;
     for (let i = 0; i < count; i++) {
         const renderObject = prepared[i];
         const { mesh, material, geometry } = renderObject;
@@ -37286,13 +38766,7 @@ function encodeDraws$1(gl, caches, nodes, passCtx, params, prepared, preparedOpt
         const draws = opts?.draws ?? mesh.draws;
         const instances = opts?.instances ?? mesh.count;
         const range = opts?.range;
-        if (instances === 0 && draws === undefined)
-            continue;
-        // Per-object node frame context + neutral updates (matches the WebGPU draw loop).
-        frame.object = mesh;
-        frame.material = material;
-        frame.camera = renderObject.camera;
-        updateForRender$1(nodes, renderObject);
+        const capture = captures[i];
         const payload = getRenderObjectGl(caches.renderObjectGl, renderObject);
         const programInfo = payload.program;
         if (!programInfo) {
@@ -37311,25 +38785,17 @@ function encodeDraws$1(gl, caches, nodes, passCtx, params, prepared, preparedOpt
             if (inspector)
                 inspector.setPipeline(pipelineLabel(mesh, material));
         }
-        // Uniform groups → std140 UBOs. Each of the RenderObject's uniform bind groups is updated and
-        // bound to its program binding point.
-        const bindGroups = getBindings(renderObject);
-        let bindGroupIndex = 0;
-        for (const bindGroup of bindGroups) {
-            for (const binding of bindGroup.bindings) {
-                if (binding.kind !== 'uniform')
-                    continue;
-                const bindingPoint = programInfo.uboBindingPoints.get(binding.block.groupName);
-                if (bindingPoint === undefined)
-                    continue; // block optimized out / unused
-                updateAndBindUniformGroup(gl, caches, binding, frame, bindingPoint, material);
-            }
-            if (inspector)
-                inspector.setBindGroup(bindGroupIndex, mesh.name || '');
-            bindGroupIndex++;
+        // Uniform groups → std140 UBOs: each group's bytes as the draw recorded them, uploaded if they
+        // differ from what its UBO holds and bound to its program binding point.
+        for (let u = 0; u < capture.uniformCount; u++)
+            uploadAndBindCapture(gl, caches, capture.uniforms[u], material);
+        if (inspector) {
+            const groupCount = getBindings(renderObject).length;
+            for (let g = 0; g < groupCount; g++)
+                inspector.setBindGroup(g, mesh.name || '');
         }
-        // Texture + sampler bindings → GL texture units + combined-sampler uniforms.
-        bindTextures(gl, caches, renderObject, programInfo);
+        // Texture + sampler bindings → GL texture units + combined-sampler uniforms, as recorded.
+        bindTextures(gl, caches, renderObject, programInfo, capture.textures);
         // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
         // `prepareGeometry` detaches the VAO to upload buffers safely (see its note), so the GL VAO
         // is unbound on return — always rebind the resolved one here rather than deduping the GL call.
@@ -37503,10 +38969,33 @@ function getNodeCache(gl, state, node, precision) {
     return cache;
 }
 /**
- * Execute one transform-feedback dispatch: bind the kernel's input `GpuBuffer`s as attributes, its
- * output `GpuBuffer`s as the captured-varying targets, and run the kernel under `RASTERIZER_DISCARD`.
+ * Captures one recorded dispatch's uniform groups and texture values into `out`, at the call that
+ * recorded it, so it runs with the values set before that call. Values come from each uniform() node's
+ * `.uniform.value` (sourced exactly like the render path), re-packed every dispatch so per-dispatch
+ * uniforms (e.g. a `dt` timestep, or a step index in a loop) take effect. Groups whose members were all
+ * optimized out have no binding point and are skipped.
  */
-function runTransformFeedback(gl, b, state, node, opts, precision, frame) {
+function captureTransformFeedback(gl, b, state, node, precision, frame, out) {
+    const { compiled, programInfo } = getNodeCache(gl, state, node, precision);
+    out.uniformCount = 0;
+    for (const group of compiled.uniformGroups) {
+        if (group.members.length === 0)
+            continue;
+        const bindingPoint = programInfo.uboBindingPoints.get(group.groupName);
+        if (bindingPoint === undefined)
+            continue;
+        captureStandaloneUniformGroup(b, group, frame, bindingPoint, out.uniforms, out.uniformCount++);
+    }
+    captureStandaloneTextures(compiled.textures, compiled.samplers, out.textures);
+}
+/**
+ * Execute one transform-feedback dispatch: bind the kernel's input `GpuBuffer`s as attributes, its
+ * output `GpuBuffer`s as the captured-varying targets, and run the kernel under `RASTERIZER_DISCARD`,
+ * with the uniforms and textures its record captured.
+ */
+function runTransformFeedback(gl, b, state, node, opts, precision, capture, inspector, 
+/** The kernel entry this dispatch belongs to, so the GPU bracket lands on it. */
+inspectorName) {
     const { buffers } = b;
     const { inputs, outputs, count, instanceCount } = opts;
     // Alias guard: a buffer used as an output can't also be an input (a TF-bound buffer must not be
@@ -37535,22 +39024,13 @@ function runTransformFeedback(gl, b, state, node, opts, precision, frame) {
         }
     }
     gl.useProgram(programInfo.program);
-    // Bind the kernel's uniform groups (std140 UBOs) to their resolved binding points. Values come
-    // from each uniform() node's `.uniform.value` (sourced exactly like the render path), re-packed
-    // every dispatch so per-frame uniforms (e.g. a `dt` timestep) take effect. Groups whose members
-    // were all optimized out have no binding point → skipped.
-    for (const group of compiled.uniformGroups) {
-        if (group.members.length === 0)
-            continue;
-        const bindingPoint = programInfo.uboBindingPoints.get(group.groupName);
-        if (bindingPoint === undefined)
-            continue;
-        updateAndBindStandaloneUniformGroup(gl, b, group, frame, bindingPoint);
-    }
+    // Bind the kernel's uniform groups (std140 UBOs) as the dispatch captured them.
+    for (let index = 0; index < capture.uniformCount; index++)
+        uploadAndBindCapture(gl, b, capture.uniforms[index], null);
     // Bind any DataTextures the kernel samples via textureLoad() (explicit neighbour gather — the user
-    // binds the DataTexture on the texture node; no hidden mirror). Runs in the vertex stage under TF.
+    // binds the DataTexture on the texture node; no hidden mirror), as captured. Runs in the vertex stage under TF.
     if (compiled.textures.length > 0) {
-        bindStandaloneTextures(gl, b, compiled.textures, compiled.samplers, programInfo);
+        bindStandaloneTextures(gl, b, compiled.textures, programInfo, capture.textures);
     }
     // Bind inputs as vertex attributes into the node's VAO (rebuilt each dispatch: the caller may
     // ping-pong a different GpuBuffer per element name each frame, so the attribute→buffer binding
@@ -37593,17 +39073,25 @@ function runTransformFeedback(gl, b, state, node, opts, precision, frame) {
         const glOut = ensureIo(gl, buffers, outputs[key], 'output', key);
         gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, i, glOut);
     }
-    // Dispatch under RASTERIZER_DISCARD.
-    gl.enable(gl.RASTERIZER_DISCARD);
-    gl.beginTransformFeedback(gl.POINTS);
-    if (instanceCount !== undefined) {
-        gl.drawArraysInstanced(gl.POINTS, 0, count, instanceCount);
+    // Dispatch under RASTERIZER_DISCARD. The GPU bracket covers the dispatch alone: linking the
+    // program, packing the UBOs and binding the buffers above are what prepares it, and a compute
+    // dispatch's timestamps on WebGPU do not cover its equivalents either.
+    inspector?.beginGpuWork(inspectorName);
+    try {
+        gl.enable(gl.RASTERIZER_DISCARD);
+        gl.beginTransformFeedback(gl.POINTS);
+        if (instanceCount !== undefined) {
+            gl.drawArraysInstanced(gl.POINTS, 0, count, instanceCount);
+        }
+        else {
+            gl.drawArrays(gl.POINTS, 0, count);
+        }
+        gl.endTransformFeedback();
+        gl.disable(gl.RASTERIZER_DISCARD);
     }
-    else {
-        gl.drawArrays(gl.POINTS, 0, count);
+    finally {
+        inspector?.endGpuWork(inspectorName);
     }
-    gl.endTransformFeedback();
-    gl.disable(gl.RASTERIZER_DISCARD);
     // Unbind the TF binding points + object so the output buffers can be read back / reused.
     for (let i = 0; i < compiled.feedbackVaryings.length; i++) {
         gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, i, null);
@@ -37726,11 +39214,10 @@ function createWebGLFrameBackendState(renderer, backend) {
     return {
         renderer,
         backend,
-        preparedByDepth: [],
-        preparedOptsByDepth: [],
-        segmentsByDepth: [],
-        paramsByDepth: [],
+        openByDepth: [],
         depth: 0,
+        openTransformFeedbackByDepth: [],
+        transformFeedbackDepth: 0,
     };
 }
 /** A lost context cannot be drawn to; every frame phase becomes a no-op rather than touching it. */
@@ -37745,81 +39232,203 @@ function beginFrame$1(s) {
     s.renderer._beginInfoFrame();
     s.renderer.inspector?.begin(frame.frameId);
 }
-function encodePass$1(s, desc, records, count) {
-    if (!usable$1(s))
-        return;
+/** Opens a render pass: its context and render scope are fixed here, before its first draw resolves. */
+function beginPass$2(s, desc) {
     const { renderer } = s;
-    const nodeFrame = renderer._nodes.nodeFrame;
-    alignCameraToBackend(desc.camera, CoordinateSystem.WEBGL);
-    if (desc.mrt !== undefined) {
-        const mrtTarget = renderTargetOf(desc.target);
-        if (mrtTarget === null) {
-            throw new Error('[frame] a pass with `mrt` needs a RenderTarget; the swapchain has one attachment');
+    // Everything that can throw runs before the pass takes its slot, so a refused pass leaves none behind.
+    if (usable$1(s)) {
+        alignCameraToBackend(desc.camera, CoordinateSystem.WEBGL);
+        if (desc.mrt !== undefined) {
+            const mrtTarget = renderTargetOf(desc.target);
+            if (mrtTarget === null) {
+                throw new Error('[frame] a pass with `mrt` needs a RenderTarget; the swapchain has one attachment');
+            }
+            // Output names resolve against the target's texture names, which is the MRT contract.
+            desc.mrt.resolveOutputs((name) => mrtTarget.getTextureIndex(name), mrtTarget.textures.map((t) => t.name));
         }
-        // Output names resolve against the target's texture names, which is the MRT contract.
-        desc.mrt.resolveOutputs((name) => mrtTarget.getTextureIndex(name), mrtTarget.textures.map((t) => t.name));
+        const canvasTarget = renderTargetOf(desc.target) === null ? desc.target : null;
+        if (canvasTarget?.autoResize)
+            canvasTarget.syncToClientSize();
     }
-    const canvasTarget = renderTargetOf(desc.target) === null ? desc.target : null;
-    if (canvasTarget?.autoResize)
-        canvasTarget.syncToClientSize();
-    const ctx = resolvePassContext(renderer._renderContexts, desc);
-    const params = resolvePassParams(desc, paramsAt$1(s.paramsByDepth, s.depth));
-    if (params.width === 0 || params.height === 0)
-        return; // hidden or minimized canvas
+    const open = openAt$1(s.openByDepth, s.depth++, desc, resolvePassContext(renderer._renderContexts, desc));
+    if (!usable$1(s)) {
+        renderer.inspector?.skipRecordedPass('context lost');
+        return;
+    }
+    open.params = resolvePassParams(desc, open.params);
+    if (open.params.width === 0 || open.params.height === 0) {
+        renderer.inspector?.skipRecordedPass('zero-size target, a hidden or minimized canvas');
+        return;
+    }
+    open.skipped = false;
     renderer.info.render.calls++;
     renderer.info.render.frameCalls++;
     // Fresh per pass, so RENDER-scope node updates run once per pass rather than once per frame.
-    const previousRenderId = nodeFrame.beginRender();
-    aimNodeFrame(s.renderer, desc.camera ?? null, params.width, params.height);
-    renderer.inspector?.beginRender(params.passId);
+    open.previousRenderId = renderer._nodes.nodeFrame.beginRender();
+    aimNodeFrame(renderer, desc.camera ?? null, open.params.width, open.params.height);
+    renderer.inspector?.beginRender(open.params.passId);
+}
+/** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded. */
+function recordEntry$1(s, entry) {
+    const depth = s.depth;
+    const open = s.openByDepth[depth - 1];
+    if (open.skipped)
+        return;
     try {
-        encodeOpenPass$1(s, desc, ctx, params, records, count);
+        if (entry.kind !== 'bundle') {
+            resolveDraw$1(s, open, entry);
+            return;
+        }
+        // WebGL has no device bundles: a bundle's records replay as the draws they always were.
+        const { records, count } = entry.bundle;
+        for (let index = 0; index < count; index++)
+            resolveDraw$1(s, open, records[index]);
     }
-    finally {
-        // One bracket for the pass, so a throw anywhere inside it still closes the render scope and
-        // the inspector's pass rather than leaving both open for the rest of the frame.
-        renderer.inspector?.finishRender(params.passId);
-        nodeFrame.endRender(previousRenderId);
+    catch (error) {
+        // A throw inside a nested pass (a render texture's contents) left it begun; this pass records on.
+        unwindTo$1(s, depth);
+        throw error;
     }
 }
-function encodeOpenPass$1(s, desc, ctx, params, records, count) {
+function resolveDraw$1(s, open, entry) {
     const { renderer, backend } = s;
-    const prepared = preparedAt(s.preparedByDepth, s.depth);
-    const preparedOpts = preparedAt(s.preparedOptsByDepth, s.depth);
-    const segments = preparedAt(s.segmentsByDepth, s.depth);
-    s.depth++;
-    let preparedCount = 0;
-    try {
-        preparedCount = prepareRecordedDraws(renderer, records, count, params.camera, ctx, renderer.inspector === null ? null : params.passId, (nodes, renderObject) => prepareRenderObject$1(backend.gl, backend, nodes, renderObject, {
-            precision: backend._opts.precision,
-            maxTextureSize: backend._maxTextureSize,
-        }), prepared, preparedOpts, segments);
+    const renderObject = prepareRecordedDraw(renderer, entry, open.params.camera, open.ctx, (nodes, object) => prepareRenderObject$1(backend.gl, backend, nodes, object, {
+        precision: backend._opts.precision,
+        maxTextureSize: backend._maxTextureSize,
+    }));
+    if (drawsNothing(renderObject, entry.opts)) {
+        renderer.inspector?.resolvedDraw(renderObject, true);
+        return;
     }
-    finally {
-        s.depth--;
+    // A nested pass recorded by `updateBefore` aimed the frame at its own target.
+    aimNodeFrame(renderer, open.desc.camera ?? null, open.params.width, open.params.height);
+    const index = open.count++;
+    open.prepared[index] = renderObject;
+    open.preparedOpts[index] = entry.opts;
+    let capture = open.captures[index];
+    if (capture === undefined) {
+        capture = createRecordCapture();
+        open.captures[index] = capture;
     }
-    // A nested pass prepared against its own target, so restore this one's view of the frame.
-    aimNodeFrame(s.renderer, desc.camera ?? null, params.width, params.height);
-    const scope = beginPass$1(backend, ctx, params);
+    captureDraw(backend, renderer._nodes, renderObject, capture);
+    renderer.inspector?.resolvedDraw(renderObject, false);
+}
+/** Encodes what the pass captured, then closes the scopes `beginPass` opened. */
+function encodePass$1(s, desc) {
+    const open = s.openByDepth[--s.depth];
+    if (open.skipped)
+        return;
+    const { renderer, backend } = s;
+    const { ctx, params } = open;
     try {
-        if (preparedCount > 0) {
-            encodeDraws$1(backend.gl, backend, renderer._nodes, ctx, params, prepared, preparedOpts, preparedCount, renderer.inspector, renderer.info, scope);
+        aimNodeFrame(renderer, desc.camera ?? null, params.width, params.height);
+        // The pass's own GL work starts here, after everything that prepared it: `beginPass` clears,
+        // `endPass` resolves, and the mip chains below are the last of it. Preparing uploads and compiles
+        // shaders, which is the frame's cost rather than this pass's — and is outside what WebGPU's
+        // timestamps cover, so leaving it out is what makes the two backends' numbers mean one thing.
+        renderer.inspector?.beginGpuWork(params.passId);
+        try {
+            const scope = beginPass$3(backend, ctx, params);
+            try {
+                if (open.count > 0) {
+                    encodeDraws$1(backend.gl, backend, renderer._nodes, ctx, params, open.prepared, open.preparedOpts, open.captures, open.count, renderer.inspector, renderer.info, scope);
+                }
+            }
+            finally {
+                endPass$1(backend);
+            }
+            const renderTarget = renderTargetOf(desc.target);
+            if (renderTarget) {
+                for (const tex of renderTarget.textures) {
+                    if (tex.generateMipmaps)
+                        generateTextureMipmaps(backend.gl, backend.textures, tex._gpuTexture);
+                }
+            }
+        }
+        finally {
+            renderer.inspector?.endGpuWork(params.passId);
         }
     }
     finally {
-        endPass$1(backend);
-    }
-    const renderTarget = renderTargetOf(desc.target);
-    if (renderTarget) {
-        for (const tex of renderTarget.textures) {
-            if (tex.generateMipmaps)
-                generateTextureMipmaps(backend.gl, backend.textures, tex._gpuTexture);
-        }
+        closePassScopes$1(s, open);
     }
 }
-/** The other kernel pass, counted and timed like `encodeComputePass` is on WebGPU. */
-function encodeTransformFeedbackPass(s, desc, records, count) {
-    if (count === 0 || !usable$1(s))
+/** Closes the inspector bracket and render scope an unskipped `beginPass` opened. */
+function closePassScopes$1(s, open) {
+    s.renderer.inspector?.finishRender(open.params.passId);
+    s.renderer._nodes.nodeFrame.endRender(open.previousRenderId);
+}
+/** Closes every pass begun above `depth` and not ended, so none holds its scopes past a throw. */
+function unwindTo$1(s, depth) {
+    while (s.depth > depth) {
+        const open = s.openByDepth[--s.depth];
+        if (!open.skipped)
+            closePassScopes$1(s, open);
+    }
+}
+/** The pass slot at `depth`, reset for `desc`. Grows to the nesting depth in use and never shrinks. */
+function openAt$1(pool, depth, desc, ctx) {
+    let open = pool[depth];
+    if (open === undefined) {
+        open = {
+            desc,
+            ctx,
+            params: createPassParams(),
+            skipped: true,
+            previousRenderId: 0,
+            prepared: [],
+            preparedOpts: [],
+            captures: [],
+            count: 0,
+        };
+        pool[depth] = open;
+    }
+    open.desc = desc;
+    open.ctx = ctx;
+    open.skipped = true;
+    open.count = 0;
+    return open;
+}
+function beginTransformFeedbackPass(s, _desc) {
+    let open = s.openTransformFeedbackByDepth[s.transformFeedbackDepth];
+    if (open === undefined) {
+        open = { skipped: true, dispatches: [], captures: [], count: 0 };
+        s.openTransformFeedbackByDepth[s.transformFeedbackDepth] = open;
+    }
+    s.transformFeedbackDepth++;
+    open.count = 0;
+    open.skipped = !usable$1(s);
+    if (open.skipped)
+        s.renderer.inspector?.skipRecordedPass('context lost');
+}
+/** Captures a recorded dispatch's uniforms and textures, so it runs with the values set before the call. */
+function recordTransformFeedback(s, record) {
+    const open = s.openTransformFeedbackByDepth[s.transformFeedbackDepth - 1];
+    if (open.skipped)
+        return;
+    const { renderer, backend } = s;
+    let capture = open.captures[open.count];
+    if (capture === undefined) {
+        capture = createRecordCapture();
+        open.captures[open.count] = capture;
+    }
+    const dispatch = open.dispatches[open.count];
+    if (dispatch === undefined) {
+        open.dispatches[open.count] = { ...record };
+    }
+    else {
+        dispatch.node = record.node;
+        dispatch.inputs = record.inputs;
+        dispatch.outputs = record.outputs;
+        dispatch.count = record.count;
+        dispatch.instanceCount = record.instanceCount;
+    }
+    captureTransformFeedback(backend.gl, backend, backend._transformFeedback, record.node, backend._opts.precision, renderer._nodes.nodeFrame, capture);
+    open.count++;
+}
+function encodeTransformFeedbackPass(s, desc) {
+    const open = s.openTransformFeedbackByDepth[--s.transformFeedbackDepth];
+    if (open.count === 0 || open.skipped || !usable$1(s))
         return;
     const { renderer, backend } = s;
     const label = desc.label ?? 'transform-feedback';
@@ -37828,14 +39437,18 @@ function encodeTransformFeedbackPass(s, desc, records, count) {
     renderer.inspector?.perf.start(label);
     const inspector = renderer.inspector;
     try {
-        for (let i = 0; i < count; i++) {
-            const record = records[i];
-            // Per node, as `encodeDispatches` marks each compute node; the timeline has no entry kind
-            // for a kernel that is not a compute pass, so this is the timing it can have.
-            const marker = `transform-feedback: ${record.node.name ?? record.node.id}`;
-            inspector?.perf.start(marker);
-            runTransformFeedback(backend.gl, backend, backend._transformFeedback, record.node, record, backend._opts.precision, renderer._nodes.nodeFrame);
-            inspector?.perf.end(marker);
+        for (let i = 0; i < open.count; i++) {
+            const record = open.dispatches[i];
+            // One entry per node, as `encodeDispatches` opens one per compute node — a kernel entry
+            // rather than a marker, so the dispatch carries a GPU time and counts toward the frame's.
+            const name = `transform-feedback: ${record.node.name ?? record.node.id}`;
+            inspector?.beginKernel(name);
+            try {
+                runTransformFeedback(backend.gl, backend, backend._transformFeedback, record.node, record, backend._opts.precision, open.captures[i], inspector, name);
+            }
+            finally {
+                inspector?.finishKernel(name);
+            }
         }
     }
     finally {
@@ -37849,18 +39462,12 @@ function submitFrame$1(s) {
     s.renderer.inspector?.finish(s.renderer._nodes.nodeFrame.frameId);
 }
 function discardFrame$1(s) {
+    // A pass begun and never ended still holds its scopes; close them so none outlives the frame.
+    unwindTo$1(s, 0);
+    s.transformFeedbackDepth = 0;
     if (!usable$1(s))
         return;
     s.renderer.inspector?.finish(s.renderer._nodes.nodeFrame.frameId);
-}
-/** Grows to the nesting depth in use and never shrinks, like the prepared lists beside it. */
-function paramsAt$1(pool, depth) {
-    let params = pool[depth];
-    if (params === undefined) {
-        params = createPassParams();
-        pool[depth] = params;
-    }
-    return params;
 }
 
 /**
@@ -37878,6 +39485,8 @@ function paramsAt$1(pool, depth) {
  * Nothing here touches WebGPU. The patched-program cache is keyed by the patched fragment source so
  * hovering the same expression across frames reuses one program.
  */
+/** The probe uploads each group as soon as it captures it, so one slot serves every group. */
+const _probeCaptures = [];
 /** Split the emitter's combined `code` into vertex + fragment; returns the VERTEX source only. */
 function extractVertexSrc(code) {
     const idx = code.indexOf(FRAGMENT_STAGE_MARKER);
@@ -38023,9 +39632,9 @@ function renderProbe(gl, state, caches, frame, ro, patchedFragment) {
     gl.disable(gl.CULL_FACE);
     gl.disable(gl.BLEND);
     gl.useProgram(p.program);
-    // Update + bind each uniform group's std140 UBO exactly as the normal draw does. The groups were
-    // already updated this frame by the main render; the update-type gate keeps shared groups from
-    // re-running, and packs+uploads this probe program's own binding points.
+    // Capture + upload + bind each uniform group's std140 UBO as the normal draw does, but at once: the
+    // probe draws now rather than in a recorded pass. The groups were already updated this frame by the
+    // main render; the update-type gate keeps shared groups from re-running.
     const bindGroups = getBindings(ro);
     for (const bindGroup of bindGroups) {
         for (const binding of bindGroup.bindings) {
@@ -38034,11 +39643,12 @@ function renderProbe(gl, state, caches, frame, ro, patchedFragment) {
             const bindingPoint = p.uboBindingPoints.get(binding.block.groupName);
             if (bindingPoint === undefined)
                 continue;
-            updateAndBindUniformGroup(gl, caches, binding, frame, bindingPoint, ro.material);
+            captureUniformGroup(caches, binding, frame, bindingPoint, ro.material, _probeCaptures, 0);
+            uploadAndBindCapture(gl, caches, _probeCaptures[0], ro.material);
         }
     }
     // Textures + samplers → GL units + combined-sampler uniforms.
-    bindTextures(gl, caches, ro, programInfo);
+    bindTextures(gl, caches, ro, programInfo, null);
     // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
     const drawInfo = prepareGeometry(gl, caches, geometry, nodeState, p.program);
     gl.bindVertexArray(drawInfo.vao);
@@ -38253,15 +39863,30 @@ class WebGLBackend {
     beginFrame() {
         beginFrame$1(this._frame);
     }
-    encodePass(desc, records, count) {
-        encodePass$1(this._frame, desc, records, count);
+    beginPass(desc) {
+        beginPass$2(this._frame, desc);
+    }
+    recordEntry(entry) {
+        recordEntry$1(this._frame, entry);
+    }
+    beginTransformFeedbackPass(desc) {
+        beginTransformFeedbackPass(this._frame);
+    }
+    recordTransformFeedback(record) {
+        recordTransformFeedback(this._frame, record);
+    }
+    /** Compute is WebGPU's; the frame refuses a compute pass on this backend before it records. */
+    beginComputePass(_desc) { }
+    recordDispatch(_record) { }
+    encodePass(desc) {
+        encodePass$1(this._frame, desc);
     }
     /** Unreachable: `frame.compute()` rejects this backend by name before a dispatch can be recorded. */
     encodeComputePass() {
         throw new Error('[webgl] compute shaders are WebGPU-only');
     }
-    encodeTransformFeedbackPass(desc, records, count) {
-        encodeTransformFeedbackPass(this._frame, desc, records, count);
+    encodeTransformFeedbackPass(desc) {
+        encodeTransformFeedbackPass(this._frame, desc);
     }
     submitFrame() {
         submitFrame$1(this._frame);
@@ -38468,39 +40093,65 @@ function isFilterableStorageFormat(format) {
 function compileComputePipeline(device, pipelines, nodes, computeNode, computeContext, promises) {
     getForCompute(pipelines, device, nodes, computeNode, computeContext, promises);
 }
+/** One dynamic offset, reused so binding a uniform block at its offset allocates nothing. */
+const _dynamicOffset$1 = /*@__PURE__*/ new Uint32Array(1);
+function createResolvedDispatch(node) {
+    return {
+        node,
+        pipeline: null,
+        bindings: { groups: [], offsets: [] },
+        workgroups: [0, 0, 0],
+        indirect: null,
+        indirectOffset: 0,
+    };
+}
+/**
+ * Resolves a dispatch at the call that recorded it: its pipeline, its node updates, and its uniforms
+ * and bind groups, so it runs with the values set before that call.
+ */
+function resolveDispatch(b, nodes, computeContext, entry, out, inspector, mipDirty) {
+    const pipelineEntry = getForCompute(b.pipelines, b.device, nodes, entry.node, computeContext);
+    const { nodeBuilderState } = pipelineEntry;
+    // Track written storage textures (with mips + auto-update) for post-submit mip regen.
+    for (const bg of nodeBuilderState.bindings) {
+        for (const binding of bg.bindings) {
+            if (binding.kind !== 'storageTexture' || binding.entry.access === 'read')
+                continue;
+            const tex = binding.entry.node.value;
+            if (tex && tex.mipmapsAutoUpdate && tex.mipLevelCount > 1)
+                mipDirty.add(tex);
+        }
+    }
+    if (inspector)
+        inspector.perf.start('updateForCompute');
+    updateForCompute(nodes, entry.node);
+    if (inspector)
+        inspector.perf.end('updateForCompute');
+    updateComputeBindings(b, nodeBuilderState, nodes.nodeFrame, entry.buffers ?? null, out.bindings);
+    out.node = entry.node;
+    out.pipeline = pipelineEntry.pipeline;
+    if (entry.indirect) {
+        out.indirect = entry.indirect;
+        out.indirectOffset = entry.indirectOffset ?? 0;
+    }
+    else {
+        out.indirect = null;
+        out.workgroups[0] = entry.counts[0];
+        out.workgroups[1] = entry.counts[1];
+        out.workgroups[2] = entry.counts[2];
+    }
+}
 /** An inspector splits the batch one pass per entry: `timestampWrites` is a pass-descriptor field. */
-function encodeDispatches(b, nodes, computeContext, encoder, entries, count, label, inspector, mipDirty) {
-    const { device, pipelines, buffers } = b;
-    const frame = nodes.nodeFrame;
+function encodeDispatches(b, encoder, resolved, count, label, inspector) {
+    const { device, buffers } = b;
     const sharedPass = inspector === null ? encoder.beginComputePass({ label }) : null;
     let currentPipeline = null;
     for (let i = 0; i < count; i++) {
-        const entry = entries[i];
-        const { node } = entry;
-        const pipelineEntry = getForCompute(pipelines, device, nodes, node, computeContext);
-        const { nodeBuilderState } = pipelineEntry;
-        const entryBuffers = entry.buffers ?? null;
-        // Track written storage textures (with mips + auto-update) for post-submit mip regen.
-        for (const bg of nodeBuilderState.bindings) {
-            for (const b of bg.bindings) {
-                if (b.kind !== 'storageTexture' || b.entry.access === 'read')
-                    continue;
-                const tex = b.entry.node.value;
-                if (tex && tex.mipmapsAutoUpdate && tex.mipLevelCount > 1)
-                    mipDirty.add(tex);
-            }
-        }
-        if (inspector) {
-            inspector.perf.start(`compute: ${node.id}`);
-            inspector.perf.start('updateForCompute');
-        }
-        updateForCompute(nodes, node);
-        if (inspector)
-            inspector.perf.end('updateForCompute');
-        const gpuBindGroups = updateComputeBindings(b, nodeBuilderState, frame, entryBuffers);
+        const { node, pipeline, bindings, workgroups, indirect } = resolved[i];
         // Notify inspector before creating pass (so timestamp writes are available)
         let timestampWrites;
         if (inspector) {
+            inspector.perf.start(`compute: ${node.id}`);
             inspector.beginCompute(node);
             // key must match beginCompute's entry name (node.name ?? id) so the
             // timestamp writes land on the right slot for labelled compute nodes.
@@ -38511,20 +40162,27 @@ function encodeDispatches(b, nodes, computeContext, encoder, entries, count, lab
             computePass = encoder.beginComputePass({ label, timestampWrites });
             currentPipeline = null;
         }
-        if (currentPipeline !== pipelineEntry.pipeline) {
-            currentPipeline = pipelineEntry.pipeline;
+        if (currentPipeline !== pipeline) {
+            currentPipeline = pipeline;
             computePass.setPipeline(currentPipeline);
         }
-        for (let group = 0; group < gpuBindGroups.length; group++) {
-            computePass.setBindGroup(group, gpuBindGroups[group]);
+        const { groups, offsets } = bindings;
+        for (let group = 0; group < groups.length; group++) {
+            const dynamicOffset = offsets[group];
+            if (dynamicOffset < 0) {
+                computePass.setBindGroup(group, groups[group]);
+            }
+            else {
+                _dynamicOffset$1[0] = dynamicOffset;
+                computePass.setBindGroup(group, groups[group], _dynamicOffset$1, 0, 1);
+            }
         }
-        if (entry.indirect) {
-            const gpuBuf = ensureUploaded$1(buffers, device, entry.indirect, 'indirect');
-            computeDispatchWorkgroupsIndirect(computePass, inspector, gpuBuf, entry.indirectOffset ?? 0);
+        if (indirect !== null) {
+            const gpuBuf = ensureUploaded$1(buffers, device, indirect, 'indirect');
+            computeDispatchWorkgroupsIndirect(computePass, inspector, gpuBuf, resolved[i].indirectOffset);
         }
         else {
-            const [dx, dy, dz] = entry.counts;
-            computeDispatchWorkgroups(computePass, inspector, dx, dy, dz);
+            computeDispatchWorkgroups(computePass, inspector, workgroups[0], workgroups[1], workgroups[2]);
         }
         if (sharedPass === null)
             computePass.end();
@@ -38780,6 +40438,7 @@ function initRenderObject(b, nodes, renderObject, compile) {
     const gpu = getRenderObjectGpu(renderObjectGpuCache, renderObject);
     // A material or geometry version change moves the pipeline key, so the resolved pipeline is stale.
     if (!gpu.pipeline || stale) {
+        assertDynamicUniformLimit(device, getBindings(renderObject), pipelineName(renderObject));
         // Create pipeline using the unified pipelines system (sync)
         const entry = getForRender(pipelinesState, device, renderObject, bindGroupLayouts, null);
         gpu.pipeline = entry.pipeline;
@@ -38795,8 +40454,8 @@ function initRenderObject(b, nodes, renderObject, compile) {
  * - Update uniform buffers
  * - Rebuild bind groups if needed
  */
-function updateRenderObject(b, renderObject, frame) {
-    updateRenderBindings(b, renderObject, frame);
+function updateRenderObject(b, renderObject, frame, out) {
+    updateRenderBindings(b, renderObject, frame, out);
     updateForRender(b, renderObject);
 }
 /** `initRenderObject` for the pre-warm: pipeline compilation is pushed onto `promises` instead of awaited. */
@@ -38826,6 +40485,7 @@ function initRenderObjectWithPromises(b, nodes, renderObject, promises, compile)
     const gpu = getRenderObjectGpu(renderObjectGpuCache, renderObject);
     // A material or geometry version change moves the pipeline key, so the resolved pipeline is stale.
     if (!gpu.pipeline || stale) {
+        assertDynamicUniformLimit(device, getBindings(renderObject), pipelineName(renderObject));
         // Create pipeline asynchronously using the unified pipelines system
         const entry = getForRender(pipelinesState, device, renderObject, bindGroupLayouts, promises);
         // Pipeline will be set when promise resolves, but we track the entry
@@ -38840,11 +40500,15 @@ function initRenderObjectWithPromises(b, nodes, renderObject, promises, compile)
     updateForRender(b, renderObject);
     return true;
 }
+/** What a pipeline error names: the material, else the mesh drawing it. */
+function pipelineName(renderObject) {
+    return renderObject.material.name || renderObject.mesh.name || 'material';
+}
 
 /**
  * Compile the node graph and build the pipeline / bind group layouts / geometry for one render
- * object. Returns whether it is drawable (initialized, pipeline present, node state present). The
- * neutral collect/getRenderObject/updateBefore steps stay in the render-loop orchestration.
+ * object, or throw naming it. The neutral collect/getRenderObject/updateBefore steps stay in the
+ * render-loop orchestration.
  */
 function prepareRenderObject(b, nodes, renderObject) {
     const initialized = initRenderObject(b, nodes, renderObject, compileWgsl);
@@ -38853,7 +40517,6 @@ function prepareRenderObject(b, nodes, renderObject) {
         throw new Error(`[gpucat] '${renderObject.mesh.name || 'mesh'}' has no pipeline after init; returning false here ` +
             'drops it from the pass, which reads as a missing object rather than a failed compile.');
     }
-    return true;
 }
 /**
  * Pre-warm half of the renderer's `compile()`: kick off async pipeline compilation for one render
@@ -38902,8 +40565,10 @@ function uploadRenderObjectResources(b, renderObject, geometry, frame) {
     }
     // upload uniforms and rebuild bind groups
     // (must be after texture upload so bind groups can reference GPU resources)
-    updateRenderObject(b, renderObject, frame);
+    updateRenderObject(b, renderObject, frame, _prewarmBindings);
 }
+/** The pre-warm builds bind groups ahead of any draw, so what they resolve to has no draw to go to. */
+const _prewarmBindings = { groups: [], offsets: [] };
 
 // Canvas context — the renderer owns the WebGPU canvas context.
 /**
@@ -39183,7 +40848,7 @@ function resolveAttachments(b, params) {
         return resolveRenderTargetAttachments(device, textures, renderTarget, clearColor, params);
     return resolveSwapchainAttachments(b.canvasContexts, device, b.swapchain, b.format, clearColor, params);
 }
-function beginPass(b, params) {
+function beginPass$1(b, params) {
     const { colorAttachments, depthAttachment } = resolveAttachments(b, params);
     const inspector = b.renderer.inspector;
     const gpuPass = b._currentEncoder.beginRenderPass({
@@ -39222,8 +40887,6 @@ function encodeDraws(ctx, count, scope, segments) {
                 encodeDrawRange(ctx, start, end, scope);
                 continue;
             }
-            // Before the cache check: the refresh is what discovers a rebuilt bind group.
-            refreshBundledRange(ctx, start, end);
             scope.gpuPass.executeBundles([getOrRecordBundle(ctx, start, end, bundle)]);
             // A bundle sets its own pipeline and bindings, so what the pass had set no longer holds.
             resetCurrentSets(scope.currentSets);
@@ -39234,7 +40897,11 @@ function encodeDraws(ctx, count, scope, segments) {
 }
 /** A pass with no camera still needs a key at the camera level, and every such pass shares this one. */
 const CAMERALESS = {};
-/** Re-recorded on a miss or a version change. Camera is in the key because a recording bakes its view bindings in. */
+/**
+ * Re-recorded on a miss, a version change, or when what it baked no longer matches this frame's bindings.
+ * A dynamic uniform allocation follows the frame's order of draws, so a recording holds while that order does. Camera and occurrence are in the key so a bundle replayed under several cameras, or
+ * more than once under one, keeps a recording for each rather than overwriting a shared one.
+ */
 function getOrRecordBundle(ctx, from, to, bundle) {
     const { b, passCtx } = ctx;
     let byCamera = b.renderBundles.get(bundle);
@@ -39248,9 +40915,19 @@ function getOrRecordBundle(ctx, from, to, bundle) {
         byContext = new Map();
         byCamera.set(cameraKey, byContext);
     }
-    const cached = byContext.get(passCtx.id);
-    const rebuilds = b.bindings.bindGroupRebuilds;
-    if (cached !== undefined && cached.version === bundle.version && cached.rebuilds === rebuilds)
+    let slots = byContext.get(passCtx.id);
+    if (slots === undefined) {
+        slots = { frameId: -1, replays: 0, recordings: [] };
+        byContext.set(passCtx.id, slots);
+    }
+    const frameId = ctx.nodes.nodeFrame.frameId;
+    if (slots.frameId !== frameId) {
+        slots.frameId = frameId;
+        slots.replays = 0;
+    }
+    const occurrence = slots.replays++;
+    const cached = slots.recordings[occurrence];
+    if (cached !== undefined && cached.version === bundle.version && bakedBindingsMatch(ctx, from, to, cached))
         return cached.gpu;
     const encoder = b.device.createRenderBundleEncoder({
         label: bundle.label,
@@ -39259,34 +40936,53 @@ function getOrRecordBundle(ctx, from, to, bundle) {
         sampleCount: passCtx.sampleCount,
     });
     encodeDrawRange(ctx, from, to, { gpuPass: encoder, currentSets: createCurrentSets() });
-    const gpu = encoder.finish({ label: bundle.label });
-    byContext.set(passCtx.id, { gpu, version: bundle.version, rebuilds: b.bindings.bindGroupRebuilds });
-    return gpu;
+    const recorded = {
+        gpu: encoder.finish({ label: bundle.label }),
+        version: bundle.version,
+        bakedGroups: [],
+        bakedOffsets: [],
+    };
+    forEachDrawnBinding(ctx, from, to, (group, offset) => {
+        recorded.bakedGroups.push(group);
+        recorded.bakedOffsets.push(offset);
+    });
+    slots.recordings[occurrence] = recorded;
+    return recorded.gpu;
 }
-/** Replaying a bundle saves the encoding and not this, so both paths run it and it has one implementation. */
-function refreshDraw(ctx, index) {
-    const { b, nodes, preparedObjects, preparedOpts, inspector } = ctx;
-    const renderObject = preparedObjects[index];
-    const { mesh, material } = renderObject;
-    const opts = preparedOpts[index];
-    if ((opts?.instances ?? mesh.count) === 0 && (opts?.draws ?? mesh.draws) === undefined)
-        return false;
+function bakedBindingsMatch(ctx, from, to, recorded) {
+    let index = 0;
+    let matches = true;
+    forEachDrawnBinding(ctx, from, to, (group, offset) => {
+        if (recorded.bakedGroups[index] !== group || recorded.bakedOffsets[index] !== offset)
+            matches = false;
+        index++;
+    });
+    return matches && index === recorded.bakedGroups.length;
+}
+/** Every bind group and dynamic offset the draws in the range set, in draw then @group order. */
+function forEachDrawnBinding(ctx, from, to, visit) {
+    for (let index = from; index < to; index++) {
+        const { groups, offsets } = ctx.bindings[index];
+        for (let group = 0; group < groups.length; group++)
+            visit(groups[group], offsets[group]);
+    }
+}
+/**
+ * Runs a draw's node updates and resolves its uniforms and bind groups into `out`, at the call that
+ * recorded it, so the draw uses the values set before that call. A replayed bundle's draws resolve the
+ * same way when the bundle is executed: a replay saves the encoding, not this.
+ */
+function resolveDrawBindings(b, nodes, renderObject, out, inspector) {
     const frame = nodes.nodeFrame;
-    frame.object = mesh;
-    frame.material = material;
+    frame.object = renderObject.mesh;
+    frame.material = renderObject.material;
     frame.camera = renderObject.camera;
     updateForRender$1(nodes, renderObject);
     if (inspector)
         inspector.perf.start('updateForRender');
-    updateRenderObject(b, renderObject, frame);
+    updateRenderObject(b, renderObject, frame, out);
     if (inspector)
         inspector.perf.end('updateForRender');
-    return true;
-}
-/** What a replayed bundle still owes its draws, since `executeBundles` runs none of their update. */
-function refreshBundledRange(ctx, from, to) {
-    for (let index = from; index < to; index++)
-        refreshDraw(ctx, index);
 }
 /** A range, not the whole array, because a bundle is a contiguous slice of it recorded against its own encoder. */
 function encodeDrawRange(ctx, from, to, { gpuPass, currentSets }) {
@@ -39299,8 +40995,6 @@ function encodeDrawRange(ctx, from, to, { gpuPass, currentSets }) {
         const draws = opts?.draws ?? mesh.draws;
         const instances = opts?.instances ?? mesh.count;
         const range = opts?.range;
-        if (!refreshDraw(ctx, index))
-            continue;
         const gpu = getRenderObjectGpu(b.renderObjectGpu, renderObject);
         if (gpu.pipeline !== currentSets.pipeline) {
             passSetPipeline(gpuPass, inspector, gpu.pipeline, pipelineLabel(mesh, material));
@@ -39316,15 +41010,14 @@ function encodeDrawRange(ctx, from, to, { gpuPass, currentSets }) {
             gpuPass.setStencilReference(material.stencilRef);
             currentSets.stencilRef = material.stencilRef;
         }
-        const bindGroups = gpu.bindGroups;
-        const logicalBindGroups = renderObject._bindings;
-        if (bindGroups && logicalBindGroups) {
-            for (let i = 0; i < bindGroups.length; i++) {
-                const bindGroupId = logicalBindGroups[i]?.id ?? -1;
-                if (currentSets.bindingGroups[i] !== bindGroupId) {
-                    passSetBindGroup(gpuPass, inspector, i, bindGroups[i], mesh.name || '');
-                    currentSets.bindingGroups[i] = bindGroupId;
-                }
+        const { groups: bindGroups, offsets: dynamicOffsets } = ctx.bindings[index];
+        for (let i = 0; i < bindGroups.length; i++) {
+            const bindGroup = bindGroups[i];
+            const dynamicOffset = dynamicOffsets[i];
+            if (currentSets.bindGroups[i] !== bindGroup || currentSets.dynamicOffsets[i] !== dynamicOffset) {
+                passSetBindGroup(gpuPass, inspector, i, bindGroup, dynamicOffset, mesh.name || '');
+                currentSets.bindGroups[i] = bindGroup;
+                currentSets.dynamicOffsets[i] = dynamicOffset;
             }
         }
         let slot = 0;
@@ -39441,11 +41134,12 @@ function disposeSwapchain(b) {
 }
 /** tracks currently set GPU state to avoid redundant setBindGroup/setVertexBuffer/setIndexBuffer calls */
 function createCurrentSets() {
-    return { bindingGroups: [], attributes: [], index: null, pipeline: null, stencilRef: null };
+    return { bindGroups: [], dynamicOffsets: [], attributes: [], index: null, pipeline: null, stencilRef: null };
 }
 /** After a bundle replays, nothing the pass had set still holds. */
 function resetCurrentSets(sets) {
-    sets.bindingGroups.length = 0;
+    sets.bindGroups.length = 0;
+    sets.dynamicOffsets.length = 0;
     sets.attributes.length = 0;
     sets.index = null;
     sets.pipeline = null;
@@ -39459,8 +41153,17 @@ function passSetPipeline(pass, inspector, pipeline, label) {
     if (inspector)
         inspector.setPipeline(label);
 }
-function passSetBindGroup(pass, inspector, index, bindGroup, label) {
-    pass.setBindGroup(index, bindGroup);
+/** One dynamic offset, reused so binding a transient block allocates nothing. */
+const _dynamicOffset = /*@__PURE__*/ new Uint32Array(1);
+/** `dynamicOffset` is -1 for a group with no transient uniform block. */
+function passSetBindGroup(pass, inspector, index, bindGroup, dynamicOffset, label) {
+    if (dynamicOffset < 0) {
+        pass.setBindGroup(index, bindGroup);
+    }
+    else {
+        _dynamicOffset[0] = dynamicOffset;
+        pass.setBindGroup(index, bindGroup, _dynamicOffset, 0, 1);
+    }
     if (inspector)
         inspector.setBindGroup(index, label);
 }
@@ -39507,10 +41210,9 @@ function createWebGPUFrameBackendState(renderer, backend) {
     return {
         renderer,
         backend,
-        preparedByDepth: [],
-        preparedOptsByDepth: [],
-        segmentsByDepth: [],
-        paramsByDepth: [],
+        openByDepth: [],
+        openComputeByDepth: [],
+        computeDepth: 0,
         encodeContextsByDepth: [],
         depth: 0,
         mipTargets: new Set(),
@@ -39531,109 +41233,198 @@ function beginFrame(s) {
     renderer.inspector?.begin(frame.frameId);
     backend._currentEncoder = backend.device.createCommandEncoder();
 }
-function encodePass(s, desc, records, count) {
-    if (!usable(s))
-        return;
+/** Opens a render pass: its context and render scope are fixed here, before its first draw resolves. */
+function beginPass(s, desc) {
     const { renderer, backend } = s;
-    const nodeFrame = renderer._nodes.nodeFrame;
-    alignCameraToBackend(desc.camera, CoordinateSystem.WEBGPU);
-    if (desc.mrt !== undefined) {
-        const mrtTarget = renderTargetOf(desc.target);
-        if (mrtTarget === null) {
-            throw new Error('[frame] a pass with `mrt` needs a RenderTarget; the swapchain has one attachment');
+    // Everything that can throw runs before the pass takes its slot, so a refused pass leaves none behind.
+    if (usable(s)) {
+        alignCameraToBackend(desc.camera, CoordinateSystem.WEBGPU);
+        if (desc.mrt !== undefined) {
+            const mrtTarget = renderTargetOf(desc.target);
+            if (mrtTarget === null) {
+                throw new Error('[frame] a pass with `mrt` needs a RenderTarget; the swapchain has one attachment');
+            }
+            // Output names resolve against the target's texture names, which is the MRT contract.
+            desc.mrt.resolveOutputs((name) => mrtTarget.getTextureIndex(name), mrtTarget.textures.map((t) => t.name));
         }
-        // Output names resolve against the target's texture names, which is the MRT contract.
-        desc.mrt.resolveOutputs((name) => mrtTarget.getTextureIndex(name), mrtTarget.textures.map((t) => t.name));
+        const canvasTarget = renderTargetOf(desc.target) === null ? desc.target : null;
+        if (canvasTarget?.autoResize)
+            canvasTarget.syncToClientSize();
     }
-    const canvasTarget = renderTargetOf(desc.target) === null ? desc.target : null;
-    if (canvasTarget?.autoResize)
-        canvasTarget.syncToClientSize();
-    const ctx = resolvePassContext(renderer._renderContexts, desc);
-    const params = resolvePassParams(desc, paramsAt(s.paramsByDepth, s.depth));
-    if (params.width === 0 || params.height === 0)
-        return; // hidden or minimized canvas
+    const open = openAt(s.openByDepth, s.depth++, desc, resolvePassContext(renderer._renderContexts, desc));
+    if (!usable(s)) {
+        renderer.inspector?.skipRecordedPass('device lost');
+        return;
+    }
+    open.params = resolvePassParams(desc, open.params);
+    if (open.params.width === 0 || open.params.height === 0) {
+        renderer.inspector?.skipRecordedPass('zero-size target, a hidden or minimized canvas');
+        return;
+    }
+    open.skipped = false;
     renderer.info.render.calls++;
     renderer.info.render.frameCalls++;
     // Fresh per pass, so RENDER-scope node updates run once per pass rather than once per frame.
-    const previousRenderId = nodeFrame.beginRender();
+    open.previousRenderId = renderer._nodes.nodeFrame.beginRender();
     incrementCallId(backend.geometries);
-    aimNodeFrame(s.renderer, desc.camera ?? null, params.width, params.height);
-    renderer.inspector?.beginRender(params.passId);
+    aimNodeFrame(renderer, desc.camera ?? null, open.params.width, open.params.height);
+    renderer.inspector?.beginRender(open.params.passId);
+    backend.device.pushErrorScope('validation');
+}
+/** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded. */
+function recordEntry(s, entry) {
+    const depth = s.depth;
+    const open = s.openByDepth[depth - 1];
+    if (open.skipped)
+        return;
     try {
-        encodeOpenPass(s, desc, ctx, params, records, count);
+        if (entry.kind !== 'bundle') {
+            resolveDraw(s, open, entry);
+            return;
+        }
+        closeRun(open, null);
+        const { records, count } = entry.bundle;
+        for (let index = 0; index < count; index++)
+            resolveDraw(s, open, records[index]);
+        closeRun(open, entry.bundle);
     }
-    finally {
-        // One bracket for the pass, so a throw anywhere inside it still closes the render scope and
-        // the inspector's pass rather than leaving both open for the rest of the frame.
-        renderer.inspector?.finishRender(params.passId);
-        nodeFrame.endRender(previousRenderId);
+    catch (error) {
+        // A throw inside a nested pass (a render texture's contents) left it begun; this pass records on.
+        unwindTo(s, depth);
+        throw error;
     }
 }
-function encodeOpenPass(s, desc, ctx, params, records, count) {
+/** Closes every pass begun above `depth` and not ended, so none holds its scopes past a throw. */
+function unwindTo(s, depth) {
+    while (s.depth > depth) {
+        const open = s.openByDepth[--s.depth];
+        if (!open.skipped && usable(s))
+            closePassScopes(s, open, open.params.passId);
+    }
+}
+function resolveDraw(s, open, entry) {
+    const { renderer, backend } = s;
+    const renderObject = prepareRecordedDraw(renderer, entry, open.params.camera, open.ctx, (nodes, object) => prepareRenderObject(backend, nodes, object));
+    if (drawsNothing(renderObject, entry.opts)) {
+        renderer.inspector?.resolvedDraw(renderObject, true);
+        return;
+    }
+    // A nested pass recorded by `updateBefore` aimed the frame at its own target.
+    aimNodeFrame(renderer, open.desc.camera ?? null, open.params.width, open.params.height);
+    const index = open.count++;
+    open.prepared[index] = renderObject;
+    open.preparedOpts[index] = entry.opts;
+    const bindings = bindingsAt(open.bindings, index);
+    resolveDrawBindings(backend, renderer._nodes, renderObject, bindings, renderer.inspector);
+    if (renderer.inspector !== null) {
+        keepProbeBindings(backend.renderObjectGpu, renderObject, bindings);
+        renderer.inspector.resolvedDraw(renderObject, false);
+    }
+}
+function keepProbeBindings(cache, renderObject, bindings) {
+    const gpu = getRenderObjectGpu(cache, renderObject);
+    gpu.probeBindings ??= { groups: [], offsets: [] };
+    gpu.probeBindings.groups.length = 0;
+    gpu.probeBindings.offsets.length = 0;
+    gpu.probeBindings.groups.push(...bindings.groups);
+    gpu.probeBindings.offsets.push(...bindings.offsets);
+}
+function closeRun(open, bundle) {
+    if (open.count === open.runStart)
+        return;
+    open.segments[open.segmentCount++] = { bundle, start: open.runStart, count: open.count - open.runStart };
+    open.runStart = open.count;
+}
+/** Encodes what the pass resolved, then closes the scopes `beginPass` opened. */
+function encodePass(s, desc) {
+    const open = s.openByDepth[--s.depth];
+    if (open.skipped)
+        return;
     const { renderer, backend } = s;
     // Read now: the params struct is pooled per depth, so a later pass owns it by the time this settles.
-    const passId = params.passId;
-    backend.device.pushErrorScope('validation');
+    const passId = open.params.passId;
     try {
-        const prepared = preparedAt(s.preparedByDepth, s.depth);
-        const preparedOpts = preparedAt(s.preparedOptsByDepth, s.depth);
-        const segments = preparedAt(s.segmentsByDepth, s.depth);
-        s.depth++;
-        let preparedCount = 0;
+        closeRun(open, null);
+        open.segments.length = open.segmentCount;
+        aimNodeFrame(renderer, desc.camera ?? null, open.params.width, open.params.height);
+        const scope = beginPass$1(backend, open.params);
         try {
-            preparedCount = prepareRecordedDraws(renderer, records, count, params.camera, ctx, renderer.inspector === null ? null : params.passId, (nodes, renderObject) => prepareRenderObject(backend, nodes, renderObject), prepared, preparedOpts, segments);
-        }
-        finally {
-            s.depth--;
-        }
-        // A nested pass prepared against its own target, so restore this one's view of the frame.
-        aimNodeFrame(s.renderer, desc.camera ?? null, params.width, params.height);
-        const scope = beginPass(backend, params);
-        try {
-            if (preparedCount > 0) {
-                const encodeContext = contextAt(s, ctx, params, prepared, preparedOpts);
-                encodeDraws(encodeContext, preparedCount, scope, segments);
-            }
+            if (open.count > 0)
+                encodeDraws(contextAt(s, open), open.count, scope, open.segments);
         }
         finally {
             endPass(scope);
         }
     }
     finally {
-        backend._pendingValidation.push(backend.device.popErrorScope().then((err) => {
-            if (err) {
-                const message = `[WebGPU render validation error] pass '${passId}': ${err.message}`;
-                console.error(message);
-                backend._validationErrors.push(message);
-            }
-        }));
+        closePassScopes(s, open, passId);
     }
     const renderTarget = renderTargetOf(desc.target);
     if (renderTarget?.textures.some((tex) => tex.generateMipmaps))
         s.mipTargets.add(renderTarget);
 }
-function encodeComputePass(s, desc, records, count) {
-    if (count === 0 || !usable(s))
+/** Pops the validation scope, inspector bracket and render scope an unskipped `beginPass` pushed. */
+function closePassScopes(s, open, passId) {
+    const { renderer, backend } = s;
+    backend._pendingValidation.push(backend.device.popErrorScope().then((err) => {
+        if (err) {
+            const message = `[WebGPU render validation error] pass '${passId}': ${err.message}`;
+            console.error(message);
+            backend._validationErrors.push(message);
+        }
+    }));
+    renderer.inspector?.finishRender(passId);
+    renderer._nodes.nodeFrame.endRender(open.previousRenderId);
+}
+/** Opens a compute pass; its validation scope covers the dispatches as they resolve. */
+function beginComputePass(s, desc) {
+    const open = openComputeAt(s.openComputeByDepth, s.computeDepth++, desc);
+    if (!usable(s)) {
+        s.renderer.inspector?.skipRecordedPass('device lost');
+        return;
+    }
+    open.skipped = false;
+    s.renderer.inspector?.perf.start(desc.label ?? 'compute');
+    s.backend.device.pushErrorScope('validation');
+}
+/** Resolves a recorded dispatch into the compute pass being recorded. */
+function recordDispatch(s, record) {
+    const open = s.openComputeByDepth[s.computeDepth - 1];
+    if (open.skipped)
+        return;
+    const { renderer, backend } = s;
+    const resolved = resolvedAt(open.resolved, open.count, record.node);
+    resolveDispatch(backend, renderer._nodes, renderer._computeContext, record, resolved, renderer.inspector, s.mipTextures);
+    open.count++;
+}
+/** Encodes what the pass resolved, then closes the scope `beginComputePass` opened. */
+function encodeComputePass(s, desc) {
+    const open = s.openComputeByDepth[--s.computeDepth];
+    if (open.skipped)
         return;
     const { renderer, backend } = s;
     const label = desc.label ?? 'compute';
-    renderer.info.compute.calls++;
-    renderer.info.compute.frameCalls++;
-    renderer.inspector?.perf.start(label);
-    backend.device.pushErrorScope('validation');
     try {
-        encodeDispatches(backend, renderer._nodes, renderer._computeContext, backend._currentEncoder, records, count, label, renderer.inspector, s.mipTextures);
+        if (open.count > 0) {
+            renderer.info.compute.calls++;
+            renderer.info.compute.frameCalls++;
+            encodeDispatches(backend, backend._currentEncoder, open.resolved, open.count, label, renderer.inspector);
+        }
     }
     finally {
-        backend._pendingValidation.push(backend.device.popErrorScope().then((err) => {
-            if (err) {
-                const message = `[WebGPU compute validation error] pass '${label}': ${err.message}`;
-                console.error(message);
-                backend._validationErrors.push(message);
-            }
-        }));
-        renderer.inspector?.perf.end(label);
+        closeComputeScopes(s, label);
     }
+}
+function closeComputeScopes(s, label) {
+    const { renderer, backend } = s;
+    backend._pendingValidation.push(backend.device.popErrorScope().then((err) => {
+        if (err) {
+            const message = `[WebGPU compute validation error] pass '${label}': ${err.message}`;
+            console.error(message);
+            backend._validationErrors.push(message);
+        }
+    }));
+    renderer.inspector?.perf.end(label);
 }
 function submitFrame(s) {
     if (!usable(s))
@@ -39652,9 +41443,13 @@ function submitFrame(s) {
     s.mipTargets.clear();
     regenerateComputeMips(backend.device, backend.textures, s.mipTextures, backend._currentEncoder);
     s.mipTextures.clear();
+    // The dynamic uniform copies go first in the same submit, so every pass reads its allocation.
+    const dynamicUniformCopies = submitDynamicUniforms(backend.buffers, backend.device);
     backend.device.pushErrorScope('validation');
     try {
-        backend.device.queue.submit([backend._currentEncoder.finish()]);
+        const frameCommands = backend._currentEncoder.finish();
+        backend.device.queue.submit(dynamicUniformCopies === null ? [frameCommands] : [dynamicUniformCopies, frameCommands]);
+        onDynamicUniformsSubmitted(backend.buffers);
     }
     finally {
         backend._pendingValidation.push(backend.device.popErrorScope().then((err) => {
@@ -39669,35 +41464,93 @@ function submitFrame(s) {
     renderer.inspector?.finish(renderer._nodes.nodeFrame.frameId);
 }
 function discardFrame(s) {
+    // A pass begun and never ended still holds its scopes; close them so none outlives the frame.
+    unwindTo(s, 0);
+    while (s.computeDepth > 0) {
+        const open = s.openComputeByDepth[--s.computeDepth];
+        if (!open.skipped && usable(s))
+            closeComputeScopes(s, open.desc.label ?? 'compute');
+    }
     if (!usable(s))
         return;
     const { renderer, backend } = s;
     backend._currentEncoder = null;
+    rewindDynamicUniforms(backend.buffers);
     s.mipTargets.clear();
     s.mipTextures.clear();
     renderer.inspector?.finish(renderer._nodes.nodeFrame.frameId);
 }
-/** Grows to the nesting depth in use and never shrinks, like the prepared lists beside it. */
-function paramsAt(pool, depth) {
-    let params = pool[depth];
-    if (params === undefined) {
-        params = createPassParams();
-        pool[depth] = params;
+/** The pass slot at `depth`, reset for `desc`. Grows to the nesting depth in use and never shrinks. */
+function openAt(pool, depth, desc, ctx) {
+    let open = pool[depth];
+    if (open === undefined) {
+        open = {
+            desc,
+            ctx,
+            params: createPassParams(),
+            skipped: true,
+            previousRenderId: 0,
+            prepared: [],
+            preparedOpts: [],
+            bindings: [],
+            count: 0,
+            segments: [],
+            segmentCount: 0,
+            runStart: 0,
+        };
+        pool[depth] = open;
     }
-    return params;
+    open.desc = desc;
+    open.ctx = ctx;
+    open.skipped = true;
+    open.count = 0;
+    open.segmentCount = 0;
+    open.runStart = 0;
+    return open;
+}
+/** The compute pass slot at `depth`, reset for `desc`. Grows to the nesting depth in use and never shrinks. */
+function openComputeAt(pool, depth, desc) {
+    let open = pool[depth];
+    if (open === undefined) {
+        open = { desc, skipped: true, resolved: [], count: 0 };
+        pool[depth] = open;
+    }
+    open.desc = desc;
+    open.skipped = true;
+    open.count = 0;
+    return open;
+}
+/** Grows to the dispatches a pass has held and never shrinks, so a steady frame allocates none. */
+function resolvedAt(pool, index, node) {
+    let resolved = pool[index];
+    if (resolved === undefined) {
+        resolved = createResolvedDispatch(node);
+        pool[index] = resolved;
+    }
+    return resolved;
+}
+/** Grows to the draws a pass has held and never shrinks, so a steady frame allocates none. */
+function bindingsAt(pool, index) {
+    let bindings = pool[index];
+    if (bindings === undefined) {
+        bindings = { groups: [], offsets: [] };
+        pool[index] = bindings;
+    }
+    return bindings;
 }
 /** The draw loop's fixed half, pooled per nesting depth and refilled: a nested pass has its own. */
-function contextAt(s, passCtx, params, preparedObjects, preparedOpts) {
+function contextAt(s, open) {
     const { renderer, backend } = s;
     let ctx = s.encodeContextsByDepth[s.depth];
     if (ctx === undefined) {
         ctx = {
             b: backend,
             nodes: renderer._nodes,
-            passCtx,
-            params,
-            preparedObjects,
-            preparedOpts,
+            passCtx: open.ctx,
+            params: open.params,
+            preparedObjects: open.prepared,
+            preparedOpts: open.preparedOpts,
+            bindings: open.bindings,
             inspector: null,
             info: renderer.info,
         };
@@ -39705,10 +41558,11 @@ function contextAt(s, passCtx, params, preparedObjects, preparedOpts) {
     }
     ctx.b = backend;
     ctx.nodes = renderer._nodes;
-    ctx.passCtx = passCtx;
-    ctx.params = params;
-    ctx.preparedObjects = preparedObjects;
-    ctx.preparedOpts = preparedOpts;
+    ctx.passCtx = open.ctx;
+    ctx.params = open.params;
+    ctx.preparedObjects = open.prepared;
+    ctx.preparedOpts = open.preparedOpts;
+    ctx.bindings = open.bindings;
     ctx.inspector = renderer.inspector;
     ctx.info = renderer.info;
     return ctx;
@@ -39792,7 +41646,7 @@ class WebGPUBackend {
     /** @internal */ bindings = createBindingsState$1(this.bindGroupLayoutCache);
     /** @internal */ renderObjectGpu = createRenderObjectGpuCache();
     /** @internal */ geometries = createGeometriesState();
-    /** Per (bundle, camera, render context); here rather than on the neutral bundle, which may name no device object. @internal */
+    /** Per (bundle, camera, render context, replay in the frame); here rather than on the neutral bundle, which may name no device object. @internal */
     renderBundles = new WeakMap();
     /** @internal */ canvasContexts = new WeakMap();
     /** @internal */ swapchain = createSwapchainState();
@@ -39860,14 +41714,28 @@ class WebGPUBackend {
     beginFrame() {
         beginFrame(this._frame);
     }
-    encodePass(desc, records, count) {
-        encodePass(this._frame, desc, records, count);
+    beginPass(desc) {
+        beginPass(this._frame, desc);
     }
-    encodeComputePass(desc, records, count) {
-        encodeComputePass(this._frame, desc, records, count);
+    recordEntry(entry) {
+        recordEntry(this._frame, entry);
     }
-    /** Unreachable: `frame.transformFeedback()` rejects this backend before a pass can open. */
-    /** Unreachable: `frame.transformFeedback()` rejects this backend by name before a dispatch can be recorded. */
+    encodePass(desc) {
+        encodePass(this._frame, desc);
+    }
+    beginComputePass(desc) {
+        beginComputePass(this._frame, desc);
+    }
+    recordDispatch(record) {
+        recordDispatch(this._frame, record);
+    }
+    /** Transform feedback is WebGL2's; the frame refuses one on this backend before it records. */
+    beginTransformFeedbackPass(_desc) { }
+    recordTransformFeedback(_record) { }
+    encodeComputePass(desc) {
+        encodeComputePass(this._frame, desc);
+    }
+    /** Unreachable: `frame.transformFeedback()` rejects this backend by name before a pass can open. */
     encodeTransformFeedbackPass() {
         throw new Error('[webgpu] transform feedback is WebGL2-only');
     }
@@ -39917,6 +41785,9 @@ class WebGPUBackend {
         memory.backend.renderPipelines = pipelines.renderCount;
         memory.backend.computePipelines = pipelines.computeCount;
         memory.backend.bindGroupLayouts = getBindGroupLayoutCacheStats(this.bindGroupLayoutCache).layoutCount;
+        const dynamicUniforms = getDynamicUniformStats(this.buffers);
+        memory.backend.dynamicUniformBuffers = dynamicUniforms.gpuBuffers;
+        memory.backend.dynamicUniformStaging = dynamicUniforms.stagingBuffers;
     }
     dispose() {
         disposeSwapchain(this);
@@ -39998,8 +41869,18 @@ class ArrayTexture {
     _gpuTexture;
     /** The underlying sampler */
     _gpuSampler;
-    /** Optional name for debugging */
-    name = '';
+    /**
+     * Optional name for debugging. Also the identifier this texture reads under in emitted shader
+     * source, and its `GPUTexture.label` in devtools. Forwards to the underlying `GpuTexture` — the
+     * single source of truth the backends and the emitters read — so setting it on the wrapper at any
+     * point takes effect, exactly as `isRenderTargetTexture` does.
+     */
+    get name() {
+        return this._gpuTexture.label ?? '';
+    }
+    set name(value) {
+        this._gpuTexture.label = value || undefined;
+    }
     /**
      * Constructs a new ArrayTexture.
      *
@@ -40227,8 +42108,18 @@ class DataTexture {
     _gpuTexture;
     /** The underlying sampler */
     _gpuSampler;
-    /** Optional name for debugging */
-    name = '';
+    /**
+     * Optional name for debugging. Also the identifier this texture reads under in emitted shader
+     * source, and its `GPUTexture.label` in devtools. Forwards to the underlying `GpuTexture` — the
+     * single source of truth the backends and the emitters read — so setting it on the wrapper at any
+     * point takes effect, exactly as `isRenderTargetTexture` does.
+     */
+    get name() {
+        return this._gpuTexture.label ?? '';
+    }
+    set name(value) {
+        this._gpuTexture.label = value || undefined;
+    }
     /**
      * Constructs a new DataTexture.
      *
@@ -40547,8 +42438,18 @@ class Data3DTexture {
     _gpuTexture;
     /** The underlying sampler */
     _gpuSampler;
-    /** Optional name for debugging */
-    name = '';
+    /**
+     * Optional name for debugging. Also the identifier this texture reads under in emitted shader
+     * source, and its `GPUTexture.label` in devtools. Forwards to the underlying `GpuTexture` — the
+     * single source of truth the backends and the emitters read — so setting it on the wrapper at any
+     * point takes effect, exactly as `isRenderTargetTexture` does.
+     */
+    get name() {
+        return this._gpuTexture.label ?? '';
+    }
+    set name(value) {
+        this._gpuTexture.label = value || undefined;
+    }
     /**
      * Constructs a new Data3DTexture.
      *

@@ -18,6 +18,7 @@ import type { RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
 import type { PreparedRenderObject, RenderPassParams } from '../core/render-types';
+import * as Bindings from './bindings';
 import type { WebGLBackend } from './webgl-backend';
 /**
  * How the pass's single GL blend state is chosen.
@@ -41,5 +42,10 @@ export type PassScope = {
 export declare function beginPass(caches: WebGLBackend, passCtx: RenderContext, params: RenderPassParams): PassScope;
 /** Unbinds the VAO so later buffer mutations cannot record into it, then resolves an MSAA target. */
 export declare function endPass(caches: WebGLBackend): void;
-export declare function encodeDraws(gl: WebGL2RenderingContext, caches: WebGLBackend, nodes: NodeManagerState, passCtx: RenderContext, params: RenderPassParams, prepared: readonly PreparedRenderObject[], preparedOpts: readonly (DrawOptions | null)[], count: number, inspector: InspectorBase | null, info: RendererInfo, { passBlend }: PassScope): void;
+/**
+ * Runs a draw's node updates and captures its uniforms and textures into `out`, at the call that
+ * recorded it, so the draw uses the values set before that call.
+ */
+export declare function captureDraw(caches: WebGLBackend, nodes: NodeManagerState, renderObject: PreparedRenderObject, out: Bindings.RecordCapture): void;
+export declare function encodeDraws(gl: WebGL2RenderingContext, caches: WebGLBackend, nodes: NodeManagerState, passCtx: RenderContext, params: RenderPassParams, prepared: readonly PreparedRenderObject[], preparedOpts: readonly (DrawOptions | null)[], captures: readonly Bindings.RecordCapture[], count: number, inspector: InspectorBase | null, info: RendererInfo, { passBlend }: PassScope): void;
 export {};

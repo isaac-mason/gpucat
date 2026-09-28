@@ -36,7 +36,7 @@ export { type BundleEncoder, bundle } from './renderer/core/bundle';
 export { type CanvasAlphaMode, type CanvasResizeEvent, CanvasTarget, type CanvasTargetOptions, createCanvasTarget, } from './renderer/core/canvas-target';
 export { compile, compileCompute } from './renderer/core/compile';
 export type { DeviceBackend } from './renderer/core/device-backend';
-export { type AnyPass, type BackendName, type BundleRecord, type ComputePass, type ComputePassDesc, type DispatchIndirectOptions, type DispatchOptions, type DispatchRecord, type DrawOptions, type DrawRecord, type Frame, type FrameBackend, frame, type Pass, type PassDesc, type PassEntry, type Rect, type RenderBundle, type TransformFeedbackDispatch, type TransformFeedbackPass, type TransformFeedbackPassDesc, type TransformFeedbackRecord, } from './renderer/core/frame';
+export { type AnyPass, type BackendName, type BundleRecord, type CallRecord, type ComputePass, type ComputePassDesc, type DispatchIndirectOptions, type DispatchOptions, type DispatchRecord, type DrawOptions, type DrawRecord, type Frame, type FrameBackend, frame, type Pass, type PassDesc, type PassEntry, type Rect, type RenderBundle, type TransformFeedbackDispatch, type TransformFeedbackPass, type TransformFeedbackPassDesc, type TransformFeedbackRecord, } from './renderer/core/frame';
 export { type BufferInfo, type BufferWrite, type ComputeInfo, type MemoryInfo, type RendererInfo, type RenderInfo, resetRendererInfo, } from './renderer/core/info';
 export { init } from './renderer/core/init';
 export type { NodeFrame } from './renderer/core/node-frame';

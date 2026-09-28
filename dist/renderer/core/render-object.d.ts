@@ -42,8 +42,6 @@ export type RenderObject = {
     camera: View;
     /** The render context (framebuffer config). */
     renderContext: RenderContext;
-    /** Label of the pass that last drew this, for the inspector only. Never part of the identity. */
-    lastPassLabel: string;
     /**
      * Compiled shader state.
      * null until first compilation.

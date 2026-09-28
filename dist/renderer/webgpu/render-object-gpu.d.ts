@@ -1,9 +1,9 @@
 /**
- * render-object-gpu.ts - WebGPU-owned per-draw device payload for RenderObjects.
+ * render-object-gpu.ts - WebGPU-owned device payload for RenderObjects.
  *
  * RenderObject (in core/) is backend-neutral and must not reference raw WebGPU
- * types. The per-draw GPU handles (pipeline, bind groups, resolved attribute
- * buffers) live here instead, keyed by RenderObject identity in a WeakMap -
+ * types. Its GPU pipeline lives here instead (bind groups are per draw, see
+ * `DrawBindings`), keyed by RenderObject identity in a WeakMap -
  * mirroring how GpuBuffer/GpuTexture keep their GPU handles in renderer-side
  * caches (see buffers.ts BufferCache).
  *
@@ -11,12 +11,12 @@
  * `_renderObjectGpu`), not a module-global.
  */
 import type { RenderObject } from '../core/render-object';
+import type { DrawBindings } from './bindings';
 /**
  * The WebGPU device payload for a single RenderObject.
  *
- * These fields used to live directly on RenderObject; they were relocated here
- * to keep raw GPU types (GPURenderPipeline, GPUBindGroup) out of the neutral
- * core type.
+ * This used to live directly on RenderObject; it was relocated here to keep raw
+ * GPU types out of the neutral core type.
  */
 export type RenderObjectGpu = {
     /**
@@ -25,10 +25,10 @@ export type RenderObjectGpu = {
      */
     pipeline: GPURenderPipeline | null;
     /**
-     * GPU bind groups [render, object, storage].
-     * null until bindings are created.
+     * A copy of what the object's most recent draw bound, kept only while an inspector is attached, for
+     * the pipeline probe that redraws it. Draw bindings themselves are pooled per pass and reused.
      */
-    bindGroups: GPUBindGroup[] | null;
+    probeBindings: DrawBindings | null;
 };
 /**
  * Per-renderer cache mapping RenderObject -> its WebGPU device payload.

@@ -2,7 +2,7 @@ import type { RenderTarget } from '../../core/render-target';
 import type { ComputeNode } from '../../nodes/nodes';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DeviceBackend } from '../core/device-backend';
-import type { ComputePassDesc, DispatchRecord, PassDesc, PassEntry, RenderBundle } from '../core/frame';
+import type { ComputePassDesc, DispatchRecord, PassDesc, PassEntry, RenderBundle, TransformFeedbackPassDesc, TransformFeedbackRecord } from '../core/frame';
 import * as Info from '../core/info';
 import type { RenderObject } from '../core/render-object';
 import type { RenderPassParams } from '../core/render-types';
@@ -54,12 +54,8 @@ export declare class WebGPUBackend implements DeviceBackend {
     /** @internal */ bindings: Bindings.BindingsState;
     /** @internal */ renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache;
     /** @internal */ geometries: Geometries.GeometriesState;
-    /** Per (bundle, camera, render context); here rather than on the neutral bundle, which may name no device object. @internal */
-    readonly renderBundles: WeakMap<RenderBundle, WeakMap<object, Map<number, {
-        gpu: GPURenderBundle;
-        version: number;
-        rebuilds: number;
-    }>>>;
+    /** Per (bundle, camera, render context, replay in the frame); here rather than on the neutral bundle, which may name no device object. @internal */
+    readonly renderBundles: WeakMap<RenderBundle, WeakMap<object, Map<number, RenderPass.BundleRecordings>>>;
     /** @internal */ readonly canvasContexts: WeakMap<CanvasTarget, GPUCanvasContext>;
     /** @internal */ readonly swapchain: RenderPass.SwapchainState;
     /** A frame is one command buffer; `beginFrame` opens the encoder. @internal */
@@ -80,10 +76,16 @@ export declare class WebGPUBackend implements DeviceBackend {
      */
     init(renderer: Renderer<DeviceBackend>): Promise<void>;
     beginFrame(): void;
-    encodePass(desc: PassDesc, records: readonly PassEntry[], count: number): void;
-    encodeComputePass(desc: ComputePassDesc, records: readonly DispatchRecord[], count: number): void;
-    /** Unreachable: `frame.transformFeedback()` rejects this backend before a pass can open. */
-    /** Unreachable: `frame.transformFeedback()` rejects this backend by name before a dispatch can be recorded. */
+    beginPass(desc: PassDesc): void;
+    recordEntry(entry: PassEntry): void;
+    encodePass(desc: PassDesc): void;
+    beginComputePass(desc: ComputePassDesc): void;
+    recordDispatch(record: DispatchRecord): void;
+    /** Transform feedback is WebGL2's; the frame refuses one on this backend before it records. */
+    beginTransformFeedbackPass(_desc: TransformFeedbackPassDesc): void;
+    recordTransformFeedback(_record: TransformFeedbackRecord): void;
+    encodeComputePass(desc: ComputePassDesc): void;
+    /** Unreachable: `frame.transformFeedback()` rejects this backend by name before a pass can open. */
     encodeTransformFeedbackPass(): never;
     submitFrame(): void;
     discardFrame(): void;

@@ -15,10 +15,23 @@
  * Hook call sites, all guarded by `if (inspector)` and all at a frame-API boundary:
  *   beginFrame             → inspector.begin(frameId)
  *   submitFrame / discard  → inspector.finish(frameId)
- *   encodePass             → inspector.beginRender(passId) / finishRender, one try/finally
+ *   beginPass / encodePass → inspector.beginRender(passId) / finishRender
  *   encodeComputePass      → inspector.beginCompute(node) / finishCompute
+ *   encodeTransformFeedbackPass → inspector.beginKernel(name) / finishKernel
  *   Node.inspect()         → inspector.inspect(node)
  *   drawScene()            → inspector.beginRenderScene(passId, scene, samples, colorFormat)
+ *
+ * What the frame was asked to do, in call order, from the frame API and the backend that resolves it:
+ *   frame.pass() / compute() / transformFeedback() → inspector.beginRecordedPass(kind, label)
+ *   a backend skipping that pass                    → inspector.skipRecordedPass(reason)
+ *   draw() / execute() / dispatch()                 → inspector.beginRecordedCall(record)
+ *   each draw resolved, a bundle's included         → inspector.resolvedDraw(renderObject, drawsNothing)
+ *   the call returning or throwing                  → inspector.endRecordedCall(error)
+ *   pass.end(), or a refused begin                  → inspector.endRecordedPass(error)
+ *
+ * GPU-work brackets, around the pass or dispatch itself rather than the work that prepares it:
+ *   webgl encodeOpenPass   → inspector.beginGpuWork(passId) / endGpuWork
+ *   webgl runTransformFeedback → inspector.beginGpuWork(name) / endGpuWork
  *
  * Per-draw-call hooks (inside a render pass):
  *   encodeDraws             → inspector.setPipeline(label)
@@ -35,6 +48,8 @@
  */
 import type { Object3D } from '../core/object3d';
 import type { ComputeNode, InspectorNode } from '../nodes/nodes';
+import type { AnyPass, CallRecord } from '../renderer/core/frame';
+import type { RenderObject } from '../renderer/core/render-object';
 import type { Renderer } from '../renderer/core/renderer';
 import type { WebGLBackend } from '../renderer/webgl/webgl-backend';
 import type { WebGPUBackend } from '../renderer/webgpu/webgpu-backend';
@@ -96,11 +111,40 @@ export declare class InspectorBase {
     /** Called after a compute dispatch. */
     finishCompute(_nodeId: string): void;
     /**
+     * Called before a kernel that runs GPU work without being a compute dispatch — WebGL2's
+     * transform-feedback kernels. Opens the same GPU-timed timeline entry `beginCompute` does,
+     * without the compute-node registry behind it (a `TransformFeedbackNode` is not a `ComputeNode`).
+     */
+    beginKernel(_name: string): void;
+    /** Called after a kernel opened with `beginKernel`. */
+    finishKernel(_name: string): void;
+    /**
+     * Marks where the GPU work for the open render pass or kernel of this name begins — the pass or
+     * dispatch itself, not the uploads and compiles that prepare it. WebGL opens its `TIME_ELAPSED`
+     * query here; WebGPU says the same thing declaratively through `getTimestampWrites` at pass
+     * creation, so the pair is a no-op there.
+     */
+    beginGpuWork(_name: string): void;
+    /** Closes the bracket opened by `beginGpuWork`. */
+    endGpuWork(_name: string): void;
+    /**
      * Called at the start of renderScene(), before the GPU pass begins.
      * Gives the inspector a reference to the scene being rendered, along with
      * the pipeline key parameters needed to retrieve compiled WGSL later.
      */
     beginRenderScene(_passId: string, _scene: Object3D, _samples: number, _colorFormat: string): void;
+    /** A pass opened, before its backend begins it. Passes nest: one may open while a call of another resolves. */
+    beginRecordedPass(_kind: AnyPass['kind'], _label: string): void;
+    /** The backend will resolve and encode nothing in the pass just begun, for this reason. */
+    skipRecordedPass(_reason: string): void;
+    /** A call is about to resolve. `record` is reused by the next call, so copy what you keep. */
+    beginRecordedCall(_record: CallRecord): void;
+    /** A draw of the open call resolved to `renderObject`; a bundle reports each of its draws. @internal */
+    resolvedDraw(_renderObject: RenderObject, _drawsNothing: boolean): void;
+    /** The open call finished resolving, or threw with `error`. */
+    endRecordedCall(_error: string | null): void;
+    /** The open pass ended, or its begin was refused with `error`. */
+    endRecordedPass(_error: string | null): void;
     /**
      * Called when a node marked with .inspect() is encountered during rendering.
      * Subclasses override this to register the node for Viewer tab preview.

@@ -22,6 +22,8 @@ import { type FnNode, type Node, type PrivateVarNode, type StackNode, type Struc
 import { SamplerNode, type TextureBindingNode, type TextureNode } from '../../lib/texture';
 import type { UniformGroup, UniformNode } from '../../lib/uniform';
 import type { VaryingNode } from '../../lib/varying';
+import { type NameScope } from '../names';
+import { Prec } from '../print';
 import type { TracedFn } from '../wgsl/emit';
 type ShaderStage = 'vertex' | 'fragment';
 /**
@@ -58,6 +60,9 @@ export type GlslBuildContext = {
     rawFnDefs: Map<string, WgslFunctionNodeRef>;
     structDefs: Map<string, StructDef<StructSchema>>;
     textures: Map<string, TextureBindingNode>;
+    textureNames: Map<string, string>;
+    uniformNames: Map<string, string>;
+    bindingNames: NameScope;
     textureSamplers: Map<string, SamplerNode<d.sampler | d.samplerComparison>>;
     flipYTextures: Set<string>;
     /** Which flip HELPER functions (`_flipY2f`/`_flipY2i`/`_flipYd`) were actually referenced this stage,
@@ -79,7 +84,13 @@ export type GlslBuildContext = {
     }>;
     builtins: Set<string>;
     nodeVars: Map<number, string>;
-    varCounter: number;
+    /** node.id -> binding strength of the expression string generateExpr() produced for it. */
+    precOf: Map<number, Prec>;
+    /** Identifiers taken in this emission scope: locals, loop counters, CSE locals, attributes, and
+     *  every global name already in scope (see {@link seedGlslGlobalNames}). */
+    names: NameScope;
+    /** Just the global half of the above, kept so a function body can start a fresh scope from it. */
+    globalNames: ReadonlySet<string>;
     indentLevel: number;
     code: string[];
     hoistBuffer: string[];
@@ -146,6 +157,12 @@ export declare function emitGlslModuleScopeVars(ctx: GlslBuildContext): string;
  * seam for the WebGL backend.
  */
 export declare function emitGlslRawFunctions(ctx: GlslBuildContext, allow?: Set<WgslFunctionNodeRef>): string;
+/**
+ * The fn names DIRECTLY called by a traced fn (via a Call node with an `fnNode`). Used to order
+ * definitions so callees precede callers — GLSL ES 3.00 requires definition-before-use, unlike WGSL
+ * (which allows out-of-order module functions). Discovery registers callers before callees, so without
+ * this reorder a `step` that calls `wrap` would emit `step` first and fail ("no matching function").
+ */
 /**
  * The DSL Fn names and raw (wgslFn/glslFn) functions reachable from a stage's root nodes, transitively
  * through called Fn bodies. Functions are emitted PER STAGE from this set (see the builder assembly) so

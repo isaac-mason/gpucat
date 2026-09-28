@@ -5,6 +5,7 @@ import type { RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
 import { type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
+import type { DrawBindings } from './bindings';
 import type { WebGPUBackend } from './webgpu-backend';
 /**
  * Get (or lazily create + configure) the WebGPU canvas context for a canvas target. Safe to call
@@ -93,10 +94,35 @@ export type EncodeContext = {
     params: RenderPassParams;
     preparedObjects: readonly PreparedRenderObject[];
     preparedOpts: readonly (DrawOptions | null)[];
+    /** What each prepared draw binds, resolved when it was recorded. */
+    bindings: readonly DrawBindings[];
     inspector: InspectorBase | null;
     info: RendererInfo;
 };
 export declare function encodeDraws(ctx: EncodeContext, count: number, scope: PassScope, segments: readonly PreparedSegment[]): void;
+/** A device bundle and the bind groups and dynamic offsets it baked, in draw then @group order. */
+export type RecordedBundle = {
+    gpu: GPURenderBundle;
+    version: number;
+    bakedGroups: GPUBindGroup[];
+    bakedOffsets: number[];
+};
+/**
+ * The recordings of one bundle under one camera and render context, one per replay in a frame. A camera
+ * moved between two passes replaying the same bundle binds different allocations in each, so the two
+ * need a recording apiece; keyed by occurrence, each holds frame to frame.
+ */
+export type BundleRecordings = {
+    frameId: number;
+    replays: number;
+    recordings: RecordedBundle[];
+};
+/**
+ * Runs a draw's node updates and resolves its uniforms and bind groups into `out`, at the call that
+ * recorded it, so the draw uses the values set before that call. A replayed bundle's draws resolve the
+ * same way when the bundle is executed: a replay saves the encoding, not this.
+ */
+export declare function resolveDrawBindings(b: WebGPUBackend, nodes: NodeManagerState, renderObject: PreparedRenderObject, out: DrawBindings, inspector: InspectorBase | null): void;
 /**
  * Release all device resources: the canvas context, swapchain textures, default placeholder
  * textures + samplers, mipmap state, pipeline caches, and (unless the device was pre-created) the
@@ -105,7 +131,8 @@ export declare function encodeDraws(ctx: EncodeContext, count: number, scope: Pa
 /** The per-canvas attachments this module allocated; the caches are each module's own to tear down. */
 export declare function disposeSwapchain(b: WebGPUBackend): void;
 type CurrentSets = {
-    bindingGroups: number[];
+    bindGroups: GPUBindGroup[];
+    dynamicOffsets: number[];
     attributes: (GPUBuffer | null)[];
     index: GPUBuffer | null;
     pipeline: GPURenderPipeline | null;

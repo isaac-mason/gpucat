@@ -51,6 +51,14 @@ export type BufferInfo = {
      */
     writeBytes: number;
     /**
+     * Uniform uses this frame that took a dynamic allocation, because an earlier pass or dispatch had
+     * already read their block's own buffer with different bytes. Zero while each block is used once a
+     * frame; a count that tracks pass or draw count points at a value changing between passes.
+     */
+    dynamicAllocations: number;
+    /** Bytes those allocations packed. */
+    dynamicAllocationBytes: number;
+    /**
      * Per-write records for this frame, when `detailedWrites` is on. Raw and
      * ungrouped ON PURPOSE: which axis is useful - material, usage, update scope -
      * is a presentation question, and baking one in here means every new question

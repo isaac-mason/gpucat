@@ -23,9 +23,11 @@
  * neighbour data as an explicit `DataTexture` referenced by the kernel's `textureLoad` — no hidden mirror.
  */
 import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { InspectorBase } from '../../inspector/inspector-base';
 import { type TransformFeedbackGlslResult } from '../../nodes/builder';
 import type { TransformFeedbackNode } from '../../nodes/lib/transform-feedback';
 import type { NodeFrame } from '../core/node-frame';
+import { type RecordCapture } from './bindings';
 import * as Buffers from './buffers';
 import type { ProgramInfo } from './programs';
 import type { WebGLBackend } from './webgl-backend';
@@ -59,10 +61,21 @@ export type TransformFeedbackRunOptions = {
     instanceCount?: number;
 };
 /**
- * Execute one transform-feedback dispatch: bind the kernel's input `GpuBuffer`s as attributes, its
- * output `GpuBuffer`s as the captured-varying targets, and run the kernel under `RASTERIZER_DISCARD`.
+ * Captures one recorded dispatch's uniform groups and texture values into `out`, at the call that
+ * recorded it, so it runs with the values set before that call. Values come from each uniform() node's
+ * `.uniform.value` (sourced exactly like the render path), re-packed every dispatch so per-dispatch
+ * uniforms (e.g. a `dt` timestep, or a step index in a loop) take effect. Groups whose members were all
+ * optimized out have no binding point and are skipped.
  */
-export declare function runTransformFeedback(gl: WebGL2RenderingContext, b: WebGLBackend, state: TransformFeedbackState, node: TransformFeedbackNode, opts: TransformFeedbackRunOptions, precision: 'highp' | 'mediump' | 'lowp' | undefined, frame: NodeFrame): void;
+export declare function captureTransformFeedback(gl: WebGL2RenderingContext, b: WebGLBackend, state: TransformFeedbackState, node: TransformFeedbackNode, precision: 'highp' | 'mediump' | 'lowp' | undefined, frame: NodeFrame, out: RecordCapture): void;
+/**
+ * Execute one transform-feedback dispatch: bind the kernel's input `GpuBuffer`s as attributes, its
+ * output `GpuBuffer`s as the captured-varying targets, and run the kernel under `RASTERIZER_DISCARD`,
+ * with the uniforms and textures its record captured.
+ */
+export declare function runTransformFeedback(gl: WebGL2RenderingContext, b: WebGLBackend, state: TransformFeedbackState, node: TransformFeedbackNode, opts: TransformFeedbackRunOptions, precision: 'highp' | 'mediump' | 'lowp' | undefined, capture: RecordCapture, inspector: InspectorBase | null, 
+/** The kernel entry this dispatch belongs to, so the GPU bracket lands on it. */
+inspectorName: string): void;
 /**
  * Get the plain GL buffer backing a GpuBuffer within this transform-feedback state, if one exists.
  * Used by the test harness (and Phase 3 `readBufferAsync`) to read back a TF output buffer. Returns

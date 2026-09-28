@@ -9,6 +9,7 @@
  *   - finish(frameId) seals the frame record and optionally resolves GPU timestamps.
  *   - beginRender/finishRender track CPU wall-time per render pass.
  *   - beginCompute/finishCompute track CPU wall-time per compute dispatch.
+ *   - the recorded-frame hooks build `FrameRecord.passes`: every pass and call the frame was asked for.
  *   - resolveFrame() returns the just-completed frame (fresh CPU/stats).
  *   - latestResolvedFrame() returns the newest frame whose async GPU
  *     timestamps have landed — what the live GPU-time display reads.
@@ -27,6 +28,8 @@
  */
 import type { Object3D } from '../core/object3d';
 import type { ComputeNode, InspectorNode } from '../nodes/nodes';
+import type { AnyPass, CallRecord } from '../renderer/core/frame';
+import type { RenderObject } from '../renderer/core/render-object';
 import type { Any } from '../schema/schema';
 import { type InspectableRenderer, InspectorBase } from './inspector-base';
 /** Base fields shared by all timeline entries */
@@ -87,6 +90,32 @@ export type SceneRecord = {
     /** Color attachment format used for pipeline key lookup. */
     colorFormat: string;
 };
+/** One call a pass recorded, and what became of it. @internal */
+export type RecordedCall = {
+    kind: CallRecord['kind'];
+    /** The mesh, bundle or kernel it names. */
+    name: string;
+    /** What it asked for beyond that: instances, a range, per-draw list, material override, workgroups. */
+    detail: string;
+    /** What each draw resolved to; a bundle has one per draw it resolved. Empty for a dispatch. */
+    renderObjects: RenderObject[];
+    /** Draws that resolved with no instances and no per-draw list, so nothing reached the GPU. */
+    emptyDraws: number;
+    /** The message it threw while resolving, or null. */
+    error: string | null;
+    /** Passes recorded while it resolved, such as a render texture its material samples. */
+    passes: RecordedPass[];
+};
+/** One pass the frame was asked for, with its calls in the order they were recorded. @internal */
+export type RecordedPass = {
+    kind: AnyPass['kind'];
+    label: string;
+    /** Why the backend resolved and encoded nothing in it, or null. */
+    skipped: string | null;
+    /** Why its begin was refused, or that it never ended, or null. */
+    error: string | null;
+    calls: RecordedCall[];
+};
 export type FrameRecord = {
     frameId: number;
     /** Total CPU time for the entire frame (begin→finish) in ms */
@@ -99,6 +128,8 @@ export type FrameRecord = {
     inspectableNodes: InspectorNode<Any>[];
     /** Scene render calls encountered this frame, one entry per renderScene() call. */
     scenes: SceneRecord[];
+    /** Every pass the frame was asked for, in call order; a nested pass sits under the call that opened it. */
+    passes: RecordedPass[];
 };
 export declare class RendererInspector extends InspectorBase {
     /** Rolling ring buffer of frame records. */
@@ -149,6 +180,10 @@ export declare class RendererInspector extends InspectorBase {
     private _currentQuerySlot;
     private _pendingInspectables;
     private _pendingScenes;
+    /** Top-level recorded passes this frame. */
+    private _recordedPasses;
+    /** The passes and calls open right now, innermost last. */
+    private _recordStack;
     private _entryStack;
     private _rootTimeline;
     private _entryRefs;
@@ -192,9 +227,35 @@ export declare class RendererInspector extends InspectorBase {
     finish(frameId: number): void;
     beginRender(passId: string): void;
     finishRender(passId: string): void;
+    /**
+     * The GPU work for the open entry of this name starts here. On WebGL that is the `TIME_ELAPSED`
+     * query: opened around the pass or dispatch itself, so the uploads and compiles that precede it
+     * are not charged to it — the same span WebGPU's `timestampWrites` covers, which is why the pair
+     * is a no-op on that backend.
+     */
+    beginGpuWork(name: string): void;
+    endGpuWork(name: string): void;
     getTimestampWrites(passId: string): GPURenderPassTimestampWrites | undefined;
     beginCompute(node: ComputeNode): void;
     finishCompute(nodeId: string): void;
+    /**
+     * A kernel that runs GPU work without being a compute dispatch — a WebGL2 transform-feedback
+     * kernel. Same GPU-timed entry a compute node gets, minus the `computeNodes` registration: that
+     * map is keyed by `ComputeNode` for the Compute Calls tab, and a `TransformFeedbackNode` is not
+     * one.
+     */
+    beginKernel(name: string): void;
+    finishKernel(name: string): void;
+    beginRecordedPass(kind: AnyPass['kind'], label: string): void;
+    skipRecordedPass(reason: string): void;
+    beginRecordedCall(record: CallRecord): void;
+    resolvedDraw(renderObject: RenderObject, drawsNothing: boolean): void;
+    endRecordedCall(error: string | null): void;
+    endRecordedPass(error: string | null): void;
+    /** The stack index of the innermost open pass, or call, or -1. */
+    private _innermostRecord;
+    /** Closes every recorded entry above `depth`, marking the passes among them as never ended. */
+    private _unwindRecordsTo;
     inspect(node: InspectorNode<Any>): void;
     beginRenderScene(passId: string, scene: Object3D, samples: number, colorFormat: string): void;
     /** Public API for adding performance markers from user code */
@@ -212,6 +273,8 @@ export declare class RendererInspector extends InspectorBase {
     };
     /** Push an entry onto the stack, nesting it under current parent if any */
     private _pushEntry;
+    /** The innermost entry still open under this name, the one a hook naming it refers to. */
+    private _openEntry;
     /** Finish an entry by name - calculates duration and pops from stack */
     private _finishEntry;
     /** Close the current top entry (used for unclosed entries at frame end) */
@@ -226,7 +289,10 @@ export declare class RendererInspector extends InspectorBase {
     latestResolvedFrame(): FrameRecord | null;
     /** Returns a slice of the last `count` frame records, oldest first. */
     getRecentFrames(count: number): FrameRecord[];
-    /** Collect all GPU entries (render/compute) from timeline tree, mapped by querySlot */
+    /** Collect all GPU entries (render/compute) from timeline tree, mapped by querySlot.
+     *  Slots past the query set's capacity are skipped — those passes carry no timestamp
+     *  writes (see `getTimestampWrites`), so resolving their slots would read past the
+     *  resolved range. */
     private _collectGpuEntries;
     /**
      * A free (unmapped) readback buffer for this frame's timestamps. Reuses a

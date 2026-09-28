@@ -466,17 +466,22 @@ export declare class LiteralNode<D extends Any> extends Node<D> {
     readonly kind = NodeKind.Literal;
     constructor(type: D, value: number | number[] | string);
 }
+/**
+ * `label` is what the author called the value, not its shader identifier — the emitters allocate that
+ * per function scope, so the same name can be requested twice without the graph having to disambiguate.
+ * Undefined for an unnamed `.toVar()` / `.toConst()`.
+ */
 export declare class LetNode<D extends Any> extends Node<D> {
-    readonly varName: string;
+    readonly label: string | undefined;
     readonly init: Node<D>;
     readonly kind = NodeKind.Let;
-    constructor(type: D, varName: string, init: Node<D>);
+    constructor(type: D, label: string | undefined, init: Node<D>);
 }
 export declare class VarNode<D extends Any> extends Node<D> {
-    readonly varName: string;
+    readonly label: string | undefined;
     readonly init: Node<D>;
     readonly kind = NodeKind.Var;
-    constructor(type: D, varName: string, init: Node<D>);
+    constructor(type: D, label: string | undefined, init: Node<D>);
 }
 /**
  * Module-scope private variable: `var<private> name: T [= init];`

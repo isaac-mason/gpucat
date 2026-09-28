@@ -12,11 +12,25 @@
  * for the texture and `entry.samplerNode.value` for the sampler — so the value resolution is shared,
  * only the GL binding is new here.
  */
+import type { GpuSampler } from '../../core/gpu-sampler';
+import type { GpuTexture } from '../../core/gpu-texture';
 import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
 import { type RenderObject } from '../core/render-object';
 import type { ProgramInfo } from './programs';
 import type { WebGLBackend } from './webgl-backend';
-export declare function bindTextures(gl: WebGL2RenderingContext, b: WebGLBackend, renderObject: RenderObject, programInfo: ProgramInfo): void;
+/**
+ * The texture and sampler values a draw binds, captured when it is recorded, one entry per texture binding
+ * in the order `bindTextures` walks them (a storage-lowered binding holds nulls: its buffer resolves from
+ * the geometry when the pass executes, like vertex data). Pooled per record.
+ */
+export type TextureCapture = {
+    textures: (GpuTexture | null)[];
+    samplers: (GpuSampler | null)[];
+};
+/** Captures what `renderObject`'s texture bindings hold now, so its draw binds the values set before it. */
+export declare function captureTextures(renderObject: RenderObject, out: TextureCapture): void;
+/** `capture` is what the draw recorded; null binds the live values (the inspector probe redraws now). */
+export declare function bindTextures(gl: WebGL2RenderingContext, b: WebGLBackend, renderObject: RenderObject, programInfo: ProgramInfo, capture: TextureCapture | null): void;
 /**
  * Bind a STANDALONE kernel's textures + samplers (transform feedback) into their assigned GL texture
  * units for `programInfo`. The kernel has no RenderObject/BindGroup, so the compiled `TextureEntry[]` /
@@ -26,4 +40,7 @@ export declare function bindTextures(gl: WebGL2RenderingContext, b: WebGLBackend
  * combined-sampler uniform `u_<textureId>` is set to that unit. The user binds neighbour data as an
  * explicit `DataTexture` referenced by the kernel's `textureLoad` — there is no hidden mirror.
  */
-export declare function bindStandaloneTextures(gl: WebGL2RenderingContext, b: WebGLBackend, textureEntries: readonly TextureEntry[], samplerEntries: readonly SamplerEntry[], programInfo: ProgramInfo): void;
+/** A standalone kernel's texture and sampler values, captured when its dispatch is recorded, in entry order. */
+export declare function captureStandaloneTextures(textureEntries: readonly TextureEntry[], samplerEntries: readonly SamplerEntry[], out: TextureCapture): void;
+/** `capture` holds the values the dispatch recorded, one per texture entry. */
+export declare function bindStandaloneTextures(gl: WebGL2RenderingContext, b: WebGLBackend, textureEntries: readonly TextureEntry[], programInfo: ProgramInfo, capture: TextureCapture): void;

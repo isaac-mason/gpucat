@@ -2,6 +2,7 @@ import type { GpuBuffer } from '../core/gpu-buffer';
 import type { NodeFrame } from '../renderer/core/node-frame';
 import type { StructSchema } from '../schema/schema';
 import * as d from '../schema/schema';
+import { type NameScope } from './backend/names';
 import { type TracedFn } from './backend/wgsl/emit';
 import type { AttributeNode } from './lib/attribute';
 import { type ComputeNode, type FnNode, type Node, type PrivateVarNode, type StructDef, type WorkgroupVarNode } from './lib/core';
@@ -139,14 +140,20 @@ export type StorageEntry = {
     binding: number;
 };
 export type TextureEntry = {
+    /** Identity: dedup key for bind groups and the emitter's texture table. Never a shader spelling. */
     textureId: string;
+    /** The identifier this binding is declared under in the emitted source (see `nameBindings`). */
+    shaderName: string;
     type: string;
     group: number;
     binding: number;
     node: TextureBindingNode;
 };
 export type StorageTextureEntry = {
+    /** Identity: dedup key for bind groups and the emitter's texture table. Never a shader spelling. */
     textureId: string;
+    /** The identifier this binding is declared under in the emitted source (see `nameBindings`). */
+    shaderName: string;
     /** Composed WGSL binding type, e.g. `texture_storage_2d<rgba8unorm, write>`. */
     type: string;
     format: d.StorageTextureFormat;
@@ -246,6 +253,15 @@ export type Discovery = {
     textures: Map<string, TextureBindingNode>;
     storageTextures: Map<string, StorageTextureBindingNode>;
     samplers: Map<string, SamplerNode>;
+    /** textureId -> shader identifier. See {@link nameBindings}. */
+    textureNames: Map<string, string>;
+    /** sampler settingsKey -> shader identifier. See {@link nameBindings}. */
+    samplerNames: Map<string, string>;
+    /** uniform identity name -> shader identifier (the block member). See {@link nameBindings}. */
+    uniformNames: Map<string, string>;
+    /** The scope those names were allocated from, kept so a binding first reached while emitting a
+     *  function body can allocate one too (discovery only sees the graph as written). */
+    bindingNames: NameScope;
     uniforms: Map<string, {
         node: UniformNode<d.Any>;
         group: UniformGroup;

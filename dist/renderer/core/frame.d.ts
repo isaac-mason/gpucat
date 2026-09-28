@@ -47,7 +47,7 @@ export type DrawOptions = {
     /** Draws the mesh with this material instead of its own, for this submission alone. */
     material?: Material;
 };
-/** One recorded draw. `kind` discriminates it from a bundle entry in the same pass array. */
+/** One recorded draw. `kind` discriminates it from a bundle entry, in a pass or a bundle's own list. */
 export type DrawRecord = {
     kind: 'draw';
     mesh: Mesh;
@@ -86,9 +86,9 @@ export type DispatchOptions = {
 export type DispatchIndirectOptions = DispatchOptions & {
     offset?: number;
 };
-/** Exactly one of `counts` and `indirect` is set, which `dispatch` and `dispatchIndirect` guarantee. */
 /** Exactly one of `counts` and `indirect`, as a union rather than a comment the reader has to trust. */
 export type DispatchRecord = DispatchOptions & {
+    kind: 'dispatch';
     node: ComputeNode;
 } & ({
     counts: [number, number, number];
@@ -100,17 +100,31 @@ export type DispatchRecord = DispatchOptions & {
     indirectOffset?: number;
 });
 /**
- * Encoding a pass is atomic: preparing its draws evaluates the node graph, which may open and close
- * further passes, so no GPU pass may be open across it. Both encoders read `records[0..count)`.
+ * A render pass is resolved as it is recorded and encoded when it ends. `beginPass` opens it,
+ * `recordEntry` resolves each draw (or bundle) at the call that recorded it, so it uses the values set
+ * before that call, and `encodePass` encodes what was resolved. Resolving evaluates the node graph,
+ * which may open and close further passes, so no GPU pass is open until `encodePass`.
+ *
+ * A record is handed over for the length of the call and reused for the next one, so the backend keeps
+ * whatever it needs from it rather than the record itself.
  */
 export type FrameBackend = {
     name: BackendName;
     /** The one canvas this backend's device can present to, or null when any canvas target is reachable. */
     deviceCanvasTarget: CanvasTarget | null;
     beginFrame(): void;
-    encodePass(desc: PassDesc, records: readonly PassEntry[], count: number): void;
-    encodeComputePass(desc: ComputePassDesc, records: readonly DispatchRecord[], count: number): void;
-    encodeTransformFeedbackPass(desc: TransformFeedbackPassDesc, records: readonly TransformFeedbackRecord[], count: number): void;
+    beginPass(desc: PassDesc): void;
+    /** Resolves `entry` for the pass most recently begun and not yet encoded. */
+    recordEntry(entry: PassEntry): void;
+    encodePass(desc: PassDesc): void;
+    /** The compute mirror of `beginPass` / `recordEntry` / `encodePass`: a dispatch resolves when recorded. */
+    beginComputePass(desc: ComputePassDesc): void;
+    recordDispatch(record: DispatchRecord): void;
+    /** The transform-feedback mirror, on WebGL2. */
+    beginTransformFeedbackPass(desc: TransformFeedbackPassDesc): void;
+    recordTransformFeedback(record: TransformFeedbackRecord): void;
+    encodeComputePass(desc: ComputePassDesc): void;
+    encodeTransformFeedbackPass(desc: TransformFeedbackPassDesc): void;
     submitFrame(): void;
     discardFrame(): void;
     /**
@@ -119,13 +133,15 @@ export type FrameBackend = {
      */
     awaitCompletion(): Promise<void>;
 };
-/** A recording render pass. `end()` prepares its draws, opens the GPU pass, encodes and closes it. */
+/** A recording render pass. Each draw resolves when recorded; `end()` opens the GPU pass, encodes and closes it. */
 export type Pass = {
     readonly kind: 'render';
     /** The desc this pass was opened with; rewritten when its pool slot is reused. */
     desc: PassDesc;
-    /** @internal */ records: PassEntry[];
-    /** @internal */ count: number;
+    /** Handed to the backend by every `draw()`, created by the first. @internal */
+    drawRecord: DrawRecord | null;
+    /** Handed to the backend by every `execute()`, created by the first. @internal */
+    bundleRecord: BundleRecord | null;
     /** @internal */ ended: boolean;
     /** Draws unconditionally: `mesh.visible` gates the scene walk, not a draw you recorded yourself. */
     draw(mesh: Mesh, opts?: DrawOptions): void;
@@ -140,8 +156,8 @@ export type ComputePass = {
     readonly kind: 'compute';
     /** The desc this pass was opened with; rewritten when its pool slot is reused. */
     desc: ComputePassDesc;
-    /** @internal */ records: DispatchRecord[];
-    /** @internal */ count: number;
+    /** Handed to the backend by every dispatch, created by the first. @internal */
+    record: DispatchRecord | null;
     /** @internal */ ended: boolean;
     dispatch(node: ComputeNode, counts: [number, number, number], opts?: DispatchOptions): void;
     /** `indirect` needs `'indirect'` usage, and is typically written by an earlier compute pass. */
@@ -158,8 +174,11 @@ export type TransformFeedbackDispatch = {
     instanceCount?: number;
 };
 export type TransformFeedbackRecord = TransformFeedbackDispatch & {
+    kind: 'transform-feedback';
     node: TransformFeedbackNode;
 };
+/** Any call a pass records, as an attached inspector is told of it. */
+export type CallRecord = PassEntry | DispatchRecord | TransformFeedbackRecord;
 /**
  * A recording transform-feedback pass, the WebGL2 mirror of `ComputePass`. WebGL2 has no encoder, so
  * the kernels run at `end()` — which is when this backend's render passes run too, so a pass placed
@@ -169,8 +188,8 @@ export type TransformFeedbackPass = {
     readonly kind: 'transform-feedback';
     /** The desc this pass was opened with; rewritten when its pool slot is reused. */
     desc: TransformFeedbackPassDesc;
-    /** @internal */ records: TransformFeedbackRecord[];
-    /** @internal */ count: number;
+    /** Handed to the backend by every dispatch, created by the first. @internal */
+    record: TransformFeedbackRecord | null;
     /** @internal */ ended: boolean;
     dispatch(node: TransformFeedbackNode, opts: TransformFeedbackDispatch): void;
     end(): void;

@@ -833,7 +833,11 @@ const color = uniform('color', d.vec3f);                          // in the shad
 material.uniforms.set('color', new Uniform(d.vec3f, [1, 0, 0]));  // per material
 ```
 
-A uniform's **group** sets both its WGSL `@group` and how often it uploads: `objectGroup` (default, per draw call), `renderGroup` (per `render()` call), `frameGroup` (once per frame). The built-in camera and model uniforms already sit in the right groups.
+A uniform's **group** sets both its WGSL `@group` and how often it is evaluated: `objectGroup` (default, per draw call), `renderGroup` (per pass), `frameGroup` (once per frame). The built-in camera and model uniforms already sit in the right groups.
+
+**When a value is read.** A draw or dispatch reads its uniform values when you record it: `pass.draw(mesh)` and `pass.dispatch(node, ...)` resolve the draw's bindings on the spot, so a value changed between two draws of one pass reaches each draw as it was when that draw was recorded, and a draw that cannot resolve (a missing attribute, an unbound buffer) throws at the call that recorded it. Values that belong to the pass rather than a draw (the camera matrices, `screenSize`) are read once per pass, at the first draw that uses them. Across passes, each pass sees its own values, even when several passes of one frame read the same uniform differently: two cameras into one target, one camera moved between passes, one material drawn into targets of different sizes (`screenSize`), one compute node dispatched from two compute passes. A uniform uploads only when its value changes. On WebGPU a later pass of the same frame with a different value reads a slice of a shared per-frame buffer instead of rewriting the uniform's own, which an earlier pass is still to read; `renderer.info.buffers.dynamicAllocations` counts those. `frameGroup` values are evaluated once per frame, so every pass sees the same one.
+
+A shader can bind at most 8 groups whose values can change between passes or draws (every group but `frameGroup`), the WebGPU guarantee for one pipeline. Building a pipeline past the device's limit throws and names the material.
 
 See [`Uniform`](./api.md#uniform-2).
 
@@ -1681,7 +1685,9 @@ function update() {
 
 A bundle takes no target. The attachment shape it has to match is whichever pass executes it, so it is recorded against that pass and matches by construction. Passing the same bundle to two passes with different attachments records it twice, which is correct rather than an error.
 
-**On WebGPU this is the acceleration.** The bundle becomes a `GPURenderBundle`, recorded on the first frame that executes it and replayed with one `executeBundles` after that, so the per-draw pipeline and binding calls stop happening on the CPU each frame. What a replay saves is the encoding, not the per-draw update: uniform uploads and bind-group rebuilds still run every frame, which is what keeps a bundled draw's values as live as a direct one's. **On WebGL2 it costs nothing and buys nothing**: there is no such device object, so the records replay as the draws they always were. Code written against bundles runs correctly on both; only WebGPU gets faster.
+**On WebGPU this is the acceleration.** The bundle becomes a `GPURenderBundle`, recorded on the first frame that executes it and replayed with one `executeBundles` after that, so the per-draw pipeline and binding calls stop happening on the CPU each frame. What a replay saves is the encoding, not the per-draw update: each bundled draw still resolves its uniforms when a pass executes the bundle, exactly as a direct draw does at `draw()`, which is what keeps a bundled draw's values as live as a direct one's. **On WebGL2 it costs nothing and buys nothing**: there is no such device object, so the records replay as the draws they always were. Code written against bundles runs correctly on both; only WebGPU gets faster.
+
+A recording bakes the buffers its draws read. When a pass reads a uniform from a per-frame slice (see [Uniforms](#uniforms): the same camera moved between two passes, say), the recording for that pass bakes the slice. Each replay of a bundle in a frame keeps its own recording, and one is re-recorded only when the frame's passes change shape, so steady frames replay without recording.
 
 A bundle holds meshes and materials by reference and will redraw whatever they have become, so changing a *value* (a uniform, a transform) needs nothing from you. Changing the *structure* does: swap a geometry or a material, or change the set of draws, and the recording is stale. Say so and it re-records on the next frame:
 
@@ -1711,6 +1717,8 @@ const inspector = new Inspector();
 renderer.inspector = inspector;
 document.body.appendChild(inspector.domElement);
 ```
+
+Its **Draw Calls** tab is the frame as you asked for it: every render, compute and transform-feedback pass in the order you recorded them, each with its calls. A call shows what became of it, including the ones that never reach the GPU: a draw with no instances, a pass skipped because its canvas is hidden, a call that threw and why. A bundle lists the draws it replayed, and a pass recorded while a draw resolved (a render texture its material samples) sits under that draw. Select a draw to see its shader, pipeline state and bindings.
 
 See [`OrbitControls`](./api.md#orbitcontrols) and [`Inspector`](./api.md#inspector).
 

@@ -19,6 +19,49 @@ export type BufferCache = {
      *  frame boundary that zeroes it stays in ONE place (the renderer), and so every reader
      *  sees the same numbers — see `renderer/core/info.ts`. */
     info: RendererInfo;
+    /** Allocations for uniform uses that cannot read their block's own buffer. See `allocDynamicUniform`. */
+    dynamicUniforms: DynamicUniformBuffers;
+};
+/**
+ * PlayCanvas's `DynamicBuffers`. A uniform block used again in a frame with different bytes cannot rewrite
+ * its own buffer (the earlier use would read the write, since every write lands before the frame's
+ * submit), so that use takes an aligned allocation here, written into a mapped staging buffer and bound
+ * with a dynamic offset. At submit the staging buffers are copied into their GPU buffers by a command
+ * buffer placed ahead of the frame's, then remapped for reuse. No allocation is written twice in a frame.
+ */
+export type DynamicUniformBuffers = {
+    /** Free GPU buffers. One returns here as soon as its copy is scheduled: the copy runs before any later pass. */
+    gpuBuffers: DynamicGpuBuffer[];
+    /** Staging buffers mapped for writing. */
+    stagingBuffers: StagingBuffer[];
+    /** CPU copies, free again as soon as their submit has written them. */
+    cpuStagingBuffers: StagingBuffer[];
+    /** Filled, waiting for the submit that copies them. */
+    usedBuffers: UsedBuffer[];
+    active: UsedBuffer | null;
+    /** Submitted, waiting for `mapAsync` before they take allocations again. */
+    pendingStagingBuffers: StagingBuffer[];
+    /** Mapped staging buffers alive, capped by `MAX_MAPPED_STAGING_BUFFERS`. */
+    mappedStagingCount: number;
+    /** CPU copies created. */
+    cpuStagingCount: number;
+    nextBufferId: number;
+    destroyed: boolean;
+};
+/** `id` is what a binding records, so neutral code never holds a GPU type. */
+type DynamicGpuBuffer = {
+    buffer: GPUBuffer;
+    id: number;
+};
+/** `buffer` is null for a CPU copy, which the submit uploads with a queue write instead of a copy. */
+type StagingBuffer = {
+    buffer: GPUBuffer | null;
+    view: DataView<ArrayBuffer>;
+};
+type UsedBuffer = {
+    gpuBuffer: DynamicGpuBuffer;
+    staging: StagingBuffer;
+    size: number;
 };
 export type BufferCacheStats = {
     bufferCount: number;
@@ -93,6 +136,30 @@ export declare function getRaw(cache: BufferCache, key: object): GPUBuffer | und
  * dead device. The WebGL sibling does the same.
  */
 export declare function disposeBufferCache(cache: BufferCache): void;
+/**
+ * Takes an aligned allocation of `size` bytes and returns its offset. It lands in `dynamicUniforms.active`,
+ * whose staging view the caller packs into and whose GPU buffer the caller binds at that offset.
+ */
+export declare function allocDynamicUniform(cache: BufferCache, device: GPUDevice, size: number): number;
+/**
+ * Resident dynamic uniform buffers and staging (mapped or CPU). Pools only grow until dispose, so these
+ * settle at the peak a scene needs; one that climbs frame over frame means allocations are not returning.
+ */
+export declare function getDynamicUniformStats(cache: BufferCache): {
+    gpuBuffers: number;
+    stagingBuffers: number;
+};
+/** The GPU buffer a binding recorded by id, for building the bind group that addresses it. */
+export declare function dynamicUniformBuffer(cache: BufferCache, id: number): GPUBuffer;
+/**
+ * Unmaps every staging buffer filled since the last submit and records their copies into their GPU
+ * buffers, in a command buffer the frame submits ahead of its own. Returns null when nothing was written.
+ */
+export declare function submitDynamicUniforms(cache: BufferCache, device: GPUDevice): GPUCommandBuffer | null;
+/** After the submit: remaps the staging buffers it copied from, which resolves once the GPU is done reading them. */
+export declare function onDynamicUniformsSubmitted(cache: BufferCache): void;
+/** For a frame discarded rather than submitted: its buffers go back unsubmitted, the staging ones still mapped. */
+export declare function rewindDynamicUniforms(cache: BufferCache): void;
 /**
  * Returns approximate buffer counts tracked by this cache.
  */

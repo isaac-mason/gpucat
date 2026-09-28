@@ -1,30 +1,31 @@
 /**
  * draw-calls.ts, Inspector "Draw Calls" tab.
  *
- * Surfaces renderer-level RenderObject data, one entry per GPU draw call.
- * ROs are grouped under their render pass (via ro.passId).
+ * The frame as it was asked for: every pass in call order, render, compute and transform feedback,
+ * each with the calls it recorded and what became of them. A pass recorded while a call resolved (a
+ * render texture its material samples) sits under that call.
  *
- * When a RO is selected a detail panel appears with three sub-tabs:
+ * Selecting a draw opens a detail panel on the render object it resolved to:
  *   [Shader], reuses ShaderPanel (with probe hover/selection support)
  *   [Pipeline], material / render-context state table
  *   [Bindings], bind group layout table (uniform groups, textures, samplers, storage)
  *
- * Update strategy (60 fps concern):
- *   update() diffs by ro.id, only adds/removes items on structural changes.
- *   The static detail panel is only rebuilt when _selectedRO changes.
+ * The list is rebuilt only when the frame's shape changes, so a steady frame touches no DOM.
  */
 import type { NodeBuilderState } from '../../renderer/core/node-builder-state';
 import type { RenderObject } from '../../renderer/core/render-object';
 import type { Inspector } from '../inspector';
-import type { InspectableRenderer } from '../inspector-base';
+import type { FrameRecord } from '../renderer-inspector';
 import { List } from '../ui/list';
 import { Tab } from '../ui/tab';
 export declare class DrawCalls extends Tab {
     readonly list: List;
-    /** ro.id → RONode for every currently-displayed RenderObject */
-    private _roNodes;
-    /** Pass header items keyed by passId */
-    private _passHeaders;
+    /** The top-level pass rows of the frame on show. */
+    private _passItems;
+    /** Every row that selects a render object, by its id; one object can be drawn in several passes. */
+    private _rowsByRenderObject;
+    /** The shape of the frame on show, so an unchanged frame keeps its rows. */
+    private _shownShape;
     /** Currently selected RO */
     private _selectedRO;
     private _detailPanel;
@@ -35,21 +36,17 @@ export declare class DrawCalls extends Tab {
     private _shaderPanel;
     private _currentSubTab;
     constructor();
-    /**
-     * Called by Inspector._processFrame() every frame.
-     * Only diffs by ro.id, does NOT repaint the detail panel unless the
-     * selected RO changed.
-     *
-     * Structure: pass header items are top-level in the List; RO items are
-     * children of their respective pass header (Item.add).  This gives proper
-     * indent and uses the existing header-wrapper styling automatically.
-     */
-    update(inspector: Inspector, renderer: InspectableRenderer): void;
+    /** Called by Inspector._processFrame() every frame the panel is open. */
+    update(inspector: Inspector, record: FrameRecord): void;
     /**
      * Select a RO programmatically (also called on click).
-     * Highlights the item and populates the detail panel.
+     * Highlights its rows and populates the detail panel.
      */
     selectRO(ro: RenderObject, inspector: Inspector): void;
+    private _highlight;
+    private _passItem;
+    private _callItem;
+    private _selectsRenderObject;
     private _populateDetail;
     private _showDetailSubTab;
 }

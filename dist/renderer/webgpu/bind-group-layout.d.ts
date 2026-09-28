@@ -1,5 +1,17 @@
-import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
+import type { SamplerEntry, TextureEntry, UniformGroupBlock } from '../../nodes/builder';
 import type { BindGroup as NodeBindGroup } from '../core/bind-group';
+/**
+ * Whether a uniform block is bound at a dynamic offset. Anything but frame scope can hold different values
+ * for two passes or dispatches of one frame, and the second takes a dynamic allocation; frame scope is
+ * written once a frame. Both layout builders ask this, so render and compute layouts agree.
+ */
+export declare function usesDynamicOffset(block: UniformGroupBlock): boolean;
+/**
+ * Throws, naming `label`, when a pipeline's groups bind more dynamic uniform buffers than the device
+ * allows in one pipeline layout (8 is guaranteed). WebGPU's own error would name neither the material nor
+ * the fix. A group holds at most one uniform block, so each counts once.
+ */
+export declare function assertDynamicUniformLimit(device: GPUDevice, bindGroups: readonly NodeBindGroup[], label: string): void;
 export type BindGroupLayoutCache = {
     cache: Map<string, GPUBindGroupLayout>;
 };
