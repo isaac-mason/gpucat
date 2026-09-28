@@ -1,38 +1,27 @@
 /**
  * draw-calls.ts, Inspector "Draw Calls" tab.
  *
- * Surfaces renderer-level RenderObject data, one entry per GPU draw call.
- * ROs are grouped under their render pass (via ro.passId).
+ * The frame as it was asked for: every pass in call order, render, compute and transform feedback,
+ * each with the calls it recorded and what became of them. A pass recorded while a call resolved (a
+ * render texture its material samples) sits under that call.
  *
- * When a RO is selected a detail panel appears with three sub-tabs:
+ * Selecting a draw opens a detail panel on the render object it resolved to:
  *   [Shader], reuses ShaderPanel (with probe hover/selection support)
  *   [Pipeline], material / render-context state table
  *   [Bindings], bind group layout table (uniform groups, textures, samplers, storage)
  *
- * Update strategy (60 fps concern):
- *   update() diffs by ro.id, only adds/removes items on structural changes.
- *   The static detail panel is only rebuilt when _selectedRO changes.
+ * The list is rebuilt only when the frame's shape changes, so a steady frame touches no DOM.
  */
 
 import { getIndexFormat } from '../../core/gpu-buffer';
 import type { NodeBuilderState } from '../../renderer/core/node-builder-state';
 import type { RenderObject } from '../../renderer/core/render-object';
 import type { Inspector } from '../inspector';
-import type { InspectableRenderer } from '../inspector-base';
+import type { FrameRecord, RecordedCall, RecordedPass } from '../renderer-inspector';
 import { Item } from '../ui/item';
 import { List } from '../ui/list';
 import { Tab } from '../ui/tab';
 import { ShaderPanel } from './shader-panel';
-
-// Internal record, one per live RenderObject
-
-type RONode = {
-    id: number;
-    ro: RenderObject;
-    item: Item;
-    /** passId this RO was last filed under, lets us detect pass changes */
-    passId: string;
-};
 
 // Sub-tab type
 
@@ -43,11 +32,14 @@ type DetailSubTab = 'shader' | 'pipeline' | 'bindings';
 export class DrawCalls extends Tab {
     readonly list: List;
 
-    /** ro.id → RONode for every currently-displayed RenderObject */
-    private _roNodes: Map<number, RONode> = new Map();
+    /** The top-level pass rows of the frame on show. */
+    private _passItems: Item[] = [];
 
-    /** Pass header items keyed by passId */
-    private _passHeaders: Map<string, Item> = new Map();
+    /** Every row that selects a render object, by its id; one object can be drawn in several passes. */
+    private _rowsByRenderObject: Map<number, Item[]> = new Map();
+
+    /** The shape of the frame on show, so an unchanged frame keeps its rows. */
+    private _shownShape = '';
 
     /** Currently selected RO */
     private _selectedRO: RenderObject | null = null;
@@ -136,111 +128,22 @@ export class DrawCalls extends Tab {
 
     // Public API
 
-    /**
-     * Called by Inspector._processFrame() every frame.
-     * Only diffs by ro.id, does NOT repaint the detail panel unless the
-     * selected RO changed.
-     *
-     * Structure: pass header items are top-level in the List; RO items are
-     * children of their respective pass header (Item.add).  This gives proper
-     * indent and uses the existing header-wrapper styling automatically.
-     */
-    update(inspector: Inspector, renderer: InspectableRenderer): void {
-        const liveROs = renderer._renderObjects.renderObjects;
-
-        // 1. Build a snapshot: passId → RO[] (skip internal meshes)
-        const passBuckets = new Map<string, RenderObject[]>();
-        for (const ro of liveROs) {
-            if (_isInternalMesh(ro)) continue;
-            const passId = ro.lastPassLabel || 'default';
-            let bucket = passBuckets.get(passId);
-            if (!bucket) {
-                bucket = [];
-                passBuckets.set(passId, bucket);
+    /** Called by Inspector._processFrame() every frame the panel is open. */
+    update(inspector: Inspector, record: FrameRecord): void {
+        const shape = passesShape(record.passes);
+        if (shape !== this._shownShape) {
+            this._shownShape = shape;
+            for (const item of this._passItems) this.list.remove(item);
+            this._passItems.length = 0;
+            this._rowsByRenderObject.clear();
+            for (const pass of record.passes) {
+                const item = this._passItem(pass, inspector);
+                this.list.add(item);
+                this._passItems.push(item);
             }
-            bucket.push(ro);
+            this._highlight(this._selectedRO);
         }
 
-        // 2. Remove stale pass headers (and their children are auto-removed)
-        for (const [passId, headerItem] of this._passHeaders) {
-            if (!passBuckets.has(passId)) {
-                this.list.remove(headerItem);
-                this._passHeaders.delete(passId);
-                // Clean up tracked RO nodes that belonged to this pass
-                for (const [id, node] of this._roNodes) {
-                    if (node.passId === passId) {
-                        this._roNodes.delete(id);
-                        if (this._selectedRO?.id === id) {
-                            this._selectedRO = null;
-                            this._detailPanel.style.display = 'none';
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. Remove stale RO items that disappeared from their pass
-        const liveIds = new Set<number>();
-        for (const bucket of passBuckets.values()) {
-            for (const ro of bucket) liveIds.add(ro.id);
-        }
-        for (const [id, node] of this._roNodes) {
-            if (!liveIds.has(id)) {
-                // Remove from parent header item
-                const headerItem = this._passHeaders.get(node.passId);
-                headerItem?.remove(node.item);
-                this._roNodes.delete(id);
-                if (this._selectedRO?.id === id) {
-                    this._selectedRO = null;
-                    this._detailPanel.style.display = 'none';
-                }
-            }
-        }
-
-        // 4. Ensure pass header items exist and add new RO children
-        for (const [passId, ros] of passBuckets) {
-            // Ensure pass header exists in the List
-            if (!this._passHeaders.has(passId)) {
-                const nameEl = document.createElement('span');
-                nameEl.className = 'hierarchy-name';
-                nameEl.textContent = passId;
-                const headerItem = new Item(nameEl);
-                // Keep it open by default (header shows its children)
-                this.list.add(headerItem);
-                this._passHeaders.set(passId, headerItem);
-            }
-
-            const headerItem = this._passHeaders.get(passId)!;
-
-            for (const ro of ros) {
-                if (this._roNodes.has(ro.id)) continue;
-
-                const nameEl = document.createElement('span');
-                nameEl.className = 'hierarchy-name';
-                nameEl.textContent = _roDisplayName(ro);
-
-                const item = new Item(nameEl);
-                item.itemRow.classList.add('actionable');
-
-                const capturedRO = ro;
-                item.itemRow.addEventListener('click', (e) => {
-                    if ((e.target as HTMLElement).closest('.item-toggler')) return;
-                    this.selectRO(capturedRO, inspector);
-                });
-
-                // Nest under the pass header
-                headerItem.add(item);
-
-                this._roNodes.set(ro.id, {
-                    id: ro.id,
-                    ro,
-                    item,
-                    passId,
-                });
-            }
-        }
-
-        // 5. Refresh shader panel if a RO is currently selected
         if (this._selectedRO) {
             this._shaderPanel.updateFromRO(inspector, this._selectedRO);
         }
@@ -248,22 +151,60 @@ export class DrawCalls extends Tab {
 
     /**
      * Select a RO programmatically (also called on click).
-     * Highlights the item and populates the detail panel.
+     * Highlights its rows and populates the detail panel.
      */
     selectRO(ro: RenderObject, inspector: Inspector): void {
-        // Clear previous highlight
-        if (this._selectedRO) {
-            const prev = this._roNodes.get(this._selectedRO.id);
-            prev?.item.itemRow.classList.remove('hierarchy-selected');
-        }
-
+        this._highlight(null);
         this._selectedRO = ro;
-        const node = this._roNodes.get(ro.id);
-        if (node) node.item.itemRow.classList.add('hierarchy-selected');
+        this._highlight(ro);
 
-        // Show and populate detail panel
         this._detailPanel.style.display = 'flex';
         this._populateDetail(ro, inspector);
+    }
+
+    private _highlight(ro: RenderObject | null): void {
+        const selected = this._selectedRO === null ? undefined : this._rowsByRenderObject.get(this._selectedRO.id);
+        if (ro === null) {
+            for (const row of selected ?? []) row.itemRow.classList.remove('hierarchy-selected');
+            return;
+        }
+        for (const row of this._rowsByRenderObject.get(ro.id) ?? []) row.itemRow.classList.add('hierarchy-selected');
+    }
+
+    private _passItem(pass: RecordedPass, inspector: Inspector): Item {
+        const status = pass.error ?? (pass.skipped === null ? '' : `skipped: ${pass.skipped}`);
+        const item = new Item(rowLabel(pass.kind, pass.label, `${pass.calls.length} calls`, status, pass.error !== null));
+        for (const call of pass.calls) item.add(this._callItem(call, inspector));
+        return item;
+    }
+
+    private _callItem(call: RecordedCall, inspector: Inspector): Item {
+        const item = new Item(rowLabel(call.kind, call.name, call.detail, callStatus(call), call.error !== null));
+        if (call.kind === 'draw' && call.renderObjects.length === 1) {
+            this._selectsRenderObject(item, call.renderObjects[0], inspector);
+        } else if (call.kind === 'bundle') {
+            for (const ro of call.renderObjects) {
+                const drawItem = new Item(rowLabel('draw', _roDisplayName(ro), '', '', false));
+                this._selectsRenderObject(drawItem, ro, inspector);
+                item.add(drawItem);
+            }
+        }
+        for (const pass of call.passes) item.add(this._passItem(pass, inspector));
+        return item;
+    }
+
+    private _selectsRenderObject(item: Item, ro: RenderObject, inspector: Inspector): void {
+        item.itemRow.classList.add('actionable');
+        item.itemRow.addEventListener('click', (e) => {
+            if ((e.target as HTMLElement).closest('.item-toggler')) return;
+            this.selectRO(ro, inspector);
+        });
+        let rows = this._rowsByRenderObject.get(ro.id);
+        if (rows === undefined) {
+            rows = [];
+            this._rowsByRenderObject.set(ro.id, rows);
+        }
+        rows.push(item);
     }
 
     // Detail panel population
@@ -312,10 +253,51 @@ export class DrawCalls extends Tab {
 
 // Helpers
 
-function _isInternalMesh(ro: RenderObject): boolean {
-    // Skip gpucat-internal meshes (e.g. fullscreen quad used by post-processing)
-    const name = ro.mesh.name ?? '';
-    return name.startsWith('__') && name.endsWith('__');
+/** Everything a row shows, so two frames with the same shape can keep the same rows. */
+function passesShape(passes: RecordedPass[]): string {
+    let shape = '';
+    for (const pass of passes) {
+        shape += `[${pass.kind}|${pass.label}|${pass.skipped}|${pass.error}`;
+        for (const call of pass.calls) {
+            shape += `(${call.kind}|${call.name}|${call.detail}|${call.emptyDraws}|${call.error}`;
+            for (const ro of call.renderObjects) shape += `,${ro.id}`;
+            shape += `${passesShape(call.passes)})`;
+        }
+        shape += ']';
+    }
+    return shape;
+}
+
+function callStatus(call: RecordedCall): string {
+    if (call.error !== null) return call.error;
+    if (call.kind === 'bundle' && call.emptyDraws > 0) return `${call.emptyDraws} draw nothing`;
+    if (call.kind === 'draw' && call.emptyDraws > 0) return 'draws nothing';
+    return '';
+}
+
+function rowLabel(kind: string, name: string, detail: string, status: string, failed: boolean): HTMLElement {
+    const row = document.createElement('span');
+    row.className = 'hierarchy-name';
+
+    const badge = document.createElement('span');
+    badge.className = `hierarchy-type-badge dc-kind--${kind}`;
+    badge.textContent = kind === 'transform-feedback' ? 'tf' : kind;
+    row.appendChild(badge);
+    row.append(` ${name}`);
+
+    if (detail !== '') {
+        const detailEl = document.createElement('span');
+        detailEl.className = 'dc-call-detail';
+        detailEl.textContent = ` ${detail}`;
+        row.appendChild(detailEl);
+    }
+    if (status !== '') {
+        const statusEl = document.createElement('span');
+        statusEl.className = failed ? 'dc-call-status dc-call-status--failed' : 'dc-call-status';
+        statusEl.textContent = ` ${status}`;
+        row.appendChild(statusEl);
+    }
+    return row;
 }
 
 function _roDisplayName(ro: RenderObject): string {

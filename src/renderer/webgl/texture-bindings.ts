@@ -13,6 +13,8 @@
  * only the GL binding is new here.
  */
 
+import type { GpuSampler } from '../../core/gpu-sampler';
+import type { GpuTexture } from '../../core/gpu-texture';
 import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
 import type { ResolvedStorageBufferTexture, StorageBufferTextureSource } from '../../nodes/lib/texture';
 import { getBindings, type RenderObject } from '../core/render-object';
@@ -154,13 +156,38 @@ function resolveStorageSource(
     return { buffer, width, height: Math.ceil(totalTexels / width), bytesPerTexel };
 }
 
+/**
+ * The texture and sampler values a draw binds, captured when it is recorded, one entry per texture binding
+ * in the order `bindTextures` walks them (a storage-lowered binding holds nulls: its buffer resolves from
+ * the geometry when the pass executes, like vertex data). Pooled per record.
+ */
+export type TextureCapture = { textures: (GpuTexture | null)[]; samplers: (GpuSampler | null)[] };
+
+/** Captures what `renderObject`'s texture bindings hold now, so its draw binds the values set before it. */
+export function captureTextures(renderObject: RenderObject, out: TextureCapture): void {
+    out.textures.length = 0;
+    out.samplers.length = 0;
+    const bindGroups = getBindings(renderObject);
+    for (const bindGroup of bindGroups) {
+        for (const binding of bindGroup.bindings) {
+            if (binding.kind !== 'texture') continue;
+            const storageLowered = !!binding.entry.node.storageBufferSource;
+            out.textures.push(storageLowered ? null : (binding.entry.node.value ?? null));
+            out.samplers.push(storageLowered ? null : findSamplerForUnit(bindGroups, binding.entry.binding));
+        }
+    }
+}
+
+/** `capture` is what the draw recorded; null binds the live values (the inspector probe redraws now). */
 export function bindTextures(
     gl: WebGL2RenderingContext,
     b: WebGLBackend,
     renderObject: RenderObject,
     programInfo: ProgramInfo,
+    capture: TextureCapture | null,
 ): void {
     const bindGroups = getBindings(renderObject);
+    let captured = 0;
 
     // First pass: collect the GpuSampler assigned to each texture unit (b.samplers share the unit of
     // their paired texture, per the combined-sampler model).
@@ -176,6 +203,7 @@ export function bindTextures(
 
             const entry = binding.entry;
             const unit = entry.binding;
+            const capturedIndex = captured++;
 
             // Guard the flat texture-unit assignment against the device cap. Units are `entry.binding`,
             // a 0-based index across every texture + storage-buffer a material samples; once it reaches
@@ -217,7 +245,7 @@ export function bindTextures(
                 continue;
             }
 
-            const gpuTexture = entry.node.value;
+            const gpuTexture = capture === null ? entry.node.value : capture.textures[capturedIndex];
             if (!gpuTexture) continue;
 
             // Upload / allocate the GL texture (version-gated). Render-target b.textures are allocated
@@ -234,7 +262,7 @@ export function bindTextures(
             gl.bindTexture(texData.target, texData.texture);
 
             // Find the sampler assigned to this same unit and bind its GL sampler object.
-            const gpuSampler = findSamplerForUnit(bindGroups, unit);
+            const gpuSampler = capture === null ? findSamplerForUnit(bindGroups, unit) : capture.samplers[capturedIndex];
             // Reject a linear filter on a float32 texture when float-linear isn't available (would
             // sample as incomplete/black = wrong output, not just lower quality).
             assertFloatLinearFilterable(gl, gpuTexture.format, gpuSampler);
@@ -272,16 +300,32 @@ export function bindTextures(
  * combined-sampler uniform `u_<textureId>` is set to that unit. The user binds neighbour data as an
  * explicit `DataTexture` referenced by the kernel's `textureLoad` — there is no hidden mirror.
  */
+/** A standalone kernel's texture and sampler values, captured when its dispatch is recorded, in entry order. */
+export function captureStandaloneTextures(
+    textureEntries: readonly TextureEntry[],
+    samplerEntries: readonly SamplerEntry[],
+    out: TextureCapture,
+): void {
+    out.textures.length = 0;
+    out.samplers.length = 0;
+    for (const entry of textureEntries) {
+        out.textures.push(entry.node.value ?? null);
+        out.samplers.push(findStandaloneSamplerForUnit(samplerEntries, entry.binding));
+    }
+}
+
+/** `capture` holds the values the dispatch recorded, one per texture entry. */
 export function bindStandaloneTextures(
     gl: WebGL2RenderingContext,
     b: WebGLBackend,
     textureEntries: readonly TextureEntry[],
-    samplerEntries: readonly SamplerEntry[],
     programInfo: ProgramInfo,
+    capture: TextureCapture,
 ): void {
-    for (const entry of textureEntries) {
+    for (let index = 0; index < textureEntries.length; index++) {
+        const entry = textureEntries[index];
         const unit = entry.binding;
-        const gpuTexture = entry.node.value;
+        const gpuTexture = capture.textures[index];
         if (!gpuTexture) {
             throw new Error(
                 `[webgl] transform-feedback kernel samples texture '${entry.textureId}' but no ` +
@@ -300,7 +344,7 @@ export function bindStandaloneTextures(
         gl.activeTexture(gl.TEXTURE0 + unit);
         gl.bindTexture(texData.target, texData.texture);
 
-        const gpuSampler = findStandaloneSamplerForUnit(samplerEntries, unit);
+        const gpuSampler = capture.samplers[index];
         assertFloatLinearFilterable(gl, gpuTexture.format, gpuSampler);
         assertIntegerNotFiltered(gpuTexture.format, gpuSampler);
         if (gpuSampler) {

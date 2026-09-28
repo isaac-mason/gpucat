@@ -4,7 +4,8 @@
  * Same resource (a `BindGroup` from `core/bind-group.ts`), same filename, different mechanism. WebGPU
  * builds a `GPUBindGroup` object that is created, cached, invalidated and bound as a unit, so its
  * surface is init/get/delete/invalidate. WebGL2 has no bind-group object at all: uniform buffers are
- * bound to numbered binding points per draw, so the surface is update-and-bind. Those names are not
+ * bound to numbered binding points per draw, so the surface is capture (when a draw is recorded, so it
+ * uses the values set before it) and upload-and-bind (when its pass executes). Those names are not
  * drift; aligning them would misdescribe both.
  *
  * gpucat's GLSL emitter declares every uniform group as `layout(std140) uniform Uniforms_<group> {…}
@@ -19,9 +20,9 @@
  *     backends share from `core/bind-group.ts`,
  *   - reading each member's value from `m.node.uniform.value`, falling back to the material's named
  *     uniforms, then packing it with `packToView(schema, view, offset, value, 'std140')`.
- * Per-BindGroup GL state (the UBO + a CPU staging buffer + change tracking) is cached in a WeakMap
- * keyed by the `UniformBinding` object, which lives on the RenderObject's cloned bind groups — so
- * shared groups (camera) share one entry and per-object groups get their own, exactly as WebGPU.
+ * Per-group GL state (the latest packed values, what the UBO holds, change tracking) is cached in a
+ * WeakMap keyed by the binding's `bufferKey`, the same key `buffers.ts` holds the UBO under, so shared
+ * groups (camera) share one entry and per-object groups get their own, exactly as WebGPU.
  */
 
 import type { Material } from '../../material/material';
@@ -30,16 +31,27 @@ import { packToView } from '../../schema/pack';
 import { invokeUniformGroupCallbacks, type UniformBinding } from '../core/bind-group';
 import type { NodeFrame } from '../core/node-frame';
 import * as Buffers from './buffers';
+import type { TextureCapture } from './texture-bindings';
 import type { WebGLBackend } from './webgl-backend';
 
 /** Per-uniform-BindGroup GL resources + change-tracking state. */
 type UboData = {
-    /** The GL uniform buffer object. */
-    /** CPU staging buffer (std140-packed). Compared against the last upload to skip redundant writes. */
+    /**
+     * The latest values packed, when a draw was recorded. Persistent, so a member with no value keeps its
+     * last one, as on WebGPU.
+     */
+    packed: ArrayBuffer;
+    /** What the UBO holds (std140-packed). Compared against a draw's bytes to skip redundant uploads. */
     staging: ArrayBuffer;
     /** Whether the UBO has ever been uploaded. */
     uploaded: boolean;
 };
+
+/**
+ * One uniform group's bytes as a draw or dispatch recorded them, and where they bind. Captured at the
+ * call so it uses the values set before it, uploaded when its pass executes. Pooled per record.
+ */
+export type UniformCapture = { key: object; block: UniformGroupBlock; bindingPoint: number; bytes: Uint8Array<ArrayBuffer> };
 
 /**
  * Bindings state: the CPU half of a uniform binding.
@@ -49,25 +61,24 @@ type UboData = {
  * stays here is the staging copy and the change detection that decides whether an upload is needed.
  */
 export type BindingsState = {
-    data: WeakMap<UniformBinding, UboData>;
     /**
-     * Per-standalone-UniformGroupBlock GL UBO data. Standalone kernels (transform feedback) have no
-     * RenderObject/BindGroup, so their uniform groups are keyed by the compiled `UniformGroupBlock`
-     * itself rather than a `UniformBinding`.
+     * Per-uniform-group state, keyed by what keys its GL buffer in `buffers.ts`: a binding's neutral
+     * `bufferKey`, or a standalone kernel's (transform feedback) compiled block, since that has no
+     * binding. Shared groups (camera) share one entry and per-object groups get their own, as on WebGPU.
      */
-    standalone: WeakMap<UniformGroupBlock, UboData>;
+    byKey: WeakMap<object, UboData>;
 };
 
 /** Create an empty bindings state. */
 export function createBindingsState(): BindingsState {
-    return { data: new WeakMap(), standalone: new WeakMap() };
+    return { byKey: new WeakMap() };
 }
 
-function getUboData(state: BindingsState, binding: UniformBinding, byteLength: number): UboData {
-    let data = state.data.get(binding);
+function getUboData(state: BindingsState, key: object, byteLength: number): UboData {
+    let data = state.byKey.get(key);
     if (!data || data.staging.byteLength !== byteLength) {
-        data = { staging: new ArrayBuffer(byteLength), uploaded: false };
-        state.data.set(binding, data);
+        data = { packed: new ArrayBuffer(byteLength), staging: new ArrayBuffer(byteLength), uploaded: false };
+        state.byKey.set(key, data);
     }
     return data;
 }
@@ -113,21 +124,20 @@ function uniformDetail(block: UniformGroupBlock, material: Material | null, chan
 }
 
 /**
- * Update a single uniform BindGroup for the current draw and bind its UBO to `bindingPoint`.
+ * Captures a uniform BindGroup's values for one recorded draw into `pool[index]`.
  *
- * Runs the same update gating as WebGPU: shared groups with a 'frame'/'render' updateType are
- * processed at most once per frameId/renderId; 'object'/'none' groups always process. Then invokes
- * member update callbacks, packs into a scratch buffer, uploads to the GL UBO if changed, and binds.
- *
- * @param bindingPoint the GL uniform-buffer binding point this group's block was bound to (from the program)
+ * Runs the same update gating as WebGPU: shared groups with a 'frame'/'render' updateType are evaluated
+ * at most once per frameId/renderId, so every draw of a pass shares the pass's values; 'object'/'none'
+ * groups evaluate per draw. The bytes are the group's persistent packed copy at this moment.
  */
-export function updateAndBindUniformGroup(
-    gl: WebGL2RenderingContext,
+export function captureUniformGroup(
     b: WebGLBackend,
     binding: UniformBinding,
     frame: NodeFrame,
     bindingPoint: number,
     material: Material | null,
+    pool: UniformCapture[],
+    index: number,
 ): void {
     const block = binding.block;
 
@@ -145,89 +155,90 @@ export function updateAndBindUniformGroup(
         // 'object' / 'none' always process.
     }
 
-    const data = getUboData(b.uniforms, binding, block.totalBytes);
     // Lazily claim the neutral key slot; `webgpu/bindings.ts` does the same, so both backends key a
     // uniform block's device buffer the same way.
     binding.bufferKey ??= {};
+    const data = getUboData(b.uniforms, binding.bufferKey, block.totalBytes);
 
     if (!skipCallbacks) {
         // Invoke each member node's update callback (assigns node.value, respects updateType).
         invokeUniformGroupCallbacks(block, frame);
-
-        // Pack current values into a fresh scratch buffer, compare against the staging buffer.
-        const scratch = new ArrayBuffer(block.totalBytes);
-        packGroup(block, new DataView(scratch), material);
-
-        const changedBytes = data.uploaded ? changedByteCount(scratch, data.staging) : block.totalBytes;
-        if (changedBytes > 0) {
-            data.staging = scratch;
-            Buffers.uploadUniformBlock(gl, b.buffers, binding.bufferKey, scratch, uniformDetail(block, material, changedBytes));
-            data.uploaded = true;
-        }
-    } else if (!data.uploaded) {
-        // First time we see a skipped-shared group (already updated by another object this render):
-        // still needs its bytes on the GPU. Pack + upload once.
-        packGroup(block, new DataView(data.staging), material);
-        Buffers.uploadUniformBlock(
-            gl,
-            b.buffers,
-            binding.bufferKey,
-            data.staging,
-            uniformDetail(block, material, block.totalBytes),
-        );
-        data.uploaded = true;
+        packGroup(block, new DataView(data.packed), material);
     }
-
-    // Bind the group's UBO to its program binding point.
-    const ubo = Buffers.getRaw(b.buffers, binding.bufferKey);
-    if (ubo) gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, ubo);
-}
-
-function getStandaloneUboData(state: BindingsState, block: UniformGroupBlock, byteLength: number): UboData {
-    let data = state.standalone.get(block);
-    if (!data || data.staging.byteLength !== byteLength) {
-        data = { staging: new ArrayBuffer(byteLength), uploaded: false };
-        state.standalone.set(block, data);
-    }
-    return data;
+    captureInto(pool, index, binding.bufferKey, block, bindingPoint, data.packed);
 }
 
 /**
- * Update + bind a STANDALONE kernel's uniform group (transform-feedback) to `bindingPoint`.
- *
- * Unlike {@link updateAndBindUniformGroup}, there is no RenderObject/BindGroup and no per-frame update
- * gating: the group is keyed by its `UniformGroupBlock` and re-packed on every dispatch, because a
- * standalone kernel's uniforms (e.g. a `dt` timestep) commonly change per invocation and the caller
- * assigns them directly on each `uniform()` node's `.uniform.value`. Member update callbacks (if any)
- * are still invoked through the frame so `onFrame`/`onRender` uniforms resolve. Values are sourced from
- * `m.node.uniform.value` (no material fallback — standalone kernels have no material) and packed std140.
- *
- * @param bindingPoint the GL uniform-buffer binding point this group's block was bound to (from the program)
+ * Captures a STANDALONE kernel's uniform group (transform feedback) for one recorded dispatch into
+ * `pool[index]`. There is no RenderObject/BindGroup and no per-frame gating: the group is keyed by its
+ * block and re-packed on every dispatch, because a standalone kernel's uniforms (e.g. a `dt` timestep)
+ * commonly change per invocation. Member update callbacks still run so `onFrame`/`onRender` uniforms
+ * resolve. Values come from `m.node.uniform.value` (no material fallback).
  */
-export function updateAndBindStandaloneUniformGroup(
-    gl: WebGL2RenderingContext,
+export function captureStandaloneUniformGroup(
     b: WebGLBackend,
     block: UniformGroupBlock,
     frame: NodeFrame,
     bindingPoint: number,
+    pool: UniformCapture[],
+    index: number,
 ): void {
-    // Let any update callbacks (onFrame/onRender) assign node values; direct `.value` sets need nothing.
     invokeUniformGroupCallbacks(block, frame);
+    const data = getUboData(b.uniforms, block, block.totalBytes);
+    packGroup(block, new DataView(data.packed), null);
+    captureInto(pool, index, block, block, bindingPoint, data.packed);
+}
 
-    const data = getStandaloneUboData(b.uniforms, block, block.totalBytes);
-
-    // Re-pack every dispatch: standalone-kernel uniforms change per frame and there is no dedup key.
-    const scratch = new ArrayBuffer(block.totalBytes);
-    packGroup(block, new DataView(scratch), null);
-
-    const changedBytes = data.uploaded ? changedByteCount(scratch, data.staging) : block.totalBytes;
+/**
+ * Uploads a captured group if its bytes differ from what its UBO holds, then binds the UBO to its
+ * binding point. Runs as the pass executes, draw by draw, which GL orders for us.
+ */
+export function uploadAndBindCapture(
+    gl: WebGL2RenderingContext,
+    b: WebGLBackend,
+    capture: UniformCapture,
+    material: Material | null,
+): void {
+    const { key, block, bytes } = capture;
+    const data = getUboData(b.uniforms, key, block.totalBytes);
+    const changedBytes = data.uploaded ? changedByteCount(bytes.buffer, data.staging) : block.totalBytes;
     if (changedBytes > 0) {
-        data.staging = scratch;
-        // The block itself is the key: a standalone kernel has no BindGroup to hang one on.
-        Buffers.uploadUniformBlock(gl, b.buffers, block, scratch, uniformDetail(block, null, changedBytes));
+        new Uint8Array(data.staging).set(bytes);
+        Buffers.uploadUniformBlock(gl, b.buffers, key, data.staging, uniformDetail(block, material, changedBytes));
         data.uploaded = true;
     }
 
-    const ubo = Buffers.getRaw(b.buffers, block);
-    if (ubo) gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, ubo);
+    const ubo = Buffers.getRaw(b.buffers, key);
+    if (ubo) gl.bindBufferBase(gl.UNIFORM_BUFFER, capture.bindingPoint, ubo);
+}
+
+/** Fills the pooled capture at `index`, creating it on first use. */
+function captureInto(
+    pool: UniformCapture[],
+    index: number,
+    key: object,
+    block: UniformGroupBlock,
+    bindingPoint: number,
+    packed: ArrayBuffer,
+): void {
+    let capture = pool[index];
+    if (capture === undefined) {
+        capture = { key, block, bindingPoint, bytes: new Uint8Array(packed.byteLength) };
+        pool[index] = capture;
+    }
+    capture.key = key;
+    capture.block = block;
+    capture.bindingPoint = bindingPoint;
+    if (capture.bytes.byteLength !== packed.byteLength) capture.bytes = new Uint8Array(packed.byteLength);
+    capture.bytes.set(new Uint8Array(packed));
+}
+
+/**
+ * What one recorded draw (or transform-feedback dispatch) binds, captured at the call that recorded it:
+ * its uniform groups' bytes and the texture and sampler values it samples. Pooled per record.
+ */
+export type RecordCapture = { uniforms: UniformCapture[]; uniformCount: number; textures: TextureCapture };
+
+export function createRecordCapture(): RecordCapture {
+    return { uniforms: [], uniformCount: 0, textures: { textures: [], samplers: [] } };
 }

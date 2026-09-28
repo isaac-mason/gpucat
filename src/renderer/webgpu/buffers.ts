@@ -25,7 +25,68 @@ export type BufferCache = {
      *  frame boundary that zeroes it stays in ONE place (the renderer), and so every reader
      *  sees the same numbers — see `renderer/core/info.ts`. */
     info: RendererInfo;
+
+    /** Allocations for uniform uses that cannot read their block's own buffer. See `allocDynamicUniform`. */
+    dynamicUniforms: DynamicUniformBuffers;
 };
+
+/**
+ * PlayCanvas's `DynamicBuffers`. A uniform block used again in a frame with different bytes cannot rewrite
+ * its own buffer (the earlier use would read the write, since every write lands before the frame's
+ * submit), so that use takes an aligned allocation here, written into a mapped staging buffer and bound
+ * with a dynamic offset. At submit the staging buffers are copied into their GPU buffers by a command
+ * buffer placed ahead of the frame's, then remapped for reuse. No allocation is written twice in a frame.
+ */
+export type DynamicUniformBuffers = {
+    /** Free GPU buffers. One returns here as soon as its copy is scheduled: the copy runs before any later pass. */
+    gpuBuffers: DynamicGpuBuffer[];
+    /** Staging buffers mapped for writing. */
+    stagingBuffers: StagingBuffer[];
+    /** CPU copies, free again as soon as their submit has written them. */
+    cpuStagingBuffers: StagingBuffer[];
+    /** Filled, waiting for the submit that copies them. */
+    usedBuffers: UsedBuffer[];
+    active: UsedBuffer | null;
+    /** Submitted, waiting for `mapAsync` before they take allocations again. */
+    pendingStagingBuffers: StagingBuffer[];
+    /** Mapped staging buffers alive, capped by `MAX_MAPPED_STAGING_BUFFERS`. */
+    mappedStagingCount: number;
+    /** CPU copies created. */
+    cpuStagingCount: number;
+    nextBufferId: number;
+    destroyed: boolean;
+};
+
+/** `id` is what a binding records, so neutral code never holds a GPU type. */
+type DynamicGpuBuffer = { buffer: GPUBuffer; id: number };
+/** `buffer` is null for a CPU copy, which the submit uploads with a queue write instead of a copy. */
+type StagingBuffer = { buffer: GPUBuffer | null; view: DataView<ArrayBuffer> };
+type UsedBuffer = { gpuBuffer: DynamicGpuBuffer; staging: StagingBuffer; size: number };
+
+/** PlayCanvas's WebGPU device size for these buffers. */
+const DYNAMIC_BUFFER_BYTES = 100 * 1024;
+
+/**
+ * A mapped staging buffer only returns once `mapAsync` resolves, which needs the event loop to turn, so
+ * frames submitted back to back within one task would otherwise create one per frame without bound.
+ * Past this many, a dynamic buffer is filled through a CPU copy instead.
+ */
+const MAX_MAPPED_STAGING_BUFFERS = 8;
+
+function createDynamicUniformBuffers(): DynamicUniformBuffers {
+    return {
+        gpuBuffers: [],
+        stagingBuffers: [],
+        cpuStagingBuffers: [],
+        usedBuffers: [],
+        active: null,
+        pendingStagingBuffers: [],
+        mappedStagingCount: 0,
+        cpuStagingCount: 0,
+        nextBufferId: 0,
+        destroyed: false,
+    };
+}
 
 export type BufferCacheStats = {
     bufferCount: number;
@@ -39,6 +100,7 @@ export function createBufferCache(info: RendererInfo): BufferCache {
         bufferCount: 0,
         rawCount: 0,
         info,
+        dynamicUniforms: createDynamicUniformBuffers(),
     };
 }
 
@@ -274,6 +336,177 @@ export function disposeBufferCache(cache: BufferCache): void {
     cache.rawMap = new WeakMap();
     cache.bufferCount = 0;
     cache.rawCount = 0;
+    // A handed-in device outlives the renderer, so these are released here rather than with it.
+    destroyDynamicUniforms(cache.dynamicUniforms);
+    cache.dynamicUniforms = createDynamicUniformBuffers();
+}
+
+/**
+ * Takes an aligned allocation of `size` bytes and returns its offset. It lands in `dynamicUniforms.active`,
+ * whose staging view the caller packs into and whose GPU buffer the caller binds at that offset.
+ */
+export function allocDynamicUniform(cache: BufferCache, device: GPUDevice, size: number): number {
+    if (size > DYNAMIC_BUFFER_BYTES) {
+        throw new Error(`[gpucat] a ${size}-byte uniform block is larger than a ${DYNAMIC_BUFFER_BYTES}-byte dynamic buffer`);
+    }
+    const buffers = cache.dynamicUniforms;
+    const align = device.limits.minUniformBufferOffsetAlignment;
+
+    // A full active buffer is done: schedule it for the submit.
+    if (buffers.active !== null && DYNAMIC_BUFFER_BYTES - roundUp(buffers.active.size, align) < size) {
+        buffers.usedBuffers.push(buffers.active);
+        buffers.active = null;
+    }
+
+    if (buffers.active === null) {
+        const gpuBuffer = buffers.gpuBuffers.pop() ?? {
+            buffer: device.createBuffer({
+                label: 'dynamic-uniforms',
+                size: DYNAMIC_BUFFER_BYTES,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            }),
+            id: buffers.nextBufferId++,
+        };
+        buffers.active = { gpuBuffer, staging: takeStagingBuffer(buffers, device), size: 0 };
+    }
+
+    const active = buffers.active;
+    const offset = roundUp(active.size, align);
+    active.size = offset + size;
+    cache.info.buffers.dynamicAllocations++;
+    cache.info.buffers.dynamicAllocationBytes += size;
+    return offset;
+}
+
+/** A remapped staging buffer when one is back, a new one under the cap, else a CPU copy. */
+function takeStagingBuffer(buffers: DynamicUniformBuffers, device: GPUDevice): StagingBuffer {
+    const mapped = buffers.stagingBuffers.pop();
+    if (mapped !== undefined) return mapped;
+    if (buffers.mappedStagingCount < MAX_MAPPED_STAGING_BUFFERS) {
+        buffers.mappedStagingCount++;
+        return createStagingBuffer(device);
+    }
+    const cpuCopy = buffers.cpuStagingBuffers.pop();
+    if (cpuCopy !== undefined) return cpuCopy;
+    buffers.cpuStagingCount++;
+    return { buffer: null, view: new DataView(new ArrayBuffer(DYNAMIC_BUFFER_BYTES)) };
+}
+
+/**
+ * Resident dynamic uniform buffers and staging (mapped or CPU). Pools only grow until dispose, so these
+ * settle at the peak a scene needs; one that climbs frame over frame means allocations are not returning.
+ */
+export function getDynamicUniformStats(cache: BufferCache): { gpuBuffers: number; stagingBuffers: number } {
+    const buffers = cache.dynamicUniforms;
+    return { gpuBuffers: buffers.nextBufferId, stagingBuffers: buffers.mappedStagingCount + buffers.cpuStagingCount };
+}
+
+function createStagingBuffer(device: GPUDevice): StagingBuffer {
+    const buffer = device.createBuffer({
+        label: 'dynamic-uniforms-staging',
+        size: DYNAMIC_BUFFER_BYTES,
+        usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
+        mappedAtCreation: true,
+    });
+    return { buffer, view: new DataView(buffer.getMappedRange()) };
+}
+
+/** The GPU buffer a binding recorded by id, for building the bind group that addresses it. */
+export function dynamicUniformBuffer(cache: BufferCache, id: number): GPUBuffer {
+    const buffers = cache.dynamicUniforms;
+    if (buffers.active?.gpuBuffer.id === id) return buffers.active.gpuBuffer.buffer;
+    for (const used of buffers.usedBuffers) if (used.gpuBuffer.id === id) return used.gpuBuffer.buffer;
+    throw new Error(`[gpucat] dynamic uniform buffer ${id} is not part of this frame`);
+}
+
+/**
+ * Unmaps every staging buffer filled since the last submit and records their copies into their GPU
+ * buffers, in a command buffer the frame submits ahead of its own. Returns null when nothing was written.
+ */
+export function submitDynamicUniforms(cache: BufferCache, device: GPUDevice): GPUCommandBuffer | null {
+    const buffers = cache.dynamicUniforms;
+    if (buffers.active !== null) {
+        buffers.usedBuffers.push(buffers.active);
+        buffers.active = null;
+    }
+    const used = buffers.usedBuffers;
+    if (used.length === 0) return null;
+
+    const encoder = device.createCommandEncoder({ label: 'dynamic-uniforms' });
+    // Backwards, so the next frame pops the GPU buffers in the order this one used them.
+    for (let index = used.length - 1; index >= 0; index--) {
+        const { gpuBuffer, staging, size } = used[index];
+        const bytes = alignTo4(size);
+        if (staging.buffer === null) {
+            // Lands ahead of the submit, like the copies, and frees the CPU copy at once.
+            device.queue.writeBuffer(gpuBuffer.buffer, 0, staging.view.buffer, 0, bytes);
+            buffers.cpuStagingBuffers.push(staging);
+        } else {
+            staging.buffer.unmap();
+            encoder.copyBufferToBuffer(staging.buffer, 0, gpuBuffer.buffer, 0, bytes);
+            buffers.pendingStagingBuffers.push(staging);
+        }
+        recordBufferWrite(cache.info, bytes, 'uniform', false, 'dynamic-uniforms');
+        buffers.gpuBuffers.push(gpuBuffer);
+    }
+    used.length = 0;
+    return encoder.finish({ label: 'dynamic-uniforms' });
+}
+
+/** After the submit: remaps the staging buffers it copied from, which resolves once the GPU is done reading them. */
+export function onDynamicUniformsSubmitted(cache: BufferCache): void {
+    const buffers = cache.dynamicUniforms;
+    for (const staging of buffers.pendingStagingBuffers) {
+        const buffer = staging.buffer!;
+        buffer.mapAsync(GPUMapMode.WRITE).then(
+            () => {
+                // A renderer disposed while the map was pending has already released this buffer.
+                if (buffers.destroyed) return;
+                staging.view = new DataView(buffer.getMappedRange());
+                buffers.stagingBuffers.push(staging);
+            },
+            // The map fails when the device is lost; the buffer cannot be reused.
+            () => {
+                buffer.destroy();
+                buffers.mappedStagingCount--;
+            },
+        );
+    }
+    buffers.pendingStagingBuffers.length = 0;
+}
+
+/** For a frame discarded rather than submitted: its buffers go back unsubmitted, the staging ones still mapped. */
+export function rewindDynamicUniforms(cache: BufferCache): void {
+    const buffers = cache.dynamicUniforms;
+    if (buffers.active !== null) {
+        buffers.usedBuffers.push(buffers.active);
+        buffers.active = null;
+    }
+    for (let index = buffers.usedBuffers.length - 1; index >= 0; index--) {
+        const { gpuBuffer, staging } = buffers.usedBuffers[index];
+        buffers.gpuBuffers.push(gpuBuffer);
+        (staging.buffer === null ? buffers.cpuStagingBuffers : buffers.stagingBuffers).push(staging);
+    }
+    buffers.usedBuffers.length = 0;
+}
+
+function destroyDynamicUniforms(buffers: DynamicUniformBuffers): void {
+    buffers.destroyed = true;
+    for (const gpuBuffer of buffers.gpuBuffers) gpuBuffer.buffer.destroy();
+    for (const staging of buffers.stagingBuffers) staging.buffer?.destroy();
+    for (const staging of buffers.pendingStagingBuffers) staging.buffer?.destroy();
+    for (const used of buffers.usedBuffers) {
+        used.gpuBuffer.buffer.destroy();
+        used.staging.buffer?.destroy();
+    }
+    if (buffers.active !== null) {
+        buffers.active.gpuBuffer.buffer.destroy();
+        buffers.active.staging.buffer?.destroy();
+    }
+}
+
+function roundUp(value: number, multiple: number): number {
+    return Math.ceil(value / multiple) * multiple;
 }
 
 // Stats

@@ -54,6 +54,14 @@ export type BufferInfo = {
      */
     writeBytes: number;
     /**
+     * Uniform uses this frame that took a dynamic allocation, because an earlier pass or dispatch had
+     * already read their block's own buffer with different bytes. Zero while each block is used once a
+     * frame; a count that tracks pass or draw count points at a value changing between passes.
+     */
+    dynamicAllocations: number;
+    /** Bytes those allocations packed. */
+    dynamicAllocationBytes: number;
+    /**
      * Per-write records for this frame, when `detailedWrites` is on. Raw and
      * ungrouped ON PURPOSE: which axis is useful - material, usage, update scope -
      * is a presentation question, and baking one in here means every new question
@@ -150,7 +158,15 @@ export function createRendererInfo(): RendererInfo {
     return {
         render: { calls: 0, frameCalls: 0, drawCalls: 0, triangles: 0 },
         compute: { calls: 0, frameCalls: 0 },
-        buffers: { writeCalls: 0, writeBytes: 0, writes: [], detailedWrites: false, writeCount: 0 },
+        buffers: {
+            writeCalls: 0,
+            writeBytes: 0,
+            dynamicAllocations: 0,
+            dynamicAllocationBytes: 0,
+            writes: [],
+            detailedWrites: false,
+            writeCount: 0,
+        },
         memory: {
             buffers: 0,
             geometries: 0,
@@ -174,6 +190,8 @@ export function beginInfoFrame(info: RendererInfo): void {
     info.compute.frameCalls = 0;
     info.buffers.writeCalls = 0;
     info.buffers.writeBytes = 0;
+    info.buffers.dynamicAllocations = 0;
+    info.buffers.dynamicAllocationBytes = 0;
     // the records array is POOLED: reset the live count and reuse the entries rather
     // than reallocating a few hundred objects every frame.
     info.buffers.writeCount = 0;

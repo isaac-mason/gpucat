@@ -101,6 +101,9 @@ test('a bundle interleaves with direct draws, in the order recorded', async () =
     f.submit();
 
     expect(stub.stats.drawCalls).toBe(3);
+    // The direct draws either side stay out of the device bundle, which holds only its own.
+    expect(stub.stats.bundleRecordings).toBe(1);
+    expect(stub.stats.bundleExecutions).toBe(1);
 });
 
 test('a device bundle records once and replays on later frames', async () => {

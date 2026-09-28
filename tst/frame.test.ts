@@ -6,13 +6,25 @@ import {
     type BackendName,
     beginFrame,
     createFrame,
-    type DrawRecord,
     type FrameBackend,
     type Pass,
     type PassDesc,
+    type PassEntry,
 } from '../src/renderer/core/frame';
 
 type Call = { fn: string; label?: string; drawn?: string[] };
+
+/** Keeps each open pass's draws the way a backend does, by what they were when recorded, per nesting depth. */
+function drawnByPass(calls: Call[]) {
+    const open: string[][] = [];
+    return {
+        beginPass: () => void open.push([]),
+        recordEntry: (entry: PassEntry) => {
+            if (entry.kind === 'draw') open[open.length - 1].push(entry.mesh.name);
+        },
+        encodePass: (d: PassDesc) => void calls.push({ fn: 'encodePass', label: d.label, drawn: open.pop() }),
+    };
+}
 
 function recorder(name: BackendName = 'webgpu'): { backend: FrameBackend; calls: Call[] } {
     const calls: Call[] = [];
@@ -21,8 +33,11 @@ function recorder(name: BackendName = 'webgpu'): { backend: FrameBackend; calls:
         deviceCanvasTarget: null,
         awaitCompletion: () => Promise.resolve(),
         beginFrame: () => void calls.push({ fn: 'beginFrame' }),
-        encodePass: (d: PassDesc, records: readonly DrawRecord[], count: number) =>
-            void calls.push({ fn: 'encodePass', label: d.label, drawn: records.slice(0, count).map((r) => r.mesh.name) }),
+        ...drawnByPass(calls),
+        beginComputePass: () => {},
+        recordDispatch: () => {},
+        beginTransformFeedbackPass: () => {},
+        recordTransformFeedback: () => {},
         encodeComputePass: () => void calls.push({ fn: 'encodeComputePass' }),
         encodeTransformFeedbackPass: () => undefined,
         submitFrame: () => void calls.push({ fn: 'submitFrame' }),
@@ -42,7 +57,7 @@ function started() {
     return { frame, calls };
 }
 
-test('nothing reaches the backend until pass.end()', () => {
+test('a pass encodes at end(), with the draws it recorded', () => {
     const { frame, calls } = started();
 
     const pass = frame.pass({ target, label: 'scene' });
@@ -178,6 +193,12 @@ test('a pass may open while another is mid-encode, and encodes first', () => {
         deviceCanvasTarget: null,
         awaitCompletion: () => Promise.resolve(),
         beginFrame: () => void calls.push({ fn: 'beginFrame' }),
+        beginPass: () => {},
+        recordEntry: () => {},
+        beginComputePass: () => {},
+        recordDispatch: () => {},
+        beginTransformFeedbackPass: () => {},
+        recordTransformFeedback: () => {},
         encodePass: (d: PassDesc) => {
             calls.push({ fn: 'encodePass', label: d.label });
             if (d.label !== 'beauty') return;
@@ -198,22 +219,70 @@ test('a pass may open while another is mid-encode, and encodes first', () => {
     expect(calls.map((c) => c.label ?? c.fn)).toEqual(['beginFrame', 'beauty', 'composite-nested', 'submitFrame']);
 });
 
-test('a nested pass takes its own pool slot, leaving the outer records intact', () => {
+/** A draw resolves when recorded, and resolving can record a nested pass (a render texture it samples). */
+test('a pass may open while another is resolving a draw, encodes first, and the outer pass records on', () => {
+    const calls: Call[] = [];
+    const drawn = drawnByPass(calls);
+    const frame = createFrame({
+        name: 'webgpu',
+        deviceCanvasTarget: null,
+        awaitCompletion: () => Promise.resolve(),
+        beginFrame: () => void calls.push({ fn: 'beginFrame' }),
+        beginPass: () => drawn.beginPass(),
+        recordEntry: (entry) => {
+            drawn.recordEntry(entry);
+            if (entry.kind !== 'draw' || entry.mesh.name !== 'samples-a-render-texture') return;
+            const nested = frame.pass({ target, label: 'render-texture' });
+            nested.end();
+        },
+        beginComputePass: () => {},
+        recordDispatch: () => {},
+        beginTransformFeedbackPass: () => {},
+        recordTransformFeedback: () => {},
+        encodePass: (d) => drawn.encodePass(d),
+        encodeComputePass: () => {},
+        encodeTransformFeedbackPass: () => undefined,
+        submitFrame: () => void calls.push({ fn: 'submitFrame' }),
+        discardFrame: () => {},
+    });
+    beginFrame(frame);
+
+    const pass = frame.pass({ target, label: 'beauty' });
+    pass.draw(mesh('samples-a-render-texture'));
+    pass.draw(mesh('after'));
+    pass.end();
+    frame.submit();
+
+    expect(calls.map((c) => c.label ?? c.fn)).toEqual(['beginFrame', 'render-texture', 'beauty', 'submitFrame']);
+    expect(calls.find((c) => c.label === 'beauty')?.drawn).toEqual(['samples-a-render-texture', 'after']);
+});
+
+/** Resolving a draw can record a nested pass, which must not write over the record still being resolved. */
+test('a nested pass takes its own pool slot and its own record', () => {
+    const calls: Call[] = [];
+    const drawn = drawnByPass(calls);
     let outer: Pass | null = null;
     let nested: Pass | null = null;
+    let afterNested = '';
     const frame = createFrame({
         name: 'webgpu',
         deviceCanvasTarget: null,
         awaitCompletion: () => Promise.resolve(),
         beginFrame: () => {},
-        encodePass: (d: PassDesc, records: readonly DrawRecord[], count: number) => {
-            if (d.label !== 'outer') return;
+        beginPass: () => drawn.beginPass(),
+        recordEntry: (entry) => {
+            drawn.recordEntry(entry);
+            if (entry.kind !== 'draw' || entry.mesh.name !== 'a') return;
             nested = frame.pass({ target, label: 'nested' });
             nested.draw(mesh('z'));
             nested.end();
-            // still the outer pass's own records, after the nested pass claimed a slot and encoded
-            expect(records.slice(0, count).map((r) => r.mesh.name)).toEqual(['a']);
+            afterNested = entry.mesh.name;
         },
+        beginComputePass: () => {},
+        recordDispatch: () => {},
+        beginTransformFeedbackPass: () => {},
+        recordTransformFeedback: () => {},
+        encodePass: (d) => drawn.encodePass(d),
         encodeComputePass: () => {},
         encodeTransformFeedbackPass: () => undefined,
         submitFrame: () => {},
@@ -227,6 +296,11 @@ test('a nested pass takes its own pool slot, leaving the outer records intact', 
 
     expect(nested).not.toBe(outer);
     expect(frame.pool).toHaveLength(2);
+    expect(afterNested).toBe('a');
+    expect(calls.map((c) => [c.label, c.drawn])).toEqual([
+        ['nested', ['z']],
+        ['outer', ['a']],
+    ]);
 });
 
 test('a pass cannot open while another is still recording', () => {
@@ -236,45 +310,30 @@ test('a pass cannot open while another is still recording', () => {
     expect(() => frame.pass({ target, label: 'nested' })).toThrow(/"outer" is still open/);
 });
 
-test('draw records are reused across frames, so a steady-state frame grows nothing', () => {
-    const { frame } = started();
+/** The backend keeps what it needs from a record during the call, so one per pass is all a frame allocates. */
+test('a pass hands the backend one record per kind, reused by every call and every frame', () => {
+    const { backend } = recorder();
+    const draws = new Set<PassEntry>();
+    const bundles = new Set<PassEntry>();
+    const frame = createFrame({
+        ...backend,
+        recordEntry: (entry) => void (entry.kind === 'draw' ? draws : bundles).add(entry),
+    });
     const meshes = [mesh('a'), mesh('b'), mesh('c')];
 
-    let records: unknown;
-    for (let i = 0; i < 4; i++) {
-        if (i > 0) beginFrame(frame);
+    for (let i = 0; i < 3; i++) {
+        beginFrame(frame);
         const pass = frame.pass({ target, label: 'scene' });
         for (const m of meshes) pass.draw(m);
+        pass.execute(fakeBundle());
+        pass.execute(fakeBundle());
         pass.end();
         frame.submit();
-
-        records ??= pass.records;
-        // Same pooled pass, same record array, same record objects inside it.
-        expect(pass.records).toBe(records);
-        expect(pass.records).toHaveLength(3);
     }
 
+    expect(draws.size).toBe(1);
+    expect(bundles.size).toBe(1);
     expect(frame.pool).toHaveLength(1);
-});
-
-test('a pass recording fewer draws than last time reads only the new count', () => {
-    const { frame, calls } = started();
-
-    const first = frame.pass({ target, label: 'scene' });
-    first.draw(mesh('a'));
-    first.draw(mesh('b'));
-    first.end();
-    frame.submit();
-
-    beginFrame(frame);
-    const second = frame.pass({ target, label: 'scene' });
-    second.draw(mesh('c'));
-    second.end();
-    frame.submit();
-
-    // The pooled array still holds 'b' in slot 1; count is what bounds the read.
-    expect(second.records).toHaveLength(2);
-    expect(calls.filter((c) => c.fn === 'encodePass').at(-1)?.drawn).toEqual(['c']);
 });
 
 test('a target disposed after its pass recorded is caught at submit, not by the driver', () => {

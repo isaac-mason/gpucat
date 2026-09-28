@@ -9,8 +9,9 @@ import type { NodeFrame } from '../core/node-frame';
 import type { NodeManagerState } from '../core/node-manager';
 import { compileNodeState, needsNodeUpdate } from '../core/node-manager';
 import type { RenderObject } from '../core/render-object';
-import { computeRenderObjectCacheKey } from '../core/render-object';
-import { getRenderBindGroupLayouts, initRenderBindings, updateRenderBindings } from './bindings';
+import { computeRenderObjectCacheKey, getBindings } from '../core/render-object';
+import { assertDynamicUniformLimit } from './bind-group-layout';
+import { type DrawBindings, getRenderBindGroupLayouts, initRenderBindings, updateRenderBindings } from './bindings';
 import { updateForRender as updateGeometry } from './geometries';
 import * as pipelines from './pipelines';
 import { getRenderObjectGpu } from './render-object-gpu';
@@ -68,6 +69,7 @@ export function initRenderObject(
     const gpu = getRenderObjectGpu(renderObjectGpuCache, renderObject);
     // A material or geometry version change moves the pipeline key, so the resolved pipeline is stale.
     if (!gpu.pipeline || stale) {
+        assertDynamicUniformLimit(device, getBindings(renderObject), pipelineName(renderObject));
         // Create pipeline using the unified pipelines system (sync)
         const entry = pipelines.getForRender(
             pipelinesState,
@@ -92,8 +94,8 @@ export function initRenderObject(
  * - Update uniform buffers
  * - Rebuild bind groups if needed
  */
-export function updateRenderObject(b: WebGPUBackend, renderObject: RenderObject, frame: NodeFrame): void {
-    updateRenderBindings(b, renderObject, frame);
+export function updateRenderObject(b: WebGPUBackend, renderObject: RenderObject, frame: NodeFrame, out: DrawBindings): void {
+    updateRenderBindings(b, renderObject, frame, out);
     updateGeometry(b, renderObject);
 }
 
@@ -135,6 +137,7 @@ export function initRenderObjectWithPromises(
     const gpu = getRenderObjectGpu(renderObjectGpuCache, renderObject);
     // A material or geometry version change moves the pipeline key, so the resolved pipeline is stale.
     if (!gpu.pipeline || stale) {
+        assertDynamicUniformLimit(device, getBindings(renderObject), pipelineName(renderObject));
         // Create pipeline asynchronously using the unified pipelines system
         const entry = pipelines.getForRender(
             pipelinesState,
@@ -158,4 +161,9 @@ export function initRenderObjectWithPromises(
     updateGeometry(b, renderObject);
 
     return true;
+}
+
+/** What a pipeline error names: the material, else the mesh drawing it. */
+function pipelineName(renderObject: RenderObject): string {
+    return renderObject.material.name || renderObject.mesh.name || 'material';
 }

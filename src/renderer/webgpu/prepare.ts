@@ -3,6 +3,7 @@ import { compileWgsl } from '../../nodes/builder';
 import type { NodeFrame } from '../core/node-frame';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderObject } from '../core/render-object';
+import type { DrawBindings } from './bindings';
 import * as Buffers from './buffers';
 import * as RenderObjectGpu from './render-object-gpu';
 import * as RenderObjects from './render-objects';
@@ -10,10 +11,10 @@ import type { WebGPUBackend } from './webgpu-backend';
 
 /**
  * Compile the node graph and build the pipeline / bind group layouts / geometry for one render
- * object. Returns whether it is drawable (initialized, pipeline present, node state present). The
- * neutral collect/getRenderObject/updateBefore steps stay in the render-loop orchestration.
+ * object, or throw naming it. The neutral collect/getRenderObject/updateBefore steps stay in the
+ * render-loop orchestration.
  */
-export function prepareRenderObject(b: WebGPUBackend, nodes: NodeManagerState, renderObject: RenderObject): boolean {
+export function prepareRenderObject(b: WebGPUBackend, nodes: NodeManagerState, renderObject: RenderObject): void {
     const initialized = RenderObjects.initRenderObject(b, nodes, renderObject, compileWgsl);
     const gpu = RenderObjectGpu.getRenderObjectGpu(b.renderObjectGpu, renderObject);
     if (!initialized || !gpu.pipeline || !renderObject.nodeBuilderState) {
@@ -22,7 +23,6 @@ export function prepareRenderObject(b: WebGPUBackend, nodes: NodeManagerState, r
                 'drops it from the pass, which reads as a missing object rather than a failed compile.',
         );
     }
-    return true;
 }
 
 /**
@@ -86,5 +86,8 @@ export function uploadRenderObjectResources(
 
     // upload uniforms and rebuild bind groups
     // (must be after texture upload so bind groups can reference GPU resources)
-    RenderObjects.updateRenderObject(b, renderObject, frame);
+    RenderObjects.updateRenderObject(b, renderObject, frame, _prewarmBindings);
 }
+
+/** The pre-warm builds bind groups ahead of any draw, so what they resolve to has no draw to go to. */
+const _prewarmBindings: DrawBindings = { groups: [], offsets: [] };

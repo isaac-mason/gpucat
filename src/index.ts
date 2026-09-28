@@ -428,6 +428,7 @@ export {
     type AnyPass,
     type BackendName,
     type BundleRecord,
+    type CallRecord,
     type ComputePass,
     type ComputePassDesc,
     type DispatchIndirectOptions,

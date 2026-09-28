@@ -12,7 +12,7 @@ import type { ComputeContext, RenderContext } from '../core/pass-context';
 import type { RenderObject } from '../core/render-object';
 import * as RenderState from '../core/render-state';
 import { formatHasStencil } from '../core/render-types';
-import { type BindGroupLayoutCache, buildComputeBindGroupLayouts } from './bind-group-layout';
+import { assertDynamicUniformLimit, type BindGroupLayoutCache, buildComputeBindGroupLayouts } from './bind-group-layout';
 
 export type ComputePipelineEntry = {
     pipeline: GPUComputePipeline | null;
@@ -320,6 +320,7 @@ export function getForCompute(
     const nodeBuilderState = NodeManager.getForCompute(nodes, node, computeContext);
 
     // Build bind group layouts from NodeBuilderState bindings
+    assertDynamicUniformLimit(device, nodeBuilderState.bindings, node.name ?? node.id);
     const bindGroupLayouts = buildComputeBindGroupLayouts(device, nodeBuilderState.bindings, state.bindGroupLayoutCache);
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts });
 

@@ -5,6 +5,8 @@ export const DELIBERATELY_INTERNAL: ReadonlySet<string> = new Set([
     './inspector/renderer-inspector#FrameRecord',
     './inspector/renderer-inspector#MarkerEntry',
     './inspector/renderer-inspector#PassRecord',
+    './inspector/renderer-inspector#RecordedCall',
+    './inspector/renderer-inspector#RecordedPass',
     './inspector/renderer-inspector#RenderEntry',
     './inspector/renderer-inspector#RendererInspector',
     './inspector/renderer-inspector#SceneRecord',

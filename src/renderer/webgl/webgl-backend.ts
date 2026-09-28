@@ -4,7 +4,14 @@ import type { ComputeNode } from '../../nodes/lib/core';
 import { yieldToMain } from '../../utils/yield-to-main';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DeviceBackend } from '../core/device-backend';
-import type { PassDesc, PassEntry, TransformFeedbackPassDesc, TransformFeedbackRecord } from '../core/frame';
+import type {
+    ComputePassDesc,
+    DispatchRecord,
+    PassDesc,
+    PassEntry,
+    TransformFeedbackPassDesc,
+    TransformFeedbackRecord,
+} from '../core/frame';
 import * as Info from '../core/info';
 import type { RenderObject } from '../core/render-object';
 import { formatHasStencil, type RenderPassParams } from '../core/render-types';
@@ -193,8 +200,29 @@ export class WebGLBackend implements DeviceBackend {
         FrameBackend.beginFrame(this._frame);
     }
 
-    encodePass(desc: PassDesc, records: readonly PassEntry[], count: number): void {
-        FrameBackend.encodePass(this._frame, desc, records, count);
+    beginPass(desc: PassDesc): void {
+        FrameBackend.beginPass(this._frame, desc);
+    }
+
+    recordEntry(entry: PassEntry): void {
+        FrameBackend.recordEntry(this._frame, entry);
+    }
+
+    beginTransformFeedbackPass(desc: TransformFeedbackPassDesc): void {
+        FrameBackend.beginTransformFeedbackPass(this._frame, desc);
+    }
+
+    recordTransformFeedback(record: TransformFeedbackRecord): void {
+        FrameBackend.recordTransformFeedback(this._frame, record);
+    }
+
+    /** Compute is WebGPU's; the frame refuses a compute pass on this backend before it records. */
+    beginComputePass(_desc: ComputePassDesc): void {}
+
+    recordDispatch(_record: DispatchRecord): void {}
+
+    encodePass(desc: PassDesc): void {
+        FrameBackend.encodePass(this._frame, desc);
     }
 
     /** Unreachable: `frame.compute()` rejects this backend by name before a dispatch can be recorded. */
@@ -202,12 +230,8 @@ export class WebGLBackend implements DeviceBackend {
         throw new Error('[webgl] compute shaders are WebGPU-only');
     }
 
-    encodeTransformFeedbackPass(
-        desc: TransformFeedbackPassDesc,
-        records: readonly TransformFeedbackRecord[],
-        count: number,
-    ): void {
-        FrameBackend.encodeTransformFeedbackPass(this._frame, desc, records, count);
+    encodeTransformFeedbackPass(desc: TransformFeedbackPassDesc): void {
+        FrameBackend.encodeTransformFeedbackPass(this._frame, desc);
     }
 
     submitFrame(): void {

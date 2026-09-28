@@ -5,15 +5,7 @@ import { createBoxGeometry } from '../src/geometry/geometry-helpers';
 import { Material } from '../src/material/material';
 import { positionClip, vec4f } from '../src/nodes/nodes';
 import { Mesh } from '../src/objects/mesh';
-import {
-    type BackendName,
-    beginFrame,
-    createFrame,
-    type DrawRecord,
-    type FrameBackend,
-    type PassDesc,
-    type PassEntry,
-} from '../src/renderer/core/frame';
+import { type BackendName, beginFrame, createFrame, type FrameBackend } from '../src/renderer/core/frame';
 import { collectRenderList, createRenderListsState } from '../src/renderer/core/render-list';
 import { Scene } from '../src/scene/scene';
 
@@ -23,7 +15,13 @@ function recorder(name: BackendName = 'webgpu'): FrameBackend {
         deviceCanvasTarget: null,
         awaitCompletion: () => Promise.resolve(),
         beginFrame: () => {},
-        encodePass: (_d: PassDesc, _r: readonly DrawRecord[], _c: number) => {},
+        beginPass: () => {},
+        recordEntry: () => {},
+        beginComputePass: () => {},
+        recordDispatch: () => {},
+        beginTransformFeedbackPass: () => {},
+        recordTransformFeedback: () => {},
+        encodePass: () => {},
         encodeComputePass: () => {},
         encodeTransformFeedbackPass: () => undefined,
         submitFrame: () => {},
@@ -62,8 +60,15 @@ test('draw, execute and scene are all verbs on the pass', () => {
     expect(typeof pass.scene).toBe('function');
 });
 
-function capturing(into: PassEntry[][]): FrameBackend {
-    return { ...recorder(), encodePass: (_d, records, count) => into.push(records.slice(0, count)) };
+/** Each pass's drawn meshes, collected as recorded: the record itself is reused by the next draw. */
+function capturing(into: Mesh[][]): FrameBackend {
+    return {
+        ...recorder(),
+        beginPass: () => void into.push([]),
+        recordEntry: (entry) => {
+            if (entry.kind === 'draw') into[into.length - 1].push(entry.mesh);
+        },
+    };
 }
 
 function offCameraBox(): Mesh {
@@ -85,7 +90,7 @@ function lookingAtOrigin(): PerspectiveCamera {
 
 /** lib draws its world batches with `draw`, so neither walk flag may reach it. */
 test('draw() ignores visible and frustumCulled, and the walk reads both', () => {
-    const encoded: PassEntry[][] = [];
+    const encoded: Mesh[][] = [];
     const frame = createFrame(capturing(encoded));
     beginFrame(frame);
 

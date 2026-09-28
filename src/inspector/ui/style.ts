@@ -1057,6 +1057,38 @@ const CSS = `
 	color: var(--color-orange);
 }
 
+/* Draw Calls, the recorded frame */
+
+.dc-kind--render,
+.dc-kind--draw {
+	background: rgba(74,158,255,0.15);
+	color: var(--accent-color);
+}
+
+.dc-kind--bundle {
+	background: rgba(156,39,176,0.18);
+	color: var(--color-call);
+}
+
+.dc-kind--compute,
+.dc-kind--dispatch,
+.dc-kind--transform-feedback {
+	background: rgba(255,152,0,0.12);
+	color: var(--color-orange);
+}
+
+.dc-call-detail {
+	color: var(--text-muted);
+}
+
+.dc-call-status {
+	color: var(--color-yellow);
+}
+
+.dc-call-status--failed {
+	color: var(--color-red);
+}
+
 .list-item-row.hierarchy-selected {
 	background: rgba(74,158,255,0.12);
 }

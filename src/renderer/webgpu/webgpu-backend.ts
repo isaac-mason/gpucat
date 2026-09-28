@@ -3,7 +3,15 @@ import type { ComputeNode } from '../../nodes/nodes';
 import { yieldToMain } from '../../utils/yield-to-main';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DeviceBackend } from '../core/device-backend';
-import type { ComputePassDesc, DispatchRecord, PassDesc, PassEntry, RenderBundle } from '../core/frame';
+import type {
+    ComputePassDesc,
+    DispatchRecord,
+    PassDesc,
+    PassEntry,
+    RenderBundle,
+    TransformFeedbackPassDesc,
+    TransformFeedbackRecord,
+} from '../core/frame';
 import { GPUFeatureName } from '../core/gpu-constants';
 import * as Info from '../core/info';
 import { aimNodeFrame } from '../core/node-frame';
@@ -82,11 +90,8 @@ export class WebGPUBackend implements DeviceBackend {
     /** @internal */ renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache = RenderObjectGpu.createRenderObjectGpuCache();
     /** @internal */ geometries: Geometries.GeometriesState = Geometries.createGeometriesState();
 
-    /** Per (bundle, camera, render context); here rather than on the neutral bundle, which may name no device object. @internal */
-    readonly renderBundles = new WeakMap<
-        RenderBundle,
-        WeakMap<object, Map<number, { gpu: GPURenderBundle; version: number; rebuilds: number }>>
-    >();
+    /** Per (bundle, camera, render context, replay in the frame); here rather than on the neutral bundle, which may name no device object. @internal */
+    readonly renderBundles = new WeakMap<RenderBundle, WeakMap<object, Map<number, RenderPass.BundleRecordings>>>();
 
     /** @internal */ readonly canvasContexts = new WeakMap<CanvasTarget, GPUCanvasContext>();
     /** @internal */ readonly swapchain: RenderPass.SwapchainState = RenderPass.createSwapchainState();
@@ -169,16 +174,36 @@ export class WebGPUBackend implements DeviceBackend {
         FrameBackend.beginFrame(this._frame);
     }
 
-    encodePass(desc: PassDesc, records: readonly PassEntry[], count: number): void {
-        FrameBackend.encodePass(this._frame, desc, records, count);
+    beginPass(desc: PassDesc): void {
+        FrameBackend.beginPass(this._frame, desc);
     }
 
-    encodeComputePass(desc: ComputePassDesc, records: readonly DispatchRecord[], count: number): void {
-        FrameBackend.encodeComputePass(this._frame, desc, records, count);
+    recordEntry(entry: PassEntry): void {
+        FrameBackend.recordEntry(this._frame, entry);
     }
 
-    /** Unreachable: `frame.transformFeedback()` rejects this backend before a pass can open. */
-    /** Unreachable: `frame.transformFeedback()` rejects this backend by name before a dispatch can be recorded. */
+    encodePass(desc: PassDesc): void {
+        FrameBackend.encodePass(this._frame, desc);
+    }
+
+    beginComputePass(desc: ComputePassDesc): void {
+        FrameBackend.beginComputePass(this._frame, desc);
+    }
+
+    recordDispatch(record: DispatchRecord): void {
+        FrameBackend.recordDispatch(this._frame, record);
+    }
+
+    /** Transform feedback is WebGL2's; the frame refuses one on this backend before it records. */
+    beginTransformFeedbackPass(_desc: TransformFeedbackPassDesc): void {}
+
+    recordTransformFeedback(_record: TransformFeedbackRecord): void {}
+
+    encodeComputePass(desc: ComputePassDesc): void {
+        FrameBackend.encodeComputePass(this._frame, desc);
+    }
+
+    /** Unreachable: `frame.transformFeedback()` rejects this backend by name before a pass can open. */
     encodeTransformFeedbackPass(): never {
         throw new Error('[webgpu] transform feedback is WebGL2-only');
     }
@@ -236,6 +261,9 @@ export class WebGPUBackend implements DeviceBackend {
         memory.backend.renderPipelines = pipelines.renderCount;
         memory.backend.computePipelines = pipelines.computeCount;
         memory.backend.bindGroupLayouts = getBindGroupLayoutCacheStats(this.bindGroupLayoutCache).layoutCount;
+        const dynamicUniforms = Buffers.getDynamicUniformStats(this.buffers);
+        memory.backend.dynamicUniformBuffers = dynamicUniforms.gpuBuffers;
+        memory.backend.dynamicUniformStaging = dynamicUniforms.stagingBuffers;
     }
 
     dispose(): void {

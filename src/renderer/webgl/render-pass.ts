@@ -29,7 +29,7 @@ import * as Geometries from './geometries';
 import { getRenderObjectGl } from './render-object-gl';
 import { bindRenderTargetFramebuffer, resolveActiveRenderTarget } from './render-target';
 import { applyMaterialState, createGlStateCache, establishPassBaseline } from './state';
-import { bindTextures } from './texture-bindings';
+import { bindTextures, captureTextures } from './texture-bindings';
 import type { WebGLBackend } from './webgl-backend';
 
 /**
@@ -207,6 +207,47 @@ export function endPass(caches: WebGLBackend): void {
     resolveActiveRenderTarget(gl, caches.renderTargets);
 }
 
+/**
+ * Runs a draw's node updates and captures its uniforms and textures into `out`, at the call that
+ * recorded it, so the draw uses the values set before that call.
+ */
+export function captureDraw(
+    caches: WebGLBackend,
+    nodes: NodeManagerState,
+    renderObject: PreparedRenderObject,
+    out: Bindings.RecordCapture,
+): void {
+    const frame = nodes.nodeFrame;
+    frame.object = renderObject.mesh;
+    frame.material = renderObject.material;
+    frame.camera = renderObject.camera;
+    NodeManager.updateForRender(nodes, renderObject);
+
+    const programInfo = getRenderObjectGl(caches.renderObjectGl, renderObject).program;
+    if (!programInfo) {
+        throw new Error(`[webgl] '${renderObject.mesh.name || 'mesh'}' was recorded with no linked program.`);
+    }
+
+    out.uniformCount = 0;
+    for (const bindGroup of getBindings(renderObject)) {
+        for (const binding of bindGroup.bindings) {
+            if (binding.kind !== 'uniform') continue;
+            const bindingPoint = programInfo.uboBindingPoints.get(binding.block.groupName);
+            if (bindingPoint === undefined) continue; // block optimized out / unused
+            Bindings.captureUniformGroup(
+                caches,
+                binding,
+                frame,
+                bindingPoint,
+                renderObject.material,
+                out.uniforms,
+                out.uniformCount++,
+            );
+        }
+    }
+    captureTextures(renderObject, out.textures);
+}
+
 export function encodeDraws(
     gl: WebGL2RenderingContext,
     caches: WebGLBackend,
@@ -215,6 +256,7 @@ export function encodeDraws(
     params: RenderPassParams,
     prepared: readonly PreparedRenderObject[],
     preparedOpts: readonly (DrawOptions | null)[],
+    captures: readonly Bindings.RecordCapture[],
     count: number,
     inspector: InspectorBase | null,
     info: RendererInfo,
@@ -228,8 +270,6 @@ export function encodeDraws(
     let currentProgram: WebGLProgram | null = null;
     let currentVao: WebGLVertexArrayObject | null = null;
 
-    const frame = nodes.nodeFrame;
-
     for (let i = 0; i < count; i++) {
         const renderObject = prepared[i];
         const { mesh, material, geometry } = renderObject;
@@ -240,13 +280,7 @@ export function encodeDraws(
         const instances = opts?.instances ?? mesh.count;
         const range = opts?.range;
 
-        if (instances === 0 && draws === undefined) continue;
-
-        // Per-object node frame context + neutral updates (matches the WebGPU draw loop).
-        frame.object = mesh;
-        frame.material = material;
-        frame.camera = renderObject.camera;
-        NodeManager.updateForRender(nodes, renderObject);
+        const capture = captures[i];
 
         const payload = getRenderObjectGl(caches.renderObjectGl, renderObject);
         const programInfo = payload.program;
@@ -267,23 +301,16 @@ export function encodeDraws(
             if (inspector) inspector.setPipeline(pipelineLabel(mesh, material));
         }
 
-        // Uniform groups → std140 UBOs. Each of the RenderObject's uniform bind groups is updated and
-        // bound to its program binding point.
-        const bindGroups = getBindings(renderObject);
-        let bindGroupIndex = 0;
-        for (const bindGroup of bindGroups) {
-            for (const binding of bindGroup.bindings) {
-                if (binding.kind !== 'uniform') continue;
-                const bindingPoint = programInfo.uboBindingPoints.get(binding.block.groupName);
-                if (bindingPoint === undefined) continue; // block optimized out / unused
-                Bindings.updateAndBindUniformGroup(gl, caches, binding, frame, bindingPoint, material);
-            }
-            if (inspector) inspector.setBindGroup(bindGroupIndex, mesh.name || '');
-            bindGroupIndex++;
+        // Uniform groups → std140 UBOs: each group's bytes as the draw recorded them, uploaded if they
+        // differ from what its UBO holds and bound to its program binding point.
+        for (let u = 0; u < capture.uniformCount; u++) Bindings.uploadAndBindCapture(gl, caches, capture.uniforms[u], material);
+        if (inspector) {
+            const groupCount = getBindings(renderObject).length;
+            for (let g = 0; g < groupCount; g++) inspector.setBindGroup(g, mesh.name || '');
         }
 
-        // Texture + sampler bindings → GL texture units + combined-sampler uniforms.
-        bindTextures(gl, caches, renderObject, programInfo);
+        // Texture + sampler bindings → GL texture units + combined-sampler uniforms, as recorded.
+        bindTextures(gl, caches, renderObject, programInfo, capture.textures);
 
         // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
         // `prepareGeometry` detaches the VAO to upload buffers safely (see its note), so the GL VAO

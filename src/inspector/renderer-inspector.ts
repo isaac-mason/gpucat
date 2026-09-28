@@ -9,6 +9,7 @@
  *   - finish(frameId) seals the frame record and optionally resolves GPU timestamps.
  *   - beginRender/finishRender track CPU wall-time per render pass.
  *   - beginCompute/finishCompute track CPU wall-time per compute dispatch.
+ *   - the recorded-frame hooks build `FrameRecord.passes`: every pass and call the frame was asked for.
  *   - resolveFrame() returns the just-completed frame (fresh CPU/stats).
  *   - latestResolvedFrame() returns the newest frame whose async GPU
  *     timestamps have landed — what the live GPU-time display reads.
@@ -28,6 +29,8 @@
 
 import type { Object3D } from '../core/object3d';
 import type { ComputeNode, InspectorNode } from '../nodes/nodes';
+import type { AnyPass, CallRecord } from '../renderer/core/frame';
+import type { RenderObject } from '../renderer/core/render-object';
 import type { Any } from '../schema/schema';
 import { type InspectableRenderer, InspectorBase } from './inspector-base';
 
@@ -98,6 +101,34 @@ export type SceneRecord = {
     colorFormat: string;
 };
 
+/** One call a pass recorded, and what became of it. @internal */
+export type RecordedCall = {
+    kind: CallRecord['kind'];
+    /** The mesh, bundle or kernel it names. */
+    name: string;
+    /** What it asked for beyond that: instances, a range, per-draw list, material override, workgroups. */
+    detail: string;
+    /** What each draw resolved to; a bundle has one per draw it resolved. Empty for a dispatch. */
+    renderObjects: RenderObject[];
+    /** Draws that resolved with no instances and no per-draw list, so nothing reached the GPU. */
+    emptyDraws: number;
+    /** The message it threw while resolving, or null. */
+    error: string | null;
+    /** Passes recorded while it resolved, such as a render texture its material samples. */
+    passes: RecordedPass[];
+};
+
+/** One pass the frame was asked for, with its calls in the order they were recorded. @internal */
+export type RecordedPass = {
+    kind: AnyPass['kind'];
+    label: string;
+    /** Why the backend resolved and encoded nothing in it, or null. */
+    skipped: string | null;
+    /** Why its begin was refused, or that it never ended, or null. */
+    error: string | null;
+    calls: RecordedCall[];
+};
+
 export type FrameRecord = {
     frameId: number;
     /** Total CPU time for the entire frame (begin→finish) in ms */
@@ -110,6 +141,8 @@ export type FrameRecord = {
     inspectableNodes: InspectorNode<Any>[];
     /** Scene render calls encountered this frame, one entry per renderScene() call. */
     scenes: SceneRecord[];
+    /** Every pass the frame was asked for, in call order; a nested pass sits under the call that opened it. */
+    passes: RecordedPass[];
 };
 
 /**
@@ -132,6 +165,14 @@ const MAX_PASSES_PER_FRAME = 64;
 // readbacks stall (device lost / tab backgrounded) it turns an unbounded pool leak
 // into a logged, dropped frame. Buffers are tiny (~1 KiB).
 const READBACK_POOL_CAP = 8;
+
+/** Walk a timeline's render/compute entries, the ones that carry a GPU time, children included. */
+function forEachGpuEntry(entries: readonly TimelineEntry[], fn: (entry: RenderEntry | ComputeEntry) => void): void {
+    for (const entry of entries) {
+        if (entry.kind === 'render' || entry.kind === 'compute') fn(entry);
+        if (entry.children.length > 0) forEachGpuEntry(entry.children, fn);
+    }
+}
 
 // RendererInspector
 
@@ -209,6 +250,10 @@ export class RendererInspector extends InspectorBase {
     private _currentQuerySlot = 0;
     private _pendingInspectables: InspectorNode<Any>[] = [];
     private _pendingScenes: SceneRecord[] = [];
+    /** Top-level recorded passes this frame. */
+    private _recordedPasses: RecordedPass[] = [];
+    /** The passes and calls open right now, innermost last. */
+    private _recordStack: (RecordedPass | RecordedCall)[] = [];
 
     // Timeline entry stack - entries nest inside the current stack top
     // The stack holds "in-progress" entries that haven't been closed yet
@@ -368,12 +413,15 @@ export class RendererInspector extends InspectorBase {
 
     /** End the GL timer query for an entry, stashing it until finish() attaches the frame record. */
     private _glEndQuery(entry: RenderEntry | ComputeEntry): void {
-        if (!this._glActiveQuery || this._glActiveQuery.entry !== entry) return;
+        const active = this._glActiveQuery;
+        if (!active || active.entry !== entry) return;
+        // Cleared before the context checks below: only one TIME_ELAPSED query may be open, so an
+        // active query left behind on a torn-down context silences every later pass for good.
+        this._glActiveQuery = null;
         const r = this.renderer;
         if (!r || r.api !== 'webgl' || !r.backend.gl || !this._glTimerExt) return;
         r.backend.gl.endQuery(this._glTimerExt.TIME_ELAPSED_EXT);
-        this._glFrameQueries.push({ query: this._glActiveQuery.query, entry });
-        this._glActiveQuery = null;
+        this._glFrameQueries.push({ query: active.query, entry });
     }
 
     /**
@@ -386,8 +434,30 @@ export class RendererInspector extends InspectorBase {
         if (!r || r.api !== 'webgl' || !r.backend.gl || !this._glTimerExt) return;
         const gl = r.backend.gl;
 
-        // GPU_DISJOINT_EXT: if the GPU changed state during timing, ALL in-flight results are bogus.
-        const disjoint = gl.getParameter(this._glTimerExt.GPU_DISJOINT_EXT) as boolean;
+        // GPU_DISJOINT_EXT: the GPU changed state during timing, so every result in flight is bogus —
+        // not just the ones readable right now. A query still pending was open across the same state
+        // change, and letting it land afterwards back-patches its record with a sum over the handful of
+        // passes that survived: a frame GPU time that reads as real and is a fraction of the truth.
+        // Reading the flag clears it, so this is the one chance to act on it.
+        if (gl.getParameter(this._glTimerExt.GPU_DISJOINT_EXT) as boolean) {
+            const spoiled = new Set<FrameRecord>();
+            for (const pending of this._glPendingQueries) {
+                // Deleted rather than pooled: these results were never read, and a disjoint is rare
+                // enough that re-creating a few queries costs nothing.
+                gl.deleteQuery(pending.query);
+                spoiled.add(pending.record);
+            }
+            this._glPendingQueries = [];
+            // A record whose other passes landed before the disjoint keeps no half-timing: the frame
+            // goes untimed rather than reporting part of its GPU cost as all of it.
+            for (const record of spoiled) {
+                record.gpuMs = null;
+                forEachGpuEntry(record.timeline, (e) => {
+                    e.gpuMs = null;
+                });
+            }
+            return;
+        }
 
         const stillPending: typeof this._glPendingQueries = [];
         const touchedRecords = new Set<FrameRecord>();
@@ -396,11 +466,6 @@ export class RendererInspector extends InspectorBase {
             const available = gl.getQueryParameter(pending.query, gl.QUERY_RESULT_AVAILABLE) as boolean;
             if (!available) {
                 stillPending.push(pending);
-                continue;
-            }
-            if (disjoint) {
-                // Discard: timing invalid. Recycle the query.
-                this._glQueryPool.push(pending.query);
                 continue;
             }
             const ns = gl.getQueryParameter(pending.query, gl.QUERY_RESULT) as number;
@@ -419,13 +484,9 @@ export class RendererInspector extends InspectorBase {
         for (const record of touchedRecords) {
             if (this._glPendingQueries.some((p) => p.record === record)) continue;
             let sumMs = 0;
-            const walk = (entries: TimelineEntry[]): void => {
-                for (const e of entries) {
-                    if ((e.kind === 'render' || e.kind === 'compute') && e.gpuMs !== null) sumMs += e.gpuMs;
-                    if (e.children.length > 0) walk(e.children);
-                }
-            };
-            walk(record.timeline);
+            forEachGpuEntry(record.timeline, (e) => {
+                if (e.gpuMs !== null) sumMs += e.gpuMs;
+            });
             record.gpuMs = sumMs;
         }
     }
@@ -439,6 +500,8 @@ export class RendererInspector extends InspectorBase {
         this._currentQuerySlot = 0;
         this._pendingInspectables = [];
         this._pendingScenes = [];
+        this._recordedPasses = [];
+        this._recordStack.length = 0;
         this._entryStack = [];
         this._rootTimeline = [];
         this._entryRefs.clear();
@@ -467,6 +530,8 @@ export class RendererInspector extends InspectorBase {
         while (this._entryStack.length > 0) {
             this._closeCurrentEntry(now);
         }
+        // An abandoned frame leaves what it was recording open.
+        this._unwindRecordsTo(0);
 
         const renderer = this.renderer;
         const record: FrameRecord = {
@@ -476,6 +541,7 @@ export class RendererInspector extends InspectorBase {
             timeline: [...this._rootTimeline],
             inspectableNodes: [...this._pendingInspectables],
             scenes: [...this._pendingScenes],
+            passes: this._recordedPasses,
         };
 
         this.frameHead = (this.frameHead + 1) % FRAME_HISTORY;
@@ -483,13 +549,9 @@ export class RendererInspector extends InspectorBase {
 
         if (renderer.api === 'webgpu') {
             // Async GPU timestamp resolution (WebGPU query set).
-            if (
-                this.hasTimestamps &&
-                this._querySet &&
-                this._resolveBuffer &&
-                this._readbackPool.length > 0 &&
-                renderer.backend.device
-            ) {
+            // The readback pool is grown on demand inside _resolveTimestamps, so it is empty
+            // until the first resolve — never a precondition for running one.
+            if (this.hasTimestamps && this._querySet && this._resolveBuffer && renderer.backend.device) {
                 this._resolveTimestamps(record);
             }
         } else if (this.hasTimestamps) {
@@ -518,27 +580,39 @@ export class RendererInspector extends InspectorBase {
             children: [],
         };
         this._pushEntry(entry);
-        if (this.renderer?.api === 'webgl') this._glBeginQuery(entry);
     }
 
     override finishRender(passId: string): void {
-        if (this.renderer?.api === 'webgl') {
-            const stack = this._entryRefs.get(passId);
-            const entry = stack?.[stack.length - 1];
-            if (entry && entry.kind !== 'marker') this._glEndQuery(entry);
-        }
         this._finishEntry(passId);
+    }
+
+    /**
+     * The GPU work for the open entry of this name starts here. On WebGL that is the `TIME_ELAPSED`
+     * query: opened around the pass or dispatch itself, so the uploads and compiles that precede it
+     * are not charged to it — the same span WebGPU's `timestampWrites` covers, which is why the pair
+     * is a no-op on that backend.
+     */
+    override beginGpuWork(name: string): void {
+        if (this.renderer?.api !== 'webgl') return;
+        const entry = this._openEntry(name);
+        if (entry && entry.kind !== 'marker') this._glBeginQuery(entry);
+    }
+
+    override endGpuWork(name: string): void {
+        if (this.renderer?.api !== 'webgl') return;
+        const entry = this._openEntry(name);
+        if (entry && entry.kind !== 'marker') this._glEndQuery(entry);
     }
 
     override getTimestampWrites(passId: string): GPURenderPassTimestampWrites | undefined {
         if (!this.hasTimestamps || !this._querySet) return undefined;
 
-        // Find the most recently opened entry with this name
-        const stack = this._entryRefs.get(passId);
-        const entry = stack?.[stack.length - 1];
+        const entry = this._openEntry(passId);
         if (!entry || entry.kind === 'marker') return undefined;
 
-        const slot = (entry as RenderEntry | ComputeEntry).querySlot;
+        const slot = entry.querySlot;
+        // Past the query set's capacity: this pass goes untimed rather than writing out of range.
+        if (slot >= MAX_PASSES_PER_FRAME) return undefined;
         return {
             querySet: this._querySet,
             beginningOfPassWriteIndex: slot * 2,
@@ -547,27 +621,111 @@ export class RendererInspector extends InspectorBase {
     }
 
     override beginCompute(node: ComputeNode): void {
-        const nodeId = node.id;
-        this.computeNodes.set(nodeId, node);
+        this.computeNodes.set(node.id, node);
+        // friendly `ComputeNode.name` (from `.compute({ name })`) if set, else the auto id — so
+        // labelled dispatches read as e.g. "voxel-cull" in the timeline. `finishCompute` is handed
+        // the same string.
+        this.beginKernel(node.name ?? node.id);
+    }
+
+    override finishCompute(nodeId: string): void {
+        this._finishEntry(nodeId);
+    }
+
+    /**
+     * A kernel that runs GPU work without being a compute dispatch — a WebGL2 transform-feedback
+     * kernel. Same GPU-timed entry a compute node gets, minus the `computeNodes` registration: that
+     * map is keyed by `ComputeNode` for the Compute Calls tab, and a `TransformFeedbackNode` is not
+     * one.
+     */
+    override beginKernel(name: string): void {
         const now = performance.now();
-        const slot = this._currentQuerySlot++;
         const entry: ComputeEntry = {
             kind: 'compute',
-            // friendly `ComputeNode.name` (from `.compute({ name })`) if set, else the
-            // auto id — so labelled dispatches read as e.g. "voxel-cull" in the timeline.
-            name: node.name ?? nodeId,
+            name,
             startTime: now - this._frameStart,
             cpuMs: 0,
             gpuMs: null,
             gpuStartMs: null,
-            querySlot: slot,
+            querySlot: this._currentQuerySlot++,
             children: [],
         };
         this._pushEntry(entry);
     }
 
-    override finishCompute(nodeId: string): void {
-        this._finishEntry(nodeId);
+    override finishKernel(name: string): void {
+        this._finishEntry(name);
+    }
+
+    override beginRecordedPass(kind: AnyPass['kind'], label: string): void {
+        const pass: RecordedPass = { kind, label, skipped: null, error: null, calls: [] };
+        const parent = this._recordStack.at(-1);
+        if (parent !== undefined && !isRecordedPass(parent)) parent.passes.push(pass);
+        else this._recordedPasses.push(pass);
+        this._recordStack.push(pass);
+    }
+
+    override skipRecordedPass(reason: string): void {
+        const pass = this._recordStack.at(-1);
+        if (pass !== undefined && isRecordedPass(pass)) pass.skipped = reason;
+    }
+
+    override beginRecordedCall(record: CallRecord): void {
+        const pass = this._recordStack.at(-1);
+        if (pass === undefined || !isRecordedPass(pass)) return;
+        const call: RecordedCall = {
+            kind: record.kind,
+            name: callName(record),
+            detail: callDetail(record),
+            renderObjects: [],
+            emptyDraws: 0,
+            error: null,
+            passes: [],
+        };
+        pass.calls.push(call);
+        this._recordStack.push(call);
+    }
+
+    override resolvedDraw(renderObject: RenderObject, drawsNothing: boolean): void {
+        const call = this._recordStack.at(-1);
+        if (call === undefined || isRecordedPass(call)) return;
+        if (drawsNothing) call.emptyDraws++;
+        else call.renderObjects.push(renderObject);
+    }
+
+    override endRecordedCall(error: string | null): void {
+        // A call that threw may have left a nested pass it recorded unended.
+        const index = this._innermostRecord(false);
+        if (index < 0) return;
+        const call = this._recordStack[index] as RecordedCall;
+        this._unwindRecordsTo(index + 1);
+        this._recordStack.length = index;
+        call.error = error;
+    }
+
+    override endRecordedPass(error: string | null): void {
+        const index = this._innermostRecord(true);
+        if (index < 0) return;
+        const pass = this._recordStack[index] as RecordedPass;
+        this._unwindRecordsTo(index + 1);
+        this._recordStack.length = index;
+        pass.error = error;
+    }
+
+    /** The stack index of the innermost open pass, or call, or -1. */
+    private _innermostRecord(pass: boolean): number {
+        for (let index = this._recordStack.length - 1; index >= 0; index--) {
+            if (isRecordedPass(this._recordStack[index]) === pass) return index;
+        }
+        return -1;
+    }
+
+    /** Closes every recorded entry above `depth`, marking the passes among them as never ended. */
+    private _unwindRecordsTo(depth: number): void {
+        while (this._recordStack.length > depth) {
+            const entry = this._recordStack.pop()!;
+            if (isRecordedPass(entry)) entry.error ??= 'never ended';
+        }
     }
 
     override inspect(node: InspectorNode<Any>): void {
@@ -632,6 +790,12 @@ export class RendererInspector extends InspectorBase {
         } else {
             this._entryRefs.set(entry.name, [entry]);
         }
+    }
+
+    /** The innermost entry still open under this name, the one a hook naming it refers to. */
+    private _openEntry(name: string): TimelineEntry | undefined {
+        const stack = this._entryRefs.get(name);
+        return stack?.[stack.length - 1];
     }
 
     /** Finish an entry by name - calculates duration and pops from stack */
@@ -699,10 +863,13 @@ export class RendererInspector extends InspectorBase {
 
     // GPU timestamp resolution
 
-    /** Collect all GPU entries (render/compute) from timeline tree, mapped by querySlot */
+    /** Collect all GPU entries (render/compute) from timeline tree, mapped by querySlot.
+     *  Slots past the query set's capacity are skipped — those passes carry no timestamp
+     *  writes (see `getTimestampWrites`), so resolving their slots would read past the
+     *  resolved range. */
     private _collectGpuEntries(entries: TimelineEntry[], out: Map<number, RenderEntry | ComputeEntry>): void {
         for (const entry of entries) {
-            if (entry.kind === 'render' || entry.kind === 'compute') {
+            if ((entry.kind === 'render' || entry.kind === 'compute') && entry.querySlot < MAX_PASSES_PER_FRAME) {
                 out.set(entry.querySlot, entry);
             }
             if (entry.children.length > 0) {
@@ -751,8 +918,7 @@ export class RendererInspector extends InspectorBase {
         const gpuEntries = new Map<number, RenderEntry | ComputeEntry>();
         this._collectGpuEntries(record.timeline, gpuEntries);
 
-        const slotCount = Math.min(gpuEntries.size, MAX_PASSES_PER_FRAME);
-        if (slotCount === 0) return;
+        if (gpuEntries.size === 0) return;
 
         // Grab a free readback buffer, growing the pool on demand up to the cap.
         // Null means the whole pool is still in flight and we're at the cap — drop
@@ -821,4 +987,46 @@ export class RendererInspector extends InspectorBase {
         this._pendingMaps.add(mapDone);
         void mapDone.finally(() => this._pendingMaps.delete(mapDone));
     }
+}
+
+function isRecordedPass(entry: RecordedPass | RecordedCall): entry is RecordedPass {
+    return 'calls' in entry;
+}
+
+function callName(record: CallRecord): string {
+    switch (record.kind) {
+        case 'draw':
+            return record.mesh.name || `Mesh #${record.mesh.objectId}`;
+        case 'bundle':
+            return record.bundle.label;
+        default:
+            return record.node.name ?? record.node.id;
+    }
+}
+
+function callDetail(record: CallRecord): string {
+    const parts: string[] = [];
+    switch (record.kind) {
+        case 'draw': {
+            const opts = record.opts;
+            if (record.material !== record.mesh.material) parts.push(`material ${record.material.name || 'override'}`);
+            if (opts?.instances !== undefined) parts.push(`${opts.instances} instances`);
+            if (opts?.range !== undefined) parts.push(`range ${opts.range.start}+${opts.range.count}`);
+            if (opts?.draws !== undefined) parts.push(`${opts.draws.length} draws`);
+            break;
+        }
+        case 'bundle':
+            parts.push(`${record.bundle.count} draws`);
+            break;
+        case 'dispatch':
+            if (record.indirect !== undefined) parts.push(`indirect at ${record.indirectOffset ?? 0}`);
+            else parts.push(record.counts.join(' x '));
+            if (record.buffers !== undefined) parts.push(`buffers ${Object.keys(record.buffers).join(', ')}`);
+            break;
+        case 'transform-feedback':
+            parts.push(`${record.count} elements`);
+            if (record.instanceCount !== undefined) parts.push(`${record.instanceCount} instances`);
+            break;
+    }
+    return parts.join(', ');
 }

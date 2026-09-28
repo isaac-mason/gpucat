@@ -70,6 +70,7 @@ import {
     type WebGLBackend,
     webgl,
 } from '../../src/index';
+import { RendererInspector } from '../../src/inspector/renderer-inspector';
 import * as Programs from '../../src/renderer/webgl/programs';
 
 /**
@@ -2428,6 +2429,97 @@ async function caseTransformFeedbackPass(): Promise<CaseResult> {
 }
 
 /**
+ * draw-uniform-within-pass: one mesh drawn twice in one pass, its uniforms changed between the draws.
+ * Each draw reads the values it was recorded with, so the left half is red and the right half green.
+ */
+async function caseDrawUniformWithinPass(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    const quad = new Geometry();
+    quad.setBuffer(
+        'position',
+        new GpuBuffer(d.vec3f, {
+            data: new Float32Array([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, 1, 0]),
+            usage: 'vertex',
+        }),
+    );
+    const offsetUniform = new Uniform(d.f32, 0);
+    const colourUniform = new Uniform(d.vec4f, [0, 0, 0, 1]);
+    const position = attribute('position', d.vec3f);
+    const mesh = new Mesh(
+        quad,
+        new Material({
+            vertex: vec4(position.x.mul(f32(0.5)).add(uniform(offsetUniform)), position.y, f32(0), f32(1)),
+            fragment: uniform(colourUniform),
+            depthTest: false,
+        }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(renderer);
+    const pass = f.pass({ target: renderer.backend.target, camera: new PerspectiveCamera(), clear: [0, 0, 0, 1] });
+    offsetUniform.value = -0.5;
+    colourUniform.value = [1, 0, 0, 1];
+    pass.draw(mesh);
+    offsetUniform.value = 0.5;
+    colourUniform.value = [0, 1, 0, 1];
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const gl = renderer.backend.gl!;
+    const left = readAt(gl, SIZE / 4, CENTER);
+    const right = readAt(gl, (SIZE * 3) / 4, CENTER);
+    renderer.dispose();
+    return {
+        name: 'draw-uniform-within-pass',
+        pixel: [left[0], right[1], left[1] + right[0], 255],
+        expected: [255, 255, 0, 255],
+        note: `left=${left.join(',')} right=${right.join(',')}; a black left means the first draw read the second draw values`,
+    };
+}
+
+/**
+ * tf-uniform-within-pass: one kernel dispatched twice in one transform-feedback pass, `dt` changed
+ * between the dispatches. Each dispatch reads the `dt` it was recorded with.
+ */
+async function caseTransformFeedbackUniformWithinPass(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const N = 4;
+    const posBuf = new GpuBuffer(d.vec4f, { data: new Float32Array(N * 4).fill(1) });
+    const velBuf = new GpuBuffer(d.vec4f, { data: new Float32Array(N * 4).fill(1) });
+    const halfStep = new GpuBuffer(d.vec4f, { count: N });
+    const doubleStep = new GpuBuffer(d.vec4f, { count: N });
+
+    const dt = uniform('dt', d.f32);
+    const kernel = transformFeedback((io) => ({ pos: io.pos.add(io.vel.mul(dt)) }), {
+        inputs: { pos: d.vec4f, vel: d.vec4f },
+        outputs: { pos: d.vec4f },
+    });
+
+    const f = frame(renderer);
+    const pass = f.transformFeedback();
+    dt.value = 0.5;
+    pass.dispatch(kernel, { inputs: { pos: posBuf, vel: velBuf }, outputs: { pos: halfStep }, count: N });
+    dt.value = 2;
+    pass.dispatch(kernel, { inputs: { pos: posBuf, vel: velBuf }, outputs: { pos: doubleStep }, count: N });
+    pass.end();
+    f.submit();
+
+    const first = readTfFloat32(renderer, halfStep, N * 4);
+    const second = readTfFloat32(renderer, doubleStep, N * 4);
+    renderer.dispose();
+
+    const ok = first.every((v) => Math.abs(v - 1.5) < 1e-5) && second.every((v) => Math.abs(v - 3) < 1e-5);
+    return {
+        name: 'tf-uniform-within-pass',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `first=${first[0]} (want 1.5) second=${second[0]} (want 3)`,
+    };
+}
+
+/**
  * tf-unbound: a missing output buffer throws before any GL state is touched. The check used to sit
  * past `useProgram`, the VAO bind and `bindTransformFeedback`, so the throw left all three bound with
  * nothing unwinding them. Reads the bindings back rather than the pixels, since that is the leak.
@@ -4163,6 +4255,100 @@ async function caseViewportCellPresent(): Promise<CaseResult> {
 }
 
 /**
+ * gpu-timing: the inspector's WebGL timing brackets the GPU work of both kernel kinds. Asserts the
+ * shape unconditionally — a render entry and a `transform-feedback:` kernel entry, both GPU-timed
+ * kinds — and the timings themselves only where the driver exposes the timer extension, which
+ * SwiftShader need not. Green iff every assertion that applies here held.
+ */
+async function caseGpuTiming(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const inspector = new RendererInspector();
+    renderer.inspector = inspector;
+
+    const N = 4;
+    const kernel = transformFeedback((io) => ({ pos: io.pos.add(io.vel) }), {
+        inputs: { pos: d.vec4f, vel: d.vec4f },
+        outputs: { pos: d.vec4f },
+        name: 'particles',
+    });
+    let front = new GpuBuffer(d.vec4f, { data: new Float32Array(N * 4) });
+    let back = new GpuBuffer(d.vec4f, { count: N });
+    const velBuf = new GpuBuffer(d.vec4f, { data: new Float32Array(N * 4).fill(1) });
+
+    const geometry = createFullscreenTriangleGeometry();
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: vec4(f32(0), f32(1), f32(0), f32(1)),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(geometry, material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    // Frames are spaced across event-loop ticks: a timer query resolves a frame or two later, and on
+    // this harness's single-threaded GL backend the GPU only makes progress when the loop turns (the
+    // same reason `pollFence` cannot spin on one tick). Each frame's `finish()` polls, so the loop
+    // runs until the first frame's timings land or the budget is spent.
+    const renderFrameOnce = (): void => {
+        const f = frame(renderer);
+        const tf = f.transformFeedback();
+        tf.dispatch(kernel, { inputs: { pos: front, vel: velBuf }, outputs: { pos: back }, count: N });
+        tf.end();
+        const pass = f.pass({ target: renderer.backend.target, clear: [0, 0, 0, 1], camera, label: 'main' });
+        pass.draw(scene.children[0] as Mesh);
+        pass.end();
+        f.submit();
+        const swap = front;
+        front = back;
+        back = swap;
+    };
+
+    let frames = 0;
+    for (; frames < 30; frames++) {
+        renderFrameOnce();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (inspector.frames[0]?.gpuMs !== null && inspector.frames[0] !== null) break;
+    }
+
+    const record = inspector.frames[0];
+    const flat: { kind: string; name: string; gpuMs: number | null }[] = [];
+    const walk = (entries: readonly { kind: string; name: string; children: never[] }[]): void => {
+        for (const e of entries) {
+            flat.push({ kind: e.kind, name: e.name, gpuMs: (e as { gpuMs?: number | null }).gpuMs ?? null });
+            walk(e.children);
+        }
+    };
+    if (record) walk(record.timeline as never);
+
+    const renderEntry = flat.find((e) => e.kind === 'render' && e.name === 'main');
+    const kernelEntry = flat.find((e) => e.kind === 'compute' && e.name.startsWith('transform-feedback:'));
+
+    const ext = renderer.backend.gl!.getExtension('EXT_disjoint_timer_query_webgl2') as { GPU_DISJOINT_EXT: number } | null;
+    const structural = record !== null && renderEntry !== undefined && kernelEntry !== undefined;
+    // No extension, no timings to demand — the shape is what this case can always assert.
+    const timings = ext === null || (renderEntry!.gpuMs !== null && kernelEntry!.gpuMs !== null && record!.gpuMs !== null);
+    const ok = structural && timings;
+
+    const note = !structural
+        ? `entries: ${flat.map((e) => `${e.kind}:${e.name}`).join(', ') || '(none)'}`
+        : ext === null
+          ? 'no timer extension; shape only'
+          : `render ${renderEntry!.gpuMs?.toFixed(2)}ms, kernel ${kernelEntry!.gpuMs?.toFixed(2)}ms, ` +
+            `frame ${record!.gpuMs?.toFixed(2)}ms after ${frames} frames`;
+
+    renderer.inspector = null;
+    renderer.dispose();
+    return {
+        name: 'gpu-timing',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: note.slice(0, 96),
+    };
+}
+
+/**
  * clear-ignores-scissor: a scissor bounds the draws, never the clear. `gl.clear` obeys the scissor box
  * and WebGPU's `loadOp` does not, so clearing under one made a single desc mean two different regions.
  */
@@ -4208,6 +4394,7 @@ export async function run(): Promise<RunResult> {
             caseFrameDone,
             caseForeignCanvas,
             caseDrawScene,
+            caseDrawUniformWithinPass,
             caseCubeCamera,
             caseDrawOpts,
             caseDrawMaterial,
@@ -4281,10 +4468,12 @@ export async function run(): Promise<RunResult> {
             caseTransformFeedbackPingPong,
             caseTransformFeedbackReadbackAsync,
             caseTransformFeedbackUniform,
+            caseTransformFeedbackUniformWithinPass,
             caseTransformFeedbackNeighbour,
             caseTransformFeedbackAliasGuard,
             caseTransformFeedbackUnboundOutput,
             caseTransformFeedbackPass,
+            caseGpuTiming,
             // NOTE: shadow-map (comparison sampler) is NOT asserted here — SwiftShader (the headless
             // WebGL2 backend this harness runs on) does not honor sampler2DShadow depth comparison
             // (a hand-rolled pure-GL shadow program returns "lit" for every ref against a

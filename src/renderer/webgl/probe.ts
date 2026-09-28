@@ -24,6 +24,9 @@ import type { ProgramInfo } from './programs';
 import { bindTextures } from './texture-bindings';
 import type { WebGLBackend } from './webgl-backend';
 
+/** The probe uploads each group as soon as it captures it, so one slot serves every group. */
+const _probeCaptures: Bindings.UniformCapture[] = [];
+
 /** A cached probe program: the linked GL program + its UBO binding points, plus the 1×1 readback FBO. */
 type ProbeGl = {
     program: WebGLProgram;
@@ -203,21 +206,22 @@ export function renderProbe(
 
     gl.useProgram(p.program);
 
-    // Update + bind each uniform group's std140 UBO exactly as the normal draw does. The groups were
-    // already updated this frame by the main render; the update-type gate keeps shared groups from
-    // re-running, and packs+uploads this probe program's own binding points.
+    // Capture + upload + bind each uniform group's std140 UBO as the normal draw does, but at once: the
+    // probe draws now rather than in a recorded pass. The groups were already updated this frame by the
+    // main render; the update-type gate keeps shared groups from re-running.
     const bindGroups = getBindings(ro);
     for (const bindGroup of bindGroups) {
         for (const binding of bindGroup.bindings) {
             if (binding.kind !== 'uniform') continue;
             const bindingPoint = p.uboBindingPoints.get(binding.block.groupName);
             if (bindingPoint === undefined) continue;
-            Bindings.updateAndBindUniformGroup(gl, caches, binding, frame, bindingPoint, ro.material);
+            Bindings.captureUniformGroup(caches, binding, frame, bindingPoint, ro.material, _probeCaptures, 0);
+            Bindings.uploadAndBindCapture(gl, caches, _probeCaptures[0], ro.material);
         }
     }
 
     // Textures + samplers → GL units + combined-sampler uniforms.
-    bindTextures(gl, caches, ro, programInfo);
+    bindTextures(gl, caches, ro, programInfo, null);
 
     // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
     const drawInfo = Geometries.prepareGeometry(gl, caches, geometry, nodeState, p.program);

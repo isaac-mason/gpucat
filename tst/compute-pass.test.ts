@@ -169,6 +169,28 @@ describe('a batch shares one GPU compute pass', () => {
         expect(stub.stats.computeSetPipelines).toBe(1);
     });
 
+    test('a dispatch runs the workgroup counts it was given, even if the array changes before end()', async () => {
+        const { stub, renderer } = await makeRenderer();
+        const out = outBuffer();
+        const node = bumpNode();
+
+        stub.stats.reset();
+
+        const f = frame(renderer);
+        const c = f.compute({ label: 'bump' });
+        const counts: [number, number, number] = [1, 1, 1];
+        c.dispatch(node, counts, { buffers: { out } });
+        counts[0] = 4;
+        c.dispatch(node, counts, { buffers: { out } });
+        c.end();
+        f.submit();
+
+        expect(stub.stats.dispatchWorkgroups).toEqual([
+            [1, 1, 1],
+            [4, 1, 1],
+        ]);
+    });
+
     test('distinct nodes in one pass each set their pipeline once', async () => {
         const { stub, renderer } = await makeRenderer();
         const out = outBuffer();

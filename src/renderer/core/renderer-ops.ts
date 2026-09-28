@@ -1,6 +1,6 @@
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { Mesh } from '../../objects/mesh';
-import type { DrawOptions, DrawRecord, PassEntry, RenderBundle as RenderBundleRef } from './frame';
+import type { DrawOptions, DrawRecord } from './frame';
 import type { NodeManagerState } from './node-manager';
 import * as NodeManager from './node-manager';
 import type * as RenderContextModule from './pass-context';
@@ -9,7 +9,6 @@ import { resolvePassContext } from './pass-desc';
 import type * as RenderLists from './render-list';
 import type { RenderObject } from './render-object';
 import * as RenderObjects from './render-objects';
-import type { PreparedRenderObject, PreparedSegment } from './render-types';
 import type { Target } from './target';
 import type { View } from './view';
 
@@ -77,77 +76,29 @@ export function compileTargets(
     };
 }
 
-/** Prepares what a pass recorded by hand: no render list, no scene walk, no sort. */
-export function prepareRecordedDraws(
+/**
+ * One recorded draw's render object, compiled and with its `updateBefore` nodes run. `updateBefore` may
+ * record and end a nested pass (a render texture the material samples).
+ */
+export function prepareRecordedDraw(
     r: RendererState,
-    records: readonly PassEntry[],
-    count: number,
+    entry: DrawRecord,
     camera: View,
     passCtx: RenderContext,
-    /** Null unless an inspector is attached; only annotates each object for the draw-calls tab. */
-    inspectorLabel: string | null,
-    prepare: (nodes: NodeManagerState, renderObject: RenderObject) => boolean,
-    out: PreparedRenderObject[],
-    outOpts: (DrawOptions | null)[],
-    /** Runs of `out`, one per bundle plus the direct draws between them. WebGL has no use for these. */
-    outSegments: PreparedSegment[],
-): number {
+    prepare: (nodes: NodeManagerState, renderObject: RenderObject) => void,
+): RenderObject {
     const inspector = r.inspector;
-    let prepared = 0;
+    const renderObject = RenderObjects.getRenderObject(r._renderObjects, entry.mesh, entry.material, camera, passCtx);
+    prepare(r._nodes, renderObject);
 
-    const prepareEntry = (entry: PassEntry): void => {
-        const { mesh, material, opts } = entry as DrawRecord;
-
-        const renderObject = RenderObjects.getRenderObject(r._renderObjects, mesh, material, camera, passCtx);
-        if (inspectorLabel !== null) renderObject.lastPassLabel = inspectorLabel;
-
-        if (!prepare(r._nodes, renderObject)) return;
-
-        if (inspector) inspector.perf.start('updateBefore');
-        NodeManager.updateBefore(r._nodes, renderObject);
-        if (inspector) inspector.perf.end('updateBefore');
-
-        outOpts[prepared] = opts;
-        out[prepared++] = renderObject;
-    };
-
-    // Bundles stay whole as segments so WebGPU can record one device bundle per run; their draws are
-    // still prepared here, because a bundle has to be prepared before it can be recorded.
-    let segments = 0;
-    let runStart = prepared;
-    const closeRun = (bundle: PassEntry | null): void => {
-        if (prepared === runStart) return;
-        outSegments[segments++] = {
-            bundle: bundle === null ? null : (bundle as { bundle: RenderBundleRef }).bundle,
-            start: runStart,
-            count: prepared - runStart,
-        };
-        runStart = prepared;
-    };
-
-    for (let i = 0; i < count; i++) {
-        const entry = records[i];
-        if (entry.kind !== 'bundle') {
-            prepareEntry(entry);
-            continue;
-        }
-        closeRun(null);
-        const { records: inner, count: innerCount } = entry.bundle;
-        for (let j = 0; j < innerCount; j++) prepareEntry(inner[j] as DrawRecord);
-        closeRun(entry);
-    }
-    closeRun(null);
-    outSegments.length = segments;
-
-    return prepared;
+    if (inspector) inspector.perf.start('updateBefore');
+    NodeManager.updateBefore(r._nodes, renderObject);
+    if (inspector) inspector.perf.end('updateBefore');
+    return renderObject;
 }
 
-/** A per-depth list, grown on demand so a steady-state frame reuses one array. */
-export function preparedAt<T>(byDepth: T[][], depth: number): T[] {
-    let list = byDepth[depth];
-    if (list === undefined) {
-        list = [];
-        byDepth[depth] = list;
-    }
-    return list;
+/** A draw with no instances and no per-draw list resolves, but nothing of it reaches the GPU. */
+export function drawsNothing(renderObject: RenderObject, opts: DrawOptions | null): boolean {
+    const mesh = renderObject.mesh;
+    return (opts?.instances ?? mesh.count) === 0 && (opts?.draws ?? mesh.draws) === undefined;
 }

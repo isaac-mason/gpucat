@@ -12,6 +12,7 @@ import * as NodeManager from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
 import { pipelineLabel } from '../core/render-object';
 import { formatHasStencil, type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
+import type { DrawBindings } from './bindings';
 import * as Buffers from './buffers';
 import * as Pipelines from './pipelines';
 import * as RenderObjectGpu from './render-object-gpu';
@@ -460,6 +461,8 @@ export type EncodeContext = {
     params: RenderPassParams;
     preparedObjects: readonly PreparedRenderObject[];
     preparedOpts: readonly (DrawOptions | null)[];
+    /** What each prepared draw binds, resolved when it was recorded. */
+    bindings: readonly DrawBindings[];
     inspector: InspectorBase | null;
     info: RendererInfo;
 };
@@ -478,8 +481,6 @@ export function encodeDraws(ctx: EncodeContext, count: number, scope: PassScope,
                 encodeDrawRange(ctx, start, end, scope);
                 continue;
             }
-            // Before the cache check: the refresh is what discovers a rebuilt bind group.
-            refreshBundledRange(ctx, start, end);
             scope.gpuPass.executeBundles([getOrRecordBundle(ctx, start, end, bundle)]);
             // A bundle sets its own pipeline and bindings, so what the pass had set no longer holds.
             resetCurrentSets(scope.currentSets);
@@ -492,7 +493,21 @@ export function encodeDraws(ctx: EncodeContext, count: number, scope: PassScope,
 /** A pass with no camera still needs a key at the camera level, and every such pass shares this one. */
 const CAMERALESS: object = {};
 
-/** Re-recorded on a miss or a version change. Camera is in the key because a recording bakes its view bindings in. */
+/** A device bundle and the bind groups and dynamic offsets it baked, in draw then @group order. */
+export type RecordedBundle = { gpu: GPURenderBundle; version: number; bakedGroups: GPUBindGroup[]; bakedOffsets: number[] };
+
+/**
+ * The recordings of one bundle under one camera and render context, one per replay in a frame. A camera
+ * moved between two passes replaying the same bundle binds different allocations in each, so the two
+ * need a recording apiece; keyed by occurrence, each holds frame to frame.
+ */
+export type BundleRecordings = { frameId: number; replays: number; recordings: RecordedBundle[] };
+
+/**
+ * Re-recorded on a miss, a version change, or when what it baked no longer matches this frame's bindings.
+ * A dynamic uniform allocation follows the frame's order of draws, so a recording holds while that order does. Camera and occurrence are in the key so a bundle replayed under several cameras, or
+ * more than once under one, keeps a recording for each rather than overwriting a shared one.
+ */
 function getOrRecordBundle(ctx: EncodeContext, from: number, to: number, bundle: RenderBundle): GPURenderBundle {
     const { b, passCtx } = ctx;
     let byCamera = b.renderBundles.get(bundle);
@@ -507,9 +522,20 @@ function getOrRecordBundle(ctx: EncodeContext, from: number, to: number, bundle:
         byCamera.set(cameraKey, byContext);
     }
 
-    const cached = byContext.get(passCtx.id);
-    const rebuilds = b.bindings.bindGroupRebuilds;
-    if (cached !== undefined && cached.version === bundle.version && cached.rebuilds === rebuilds) return cached.gpu;
+    let slots = byContext.get(passCtx.id);
+    if (slots === undefined) {
+        slots = { frameId: -1, replays: 0, recordings: [] };
+        byContext.set(passCtx.id, slots);
+    }
+    const frameId = ctx.nodes.nodeFrame.frameId;
+    if (slots.frameId !== frameId) {
+        slots.frameId = frameId;
+        slots.replays = 0;
+    }
+    const occurrence = slots.replays++;
+
+    const cached = slots.recordings[occurrence];
+    if (cached !== undefined && cached.version === bundle.version && bakedBindingsMatch(ctx, from, to, cached)) return cached.gpu;
 
     const encoder = b.device.createRenderBundleEncoder({
         label: bundle.label,
@@ -518,37 +544,66 @@ function getOrRecordBundle(ctx: EncodeContext, from: number, to: number, bundle:
         sampleCount: passCtx.sampleCount,
     });
     encodeDrawRange(ctx, from, to, { gpuPass: encoder, currentSets: createCurrentSets() });
-    const gpu = encoder.finish({ label: bundle.label });
+    const recorded: RecordedBundle = {
+        gpu: encoder.finish({ label: bundle.label }),
+        version: bundle.version,
+        bakedGroups: [],
+        bakedOffsets: [],
+    };
+    forEachDrawnBinding(ctx, from, to, (group, offset) => {
+        recorded.bakedGroups.push(group);
+        recorded.bakedOffsets.push(offset);
+    });
 
-    byContext.set(passCtx.id, { gpu, version: bundle.version, rebuilds: b.bindings.bindGroupRebuilds });
-    return gpu;
+    slots.recordings[occurrence] = recorded;
+    return recorded.gpu;
 }
 
-/** Replaying a bundle saves the encoding and not this, so both paths run it and it has one implementation. */
-function refreshDraw(ctx: EncodeContext, index: number): boolean {
-    const { b, nodes, preparedObjects, preparedOpts, inspector } = ctx;
-    const renderObject = preparedObjects[index];
-    const { mesh, material } = renderObject;
+function bakedBindingsMatch(ctx: EncodeContext, from: number, to: number, recorded: RecordedBundle): boolean {
+    let index = 0;
+    let matches = true;
+    forEachDrawnBinding(ctx, from, to, (group, offset) => {
+        if (recorded.bakedGroups[index] !== group || recorded.bakedOffsets[index] !== offset) matches = false;
+        index++;
+    });
+    return matches && index === recorded.bakedGroups.length;
+}
 
-    const opts = preparedOpts[index];
-    if ((opts?.instances ?? mesh.count) === 0 && (opts?.draws ?? mesh.draws) === undefined) return false;
+/** Every bind group and dynamic offset the draws in the range set, in draw then @group order. */
+function forEachDrawnBinding(
+    ctx: EncodeContext,
+    from: number,
+    to: number,
+    visit: (group: GPUBindGroup, offset: number) => void,
+): void {
+    for (let index = from; index < to; index++) {
+        const { groups, offsets } = ctx.bindings[index];
+        for (let group = 0; group < groups.length; group++) visit(groups[group], offsets[group]);
+    }
+}
 
+/**
+ * Runs a draw's node updates and resolves its uniforms and bind groups into `out`, at the call that
+ * recorded it, so the draw uses the values set before that call. A replayed bundle's draws resolve the
+ * same way when the bundle is executed: a replay saves the encoding, not this.
+ */
+export function resolveDrawBindings(
+    b: WebGPUBackend,
+    nodes: NodeManagerState,
+    renderObject: PreparedRenderObject,
+    out: DrawBindings,
+    inspector: InspectorBase | null,
+): void {
     const frame = nodes.nodeFrame;
-    frame.object = mesh;
-    frame.material = material;
+    frame.object = renderObject.mesh;
+    frame.material = renderObject.material;
     frame.camera = renderObject.camera;
 
     NodeManager.updateForRender(nodes, renderObject);
 
     if (inspector) inspector.perf.start('updateForRender');
-    RenderObjects.updateRenderObject(b, renderObject, frame);
+    RenderObjects.updateRenderObject(b, renderObject, frame, out);
     if (inspector) inspector.perf.end('updateForRender');
-    return true;
-}
-
-/** What a replayed bundle still owes its draws, since `executeBundles` runs none of their update. */
-function refreshBundledRange(ctx: EncodeContext, from: number, to: number): void {
-    for (let index = from; index < to; index++) refreshDraw(ctx, index);
 }
 
 /** A range, not the whole array, because a bundle is a contiguous slice of it recorded against its own encoder. */
@@ -563,8 +618,6 @@ function encodeDrawRange(ctx: EncodeContext, from: number, to: number, { gpuPass
         const draws = opts?.draws ?? mesh.draws;
         const instances = opts?.instances ?? mesh.count;
         const range = opts?.range;
-
-        if (!refreshDraw(ctx, index)) continue;
 
         const gpu = RenderObjectGpu.getRenderObjectGpu(b.renderObjectGpu, renderObject);
 
@@ -584,15 +637,14 @@ function encodeDrawRange(ctx: EncodeContext, from: number, to: number, { gpuPass
             currentSets.stencilRef = material.stencilRef;
         }
 
-        const bindGroups = gpu.bindGroups;
-        const logicalBindGroups = renderObject._bindings;
-        if (bindGroups && logicalBindGroups) {
-            for (let i = 0; i < bindGroups.length; i++) {
-                const bindGroupId = logicalBindGroups[i]?.id ?? -1;
-                if (currentSets.bindingGroups[i] !== bindGroupId) {
-                    passSetBindGroup(gpuPass, inspector, i, bindGroups[i], mesh.name || '');
-                    currentSets.bindingGroups[i] = bindGroupId;
-                }
+        const { groups: bindGroups, offsets: dynamicOffsets } = ctx.bindings[index];
+        for (let i = 0; i < bindGroups.length; i++) {
+            const bindGroup = bindGroups[i];
+            const dynamicOffset = dynamicOffsets[i];
+            if (currentSets.bindGroups[i] !== bindGroup || currentSets.dynamicOffsets[i] !== dynamicOffset) {
+                passSetBindGroup(gpuPass, inspector, i, bindGroup, dynamicOffset, mesh.name || '');
+                currentSets.bindGroups[i] = bindGroup;
+                currentSets.dynamicOffsets[i] = dynamicOffset;
             }
         }
 
@@ -716,12 +768,13 @@ export function disposeSwapchain(b: WebGPUBackend): void {
 
 /** tracks currently set GPU state to avoid redundant setBindGroup/setVertexBuffer/setIndexBuffer calls */
 function createCurrentSets(): CurrentSets {
-    return { bindingGroups: [], attributes: [], index: null, pipeline: null, stencilRef: null };
+    return { bindGroups: [], dynamicOffsets: [], attributes: [], index: null, pipeline: null, stencilRef: null };
 }
 
 /** After a bundle replays, nothing the pass had set still holds. */
 function resetCurrentSets(sets: CurrentSets): void {
-    sets.bindingGroups.length = 0;
+    sets.bindGroups.length = 0;
+    sets.dynamicOffsets.length = 0;
     sets.attributes.length = 0;
     sets.index = null;
     sets.pipeline = null;
@@ -729,7 +782,8 @@ function resetCurrentSets(sets: CurrentSets): void {
 }
 
 type CurrentSets = {
-    bindingGroups: number[];
+    bindGroups: GPUBindGroup[];
+    dynamicOffsets: number[];
     attributes: (GPUBuffer | null)[];
     index: GPUBuffer | null;
     pipeline: GPURenderPipeline | null;
@@ -745,14 +799,24 @@ function passSetPipeline(pass: DrawEncoder, inspector: InspectorBase | null, pip
     if (inspector) inspector.setPipeline(label);
 }
 
+/** One dynamic offset, reused so binding a transient block allocates nothing. */
+const _dynamicOffset = /*@__PURE__*/ new Uint32Array(1);
+
+/** `dynamicOffset` is -1 for a group with no transient uniform block. */
 function passSetBindGroup(
     pass: DrawEncoder,
     inspector: InspectorBase | null,
     index: number,
     bindGroup: GPUBindGroup,
+    dynamicOffset: number,
     label: string,
 ): void {
-    pass.setBindGroup(index, bindGroup);
+    if (dynamicOffset < 0) {
+        pass.setBindGroup(index, bindGroup);
+    } else {
+        _dynamicOffset[0] = dynamicOffset;
+        pass.setBindGroup(index, bindGroup, _dynamicOffset, 0, 1);
+    }
     if (inspector) inspector.setBindGroup(index, label);
 }
 

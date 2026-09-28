@@ -54,9 +54,6 @@ export type RenderObject = {
     /** The render context (framebuffer config). */
     renderContext: RenderContext;
 
-    /** Label of the pass that last drew this, for the inspector only. Never part of the identity. */
-    lastPassLabel: string;
-
     /**
      * Compiled shader state.
      * null until first compilation.
@@ -129,7 +126,6 @@ export function createRenderObject(mesh: Mesh, material: Material, camera: View,
         geometry: mesh.geometry,
         camera,
         renderContext,
-        lastPassLabel: '',
 
         // Compiled state (lazy)
         nodeBuilderState: null,

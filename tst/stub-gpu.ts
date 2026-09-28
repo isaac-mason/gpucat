@@ -66,6 +66,12 @@ export function installWebGPUPolyfills(): void {
 export type StubGPUStats = {
     /** Number of queue.writeBuffer calls */
     bufferWrites: number;
+    /** Number of copyBufferToBuffer calls on a command encoder: how the dynamic uniform buffers upload. */
+    bufferCopies: number;
+    /** Number of GPUBuffer.destroy calls */
+    bufferDestroys: number;
+    /** setBindGroup calls per group index, on a render pass or a bundle encoder. */
+    bindGroupSetsByIndex: number[];
     /** Number of createBindGroup calls */
     bindGroupCreations: number;
     /** Number of createBuffer calls */
@@ -82,6 +88,8 @@ export type StubGPUStats = {
     bundleExecutions: number;
     /** Number of dispatchWorkgroups/dispatchWorkgroupsIndirect calls */
     dispatches: number;
+    /** The workgroup counts of each direct dispatch, in order. */
+    dispatchWorkgroups: [number, number, number][];
     /** Number of encoder.beginComputePass calls */
     computePasses: number;
     /** Number of setPipeline calls on compute pass encoders */
@@ -131,6 +139,9 @@ export type StubGPUResult = {
 export function createStubGPU(): StubGPUResult {
     const stats: StubGPUStats = {
         bufferWrites: 0,
+        bufferCopies: 0,
+        bufferDestroys: 0,
+        bindGroupSetsByIndex: [],
         bindGroupCreations: 0,
         bufferCreations: 0,
         drawCalls: 0,
@@ -139,6 +150,7 @@ export function createStubGPU(): StubGPUResult {
         bundleExecutions: 0,
         lastIndexCount: 0,
         dispatches: 0,
+        dispatchWorkgroups: [],
         computePasses: 0,
         computeSetPipelines: 0,
         encoderCreations: 0,
@@ -147,6 +159,9 @@ export function createStubGPU(): StubGPUResult {
         submits: 0,
         reset() {
             this.bufferWrites = 0;
+            this.bufferCopies = 0;
+            this.bufferDestroys = 0;
+            this.bindGroupSetsByIndex.length = 0;
             this.bindGroupCreations = 0;
             this.bufferCreations = 0;
             this.drawCalls = 0;
@@ -155,6 +170,7 @@ export function createStubGPU(): StubGPUResult {
             this.bundleExecutions = 0;
             this.lastIndexCount = 0;
             this.dispatches = 0;
+            this.dispatchWorkgroups.length = 0;
             this.computePasses = 0;
             this.computeSetPipelines = 0;
             this.encoderCreations = 0;
@@ -165,17 +181,22 @@ export function createStubGPU(): StubGPUResult {
     };
 
     // Stub buffer
-    const createStubBuffer = (): GPUBuffer =>
-        ({
-            size: 0,
-            usage: 0,
+    // A mapped range is the buffer's size, as on a real device, so writes past a fixed stand-in length surface.
+    const createStubBuffer = (descriptor?: GPUBufferDescriptor): GPUBuffer => {
+        const size = descriptor?.size ?? 0;
+        return {
+            size,
+            usage: descriptor?.usage ?? 0,
             mapState: 'unmapped',
-            label: '',
+            label: descriptor?.label ?? '',
             mapAsync: async () => {},
-            getMappedRange: () => new ArrayBuffer(1024),
+            getMappedRange: () => new ArrayBuffer(size),
             unmap: () => {},
-            destroy: () => {},
-        }) as unknown as GPUBuffer;
+            destroy: () => {
+                stats.bufferDestroys++;
+            },
+        } as unknown as GPUBuffer;
+    };
 
     // Stub texture
     // Dimensionally honest: a view remembers its texture, so beginRenderPass can check attachments
@@ -280,7 +301,9 @@ export function createStubGPU(): StubGPUResult {
                 stats.computePasses++;
                 return createStubComputePassEncoder();
             },
-            copyBufferToBuffer: () => {},
+            copyBufferToBuffer: () => {
+                stats.bufferCopies++;
+            },
             copyBufferToTexture: () => {},
             copyTextureToBuffer: () => {},
             copyTextureToTexture: () => {},
@@ -296,7 +319,9 @@ export function createStubGPU(): StubGPUResult {
     const drawRecorder = () => ({
         label: '',
         setPipeline: () => {},
-        setBindGroup: () => {},
+        setBindGroup: (index: number) => {
+            stats.bindGroupSetsByIndex[index] = (stats.bindGroupSetsByIndex[index] ?? 0) + 1;
+        },
         setVertexBuffer: () => {},
         setIndexBuffer: () => {},
         draw: () => {
@@ -351,8 +376,9 @@ export function createStubGPU(): StubGPUResult {
                 stats.computeSetPipelines++;
             },
             setBindGroup: () => {},
-            dispatchWorkgroups: () => {
+            dispatchWorkgroups: (x: number, y = 1, z = 1) => {
                 stats.dispatches++;
+                stats.dispatchWorkgroups.push([x, y, z]);
             },
             dispatchWorkgroupsIndirect: () => {
                 stats.dispatches++;
@@ -380,8 +406,8 @@ export function createStubGPU(): StubGPUResult {
     // Stub features set
     const features = new Set<GPUFeatureName>() as GPUSupportedFeatures;
 
-    // Stub limits
-    const limits = {} as GPUSupportedLimits;
+    // Stub limits: the ones the renderer reads, at the spec defaults every device reports.
+    const limits = { minUniformBufferOffsetAlignment: 256, maxDynamicUniformBuffersPerPipelineLayout: 8 } as GPUSupportedLimits;
 
     // Stub adapter info
     const adapterInfo = {
@@ -406,9 +432,9 @@ export function createStubGPU(): StubGPUResult {
             __brand: 'GPUDeviceLostInfo',
         } as GPUDeviceLostInfo),
         destroy: () => {},
-        createBuffer: () => {
+        createBuffer: (descriptor: GPUBufferDescriptor) => {
             stats.bufferCreations++;
-            return createStubBuffer();
+            return createStubBuffer(descriptor);
         },
         createTexture: (descriptor: GPUTextureDescriptor) => createStubTexture(descriptor),
         createSampler: () => createStubSampler(),

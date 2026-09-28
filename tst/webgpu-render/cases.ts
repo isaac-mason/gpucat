@@ -38,6 +38,7 @@ import {
     renderTexture,
     Scene,
     screenCoordinate,
+    screenSize,
     screenUV,
     select,
     storage,
@@ -412,6 +413,151 @@ async function caseCompute(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
 
     const pixel = centerPixel(await read(gpu, target));
     return { name: 'compute', pixel, expected: [0, 255, 0, 255], note: 'compute then draw, one frame' };
+}
+
+/**
+ * compute-uniform-per-dispatch: one compute node dispatched in two compute passes of one frame, its
+ * uniform changed in between. A pass reads uniform values when it ends, so the change sits between the
+ * passes. Each dispatch writes `200 + value` at index `value`, so index 1 holds 201 only if the first
+ * pass read its own value rather than the one the second pass set after it.
+ */
+async function caseComputeUniformPerDispatch(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+
+    const values = createStorageBuffer(d.array(d.u32), new Uint32Array(4));
+    const valueUniform = new Uniform(d.u32, 0);
+    const value = uniform(valueUniform);
+    const write = Fn(() => {
+        const out = storage('values', d.array(d.u32), 'read_write');
+        index(out, value).assign(value.add(u32(200)));
+    }).compute({ workgroupSize: [1, 1, 1] });
+
+    const readSlot = (slot: number) => index(storage(values, 'read'), u32(slot)).toF32().div(f32(255));
+    const mesh = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(f32(0), readSlot(1), readSlot(2), f32(1)),
+            depthTest: false,
+        }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    valueUniform.value = 1;
+    const first = f.compute({ label: 'write-1' });
+    first.dispatch(write, [1, 1, 1], { buffers: { values } });
+    first.end();
+    valueUniform.value = 2;
+    const second = f.compute({ label: 'write-2' });
+    second.dispatch(write, [1, 1, 1], { buffers: { values } });
+    second.end();
+    const pass = f.pass({ target, clear: [0, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    return {
+        name: 'compute-uniform-per-dispatch',
+        pixel: centerPixel(await read(gpu, target)),
+        expected: [0, 201, 202, 255],
+        note: 'green 0 means the first pass read the second pass value',
+    };
+}
+
+/**
+ * compute-uniform-within-pass: one compute node dispatched twice in ONE compute pass, its uniform changed
+ * between the two dispatch() calls. A dispatch resolves when recorded, so each runs with the value set
+ * before its own call: index 1 holds 201 and index 2 holds 202.
+ */
+async function caseComputeUniformWithinPass(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+
+    const values = createStorageBuffer(d.array(d.u32), new Uint32Array(4));
+    const valueUniform = new Uniform(d.u32, 0);
+    const value = uniform(valueUniform);
+    const write = Fn(() => {
+        const out = storage('values', d.array(d.u32), 'read_write');
+        index(out, value).assign(value.add(u32(200)));
+    }).compute({ workgroupSize: [1, 1, 1] });
+
+    const readSlot = (slot: number) => index(storage(values, 'read'), u32(slot)).toF32().div(f32(255));
+    const mesh = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(f32(0), readSlot(1), readSlot(2), f32(1)),
+            depthTest: false,
+        }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const compute = f.compute({ label: 'write' });
+    valueUniform.value = 1;
+    compute.dispatch(write, [1, 1, 1], { buffers: { values } });
+    valueUniform.value = 2;
+    compute.dispatch(write, [1, 1, 1], { buffers: { values } });
+    compute.end();
+    const pass = f.pass({ target, clear: [0, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    return {
+        name: 'compute-uniform-within-pass',
+        pixel: centerPixel(await read(gpu, target)),
+        expected: [0, 201, 202, 255],
+        note: 'green 0 means the first dispatch read the value set after it',
+    };
+}
+
+/**
+ * draw-uniform-within-pass: one mesh drawn twice in ONE pass, its uniforms changed between the two draw()
+ * calls: a half-width quad moved left and coloured red, then moved right and coloured green. A draw
+ * resolves when recorded, so the left half is red and the right half green.
+ */
+async function caseDrawUniformWithinPass(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const quad = new Geometry();
+    quad.setBuffer(
+        'position',
+        createVertexBuffer(d.vec3f, new Float32Array([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, 1, 0])),
+    );
+
+    const offsetUniform = new Uniform(d.f32, 0);
+    const colourUniform = new Uniform(d.vec4f, [0, 0, 0, 1]);
+    const position = attribute('position', d.vec3f);
+    const mesh = new Mesh(
+        quad,
+        new Material({
+            vertex: vec4(position.x.mul(f32(0.5)).add(uniform(offsetUniform)), position.y, f32(0), f32(1)),
+            fragment: uniform(colourUniform),
+            depthTest: false,
+        }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const pass = f.pass({ target, clear: [0, 0, 0, 1] });
+    offsetUniform.value = -0.5;
+    colourUniform.value = [1, 0, 0, 1];
+    pass.draw(mesh);
+    offsetUniform.value = 0.5;
+    colourUniform.value = [0, 1, 0, 1];
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixels = await read(gpu, target);
+    const left = pixelAt(pixels, SIZE / 4, CENTER);
+    const right = pixelAt(pixels, (SIZE * 3) / 4, CENTER);
+    return {
+        name: 'draw-uniform-within-pass',
+        pixel: [left[0], right[1], left[1] + right[0], 255],
+        expected: [255, 255, 0, 255],
+        note: `left=${left.join(',')} right=${right.join(',')}; a black left means the first draw read the second draw values`,
+    };
 }
 
 /**
@@ -2048,6 +2194,210 @@ async function caseFrameDone(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> 
     };
 }
 
+/** A corner far from the centre pixel, so a pass scissored to it can never write what the case reads. */
+const CORNER = { x: 0, y: 0, width: 4, height: 4 };
+
+/**
+ * A blue box at `position`, lit by nothing, drawn through the camera uniforms. Never culled: a camera
+ * facing away still records the draw, so its pass writes its camera, which is the write under test.
+ */
+function blueBox(position: [number, number, number]): Mesh {
+    const worldPosition = mul(modelWorldMatrix, vec4(attribute('position', d.vec3f), f32(1)));
+    const clipPosition = mul(cameraProjectionMatrix, mul(cameraViewMatrix, worldPosition));
+    const box = new Mesh(createBoxGeometry(1, 1, 1), new Material({ vertex: clipPosition, fragment: vec4(0, 0, 1, 1) }));
+    box.position = position;
+    box.frustumCulled = false;
+    return box;
+}
+
+function aimCamera(camera: PerspectiveCamera, target: [number, number, number]): void {
+    camera.lookAt(target);
+    camera.updateWorldMatrix();
+    camera.updateViewMatrix();
+}
+
+/** A box at the origin, a camera at z=3 facing it, and a camera at the same spot facing away. */
+function boxBetweenCameras(): { scene: Scene; box: Mesh; facing: PerspectiveCamera; away: PerspectiveCamera } {
+    const scene = new Scene();
+    const box = blueBox([0, 0, 0]);
+    scene.add(box);
+    scene.updateWorldMatrix();
+    const facing = new PerspectiveCamera(Math.PI / 4, 1, 0.1, 100);
+    facing.position[2] = 3;
+    aimCamera(facing, [0, 0, 0]);
+    const away = new PerspectiveCamera(Math.PI / 4, 1, 0.1, 100);
+    away.position[2] = 3;
+    aimCamera(away, [0, 0, 10]);
+    return { scene, box, facing, away };
+}
+
+/**
+ * multi-camera-one-target: two passes into one target in one frame, each with its own camera. The
+ * second faces away and is scissored to a corner, so the centre shows the box only if the first pass
+ * read its own camera rather than the one the second pass wrote after it. Two frames, so the second
+ * opens with the camera buffer still holding the other camera.
+ */
+async function caseMultiCameraOneTarget(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const { scene, facing, away } = boxBetweenCameras();
+
+    for (let frameIndex = 0; frameIndex < 2; frameIndex++) {
+        const f = frame(gpu);
+        const first = f.pass({ target, camera: facing, clear: [0, 0, 0, 1] });
+        drawScene(gpu, first, scene, facing);
+        first.end();
+        const second = f.pass({ target, camera: away, clear: false, clearDepth: false, scissor: CORNER });
+        drawScene(gpu, second, scene, away);
+        second.end();
+        f.submit();
+    }
+
+    return {
+        name: 'multi-camera-one-target',
+        pixel: centerPixel(await read(gpu, target)),
+        expected: [0, 0, 255, 255],
+        note: 'black means the first pass drew with the second pass camera',
+    };
+}
+
+/** camera-reused-across-passes: one camera object, turned away between two passes of one frame. */
+async function caseCameraReusedAcrossPasses(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const { scene } = boxBetweenCameras();
+    const camera = new PerspectiveCamera(Math.PI / 4, 1, 0.1, 100);
+    camera.position[2] = 3;
+
+    for (let frameIndex = 0; frameIndex < 2; frameIndex++) {
+        const f = frame(gpu);
+        aimCamera(camera, [0, 0, 0]);
+        const first = f.pass({ target, camera, clear: [0, 0, 0, 1] });
+        drawScene(gpu, first, scene, camera);
+        first.end();
+        aimCamera(camera, [0, 0, 10]);
+        const second = f.pass({ target, camera, clear: false, clearDepth: false, scissor: CORNER });
+        drawScene(gpu, second, scene, camera);
+        second.end();
+        f.submit();
+    }
+
+    return {
+        name: 'camera-reused-across-passes',
+        pixel: centerPixel(await read(gpu, target)),
+        expected: [0, 0, 255, 255],
+        note: 'black means the first pass drew with where the camera pointed by the second',
+    };
+}
+
+/**
+ * bundle-across-cameras: one bundle replayed under two cameras into one target in one frame. The
+ * recording bakes the camera buffer, so its contents have to be right for each pass at replay.
+ */
+async function caseBundleAcrossCameras(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const { box, facing, away } = boxBetweenCameras();
+    const encoder = bundle('box');
+    encoder.draw(box);
+    const boxBundle = encoder.finish();
+
+    for (let frameIndex = 0; frameIndex < 2; frameIndex++) {
+        const f = frame(gpu);
+        const first = f.pass({ target, camera: facing, clear: [0, 0, 0, 1] });
+        first.execute(boxBundle);
+        first.end();
+        const second = f.pass({ target, camera: away, clear: false, clearDepth: false, scissor: CORNER });
+        second.execute(boxBundle);
+        second.end();
+        f.submit();
+    }
+
+    return {
+        name: 'bundle-across-cameras',
+        pixel: centerPixel(await read(gpu, target)),
+        expected: [0, 0, 255, 255],
+        note: 'black means the first replay drew with the second pass camera',
+    };
+}
+
+/**
+ * screen-size-per-target: one material drawn into a 64-wide target then a 32-wide one in the same frame.
+ * Nothing moves, but `screenSize` differs per pass, so the first pass shows 64 only if it read its own
+ * size rather than the one the second pass set after it.
+ */
+async function caseScreenSizePerTarget(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const wide = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const narrow = createRenderTarget(SIZE / 2, SIZE / 2, { colorFormat: 'rgba8unorm' });
+    const mesh = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(screenSize.x.div(f32(255)), f32(0), f32(0), f32(1)),
+            depthTest: false,
+        }),
+    );
+    mesh.updateWorldMatrix();
+
+    for (let frameIndex = 0; frameIndex < 2; frameIndex++) {
+        const f = frame(gpu);
+        for (const target of [wide, narrow]) {
+            const pass = f.pass({ target, clear: [0, 0, 0, 1] });
+            pass.draw(mesh);
+            pass.end();
+        }
+        f.submit();
+    }
+
+    return {
+        name: 'screen-size-per-target',
+        pixel: centerPixel(await read(gpu, wide)),
+        expected: [SIZE, 0, 0, 255],
+        note: '32 means the wide pass read the narrow pass screen size',
+    };
+}
+
+/**
+ * cube-camera-faces: a box only in the -Z direction. -Z is the last face CubeCamera renders, so a
+ * face drawn with the last face's camera sees the box; +X must see only the clear colour.
+ */
+async function caseCubeCameraFaces(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const cube = createCubeRenderTarget(SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const clearColor: [number, number, number, number] = [0.2, 0.8, 0.4, 1];
+    cube.clearColor = clearColor;
+
+    const scene = new Scene();
+    scene.add(blueBox([0, 0, -3]));
+    scene.updateWorldMatrix();
+
+    const cubeCamera = new CubeCamera(0.1, 100, cube);
+    cubeCamera.updateWorldMatrix();
+    const cubeFrame = frame(gpu);
+    cubeCamera.update(cubeFrame, scene);
+    cubeFrame.submit();
+
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const sampled = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: cubeTexture(cube.texture).sample(vec3(1, 0, 0)), // the +X face
+            depthTest: false,
+        }),
+    );
+    sampled.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const pass = f.pass({ target, camera: new PerspectiveCamera(), clear: [0, 0, 0, 1] });
+    pass.draw(sampled);
+    pass.end();
+    f.submit();
+
+    return {
+        name: 'cube-camera-faces',
+        pixel: centerPixel(await read(gpu, target)),
+        expected: [u8(clearColor[0]), u8(clearColor[1]), u8(clearColor[2]), 255],
+        note: 'blue means +X was drawn with the -Z face camera',
+    };
+}
+
 const CASES: Record<string, Case> = {
     clear: caseClear,
     solid: caseSolid,
@@ -2074,8 +2424,16 @@ const CASES: Record<string, Case> = {
     cubemap: caseCubemap,
     msaa: caseMsaa,
     'bundle-replay': caseBundleReplay,
+    'multi-camera-one-target': caseMultiCameraOneTarget,
+    'camera-reused-across-passes': caseCameraReusedAcrossPasses,
+    'bundle-across-cameras': caseBundleAcrossCameras,
+    'cube-camera-faces': caseCubeCameraFaces,
+    'screen-size-per-target': caseScreenSizePerTarget,
     'draw-material': caseDrawMaterial,
     compute: caseCompute,
+    'compute-uniform-per-dispatch': caseComputeUniformPerDispatch,
+    'compute-uniform-within-pass': caseComputeUniformWithinPass,
+    'draw-uniform-within-pass': caseDrawUniformWithinPass,
     'dispose-releases': caseDisposeReleases,
     'readback-orientation': caseReadbackOrientation,
     'clear-depth': caseClearDepth,

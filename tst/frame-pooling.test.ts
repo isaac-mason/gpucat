@@ -92,20 +92,29 @@ test('a second frame reuses the first frame object and its pass objects', async 
     expect(second.pool[1]).toBe(firstPasses[1]);
 });
 
-test("a shorter frame reuses the longer one's draw slots rather than shrinking them", async () => {
+/** What each draw resolved to lives in the backend's open pass, pooled per nesting depth. */
+type OpenPassSlots = {
+    _frame: {
+        openByDepth: { bindings: unknown[]; segments: unknown[] }[];
+        openComputeByDepth: { resolved: unknown[] }[];
+    };
+};
+const slotsOf = (renderer: Renderer<WebGPUBackend>) => (renderer.backend as unknown as OpenPassSlots)._frame;
+
+test("a shorter frame reuses the longer one's resolved draw slots rather than shrinking them", async () => {
     const { renderer, mesh, camera, view } = await scene();
 
     drawPasses(renderer, view, mesh, camera, 1, 4);
-    const pass = frame(renderer).pool[0];
-    const slots = pass.records;
+    const slots = slotsOf(renderer).openByDepth[0].bindings;
     expect(slots).toHaveLength(4);
-    const recorded = [slots[0], slots[1], slots[2], slots[3]];
+    const resolved = [slots[0], slots[1], slots[2], slots[3]];
 
-    const short = drawPasses(renderer, view, mesh, camera, 1, 2);
-    expect(short.pool[0].count).toBe(2);
-    expect(short.pool[0].records).toHaveLength(4);
-    expect(short.pool[0].records[0]).toBe(recorded[0]);
-    expect(short.pool[0].records[1]).toBe(recorded[1]);
+    drawPasses(renderer, view, mesh, camera, 1, 2);
+    const after = slotsOf(renderer).openByDepth[0].bindings;
+    expect(after).toBe(slots);
+    expect(after).toHaveLength(4);
+    expect(after[0]).toBe(resolved[0]);
+    expect(after[1]).toBe(resolved[1]);
 });
 
 test('the pass pool grows to the deepest frame and stays there', async () => {
@@ -120,7 +129,7 @@ test('the pass pool grows to the deepest frame and stays there', async () => {
     expect(frame(renderer).pool).toHaveLength(3);
 });
 
-test('compute passes pool the same way, dispatch slots included', async () => {
+test('compute passes pool the same way, resolved dispatch slots included', async () => {
     const { renderer } = await scene();
     const node = Fn(() => {
         const out = storage('out', d.array(d.u32), 'read_write');
@@ -136,8 +145,9 @@ test('compute passes pool the same way, dispatch slots included', async () => {
     first.submit();
 
     const pooled = first.computePool[0];
-    const slots = [pooled.records[0], pooled.records[1]];
-    expect(pooled.records).toHaveLength(2);
+    const slots = slotsOf(renderer).openComputeByDepth[0].resolved;
+    const resolved = [slots[0], slots[1]];
+    expect(slots).toHaveLength(2);
 
     const second = frame(renderer);
     const narrow = second.compute();
@@ -146,30 +156,15 @@ test('compute passes pool the same way, dispatch slots included', async () => {
     second.submit();
 
     expect(narrow).toBe(pooled);
-    expect(narrow.count).toBe(1);
-    expect(narrow.records).toHaveLength(2);
-    expect(narrow.records[0]).toBe(slots[0]);
-    expect(narrow.records[1]).toBe(slots[1]);
+    const after = slotsOf(renderer).openComputeByDepth[0].resolved;
+    expect(after).toBe(slots);
+    expect(after).toHaveLength(2);
+    expect(after[0]).toBe(resolved[0]);
+    expect(after[1]).toBe(resolved[1]);
 });
 
-/**
- * A bundle entry joins `Pass.records` at the `kind` discriminant, and pooling mutates records in
- * place. A reused slot must therefore still read as a draw, or the encode loop would take the wrong
- * branch for an entry that was a bundle last frame.
- */
-test('a reused draw slot still reads as a draw', async () => {
-    const { renderer, mesh, camera, view } = await scene();
-
-    drawPasses(renderer, view, mesh, camera, 1, 3);
-    const long = frame(renderer).pool[0];
-    expect(long.records.every((r) => r.kind === 'draw')).toBe(true);
-
-    const short = drawPasses(renderer, view, mesh, camera, 1, 1);
-    expect(short.pool[0].records.every((r) => r.kind === 'draw')).toBe(true);
-});
-
-/** A `PassEntry` slot is a union, so a pooled draw slot has no bundle fields to overwrite and vice versa. */
-test('a frame whose passes hold bundles pools its record slots too', async () => {
+/** A bundle's draws resolve into the same slots as the direct draws around them. */
+test('a frame whose passes hold bundles pools its resolved draw slots too', async () => {
     const { renderer, mesh, camera, view } = await scene();
 
     const encoder = bundle('pooled');
@@ -184,20 +179,22 @@ test('a frame whose passes hold bundles pools its record slots too', async () =>
         pass.draw(mesh);
         pass.end();
         f.submit();
-        return f;
     };
 
-    const first = run();
-    const slots = [first.pool[0].records[0], first.pool[0].records[1], first.pool[0].records[2]];
-    expect(slots.map((entry) => entry?.kind)).toEqual(['draw', 'bundle', 'draw']);
+    run();
+    const slots = slotsOf(renderer).openByDepth[0].bindings;
+    const resolved = [slots[0], slots[1], slots[2]];
+    expect(slots).toHaveLength(3);
 
-    const second = run();
-    expect(second.pool[0].records[0]).toBe(slots[0]);
-    expect(second.pool[0].records[1]).toBe(slots[1]);
-    expect(second.pool[0].records[2]).toBe(slots[2]);
+    run();
+    const after = slotsOf(renderer).openByDepth[0].bindings;
+    expect(after).toBe(slots);
+    expect(after[0]).toBe(resolved[0]);
+    expect(after[1]).toBe(resolved[1]);
+    expect(after[2]).toBe(resolved[2]);
 });
 
-/** The segments array is pooled beside the prepared arrays, so a bundled frame reuses it as well. */
+/** The segments array is pooled with its open pass, so a bundled frame reuses it as well. */
 test('the prepared-segment pool is reused across frames', async () => {
     const { renderer, mesh, camera, view } = await scene();
 
@@ -214,8 +211,7 @@ test('the prepared-segment pool is reused across frames', async () => {
         f.submit();
     };
 
-    const segmentsAtDepth0 = () =>
-        (renderer.backend as unknown as { _frame: { segmentsByDepth: unknown[][] } })._frame.segmentsByDepth[0];
+    const segmentsAtDepth0 = () => slotsOf(renderer).openByDepth[0].segments;
 
     run();
     const segments = segmentsAtDepth0();

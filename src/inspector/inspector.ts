@@ -9,7 +9,7 @@
  *  - Viewer tab: inspectable node canvases
  */
 
-import type { FrameRecord } from './renderer-inspector';
+import type { FrameRecord, RecordedPass } from './renderer-inspector';
 import { RendererInspector } from './renderer-inspector';
 import type { TreelessPass } from './tabs/scene-hierarchy';
 
@@ -18,6 +18,8 @@ export type {
     FrameRecord,
     MarkerEntry,
     PassRecord,
+    RecordedCall,
+    RecordedPass,
     RenderEntry,
     SceneRecord,
     TimelineEntry,
@@ -670,17 +672,18 @@ export class Inspector extends RendererInspector {
             this.resolveViewer(record.inspectableNodes);
         }
 
-        const treeless = treelessPasses(record, this.getRenderer());
+        const treeless = treelessPasses(record);
         if (record.scenes.length > 0 || treeless.length > 0) {
             this.sceneHierarchy.show();
             this.sceneHierarchy.update(this, record.scenes, treeless);
         }
 
-        const renderer = this.getRenderer();
-        if (renderer && renderer._renderObjects.renderObjects.size > 0) {
+        if (record.passes.length > 0) {
             this.drawCalls.show();
-            this.drawCalls.update(this, renderer);
+            this.drawCalls.update(this, record);
         }
+
+        const renderer = this.getRenderer();
 
         // Update compute calls tab if compute passes were dispatched this frame. Compute is
         // WebGPU-only, so this never fires on WebGL (computeNodes stays empty); the backend check also
@@ -775,10 +778,10 @@ export class Inspector extends RendererInspector {
         const ro = probe.sourceRO;
         if (ro.mesh.count === 0) return;
 
-        // Bind groups updated this frame by the main render loop (camera at [0]).
-        // These live in the WebGPU device side table keyed by RenderObject.
-        const bindGroups = RenderObjectGpu.peekRenderObjectGpu(renderer.backend.renderObjectGpu, ro)?.bindGroups;
-        if (!bindGroups || bindGroups.length === 0) return;
+        // What the object's most recent draw bound (camera at [0]), kept for the probe while an inspector
+        // is attached. These live in the WebGPU device side table keyed by RenderObject.
+        const bindings = RenderObjectGpu.peekRenderObjectGpu(renderer.backend.renderObjectGpu, ro)?.probeBindings;
+        if (!bindings || bindings.groups.length === 0) return;
 
         // Vertex buffers must be uploaded already (main render loop does this)
         const nodeState = ro.nodeBuilderState;
@@ -808,9 +811,11 @@ export class Inspector extends RendererInspector {
 
         pass.setPipeline(probe.pipeline);
 
-        // Bind groups (camera, object uniforms, textures, same as main draw)
-        for (let i = 0; i < bindGroups.length; i++) {
-            pass.setBindGroup(i, bindGroups[i]);
+        // Bind groups (camera, object uniforms, textures, same as main draw), at the same dynamic offsets
+        for (let i = 0; i < bindings.groups.length; i++) {
+            const offset = bindings.offsets[i];
+            if (offset < 0) pass.setBindGroup(i, bindings.groups[i]);
+            else pass.setBindGroup(i, bindings.groups[i], [offset]);
         }
 
         // Vertex buffers, look up uploaded GPU buffers from the geometry
@@ -919,19 +924,24 @@ export class Inspector extends RendererInspector {
 }
 
 /**
- * Render passes in the frame that produced no `SceneRecord`, with the draw count Draw Calls buckets
- * under the same label. `drawScene` is the only producer of scene records, so a pass whose draws were
- * recorded directly has nothing for the hierarchy tab to walk.
+ * Render passes in the frame that produced no `SceneRecord`, with the draws they resolved. `drawScene`
+ * is the only producer of scene records, so a pass whose draws were recorded directly has nothing for
+ * the hierarchy tab to walk. Passes sharing a label share a row, as they share a pass id.
  */
-function treelessPasses(record: FrameRecord, renderer: InspectableRenderer | null): TreelessPass[] {
+function treelessPasses(record: FrameRecord): TreelessPass[] {
     const walked = new Set(record.scenes.map((s) => s.passId));
     const drawn = new Map<string, number>();
-    if (renderer) {
-        for (const ro of renderer._renderObjects.renderObjects) {
-            const label = ro.lastPassLabel;
-            if (label !== '' && !walked.has(label)) drawn.set(label, (drawn.get(label) ?? 0) + 1);
+    const visit = (passes: RecordedPass[]): void => {
+        for (const pass of passes) {
+            let draws = 0;
+            for (const call of pass.calls) {
+                draws += call.renderObjects.length;
+                visit(call.passes);
+            }
+            if (pass.kind === 'render' && !walked.has(pass.label)) drawn.set(pass.label, (drawn.get(pass.label) ?? 0) + draws);
         }
-    }
+    };
+    visit(record.passes);
     return [...drawn].map(([passId, drawCount]) => ({ passId, drawCount }));
 }
 

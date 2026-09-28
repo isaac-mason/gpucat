@@ -24,16 +24,17 @@
  */
 
 import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { InspectorBase } from '../../inspector/inspector-base';
 import { compileTransformFeedback, type TransformFeedbackGlslResult } from '../../nodes/builder';
 import type { TransformFeedbackNode } from '../../nodes/lib/transform-feedback';
 import { typedArrayCtorOf } from '../../schema/schema';
 import type { NodeFrame } from '../core/node-frame';
-import { updateAndBindStandaloneUniformGroup } from './bindings';
+import { captureStandaloneUniformGroup, type RecordCapture, uploadAndBindCapture } from './bindings';
 import * as Buffers from './buffers';
 import { attribFormat, glComponentType } from './geometries';
 import type { ProgramInfo } from './programs';
 import { createTransformFeedbackProgram } from './programs';
-import { bindStandaloneTextures } from './texture-bindings';
+import { bindStandaloneTextures, captureStandaloneTextures } from './texture-bindings';
 import type { WebGLBackend } from './webgl-backend';
 
 /** Per-node cached compile + link. */
@@ -157,8 +158,36 @@ function getNodeCache(
 }
 
 /**
+ * Captures one recorded dispatch's uniform groups and texture values into `out`, at the call that
+ * recorded it, so it runs with the values set before that call. Values come from each uniform() node's
+ * `.uniform.value` (sourced exactly like the render path), re-packed every dispatch so per-dispatch
+ * uniforms (e.g. a `dt` timestep, or a step index in a loop) take effect. Groups whose members were all
+ * optimized out have no binding point and are skipped.
+ */
+export function captureTransformFeedback(
+    gl: WebGL2RenderingContext,
+    b: WebGLBackend,
+    state: TransformFeedbackState,
+    node: TransformFeedbackNode,
+    precision: 'highp' | 'mediump' | 'lowp' | undefined,
+    frame: NodeFrame,
+    out: RecordCapture,
+): void {
+    const { compiled, programInfo } = getNodeCache(gl, state, node, precision);
+    out.uniformCount = 0;
+    for (const group of compiled.uniformGroups) {
+        if (group.members.length === 0) continue;
+        const bindingPoint = programInfo.uboBindingPoints.get(group.groupName);
+        if (bindingPoint === undefined) continue;
+        captureStandaloneUniformGroup(b, group, frame, bindingPoint, out.uniforms, out.uniformCount++);
+    }
+    captureStandaloneTextures(compiled.textures, compiled.samplers, out.textures);
+}
+
+/**
  * Execute one transform-feedback dispatch: bind the kernel's input `GpuBuffer`s as attributes, its
- * output `GpuBuffer`s as the captured-varying targets, and run the kernel under `RASTERIZER_DISCARD`.
+ * output `GpuBuffer`s as the captured-varying targets, and run the kernel under `RASTERIZER_DISCARD`,
+ * with the uniforms and textures its record captured.
  */
 export function runTransformFeedback(
     gl: WebGL2RenderingContext,
@@ -167,7 +196,10 @@ export function runTransformFeedback(
     node: TransformFeedbackNode,
     opts: TransformFeedbackRunOptions,
     precision: 'highp' | 'mediump' | 'lowp' | undefined,
-    frame: NodeFrame,
+    capture: RecordCapture,
+    inspector: InspectorBase | null,
+    /** The kernel entry this dispatch belongs to, so the GPU bracket lands on it. */
+    inspectorName: string,
 ): void {
     const { buffers } = b;
     const { inputs, outputs, count, instanceCount } = opts;
@@ -204,21 +236,13 @@ export function runTransformFeedback(
 
     gl.useProgram(programInfo.program);
 
-    // Bind the kernel's uniform groups (std140 UBOs) to their resolved binding points. Values come
-    // from each uniform() node's `.uniform.value` (sourced exactly like the render path), re-packed
-    // every dispatch so per-frame uniforms (e.g. a `dt` timestep) take effect. Groups whose members
-    // were all optimized out have no binding point → skipped.
-    for (const group of compiled.uniformGroups) {
-        if (group.members.length === 0) continue;
-        const bindingPoint = programInfo.uboBindingPoints.get(group.groupName);
-        if (bindingPoint === undefined) continue;
-        updateAndBindStandaloneUniformGroup(gl, b, group, frame, bindingPoint);
-    }
+    // Bind the kernel's uniform groups (std140 UBOs) as the dispatch captured them.
+    for (let index = 0; index < capture.uniformCount; index++) uploadAndBindCapture(gl, b, capture.uniforms[index], null);
 
     // Bind any DataTextures the kernel samples via textureLoad() (explicit neighbour gather — the user
-    // binds the DataTexture on the texture node; no hidden mirror). Runs in the vertex stage under TF.
+    // binds the DataTexture on the texture node; no hidden mirror), as captured. Runs in the vertex stage under TF.
     if (compiled.textures.length > 0) {
-        bindStandaloneTextures(gl, b, compiled.textures, compiled.samplers, programInfo);
+        bindStandaloneTextures(gl, b, compiled.textures, programInfo, capture.textures);
     }
 
     // Bind inputs as vertex attributes into the node's VAO (rebuilt each dispatch: the caller may
@@ -262,16 +286,23 @@ export function runTransformFeedback(
         gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, i, glOut);
     }
 
-    // Dispatch under RASTERIZER_DISCARD.
-    gl.enable(gl.RASTERIZER_DISCARD);
-    gl.beginTransformFeedback(gl.POINTS);
-    if (instanceCount !== undefined) {
-        gl.drawArraysInstanced(gl.POINTS, 0, count, instanceCount);
-    } else {
-        gl.drawArrays(gl.POINTS, 0, count);
+    // Dispatch under RASTERIZER_DISCARD. The GPU bracket covers the dispatch alone: linking the
+    // program, packing the UBOs and binding the buffers above are what prepares it, and a compute
+    // dispatch's timestamps on WebGPU do not cover its equivalents either.
+    inspector?.beginGpuWork(inspectorName);
+    try {
+        gl.enable(gl.RASTERIZER_DISCARD);
+        gl.beginTransformFeedback(gl.POINTS);
+        if (instanceCount !== undefined) {
+            gl.drawArraysInstanced(gl.POINTS, 0, count, instanceCount);
+        } else {
+            gl.drawArrays(gl.POINTS, 0, count);
+        }
+        gl.endTransformFeedback();
+        gl.disable(gl.RASTERIZER_DISCARD);
+    } finally {
+        inspector?.endGpuWork(inspectorName);
     }
-    gl.endTransformFeedback();
-    gl.disable(gl.RASTERIZER_DISCARD);
 
     // Unbind the TF binding points + object so the output buffers can be read back / reused.
     for (let i = 0; i < compiled.feedbackVaryings.length; i++) {

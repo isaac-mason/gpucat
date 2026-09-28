@@ -1,6 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Object3D } from '../../core/object3d';
 import { deadAttachment, type RenderTarget } from '../../core/render-target';
+import type { InspectorBase } from '../../inspector/inspector-base';
 import type { Material } from '../../material/material';
 import type { ComputeNode } from '../../nodes/lib/core';
 import type { MRTNode } from '../../nodes/lib/mrt';
@@ -42,7 +43,7 @@ export type DrawOptions = {
     material?: Material;
 };
 
-/** One recorded draw. `kind` discriminates it from a bundle entry in the same pass array. */
+/** One recorded draw. `kind` discriminates it from a bundle entry, in a pass or a bundle's own list. */
 export type DrawRecord = {
     kind: 'draw';
     mesh: Mesh;
@@ -81,15 +82,15 @@ export type DispatchOptions = {
 
 export type DispatchIndirectOptions = DispatchOptions & { offset?: number };
 
-/** Exactly one of `counts` and `indirect` is set, which `dispatch` and `dispatchIndirect` guarantee. */
 /** Exactly one of `counts` and `indirect`, as a union rather than a comment the reader has to trust. */
-export type DispatchRecord = DispatchOptions & { node: ComputeNode } & (
+export type DispatchRecord = DispatchOptions & { kind: 'dispatch'; node: ComputeNode } & (
         | { counts: [number, number, number]; indirect?: undefined; indirectOffset?: undefined }
         | { counts?: undefined; indirect: GpuBuffer<Any>; indirectOffset?: number }
     );
 
-/** The pool writes every field of a slot whichever arm it held, which the union alone cannot express. */
+/** A pass's scratch record writes every field whichever arm it held, which the union alone cannot express. */
 type DispatchRecordSlot = DispatchOptions & {
+    kind: 'dispatch';
     node: ComputeNode;
     counts?: [number, number, number];
     indirect?: GpuBuffer<Any>;
@@ -97,21 +98,31 @@ type DispatchRecordSlot = DispatchOptions & {
 };
 
 /**
- * Encoding a pass is atomic: preparing its draws evaluates the node graph, which may open and close
- * further passes, so no GPU pass may be open across it. Both encoders read `records[0..count)`.
+ * A render pass is resolved as it is recorded and encoded when it ends. `beginPass` opens it,
+ * `recordEntry` resolves each draw (or bundle) at the call that recorded it, so it uses the values set
+ * before that call, and `encodePass` encodes what was resolved. Resolving evaluates the node graph,
+ * which may open and close further passes, so no GPU pass is open until `encodePass`.
+ *
+ * A record is handed over for the length of the call and reused for the next one, so the backend keeps
+ * whatever it needs from it rather than the record itself.
  */
 export type FrameBackend = {
     name: BackendName;
     /** The one canvas this backend's device can present to, or null when any canvas target is reachable. */
     deviceCanvasTarget: CanvasTarget | null;
     beginFrame(): void;
-    encodePass(desc: PassDesc, records: readonly PassEntry[], count: number): void;
-    encodeComputePass(desc: ComputePassDesc, records: readonly DispatchRecord[], count: number): void;
-    encodeTransformFeedbackPass(
-        desc: TransformFeedbackPassDesc,
-        records: readonly TransformFeedbackRecord[],
-        count: number,
-    ): void;
+    beginPass(desc: PassDesc): void;
+    /** Resolves `entry` for the pass most recently begun and not yet encoded. */
+    recordEntry(entry: PassEntry): void;
+    encodePass(desc: PassDesc): void;
+    /** The compute mirror of `beginPass` / `recordEntry` / `encodePass`: a dispatch resolves when recorded. */
+    beginComputePass(desc: ComputePassDesc): void;
+    recordDispatch(record: DispatchRecord): void;
+    /** The transform-feedback mirror, on WebGL2. */
+    beginTransformFeedbackPass(desc: TransformFeedbackPassDesc): void;
+    recordTransformFeedback(record: TransformFeedbackRecord): void;
+    encodeComputePass(desc: ComputePassDesc): void;
+    encodeTransformFeedbackPass(desc: TransformFeedbackPassDesc): void;
     submitFrame(): void;
     discardFrame(): void;
     /**
@@ -121,13 +132,15 @@ export type FrameBackend = {
     awaitCompletion(): Promise<void>;
 };
 
-/** A recording render pass. `end()` prepares its draws, opens the GPU pass, encodes and closes it. */
+/** A recording render pass. Each draw resolves when recorded; `end()` opens the GPU pass, encodes and closes it. */
 export type Pass = {
     readonly kind: 'render';
     /** The desc this pass was opened with; rewritten when its pool slot is reused. */
     desc: PassDesc;
-    /** @internal */ records: PassEntry[];
-    /** @internal */ count: number;
+    /** Handed to the backend by every `draw()`, created by the first. @internal */
+    drawRecord: DrawRecord | null;
+    /** Handed to the backend by every `execute()`, created by the first. @internal */
+    bundleRecord: BundleRecord | null;
     /** @internal */ ended: boolean;
     /** Draws unconditionally: `mesh.visible` gates the scene walk, not a draw you recorded yourself. */
     draw(mesh: Mesh, opts?: DrawOptions): void;
@@ -143,8 +156,8 @@ export type ComputePass = {
     readonly kind: 'compute';
     /** The desc this pass was opened with; rewritten when its pool slot is reused. */
     desc: ComputePassDesc;
-    /** @internal */ records: DispatchRecord[];
-    /** @internal */ count: number;
+    /** Handed to the backend by every dispatch, created by the first. @internal */
+    record: DispatchRecord | null;
     /** @internal */ ended: boolean;
     dispatch(node: ComputeNode, counts: [number, number, number], opts?: DispatchOptions): void;
     /** `indirect` needs `'indirect'` usage, and is typically written by an earlier compute pass. */
@@ -161,7 +174,10 @@ export type TransformFeedbackDispatch = {
     instanceCount?: number;
 };
 
-export type TransformFeedbackRecord = TransformFeedbackDispatch & { node: TransformFeedbackNode };
+export type TransformFeedbackRecord = TransformFeedbackDispatch & { kind: 'transform-feedback'; node: TransformFeedbackNode };
+
+/** Any call a pass records, as an attached inspector is told of it. */
+export type CallRecord = PassEntry | DispatchRecord | TransformFeedbackRecord;
 
 /**
  * A recording transform-feedback pass, the WebGL2 mirror of `ComputePass`. WebGL2 has no encoder, so
@@ -172,8 +188,8 @@ export type TransformFeedbackPass = {
     readonly kind: 'transform-feedback';
     /** The desc this pass was opened with; rewritten when its pool slot is reused. */
     desc: TransformFeedbackPassDesc;
-    /** @internal */ records: TransformFeedbackRecord[];
-    /** @internal */ count: number;
+    /** Handed to the backend by every dispatch, created by the first. @internal */
+    record: TransformFeedbackRecord | null;
     /** @internal */ ended: boolean;
     dispatch(node: TransformFeedbackNode, opts: TransformFeedbackDispatch): void;
     end(): void;
@@ -319,10 +335,10 @@ function openRenderPass(frame: Frame, desc: PassDesc): Pass {
         frame.pool.push(pass);
     } else {
         pass.desc = desc;
-        pass.count = 0;
         pass.ended = false;
     }
     frame.poolIndex++;
+    beginOnBackend(frame, pass);
     frame.open = pass;
     return pass;
 }
@@ -331,11 +347,11 @@ function createRenderPass(frame: Frame, desc: PassDesc): Pass {
     const pass: Pass = {
         kind: 'render',
         desc,
-        records: [],
-        count: 0,
+        drawRecord: null,
+        bundleRecord: null,
         ended: false,
-        draw: (mesh, opts) => recordDraw(pass, mesh, opts),
-        execute: (bundle) => recordBundle(pass, bundle),
+        draw: (mesh, opts) => recordDraw(frame, pass, mesh, opts),
+        execute: (bundle) => recordBundle(frame, pass, bundle),
         scene: (root, camera) => recordScene(frame, pass, root, camera),
         end: () => endPass(frame, pass),
     };
@@ -361,10 +377,10 @@ function openComputePass(frame: Frame, desc: ComputePassDesc): ComputePass {
         frame.computePool.push(pass);
     } else {
         pass.desc = desc;
-        pass.count = 0;
         pass.ended = false;
     }
     frame.computePoolIndex++;
+    beginOnBackend(frame, pass);
     frame.open = pass;
     return pass;
 }
@@ -381,10 +397,10 @@ function openTransformFeedbackPass(frame: Frame, desc: TransformFeedbackPassDesc
         frame.transformFeedbackPool.push(pass);
     } else {
         pass.desc = desc;
-        pass.count = 0;
         pass.ended = false;
     }
     frame.transformFeedbackPoolIndex++;
+    beginOnBackend(frame, pass);
     frame.open = pass;
     return pass;
 }
@@ -393,51 +409,52 @@ function createTransformFeedbackPass(frame: Frame, desc: TransformFeedbackPassDe
     const pass: TransformFeedbackPass = {
         kind: 'transform-feedback',
         desc,
-        records: [],
-        count: 0,
+        record: null,
         ended: false,
-        dispatch: (node, opts) => recordTransformFeedback(pass, node, opts),
+        dispatch: (node, opts) => recordTransformFeedback(frame, pass, node, opts),
         end: () => endPass(frame, pass),
     };
     return pass;
 }
 
 function recordTransformFeedback(
+    frame: Frame,
     pass: TransformFeedbackPass,
     node: TransformFeedbackNode,
     opts: TransformFeedbackDispatch,
 ): void {
     if (pass.ended) throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
 
-    const existing = pass.records[pass.count];
-    if (existing === undefined) {
-        pass.records.push({ node, ...opts });
+    let record = pass.record;
+    if (record === null) {
+        record = { kind: 'transform-feedback', node, ...opts };
+        pass.record = record;
     } else {
-        existing.node = node;
-        existing.inputs = opts.inputs;
-        existing.outputs = opts.outputs;
-        existing.count = opts.count;
-        existing.instanceCount = opts.instanceCount;
+        record.node = node;
+        record.inputs = opts.inputs;
+        record.outputs = opts.outputs;
+        record.count = opts.count;
+        record.instanceCount = opts.instanceCount;
     }
-    pass.count++;
+    resolveCall(frame, pass, record);
 }
 
 function createComputePass(frame: Frame, desc: ComputePassDesc): ComputePass {
     const pass: ComputePass = {
         kind: 'compute',
         desc,
-        records: [],
-        count: 0,
+        record: null,
         ended: false,
-        dispatch: (node, counts, opts) => recordDispatch(pass, node, counts, undefined, 0, opts?.buffers),
+        dispatch: (node, counts, opts) => recordDispatch(frame, pass, node, counts, undefined, 0, opts?.buffers),
         dispatchIndirect: (node, indirect, opts) =>
-            recordDispatch(pass, node, undefined, indirect, opts?.offset ?? 0, opts?.buffers),
+            recordDispatch(frame, pass, node, undefined, indirect, opts?.offset ?? 0, opts?.buffers),
         end: () => endPass(frame, pass),
     };
     return pass;
 }
 
 function recordDispatch(
+    frame: Frame,
     pass: ComputePass,
     node: ComputeNode,
     counts: [number, number, number] | undefined,
@@ -447,20 +464,64 @@ function recordDispatch(
 ): void {
     if (pass.ended) throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
 
-    const existing = pass.records[pass.count] as DispatchRecordSlot | undefined;
-    if (existing === undefined) {
-        pass.records.push({ node, counts, indirect, indirectOffset, buffers } as DispatchRecord);
+    let record = pass.record as DispatchRecordSlot | null;
+    if (record === null) {
+        record = { kind: 'dispatch', node, counts, indirect, indirectOffset, buffers };
+        pass.record = record as DispatchRecord;
     } else {
-        existing.node = node;
-        existing.counts = counts;
-        existing.indirect = indirect;
-        existing.indirectOffset = indirectOffset;
-        existing.buffers = buffers;
+        record.node = node;
+        record.counts = counts;
+        record.indirect = indirect;
+        record.indirectOffset = indirectOffset;
+        record.buffers = buffers;
     }
-    pass.count++;
+    resolveCall(frame, pass, record as DispatchRecord);
 }
 
-function recordDraw(pass: Pass, mesh: Mesh, opts?: DrawOptions): void {
+function inspectorOf(frame: Frame): InspectorBase | null {
+    return frame.renderer?.inspector ?? null;
+}
+
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
+/** Opens `pass` on the backend, telling an attached inspector first, so a pass the backend skips or refuses is still seen. */
+function beginOnBackend(frame: Frame, pass: AnyPass): void {
+    const inspector = inspectorOf(frame);
+    inspector?.beginRecordedPass(pass.kind, passLabel(pass));
+    try {
+        if (pass.kind === 'render') frame.backend.beginPass(pass.desc);
+        else if (pass.kind === 'compute') frame.backend.beginComputePass(pass.desc);
+        else frame.backend.beginTransformFeedbackPass(pass.desc);
+    } catch (error) {
+        inspector?.endRecordedPass(errorMessage(error));
+        throw error;
+    }
+}
+
+/**
+ * Resolves a just-recorded call, so it takes the values set before it. The open pass is set aside
+ * meanwhile: resolving evaluates the node graph, which may record a nested pass.
+ */
+function resolveCall(frame: Frame, pass: AnyPass, record: CallRecord): void {
+    const inspector = inspectorOf(frame);
+    inspector?.beginRecordedCall(record);
+    frame.open = null;
+    try {
+        if (record.kind === 'dispatch') frame.backend.recordDispatch(record);
+        else if (record.kind === 'transform-feedback') frame.backend.recordTransformFeedback(record);
+        else frame.backend.recordEntry(record);
+    } catch (error) {
+        inspector?.endRecordedCall(errorMessage(error));
+        throw error;
+    } finally {
+        frame.open = pass;
+    }
+    inspector?.endRecordedCall(null);
+}
+
+function recordDraw(frame: Frame, pass: Pass, mesh: Mesh, opts?: DrawOptions): void {
     if (pass.ended) throw new Error(`[pass ${passLabel(pass)}] draw after end()`);
     if (opts?.draws !== undefined && (opts.instances !== undefined || opts.range !== undefined)) {
         throw new Error(
@@ -469,30 +530,31 @@ function recordDraw(pass: Pass, mesh: Mesh, opts?: DrawOptions): void {
         );
     }
 
-    const record = pass.records[pass.count];
     const material = opts?.material ?? mesh.material;
-    // A pooled slot that last held a bundle has no draw fields to overwrite, so it is replaced whole.
-    if (record === undefined || record.kind !== 'draw') {
-        pass.records[pass.count] = { kind: 'draw', mesh, material, opts: opts ?? null };
+    let record = pass.drawRecord;
+    if (record === null) {
+        record = { kind: 'draw', mesh, material, opts: opts ?? null };
+        pass.drawRecord = record;
     } else {
         record.mesh = mesh;
         record.material = material;
         record.opts = opts ?? null;
     }
-    pass.count++;
+    resolveCall(frame, pass, record);
 }
 
-function recordBundle(pass: Pass, bundle: RenderBundle): void {
+function recordBundle(frame: Frame, pass: Pass, bundle: RenderBundle): void {
     if (pass.ended) throw new Error(`[pass ${passLabel(pass)}] execute after end()`);
     if (bundle.disposed) throw new Error(`[bundle ${bundle.label}] execute after dispose()`);
 
-    const record = pass.records[pass.count];
-    if (record === undefined || record.kind !== 'bundle') {
-        pass.records[pass.count] = { kind: 'bundle', bundle };
+    let record = pass.bundleRecord;
+    if (record === null) {
+        record = { kind: 'bundle', bundle };
+        pass.bundleRecord = record;
     } else {
         record.bundle = bundle;
     }
-    pass.count++;
+    resolveCall(frame, pass, record);
 }
 
 function endPass(frame: Frame, pass: AnyPass): void {
@@ -505,15 +567,16 @@ function endPass(frame: Frame, pass: AnyPass): void {
     }
     pass.ended = true;
     frame.open = null; // cleared first: encoding evaluates the graph, which may open a nested pass
+    inspectorOf(frame)?.endRecordedPass(null);
 
     if (pass.kind === 'compute') {
-        frame.backend.encodeComputePass(pass.desc, pass.records, pass.count);
+        frame.backend.encodeComputePass(pass.desc);
     } else if (pass.kind === 'transform-feedback') {
-        frame.backend.encodeTransformFeedbackPass(pass.desc, pass.records, pass.count);
+        frame.backend.encodeTransformFeedbackPass(pass.desc);
     } else {
         const target = pass.desc.target;
         if (isRenderTarget(target)) frame.targets.push(target);
-        frame.backend.encodePass(pass.desc, pass.records, pass.count);
+        frame.backend.encodePass(pass.desc);
     }
 }
 

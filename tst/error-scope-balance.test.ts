@@ -75,7 +75,8 @@ test('a frame of several passes leaves the error-scope stack where it found it',
     expect(stub.stats.errorScopeDepth).toBe(0);
 });
 
-test('a pass that throws in prepare still pops its scope', async () => {
+/** A draw resolves when recorded, so a bad one throws at `draw()` and its pass stays open to end. */
+test('a draw that throws while resolving leaves no scope behind once its pass ends', async () => {
     const { stub, renderer, camera } = await make();
     const mesh = new Mesh(new Geometry(), material());
     mesh.updateWorldMatrix();
@@ -83,9 +84,24 @@ test('a pass that throws in prepare still pops its scope', async () => {
     stub.stats.reset();
     const f = frame(renderer);
     const pass = f.pass({ target: createRenderTarget(64, 64), camera });
-    pass.draw(mesh);
+    expect(() => pass.draw(mesh)).toThrow();
+    pass.end();
+    f.submit();
 
-    expect(() => pass.end()).toThrow();
+    expect(stub.stats.errorScopeDepth).toBe(0);
+});
+
+test('a draw that throws while resolving leaves no scope behind once its frame is abandoned', async () => {
+    const { stub, renderer, camera } = await make();
+    const mesh = new Mesh(new Geometry(), material());
+    mesh.updateWorldMatrix();
+
+    stub.stats.reset();
+    const f = frame(renderer);
+    const pass = f.pass({ target: createRenderTarget(64, 64), camera });
+    expect(() => pass.draw(mesh)).toThrow();
+    f.abandon();
+
     expect(stub.stats.errorScopeDepth).toBe(0);
 });
 
@@ -109,7 +125,8 @@ test('a compute pass scopes its own validation, and names itself when it fails',
     expect(stub.stats.errorScopePushes).toBeGreaterThanOrEqual(2);
 });
 
-test('a compute pass that throws mid-encode still pops its scope', async () => {
+/** A dispatch resolves when recorded, so an unbound buffer throws at `dispatch()`; the pass still ends clean. */
+test('a dispatch that throws while resolving leaves no scope behind once its pass ends', async () => {
     const { stub, renderer } = await make();
     const node = Fn(() => {
         const out = storage('out', d.array(d.u32), 'read_write');
@@ -119,8 +136,9 @@ test('a compute pass that throws mid-encode still pops its scope', async () => {
     stub.stats.reset();
     const f = frame(renderer);
     const pass = f.compute({ label: 'unbound' });
-    pass.dispatch(node, [1, 1, 1]);
+    expect(() => pass.dispatch(node, [1, 1, 1])).toThrow(/'out' not found/);
+    pass.end();
+    f.submit();
 
-    expect(() => pass.end()).toThrow();
     expect(stub.stats.errorScopeDepth).toBe(0);
 });

@@ -84,7 +84,8 @@ test('a bundled draw uploads a changed uniform exactly as the direct draw does',
         stub.stats.reset();
         (tint as unknown as { value: number[] }).value = next;
         run(replay);
-        return stub.stats.bufferWrites;
+        // A block's own buffer uploads through a queue write, a same-frame conflict through the dynamic uniform copies.
+        return stub.stats.bufferWrites + stub.stats.bufferCopies;
     };
 
     const direct = writesAfterChange(false, [0, 1, 0, 1]);

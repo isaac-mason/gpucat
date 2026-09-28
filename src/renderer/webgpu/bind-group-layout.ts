@@ -1,5 +1,35 @@
-import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
+import type { SamplerEntry, TextureEntry, UniformGroupBlock } from '../../nodes/builder';
 import type { BindGroup as NodeBindGroup } from '../core/bind-group';
+
+/**
+ * Whether a uniform block is bound at a dynamic offset. Anything but frame scope can hold different values
+ * for two passes or dispatches of one frame, and the second takes a dynamic allocation; frame scope is
+ * written once a frame. Both layout builders ask this, so render and compute layouts agree.
+ */
+export function usesDynamicOffset(block: UniformGroupBlock): boolean {
+    return block.group.updateType !== 'frame';
+}
+
+/**
+ * Throws, naming `label`, when a pipeline's groups bind more dynamic uniform buffers than the device
+ * allows in one pipeline layout (8 is guaranteed). WebGPU's own error would name neither the material nor
+ * the fix. A group holds at most one uniform block, so each counts once.
+ */
+export function assertDynamicUniformLimit(device: GPUDevice, bindGroups: readonly NodeBindGroup[], label: string): void {
+    let count = 0;
+    for (const bindGroup of bindGroups) {
+        const binding = bindGroup.bindings[0];
+        if (binding?.kind === 'uniform' && usesDynamicOffset(binding.block)) count++;
+    }
+    const limit = device.limits.maxDynamicUniformBuffersPerPipelineLayout;
+    if (count > limit) {
+        throw new Error(
+            `[gpucat] '${label}' binds ${count} uniform groups that can change between passes or draws, and this ` +
+                `device allows ${limit} in one pipeline. Merge groups, or move values that change at most once a ` +
+                'frame into frame scope.',
+        );
+    }
+}
 
 export type BindGroupLayoutCache = {
     cache: Map<string, GPUBindGroupLayout>;
@@ -93,7 +123,7 @@ function makeBindGroupLayoutKey(entries: GPUBindGroupLayoutEntry[]): string {
     const normalized = entries.map((e) => ({
         b: e.binding,
         v: e.visibility,
-        buf: e.buffer ? { t: e.buffer.type } : null,
+        buf: e.buffer ? { t: e.buffer.type, d: e.buffer.hasDynamicOffset === true } : null,
         sam: e.sampler ? { t: e.sampler.type } : null,
         tex: e.texture ? { s: e.texture.sampleType, v: e.texture.viewDimension } : null,
         stor: e.storageTexture
@@ -141,7 +171,7 @@ export function buildComputeBindGroupLayouts(
                     entries.push({
                         binding: binding.block.binding,
                         visibility: vis,
-                        buffer: { type: 'uniform' },
+                        buffer: { type: 'uniform', hasDynamicOffset: usesDynamicOffset(binding.block) },
                     });
                     break;
                 case 'storage':

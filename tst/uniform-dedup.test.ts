@@ -23,6 +23,7 @@ import {
     renderGroup,
     Uniform,
     UniformNode,
+    uniform,
     vec4,
 } from '../src/nodes/nodes';
 import { Mesh } from '../src/objects/mesh';
@@ -144,32 +145,25 @@ describe('uniform group deduplication', () => {
     });
 
     describe('shared groups (renderGroup)', () => {
-        test('multiple meshes sharing material = deduplicated buffer writes', async () => {
+        test('a shared render-scope block is written once per pass and bound once, however many meshes read it', async () => {
             const geometry = createBoxGeometry(1, 1, 1);
             const sharedMaterial = createRenderGroupMaterial();
 
-            // Create 10 meshes sharing the same material
-            for (let i = 0; i < 10; i++) {
+            // Meshes sharing the same material, all inside the frustum so each is drawn.
+            for (let i = 0; i < 5; i++) {
                 const mesh = new Mesh(geometry, sharedMaterial);
-                mesh.position[0] = i * 2;
+                mesh.position[0] = -1.5 + i * 0.75;
                 scene.add(mesh);
                 mesh.updateWorldMatrix();
             }
 
-            // First frame - capture baseline
             renderScene(renderer, view, scene, camera);
-            const firstFrameWrites = stub.stats.bufferWrites;
 
-            stub.stats.reset();
-
-            // Second frame - shared uniforms should not re-upload
-            renderScene(renderer, view, scene, camera);
-            const secondFrameWrites = stub.stats.bufferWrites;
-
-            // Second frame should have fewer or equal writes (shared groups deduplicated)
-            // The exact count depends on what changed, but it should be less than
-            // writing everything again
-            expect(secondFrameWrites).toBeLessThanOrEqual(firstFrameWrites);
+            // @group(0) is render scope: one allocation for the pass, so one bind. @group(1) is object
+            // scope: an allocation per draw, bound per draw.
+            expect(stub.stats.drawCalls).toBe(5);
+            expect(stub.stats.bindGroupSetsByIndex[0]).toBe(1);
+            expect(stub.stats.bindGroupSetsByIndex[1]).toBe(5);
         });
     });
 
@@ -197,6 +191,40 @@ describe('uniform group deduplication', () => {
     });
 
     describe('version bumping', () => {
+        test('a static scene uploads nothing on its second frame', async () => {
+            const mesh = new Mesh(createBoxGeometry(1, 1, 1), createBasicMaterial());
+            scene.add(mesh);
+            mesh.updateWorldMatrix();
+
+            renderScene(renderer, view, scene, camera);
+            stub.stats.reset();
+            renderScene(renderer, view, scene, camera);
+
+            expect(stub.stats.drawCalls).toBe(1);
+            expect(stub.stats.bufferWrites).toBe(0);
+            expect(stub.stats.bufferCopies).toBe(0);
+        });
+
+        test('a member whose value goes unset keeps its last one rather than reading as a change', async () => {
+            const worldPosition = mul(modelWorldMatrix, vec4(attribute('position', d.vec3f), f32(1)));
+            const material = new Material({
+                vertex: mul(cameraProjectionMatrix, mul(cameraViewMatrix, worldPosition)),
+                fragment: vec4(uniform('tint', d.f32), f32(0), f32(0), f32(1)),
+            });
+            material.uniforms.set('tint', new Uniform(d.f32, 5));
+            const mesh = new Mesh(createBoxGeometry(1, 1, 1), material);
+            scene.add(mesh);
+            mesh.updateWorldMatrix();
+
+            renderScene(renderer, view, scene, camera);
+            material.uniforms.delete('tint');
+            stub.stats.reset();
+            renderScene(renderer, view, scene, camera);
+
+            expect(stub.stats.drawCalls).toBe(1);
+            expect(stub.stats.bufferWrites).toBe(0);
+        });
+
         test('changing uniform value triggers re-upload', async () => {
             const geometry = createBoxGeometry(1, 1, 1);
             const material = createBasicMaterial();

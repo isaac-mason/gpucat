@@ -544,10 +544,13 @@ test('a pass with mrt on a canvas target is rejected, not silently collapsed', a
     const outputs = mrt({ output: vec4(f32(1), f32(0), f32(0), f32(1)) });
 
     const f = frame(renderer);
-    const pass = f.pass({ target: canvas, camera: makeCamera(), mrt: outputs });
-    pass.draw(boxMesh());
+    expect(() => f.pass({ target: canvas, camera: makeCamera(), mrt: outputs })).toThrow(/needs a RenderTarget/);
 
-    expect(() => pass.end()).toThrow(/needs a RenderTarget/);
+    // Refused before it took a slot, so the frame goes on as if it was never asked for.
+    const ok = f.pass({ target: createRenderTarget(64, 64), camera: makeCamera() });
+    ok.draw(boxMesh());
+    ok.end();
+    f.submit();
 });
 
 test('a pass to an autoResizing canvas picks up a layout change', async () => {
@@ -711,7 +714,8 @@ describe('a pass brackets its hooks even when it throws', () => {
 
         const camera = makeCamera();
         const exploding = boxMesh();
-        // Preparing evaluates the graph, so a throwing node throws between beginRender and the GPU pass.
+        // A draw resolves when recorded, and resolving evaluates the graph, so a throwing node throws
+        // at draw(), between beginRender and the GPU pass, and the pass is still there to end.
         (exploding as unknown as { material: { vertex: unknown } }).material.vertex = new Proxy(
             {},
             {
@@ -723,8 +727,8 @@ describe('a pass brackets its hooks even when it throws', () => {
 
         const f = frame(renderer);
         const pass = f.pass({ target: createRenderTarget(64, 64), camera, label: 'doomed' });
-        pass.draw(exploding);
-        expect(() => pass.end()).toThrow();
+        expect(() => pass.draw(exploding)).toThrow();
+        pass.end();
 
         expect(inspector.opened).toEqual(['doomed']);
         expect(inspector.closed).toEqual(['doomed']);
