@@ -1,8 +1,5 @@
-// One case, one process. argv: <case name>.
-//
-// The child bundles for itself rather than taking a path from the parent. Order matters and is not
-// guessable: esbuild forks, and forking with Dawn's addon already loaded segfaults, while importing
-// the bundle into a process that has not run esbuild segfaults too. Bundle, then Dawn, then import.
+// Runs the named cases in order in one process, writing one JSON line per case as it finishes.
+// argv: <case name>...
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -10,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const name = process.argv[2];
+const names = process.argv.slice(2);
 
 const build = await esbuild.build({
     entryPoints: [resolve(__dirname, 'cases.ts')],
@@ -19,34 +16,43 @@ const build = await esbuild.build({
     platform: 'node',
     write: false,
     logLevel: 'silent',
-    // Dawn in Node segfaults on an imported module past roughly 530 KB, proven with 20 KB of inert
-    // padding, so the bundle is minified to stay well under it rather than growing into the wall.
-    minify: true,
 });
 const modulePath = join(mkdtempSync(join(tmpdir(), 'gpucat-webgpu-case-')), 'cases.mjs');
 writeFileSync(modulePath, build.outputFiles[0].text);
 
 const dawn = await import('webgpu');
 Object.assign(globalThis, dawn.globals);
-const adapter = await dawn.create([]).requestAdapter();
-const device = await adapter.requestDevice();
-
-// Errors raised outside any pushed scope land here and nowhere else, which is how a pass that produces
-// no pixels and no scoped error still says why.
-const uncaptured = [];
-device.addEventListener?.('uncapturederror', (e) => uncaptured.push(e.error?.message ?? String(e)));
+// Dawn's instance lives only as long as this object does, and its event pump keeps running for work
+// in flight. Left unreferenced, a collection frees the instance under that pump: a SIGSEGV in
+// `InstanceBase::ProcessEvents` whose timing follows the garbage collector, not any case.
+const gpu = dawn.create([]);
 
 const { runCase, assertCaseNames } = await import(modulePath);
 const { CASE_NAMES } = await import(resolve(__dirname, 'case-names.mjs'));
 assertCaseNames(CASE_NAMES);
-try {
-    const result = await runCase(device, adapter, name);
-    if (uncaptured.length > 0) {
-        result.note = `${uncaptured.length} uncaptured: ${uncaptured[0]}`;
-        result.pixel = [255, 0, 0, 255];
+
+for (const name of names) {
+    // A device per case, so one case's errors and leftover state cannot reach the next.
+    const adapter = await gpu.requestAdapter();
+    const device = await adapter.requestDevice();
+
+    // Errors raised outside any pushed scope land here and nowhere else, which is how a pass that
+    // produces no pixels and no scoped error still says why.
+    const uncaptured = [];
+    device.addEventListener?.('uncapturederror', (e) => uncaptured.push(e.error?.message ?? String(e)));
+
+    let line;
+    try {
+        line = await runCase(device, adapter, name);
+        if (uncaptured.length > 0) {
+            line.note = `${uncaptured.length} uncaptured: ${uncaptured[0]}`;
+            line.pixel = [255, 0, 0, 255];
+        }
+    } catch (e) {
+        line = { name, error: String(e) };
     }
-    // Dawn segfaults during Node's own teardown, so exit once stdout has flushed.
-    process.stdout.write(`${JSON.stringify(result)}\n`, () => process.exit(0));
-} catch (e) {
-    process.stderr.write(`${String(e)}\n`, () => process.exit(1));
+    process.stdout.write(`${JSON.stringify(line)}\n`);
 }
+
+// The held instance keeps the event loop alive, so leave once everything written has flushed.
+process.stdout.write('', () => process.exit(0));

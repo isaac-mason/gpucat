@@ -23,32 +23,60 @@ const TOLERANCE = 3;
 // repro executable instead of prose, and the runner fails if a listed case starts passing.
 const KNOWN_FAILURES = new Set();
 
+/**
+ * Every case's result by name. One child runs them all in order; a case that takes the process down
+ * is reported by name as not finishing, and a fresh child carries on from the case after it.
+ */
+function runAll(names) {
+    const child = resolve(__dirname, 'child.mjs');
+    const results = new Map();
+    let remaining = names;
+    while (remaining.length > 0) {
+        let out;
+        let died = null;
+        try {
+            out = execFileSync(process.execPath, [child, ...remaining], {
+                encoding: 'utf8',
+                stdio: ['ignore', 'pipe', 'pipe'],
+                maxBuffer: 64 * 1024 * 1024,
+            });
+        } catch (e) {
+            out = e.stdout ?? '';
+            died = (e.stderr || '').trim().split('\n')[0] || `killed by ${e.signal ?? `exit ${e.status}`}`;
+        }
+        for (const line of out.split('\n')) {
+            if (line.startsWith('{"name"')) {
+                const result = JSON.parse(line);
+                results.set(result.name, result);
+            }
+        }
+        const unfinished = remaining.findIndex((name) => !results.has(name));
+        if (unfinished < 0) break;
+        results.set(remaining[unfinished], { name: remaining[unfinished], died: died ?? 'the run ended without reporting it' });
+        remaining = remaining.slice(unfinished + 1);
+    }
+    return results;
+}
+
 async function main() {
     const { CASE_NAMES } = await import(resolve(__dirname, 'case-names.mjs'));
-    const child = resolve(__dirname, 'child.mjs');
+    const results = runAll(CASE_NAMES);
     let failed = 0;
     let ran = 0;
     const knownFails = [];
     const fixedButListed = [];
 
     for (const name of CASE_NAMES) {
-        let result;
-        try {
-            // Each case gets its own process. Dawn in Node dies after roughly eight cases in one
-            // process whatever their order, and a `setTimeout` between them makes it die on the
-            // first, so this is its event loop rather than anything a case does. Isolation also means
-            // an abort names the case that caused it instead of losing the buffered output.
-            const out = execFileSync(process.execPath, [child, name], {
-                encoding: 'utf8',
-                stdio: ['ignore', 'pipe', 'pipe'],
-            });
-            result = JSON.parse(out.trim().split('\n').pop());
-        } catch (e) {
-            const why = (e.stderr || '').trim() || `killed by ${e.signal ?? `exit ${e.status}`}`;
+        const result = results.get(name);
+        if (result.died !== undefined || result.error !== undefined) {
             if (KNOWN_FAILURES.has(name)) knownFails.push(name);
             else failed++;
             const mark = KNOWN_FAILURES.has(name) ? `${YELLOW}~${RESET}` : `${RED}✗${RESET}`;
-            console.log(`  ${mark} ${name.padEnd(18)}${RED}did not finish${RESET} ${DIM}(${why.split('\n')[0]})${RESET}`);
+            const what =
+                result.died !== undefined
+                    ? `did not finish${RESET} ${DIM}(${result.died})`
+                    : `threw${RESET} ${DIM}(${result.error})`;
+            console.log(`  ${mark} ${name.padEnd(18)}${RED}${what}${RESET}`);
             continue;
         }
         ran++;
@@ -66,7 +94,7 @@ async function main() {
         );
     }
 
-    console.log(`\n  ${DIM}(tolerance ±${TOLERANCE} per channel, one process per case)${RESET}\n`);
+    console.log(`\n  ${DIM}(tolerance ±${TOLERANCE} per channel)${RESET}\n`);
     if (fixedButListed.length) {
         console.log(`${RED}These are in KNOWN_FAILURES but now pass — remove them:${RESET}`);
         for (const n of fixedButListed) console.log(`  ${n}`);
