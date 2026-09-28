@@ -6538,8 +6538,11 @@ class GpuBuffer {
     itemSize;
     /** Version for dirty tracking. Incremented when needsUpdate is set. */
     version = 0;
-    /** Pending partial-upload ranges (flat component indices). */
+    /** Partial-upload ranges (flat component indices). The first `updateRangeCount` are pending; the records
+     *  past them are spare, kept so queuing ranges every frame allocates nothing. */
     updateRanges = [];
+    /** How many of `updateRanges` are pending. */
+    updateRangeCount = 0;
     /** Callback after GPU upload (e.g., release CPU memory via `this.array = null`). */
     onUpload = null;
     /** The GPUVertexFormat for vertex buffers (e.g., 'float32x3'). Derived or explicit. */
@@ -6592,11 +6595,19 @@ class GpuBuffer {
     }
     /** Register a dirty range for partial re-upload */
     addUpdateRange(start, count) {
-        this.updateRanges.push({ start, count });
+        const range = this.updateRanges[this.updateRangeCount];
+        if (range) {
+            range.start = start;
+            range.count = count;
+        }
+        else {
+            this.updateRanges.push({ start, count });
+        }
+        this.updateRangeCount++;
     }
     /** Clear pending update ranges (called by renderer after upload) */
     clearUpdateRanges() {
-        this.updateRanges.length = 0;
+        this.updateRangeCount = 0;
     }
     /**
      * Pack `value` into element `index`, encoding it per `schema` (std430, the storage-buffer layout)
@@ -6734,6 +6745,7 @@ class GpuBuffer {
         this._onDispose = null;
         this.array = null;
         this.updateRanges.length = 0;
+        this.updateRangeCount = 0;
         this.onUpload = null;
     }
 }
@@ -8785,6 +8797,10 @@ class CanvasTarget {
     /** Swapchain colour format, written by the backend when it configures the context. @internal */
     colorFormat = '';
     clearColor;
+    /** Set when `dispose()` released what a backend held, cleared when a backend acquires the canvas again. */
+    disposed = false;
+    /** Backend-set: releases what the backend holds for this canvas. @internal */
+    _onDispose = null;
     /** Clamp applied by `setPixelRatio`, or null when the ratio is unclamped. */
     _dprRange;
     _resizeListeners = [];
@@ -8897,9 +8913,18 @@ class CanvasTarget {
         this.setSize(width, height, false);
     }
     /**
-     * Dispose this target. The backend owns the graphics context and releases it separately.
+     * Release what the renderer holds for this canvas: on WebGPU, its configured context and its depth
+     * and MSAA attachments. Drawing to it again re-acquires them. On WebGL2 the canvas is the device
+     * itself, so there is nothing to release short of disposing the renderer.
      */
-    dispose() { }
+    dispose() {
+        const release = this._onDispose;
+        if (release === null)
+            return;
+        this._onDispose = null;
+        this.disposed = true;
+        release();
+    }
 }
 /** Holds no device: the backend acquires the canvas context on first use. */
 function createCanvasTarget(canvas, opts = {}) {
@@ -9664,21 +9689,26 @@ function getBindGroupLayoutCacheStats(cache) {
  * whole reason this module exists.
  */
 /**
- * Sort and merge adjacent/overlapping dirty ranges IN PLACE, trimming the array to the survivors.
+ * Sort and merge the first `count` dirty ranges IN PLACE, returning how many survive at the front.
  * Mirrors three.js `WebGLAttributes.updateBuffer`: fewer, larger uploads cut GL command overhead,
- * which is the empirical win for callers queueing many small ranges per frame. Merging in place
- * keeps the hot path allocation-free; it is safe because callers clear the ranges once uploaded.
+ * which is the empirical win for callers queueing many small ranges per frame.
+ *
+ * Allocation-free, since callers queue ranges every frame: records are only ever swapped, never
+ * assigned over, so each stays in the array exactly once and the ones past the survivors are spare
+ * for the owner to reuse. Ranges queued in order skip the sort; the rest take an in-place heapsort
+ * (`Array.prototype.sort` allocates its own work array).
  *
  * Ranges are flat indices in whatever unit the caller queued them in (array components, for a
- * `GpuBuffer`), and the merge is unit-agnostic — a caller uploading into a 2D grid converts the
+ * `GpuBuffer`), and the merge is unit-agnostic: a caller uploading into a 2D grid converts the
  * surviving spans to its own geometry afterwards.
  */
-function mergeUpdateRanges(ranges) {
-    if (ranges.length === 0)
-        return;
-    ranges.sort((a, b) => a.start - b.start);
+function mergeUpdateRanges(ranges, count) {
+    if (count === 0)
+        return 0;
+    if (!sortedByStart(ranges, count))
+        heapSortByStart(ranges, count);
     let mergeIndex = 0;
-    for (let i = 1; i < ranges.length; i++) {
+    for (let i = 1; i < count; i++) {
         const prev = ranges[mergeIndex];
         const r = ranges[i];
         // +1 so exactly-adjacent ranges merge (safe over positive integer indices).
@@ -9687,10 +9717,42 @@ function mergeUpdateRanges(ranges) {
         }
         else {
             mergeIndex++;
-            ranges[mergeIndex] = r;
+            swap(ranges, mergeIndex, i);
         }
     }
-    ranges.length = mergeIndex + 1;
+    return mergeIndex + 1;
+}
+function sortedByStart(ranges, count) {
+    for (let i = 1; i < count; i++)
+        if (ranges[i].start < ranges[i - 1].start)
+            return false;
+    return true;
+}
+function heapSortByStart(ranges, count) {
+    for (let i = (count >> 1) - 1; i >= 0; i--)
+        siftDown(ranges, i, count);
+    for (let end = count - 1; end > 0; end--) {
+        swap(ranges, 0, end);
+        siftDown(ranges, 0, end);
+    }
+}
+function siftDown(ranges, root, end) {
+    while (true) {
+        const left = root * 2 + 1;
+        if (left >= end)
+            return;
+        const right = left + 1;
+        const child = right < end && ranges[right].start > ranges[left].start ? right : left;
+        if (ranges[child].start <= ranges[root].start)
+            return;
+        swap(ranges, root, child);
+        root = child;
+    }
+}
+function swap(ranges, a, b) {
+    const held = ranges[a];
+    ranges[a] = ranges[b];
+    ranges[b] = held;
 }
 
 /*
@@ -9709,7 +9771,7 @@ var BufferUpload;
     BufferUpload[BufferUpload["Skip"] = 0] = "Skip";
     /** no GPU buffer yet, or the data outgrew it: (re)allocate, then write the whole array. */
     BufferUpload[BufferUpload["Allocate"] = 1] = "Allocate";
-    /** write only `buffer.updateRanges`, which `planBufferUpload` has already merged. */
+    /** write only the pending `buffer.updateRanges`, which `planBufferUpload` has already merged. */
     BufferUpload[BufferUpload["Partial"] = 2] = "Partial";
     /** the version moved with no ranges queued: rewrite the whole array in place. */
     BufferUpload[BufferUpload["Full"] = 3] = "Full";
@@ -9735,8 +9797,8 @@ function planBufferUpload(buffer, exists, capacityBytes, lastVersion) {
         return BufferUpload.Skip;
     if (!exists || capacityBytes < array.byteLength)
         return BufferUpload.Allocate;
-    if (buffer.updateRanges.length > 0) {
-        mergeUpdateRanges(buffer.updateRanges);
+    if (buffer.updateRangeCount > 0) {
+        buffer.updateRangeCount = mergeUpdateRanges(buffer.updateRanges, buffer.updateRangeCount);
         return BufferUpload.Partial;
     }
     return buffer.version !== lastVersion ? BufferUpload.Full : BufferUpload.Skip;
@@ -10023,7 +10085,8 @@ function ensureUploaded$1(cache, device, buffer, name) {
     if (plan === BufferUpload.Partial) {
         // Ranges are flat component indices and arrive already merged.
         const bytesPerComponent = arr.BYTES_PER_ELEMENT;
-        for (const { start, count } of buffer.updateRanges) {
+        for (let i = 0; i < buffer.updateRangeCount; i++) {
+            const { start, count } = buffer.updateRanges[i];
             const byteOffset = start * bytesPerComponent;
             const byteCount = count * bytesPerComponent;
             device.queue.writeBuffer(buf, byteOffset, arr.buffer, arr.byteOffset + byteOffset, byteCount);
@@ -30271,8 +30334,7 @@ function endPass$2(frame, pass) {
     }
     else {
         const target = pass.desc.target;
-        if (isRenderTarget(target))
-            frame.targets.push(target);
+        frame.targets.push(target);
         frame.backend.encodePass(pass.desc);
     }
 }
@@ -30284,7 +30346,7 @@ function submitFrame$2(frame) {
     }
     // `abandon()` is the answer to a mid-frame room swap, not a disposal race.
     for (const target of frame.targets) {
-        const dead = deadAttachment(target);
+        const dead = isRenderTarget(target) ? deadAttachment(target) : target.disposed ? 'canvas' : null;
         if (dead !== null) {
             throw new Error(`[frame] '${dead}' was disposed after its pass recorded into it; abandon() the frame instead of disposing mid-frame.`);
         }
@@ -35648,10 +35710,10 @@ function setupBufferDispose(gl, cache, buffer) {
 /** Push the buffer's pending `updateRanges` as partial `bufferSubData` uploads, one per merged span. */
 function uploadDirtyRanges(gl, cache, target, array, buffer, label) {
     const ranges = buffer.updateRanges;
-    mergeUpdateRanges(ranges);
+    const count = mergeUpdateRanges(ranges, buffer.updateRangeCount);
     const bytesPerElement = array.BYTES_PER_ELEMENT;
     const usage = primaryBufferUsage(buffer);
-    for (let i = 0; i < ranges.length; i++) {
+    for (let i = 0; i < count; i++) {
         const r = ranges[i];
         gl.bufferSubData(target, r.start * bytesPerElement, array, r.start, r.count);
         recordBufferWrite(cache.info, r.count * bytesPerElement, usage, false, label);
@@ -36843,7 +36905,7 @@ function updateStorageBufferTexture(gl, state, source) {
     }
     const sizeChanged = data.width !== width || data.height !== height;
     // Clean (version matched, no queued ranges, same size) → the cached texture is already current.
-    if (!sizeChanged && data.version === buffer.version && buffer.updateRanges.length === 0) {
+    if (!sizeChanged && data.version === buffer.version && buffer.updateRangeCount === 0) {
         return data.texture;
     }
     gl.bindTexture(gl.TEXTURE_2D, data.texture);
@@ -36864,12 +36926,15 @@ function updateStorageBufferTexture(gl, state, source) {
         // small, far-apart regions per frame, and one covering span over those is the whole buffer.
         // A bare version bump, or more dirty texels than half the buffer, takes one full upload instead.
         const ranges = buffer.updateRanges;
-        mergeUpdateRanges(ranges);
+        const rangeCount = mergeUpdateRanges(ranges, buffer.updateRangeCount);
         let dirtyTexels = 0;
-        for (const r of ranges)
+        for (let i = 0; i < rangeCount; i++) {
+            const r = ranges[i];
             dirtyTexels += Math.ceil((r.start + r.count) / comps) - Math.floor(r.start / comps);
+        }
         if (dirtyTexels > 0 && dirtyTexels <= totalTexels / 2) {
-            for (const r of ranges) {
+            for (let i = 0; i < rangeCount; i++) {
+                const r = ranges[i];
                 const from = Math.floor(r.start / comps);
                 const to = Math.min(totalTexels, Math.ceil((r.start + r.count) / comps));
                 if (to > from)
@@ -40619,7 +40684,7 @@ const _prewarmBindings = { groups: [], offsets: [] };
  * acquired from `canvasTarget.canvas.getContext('webgpu')` and configured against `device` with
  * the given `format` and alpha mode (defaults to the canvas target's `alphaMode`).
  */
-function getContext(contexts, device, canvasTarget, format, alphaMode) {
+function getContext(contexts, sc, device, canvasTarget, format, alphaMode) {
     let ctx = contexts.get(canvasTarget);
     if (!ctx) {
         const acquired = canvasTarget.canvas.getContext('webgpu');
@@ -40628,6 +40693,8 @@ function getContext(contexts, device, canvasTarget, format, alphaMode) {
         }
         acquired.configure({ device, format, alphaMode: alphaMode ?? canvasTarget.alphaMode });
         canvasTarget.colorFormat = format;
+        canvasTarget.disposed = false;
+        canvasTarget._onDispose = () => releaseCanvasTarget(contexts, sc, canvasTarget);
         ctx = acquired;
         contexts.set(canvasTarget, ctx);
     }
@@ -40648,10 +40715,7 @@ function reconfigureContext(contexts, device, canvasTarget, format, alphaMode) {
     ctx.configure({ device, format, alphaMode: canvasTarget.alphaMode });
     canvasTarget.colorFormat = format;
 }
-/**
- * Unconfigure and release the WebGPU context for a canvas target. Called from `dispose()` for the
- * swapchain canvas target. After this, `getContext()` creates a fresh context.
- */
+/** Unconfigure and release the WebGPU context for a canvas target. After this, `getContext()` creates a fresh context. */
 function releaseContext(contexts, canvasTarget) {
     const ctx = contexts.get(canvasTarget);
     if (ctx) {
@@ -40788,7 +40852,7 @@ function resolveRenderTargetAttachments(device, textures, renderTarget, clearCol
 /** Attachments for the swapchain (canvas), resolving MSAA when enabled. */
 function resolveSwapchainAttachments(contexts, device, sc, format, clearColor, params) {
     const target = params.canvasTarget;
-    const ctx = getContext(contexts, device, target, format);
+    const ctx = getContext(contexts, sc, device, target, format);
     const entry = attachmentsFor(sc, target);
     // Safari drops the context's configuration on every backing-store resize, and getCurrentTexture()
     // on an unconfigured context throws, so reconfigure before touching it rather than after.
@@ -41162,17 +41226,20 @@ function encodeDrawRange(ctx, from, to, { gpuPass, currentSets }) {
 /** The per-canvas attachments this module allocated; the caches are each module's own to tear down. */
 function disposeSwapchain(b) {
     const { canvasContexts: contexts, swapchain: sc } = b;
-    for (const target of sc.targets) {
-        releaseContext(contexts, target);
-        const entry = attachmentsFor(sc, target);
+    for (const target of sc.targets)
+        releaseCanvasTarget(contexts, sc, target);
+}
+/** What `CanvasTarget.dispose()` runs: the canvas's context and attachments go, and a later draw re-acquires them. */
+function releaseCanvasTarget(contexts, sc, target) {
+    releaseContext(contexts, target);
+    target._onDispose = null;
+    const entry = sc.byTarget.get(target);
+    if (entry) {
         entry.depthTexture?.destroy();
         entry.msaaTexture?.destroy();
-        entry.depthTexture = null;
-        entry.depthTextureView = null;
-        entry.msaaTexture = null;
-        entry.msaaTextureView = null;
+        sc.byTarget.delete(target);
     }
-    sc.targets.clear();
+    sc.targets.delete(target);
 }
 /** tracks currently set GPU state to avoid redundant setBindGroup/setVertexBuffer/setIndexBuffer calls */
 function createCurrentSets() {
@@ -41844,7 +41911,7 @@ class WebGPUBackend {
     }
     /** The canvas context for a target, configured against this device. Acquired lazily per canvas. */
     getContext(canvasTarget, format, alphaMode) {
-        return getContext(this.canvasContexts, this.device, canvasTarget, format, alphaMode);
+        return getContext(this.canvasContexts, this.swapchain, this.device, canvasTarget, format, alphaMode);
     }
     /** Pre-compile a compute pipeline; one promise list, since awaiting per node would serialize them. */
     async compileCompute(nodes) {

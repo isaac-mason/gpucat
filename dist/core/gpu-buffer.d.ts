@@ -88,8 +88,11 @@ export declare class GpuBuffer<T extends Any = Any> {
     readonly itemSize: number;
     /** Version for dirty tracking. Incremented when needsUpdate is set. */
     version: number;
-    /** Pending partial-upload ranges (flat component indices). */
+    /** Partial-upload ranges (flat component indices). The first `updateRangeCount` are pending; the records
+     *  past them are spare, kept so queuing ranges every frame allocates nothing. */
     readonly updateRanges: UpdateRange[];
+    /** How many of `updateRanges` are pending. */
+    updateRangeCount: number;
     /** Callback after GPU upload (e.g., release CPU memory via `this.array = null`). */
     onUpload: (() => void) | null;
     /** The GPUVertexFormat for vertex buffers (e.g., 'float32x3'). Derived or explicit. */

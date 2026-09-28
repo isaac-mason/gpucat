@@ -12,13 +12,17 @@
  */
 import type { UpdateRange } from '../../core/gpu-buffer';
 /**
- * Sort and merge adjacent/overlapping dirty ranges IN PLACE, trimming the array to the survivors.
+ * Sort and merge the first `count` dirty ranges IN PLACE, returning how many survive at the front.
  * Mirrors three.js `WebGLAttributes.updateBuffer`: fewer, larger uploads cut GL command overhead,
- * which is the empirical win for callers queueing many small ranges per frame. Merging in place
- * keeps the hot path allocation-free; it is safe because callers clear the ranges once uploaded.
+ * which is the empirical win for callers queueing many small ranges per frame.
+ *
+ * Allocation-free, since callers queue ranges every frame: records are only ever swapped, never
+ * assigned over, so each stays in the array exactly once and the ones past the survivors are spare
+ * for the owner to reuse. Ranges queued in order skip the sort; the rest take an in-place heapsort
+ * (`Array.prototype.sort` allocates its own work array).
  *
  * Ranges are flat indices in whatever unit the caller queued them in (array components, for a
- * `GpuBuffer`), and the merge is unit-agnostic — a caller uploading into a 2D grid converts the
+ * `GpuBuffer`), and the merge is unit-agnostic: a caller uploading into a 2D grid converts the
  * surviving spans to its own geometry afterwards.
  */
-export declare function mergeUpdateRanges(ranges: UpdateRange[]): void;
+export declare function mergeUpdateRanges(ranges: UpdateRange[], count: number): number;

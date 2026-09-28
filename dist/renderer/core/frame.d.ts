@@ -1,6 +1,5 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Object3D } from '../../core/object3d';
-import { type RenderTarget } from '../../core/render-target';
 import type { Material } from '../../material/material';
 import type { ComputeNode } from '../../nodes/lib/core';
 import type { MRTNode } from '../../nodes/lib/mrt';
@@ -208,8 +207,8 @@ export type Frame = {
     /** @internal */ transformFeedbackPoolIndex: number;
     /** @internal */ open: AnyPass | null;
     /** @internal */ closed: boolean;
-    /** Render targets this frame encoded into, so `submit` can see one disposed since. @internal */
-    targets: RenderTarget[];
+    /** Targets this frame encoded into, so `submit` can see one disposed since. @internal */
+    targets: Target[];
     /** True once this frame object has carried a submitted frame, so a reopen can be told from a first use. @internal */
     everSubmitted: boolean;
     /** Memoised by the `done` getter, so asking twice waits once and never asking waits not at all. @internal */

@@ -13,7 +13,7 @@ import type { WebGPUBackend } from './webgpu-backend';
  * acquired from `canvasTarget.canvas.getContext('webgpu')` and configured against `device` with
  * the given `format` and alpha mode (defaults to the canvas target's `alphaMode`).
  */
-export declare function getContext(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, device: GPUDevice, canvasTarget: CanvasTarget, format: GPUTextureFormat, alphaMode?: GPUCanvasAlphaMode): GPUCanvasContext;
+export declare function getContext(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, sc: SwapchainState, device: GPUDevice, canvasTarget: CanvasTarget, format: GPUTextureFormat, alphaMode?: GPUCanvasAlphaMode): GPUCanvasContext;
 /**
  * Re-`configure()` the cached WebGPU context for a canvas target against the current device/format.
  * Safari/WebKit clears a context's configuration whenever the canvas backing store is resized (any
@@ -23,10 +23,7 @@ export declare function getContext(contexts: WeakMap<CanvasTarget, GPUCanvasCont
  * configuration across resizes.
  */
 export declare function reconfigureContext(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, device: GPUDevice, canvasTarget: CanvasTarget, format: GPUTextureFormat, alphaMode?: GPUCanvasAlphaMode): void;
-/**
- * Unconfigure and release the WebGPU context for a canvas target. Called from `dispose()` for the
- * swapchain canvas target. After this, `getContext()` creates a fresh context.
- */
+/** Unconfigure and release the WebGPU context for a canvas target. After this, `getContext()` creates a fresh context. */
 export declare function releaseContext(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, canvasTarget: CanvasTarget): void;
 /**
  * Swapchain state owned by the renderer: the canvas target, sample count, depth format, and the

@@ -59,6 +59,10 @@ export declare class CanvasTarget {
     /** Swapchain colour format, written by the backend when it configures the context. @internal */
     colorFormat: string;
     clearColor: [number, number, number, number];
+    /** Set when `dispose()` released what a backend held, cleared when a backend acquires the canvas again. */
+    disposed: boolean;
+    /** Backend-set: releases what the backend holds for this canvas. @internal */
+    _onDispose: (() => void) | null;
     /** Clamp applied by `setPixelRatio`, or null when the ratio is unclamped. */
     private readonly _dprRange;
     private readonly _resizeListeners;
@@ -104,7 +108,9 @@ export declare class CanvasTarget {
      */
     setDrawingBufferSize(width: number, height: number, pixelRatio: number): void;
     /**
-     * Dispose this target. The backend owns the graphics context and releases it separately.
+     * Release what the renderer holds for this canvas: on WebGPU, its configured context and its depth
+     * and MSAA attachments. Drawing to it again re-acquires them. On WebGL2 the canvas is the device
+     * itself, so there is nothing to release short of disposing the renderer.
      */
     dispose(): void;
 }

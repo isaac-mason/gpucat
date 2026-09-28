@@ -5,7 +5,7 @@ export declare const enum BufferUpload {
     Skip = 0,
     /** no GPU buffer yet, or the data outgrew it: (re)allocate, then write the whole array. */
     Allocate = 1,
-    /** write only `buffer.updateRanges`, which `planBufferUpload` has already merged. */
+    /** write only the pending `buffer.updateRanges`, which `planBufferUpload` has already merged. */
     Partial = 2,
     /** the version moved with no ranges queued: rewrite the whole array in place. */
     Full = 3
