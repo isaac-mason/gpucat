@@ -69,7 +69,7 @@ import {
     reserveName,
     tracedFnCallees,
 } from '../names';
-import { binaryOperandMin, binaryPrec, Prec, paren, unary } from '../print';
+import { binaryPrec, Prec, paren, unary, wgslBinaryOperandMin } from '../print';
 
 type ShaderStage = 'vertex' | 'fragment' | 'compute';
 
@@ -394,7 +394,7 @@ function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
         if (left !== rawLeft) leftPrec = Prec.Postfix;
         if (right !== rawRight) rightPrec = Prec.Postfix;
         prec = binaryPrec(node.op);
-        const [leftMin, rightMin] = binaryOperandMin(prec);
+        const [leftMin, rightMin] = wgslBinaryOperandMin(prec);
         expr = `${paren(left, leftPrec, leftMin)} ${node.op} ${paren(right, rightPrec, rightMin)}`;
     } else if (node.kind === NodeKind.Call) {
         expr = generateCall(ctx, node);

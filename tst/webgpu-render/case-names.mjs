@@ -33,6 +33,7 @@ export const CASE_NAMES = [
     'screen-size-per-target',
     'draw-material',
     'compute',
+    'wgsl-operand-grammar',
     'compute-uniform-per-dispatch',
     'compute-uniform-within-pass',
     'draw-uniform-within-pass',

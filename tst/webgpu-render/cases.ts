@@ -470,6 +470,58 @@ async function caseComputeUniformPerDispatch(gpu: Renderer<WebGPUBackend>): Prom
  * between the two dispatch() calls. A dispatch resolves when recorded, so each runs with the value set
  * before its own call: index 1 holds 201 and index 2 holds 202.
  */
+/**
+ * WGSL takes only unary expressions as the operands of a shift and of `&`, `|` and `^`, so a byte
+ * extract `word >> (lane & 3u) * 8u` is a syntax error there, not a lower-precedence shift. Each lane
+ * compares what the operators produced against the same value built from arithmetic alone.
+ */
+async function caseWgslOperandGrammar(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+
+    const values = createStorageBuffer(d.array(d.u32), new Uint32Array(4));
+    const check = Fn(() => {
+        const out = storage('values', d.array(d.u32), 'read_write');
+        const lane = globalId.x;
+        const byte = u32(0x44332211)
+            .shiftRight(lane.bitwiseAnd(u32(3)).mul(u32(8)))
+            .bitwiseAnd(u32(255));
+        const masked = lane.bitwiseAnd(u32(1).add(u32(2)));
+        const halved = lane.mul(u32(2)).shiftRight(u32(1));
+        const got = byte.add(masked.add(halved).mul(u32(256)));
+        const expected = u32(17)
+            .mul(lane.add(u32(1)))
+            .add(lane.mul(u32(512)));
+        index(out, lane).assign(select(u32(0), u32(255), got.equal(expected)));
+    }).compute({ workgroupSize: [4, 1, 1] });
+
+    const readSlot = (slot: number) => index(storage(values, 'read'), u32(slot)).toF32().div(f32(255));
+    const mesh = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(readSlot(0), readSlot(1), readSlot(2), readSlot(3)),
+            depthTest: false,
+        }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const compute = f.compute({ label: 'check' });
+    compute.dispatch(check, [1, 1, 1], { buffers: { values } });
+    compute.end();
+    const pass = f.pass({ target, clear: [0, 0, 0, 0] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    return {
+        name: 'wgsl-operand-grammar',
+        pixel: centerPixel(await read(gpu, target)),
+        expected: [255, 255, 255, 255],
+        note: 'one channel per lane; 0 is a lane whose shift or mask computed the wrong value',
+    };
+}
+
 async function caseComputeUniformWithinPass(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
 
@@ -2431,6 +2483,7 @@ const CASES: Record<string, Case> = {
     'screen-size-per-target': caseScreenSizePerTarget,
     'draw-material': caseDrawMaterial,
     compute: caseCompute,
+    'wgsl-operand-grammar': caseWgslOperandGrammar,
     'compute-uniform-per-dispatch': caseComputeUniformPerDispatch,
     'compute-uniform-within-pass': caseComputeUniformWithinPass,
     'draw-uniform-within-pass': caseDrawUniformWithinPass,
