@@ -236,10 +236,12 @@ export const cases: Case[] = [
             const a = atan2(f32(0.5), f32(1.0)); // → atan(y, x)
             const s = inverseSqrt(f32(4.0)); // → inversesqrt
             const acc = m.add(a).add(s);
+            // vector float % → mod() too: `vec4f` carries no `f32` in its spelling
+            const wrapped = vec4(acc, acc, acc, f32(1)).mod(vec4(f32(1), f32(1), f32(1), f32(2)));
 
             return {
                 vertex: vec4(attribute('position', d.vec3f), f32(1)),
-                fragment: vec4(acc, acc, acc, f32(1)),
+                fragment: wrapped,
                 depth: undefined,
             };
         },

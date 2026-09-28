@@ -500,9 +500,9 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
             const glslFn = VEC_COMPARE_FN[node.op];
             if (glslFn && isBoolVec(node.type)) {
                 expr = `${glslFn}(${left}, ${right})`;
-            } else if (node.op === '%' && node.type.wgslType.includes('f32')) {
+            } else if (node.op === '%' && 'scalar' in node.type && node.type.scalar === 'f32') {
                 // GLSL ES 3.00 `%` is integer-only; the float remainder is the `mod()` builtin (WGSL/TSL
-                // allow `%` on floats). Result type is f32/vecN<f32> ⇒ route to mod().
+                // allow `%` on floats). Keyed on the component scalar, since `vec4f` never spells `f32`.
                 expr = `mod(${left}, ${right})`;
             } else {
                 expr = `(${left} ${node.op} ${right})`;
