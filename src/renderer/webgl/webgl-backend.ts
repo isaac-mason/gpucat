@@ -345,7 +345,7 @@ export class WebGLBackend implements DeviceBackend {
     }
 
     readPixels(renderTarget: RenderTarget, attachmentIndex = 0, layer = 0, mipLevel = 0): Promise<Uint8Array> {
-        return Promise.resolve(ReadPixels.readPixels(this.gl!, this, renderTarget, attachmentIndex, layer, mipLevel));
+        return ReadPixels.readPixels(this.gl!, this, renderTarget, attachmentIndex, layer, mipLevel);
     }
 
     /**

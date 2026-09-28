@@ -3552,6 +3552,55 @@ async function caseReadbackOrientation(): Promise<CaseResult> {
 }
 
 /**
+ * readback-in-flight: fill two targets with different colours, start both reads without awaiting, then
+ * draw a third colour into the first before either settles. Reads go through a pixel-pack buffer and a
+ * fence, so both must come back intact while overlapping, each with what its target held when `read`
+ * was called rather than what it holds when the promise settles.
+ */
+async function caseReadbackInFlight(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const first = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const second = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+
+    const fill = (target: RenderTarget, rgb: [number, number, number]): void => {
+        const position = attribute('position', d.vec3f);
+        const material = new Material({
+            vertex: vec4(position, f32(1)),
+            fragment: vec4(rgb[0], rgb[1], rgb[2], 1),
+            depthTest: false,
+        });
+        const scene = new Scene();
+        scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+        const camera = new PerspectiveCamera();
+        scene.updateWorldMatrix();
+        camera.updateViewMatrix();
+        const saved = activeTarget;
+        activeTarget = target;
+        renderScene(renderer, scene, camera);
+        activeTarget = saved;
+    };
+
+    fill(first, [1, 0, 0]);
+    fill(second, [0, 0, 1]);
+    const firstRead = read(renderer, first);
+    const secondRead = read(renderer, second);
+    fill(first, [0, 1, 0]);
+    const [a, b] = await Promise.all([firstRead, secondRead]);
+    const i = (CENTER * SIZE + CENTER) * 4;
+    const firstPixel = [a[i], a[i + 1], a[i + 2], a[i + 3]];
+    const secondPixel = [b[i], b[i + 1], b[i + 2], b[i + 3]];
+    renderer.dispose();
+
+    const pass = firstPixel.join(',') === '255,0,0,255' && secondPixel.join(',') === '0,0,255,255';
+    return {
+        name: 'readback-in-flight',
+        pixel: pass ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `first=${firstPixel.join(',')} second=${secondPixel.join(',')}`,
+    };
+}
+
+/**
  * headless-offscreen: construct a WebGLBackend over a 1x1 OffscreenCanvas (no DOM canvas, no setSize),
  * render a solid color into a RenderTarget, and read it back — proving OffscreenCanvas acceptance
  * end-to-end (the headless icon-bake path).
@@ -4436,6 +4485,7 @@ export async function run(): Promise<RunResult> {
             caseStoragePartialSpans,
             caseRenderToTexture,
             caseReadbackOrientation,
+            caseReadbackInFlight,
             caseHeadlessOffscreen,
             caseMsaa,
             caseCubeRtt,
