@@ -18060,7 +18060,8 @@ function tracedFnCallees(traced) {
 /**
  * backend/print.ts — expression spelling rules shared by the WGSL and GLSL emitters.
  *
- * Both target languages use the same C-style operator precedence, so one table serves both. An
+ * Both target languages order their operators the same way, so one table serves both, but WGSL's
+ * grammar also refuses some operands C precedence would accept ({@link wgslBinaryOperandMin}). An
  * emitter asks {@link exprPrec}-style questions of its own node kinds and calls {@link paren} to wrap
  * an operand only when the operand binds looser than the position it lands in. Nothing here touches
  * the node graph — it is string + precedence arithmetic only.
@@ -18130,6 +18131,17 @@ function binaryOperandMin(prec) {
     if (prec <= Prec.Relational)
         return [Prec.Additive, Prec.Additive];
     return [prec, prec + 1];
+}
+/**
+ * {@link binaryOperandMin} for WGSL, whose grammar takes only unary expressions as the operands of a
+ * shift and of `&`, `|` and `^`: `a >> b * c` and `a & b + c` are syntax errors there, not lower
+ * precedence, so any operand with a binary operator of its own is parenthesised.
+ */
+function wgslBinaryOperandMin(prec) {
+    if (prec === Prec.Shift || prec === Prec.BitAnd || prec === Prec.BitOr || prec === Prec.BitXor) {
+        return [Prec.Unary, Prec.Unary];
+    }
+    return binaryOperandMin(prec);
 }
 /** Wrap `expr` in parentheses if its top-level operator binds looser than the position requires. */
 function paren(expr, prec, min) {
@@ -21077,7 +21089,7 @@ function generateExpr(ctx, rawNode) {
         if (right !== rawRight)
             rightPrec = Prec.Postfix;
         prec = binaryPrec(node.op);
-        const [leftMin, rightMin] = binaryOperandMin(prec);
+        const [leftMin, rightMin] = wgslBinaryOperandMin(prec);
         expr = `${paren(left, leftPrec, leftMin)} ${node.op} ${paren(right, rightPrec, rightMin)}`;
     }
     else if (node.kind === NodeKind.Call) {
