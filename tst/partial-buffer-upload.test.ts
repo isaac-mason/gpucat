@@ -44,5 +44,5 @@ test('ranges are recorded in components and merge before upload', () => {
     buffer.addUpdateRange(12, 12);
 
     planBufferUpload(buffer, true, buffer.array!.byteLength, buffer.version);
-    expect(buffer.updateRanges).toEqual([{ start: 0, count: 24 }]);
+    expect(buffer.updateRanges.slice(0, buffer.updateRangeCount)).toEqual([{ start: 0, count: 24 }]);
 });

@@ -487,7 +487,7 @@ export function updateStorageBufferTexture(
 
     const sizeChanged = data.width !== width || data.height !== height;
     // Clean (version matched, no queued ranges, same size) → the cached texture is already current.
-    if (!sizeChanged && data.version === buffer.version && buffer.updateRanges.length === 0) {
+    if (!sizeChanged && data.version === buffer.version && buffer.updateRangeCount === 0) {
         return data.texture;
     }
 
@@ -508,12 +508,16 @@ export function updateStorageBufferTexture(
         // small, far-apart regions per frame, and one covering span over those is the whole buffer.
         // A bare version bump, or more dirty texels than half the buffer, takes one full upload instead.
         const ranges = buffer.updateRanges;
-        mergeUpdateRanges(ranges);
+        const rangeCount = mergeUpdateRanges(ranges, buffer.updateRangeCount);
         let dirtyTexels = 0;
-        for (const r of ranges) dirtyTexels += Math.ceil((r.start + r.count) / comps) - Math.floor(r.start / comps);
+        for (let i = 0; i < rangeCount; i++) {
+            const r = ranges[i]!;
+            dirtyTexels += Math.ceil((r.start + r.count) / comps) - Math.floor(r.start / comps);
+        }
 
         if (dirtyTexels > 0 && dirtyTexels <= totalTexels / 2) {
-            for (const r of ranges) {
+            for (let i = 0; i < rangeCount; i++) {
+                const r = ranges[i]!;
                 const from = Math.floor(r.start / comps);
                 const to = Math.min(totalTexels, Math.ceil((r.start + r.count) / comps));
                 if (to > from) uploadStorageSpan(gl, arr, width, from, to - from, bytesPerTexel, glFormat);

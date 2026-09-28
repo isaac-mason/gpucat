@@ -187,7 +187,8 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
     if (plan === BufferUpload.Partial) {
         // Ranges are flat component indices and arrive already merged.
         const bytesPerComponent = arr.BYTES_PER_ELEMENT;
-        for (const { start, count } of buffer.updateRanges) {
+        for (let i = 0; i < buffer.updateRangeCount; i++) {
+            const { start, count } = buffer.updateRanges[i]!;
             const byteOffset = start * bytesPerComponent;
             const byteCount = count * bytesPerComponent;
             device.queue.writeBuffer(buf, byteOffset, arr.buffer as ArrayBuffer, arr.byteOffset + byteOffset, byteCount);

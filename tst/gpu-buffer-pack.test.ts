@@ -8,6 +8,10 @@ import * as d from '../src/schema/schema';
 // the buffer's own `array` (std430) and check the queued partial-upload range + version bump.
 // packAtIndex = by element index, packAtByte = by raw byte offset, pack = bulk whole-array.
 
+function pending(buffer: GpuBuffer) {
+    return buffer.updateRanges.slice(0, buffer.updateRangeCount);
+}
+
 describe('GpuBuffer.packAtIndex — array<mat4x4f> (the makecat instance-transform shape)', () => {
     const N = 4;
     const identity: [
@@ -65,7 +69,7 @@ describe('GpuBuffer.packAtIndex — array<mat4x4f> (the makecat instance-transfo
         buf.packAtIndex(d.mat4x4f, 1, identity);
         // mat4x4f std430 stride = 64B = 16 components; element 1 starts at component 16.
         expect(layoutStrideOf(d.mat4x4f, 'std430')).toBe(64);
-        expect(buf.updateRanges).toEqual([{ start: 16, count: 16 }]);
+        expect(pending(buf)).toEqual([{ start: 16, count: 16 }]);
         expect(buf.version).toBeGreaterThan(v0);
     });
 });
@@ -130,7 +134,7 @@ describe('GpuBuffer.packAtByte — byte-addressed primitive', () => {
         a.packAtIndex(d.vec4f, 3, [10, 20, 30, 40]);
         b.packAtByte(d.vec4f, 3 * 16, [10, 20, 30, 40]); // vec4f std430 stride = 16 bytes
         expect(Array.from(b.array!)).toEqual(Array.from(a.array!));
-        expect(b.updateRanges).toEqual(a.updateRanges); // same component-range {start:12,count:4}
+        expect(pending(b)).toEqual(pending(a)); // same component-range {start:12,count:4}
     });
 
     test('throws on a byteOffset that is not a multiple of the component size', () => {
@@ -146,7 +150,7 @@ describe('GpuBuffer.pack — bulk whole-array write', () => {
         const buf = createStorageBuffer(d.array(d.vec4f), new Float32Array(N * 4));
         // Pre-dirty a partial range to prove pack() clears it (forces a full upload on both backends).
         buf.packAtIndex(d.vec4f, 0, [0, 0, 0, 0]);
-        expect(buf.updateRanges.length).toBeGreaterThan(0);
+        expect(buf.updateRangeCount).toBeGreaterThan(0);
 
         const v0 = buf.version;
         const values: [number, number, number, number][] = [
@@ -157,7 +161,7 @@ describe('GpuBuffer.pack — bulk whole-array write', () => {
         buf.pack(d.vec4f, values);
 
         expect(unpackArray(d.vec4f, buf.array!.buffer as ArrayBuffer, N)).toEqual(values);
-        expect(buf.updateRanges).toEqual([]); // cleared → renderer takes the full path
+        expect(buf.updateRangeCount).toBe(0); // cleared → renderer takes the full path
         expect(buf.version).toBeGreaterThan(v0);
     });
 

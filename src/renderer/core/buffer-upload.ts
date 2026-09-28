@@ -17,7 +17,7 @@ export const enum BufferUpload {
     Skip = 0,
     /** no GPU buffer yet, or the data outgrew it: (re)allocate, then write the whole array. */
     Allocate = 1,
-    /** write only `buffer.updateRanges`, which `planBufferUpload` has already merged. */
+    /** write only the pending `buffer.updateRanges`, which `planBufferUpload` has already merged. */
     Partial = 2,
     /** the version moved with no ranges queued: rewrite the whole array in place. */
     Full = 3,
@@ -44,8 +44,8 @@ export function planBufferUpload(buffer: GpuBuffer, exists: boolean, capacityByt
 
     if (!exists || capacityBytes < array.byteLength) return BufferUpload.Allocate;
 
-    if (buffer.updateRanges.length > 0) {
-        mergeUpdateRanges(buffer.updateRanges);
+    if (buffer.updateRangeCount > 0) {
+        buffer.updateRangeCount = mergeUpdateRanges(buffer.updateRanges, buffer.updateRangeCount);
         return BufferUpload.Partial;
     }
 

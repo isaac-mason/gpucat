@@ -208,8 +208,12 @@ export class GpuBuffer<T extends Any = Any> {
     /** Version for dirty tracking. Incremented when needsUpdate is set. */
     version: number = 0;
 
-    /** Pending partial-upload ranges (flat component indices). */
+    /** Partial-upload ranges (flat component indices). The first `updateRangeCount` are pending; the records
+     *  past them are spare, kept so queuing ranges every frame allocates nothing. */
     readonly updateRanges: UpdateRange[] = [];
+
+    /** How many of `updateRanges` are pending. */
+    updateRangeCount: number = 0;
 
     /** Callback after GPU upload (e.g., release CPU memory via `this.array = null`). */
     onUpload: (() => void) | null = null;
@@ -271,12 +275,19 @@ export class GpuBuffer<T extends Any = Any> {
 
     /** Register a dirty range for partial re-upload */
     addUpdateRange(start: number, count: number): void {
-        this.updateRanges.push({ start, count });
+        const range = this.updateRanges[this.updateRangeCount];
+        if (range) {
+            range.start = start;
+            range.count = count;
+        } else {
+            this.updateRanges.push({ start, count });
+        }
+        this.updateRangeCount++;
     }
 
     /** Clear pending update ranges (called by renderer after upload) */
     clearUpdateRanges(): void {
-        this.updateRanges.length = 0;
+        this.updateRangeCount = 0;
     }
 
     /**
@@ -427,6 +438,7 @@ export class GpuBuffer<T extends Any = Any> {
         this._onDispose = null;
         this.array = null;
         this.updateRanges.length = 0;
+        this.updateRangeCount = 0;
         this.onUpload = null;
     }
 }

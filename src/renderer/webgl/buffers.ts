@@ -104,10 +104,10 @@ function uploadDirtyRanges(
     label: string,
 ): void {
     const ranges = buffer.updateRanges;
-    mergeUpdateRanges(ranges);
+    const count = mergeUpdateRanges(ranges, buffer.updateRangeCount);
     const bytesPerElement = array.BYTES_PER_ELEMENT;
     const usage = primaryBufferUsage(buffer);
-    for (let i = 0; i < ranges.length; i++) {
+    for (let i = 0; i < count; i++) {
         const r = ranges[i]!;
         gl.bufferSubData(target, r.start * bytesPerElement, array, r.start, r.count);
         recordBufferWrite(cache.info, r.count * bytesPerElement, usage, false, label);
