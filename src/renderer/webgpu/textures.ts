@@ -410,6 +410,9 @@ function createGPUTexture(device: GPUDevice, texture: GpuTexture): GPUTexture {
     const usage = !isStorage || mipLevelCount > 1 ? texture.usage | GPUTextureUsage.RENDER_ATTACHMENT : texture.usage;
 
     const gpuTexture = device.createTexture({
+        // Spread rather than always-present: handing the descriptor an explicit `label: undefined`
+        // is not the same as omitting it for every implementation that reads it.
+        ...(texture.label !== undefined && { label: texture.label }),
         dimension: texture.dimension,
         size: [texture.width, texture.height, texture.depthOrArrayLayers],
         format: texture.format,

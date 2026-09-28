@@ -44,8 +44,18 @@ export class Texture<out T extends SourceData = SourceData> {
     /** The underlying sampler */
     readonly _gpuSampler: GpuSampler;
 
-    /** Optional name for debugging */
-    name = '';
+    /**
+     * Optional name for debugging. Also the identifier this texture reads under in emitted shader
+     * source, and its `GPUTexture.label` in devtools. Forwards to the underlying `GpuTexture` — the
+     * single source of truth the backends and the emitters read — so setting it on the wrapper at any
+     * point takes effect, exactly as `isRenderTargetTexture` does.
+     */
+    get name(): string {
+        return this._gpuTexture.label ?? '';
+    }
+    set name(value: string) {
+        this._gpuTexture.label = value || undefined;
+    }
 
     /**
      * Callback fired when the texture is updated.

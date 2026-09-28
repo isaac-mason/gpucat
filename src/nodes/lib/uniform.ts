@@ -22,7 +22,11 @@ import {
 
 export class UniformNode<D extends Any> extends Node<D> {
     readonly kind = NodeKind.Uniform;
-    /** uniform name */
+    /**
+     * Identity: the key this uniform dedupes under. For a name-based uniform it is also the author's
+     * name; a value-based one gets a generated placeholder. Either way the SPELLING in emitted source
+     * comes from `uniform.label` — the resource carries the name, as GpuBuffer and GpuTexture do.
+     */
     name: string;
 
     /** The underlying Uniform data container */
@@ -50,10 +54,17 @@ export class UniformNode<D extends Any> extends Node<D> {
         this.uniform.value = v;
     }
 
-    constructor(uniform: Uniform<D>, name: string) {
+    /**
+     * `name` is this uniform's identity — the key it dedupes under. When the author supplied it (the
+     * usual case) it also becomes the resource's label, which is what the emitters spell the block
+     * member with. `generatedName` marks the placeholder given to a uniform that has no author name;
+     * those are numbered per compile instead, because the placeholder carries a node id.
+     */
+    constructor(uniform: Uniform<D>, name: string, generatedName = false) {
         super(uniform.schema);
         this.uniform = uniform;
         this.name = name;
+        if (!generatedName) uniform.label ??= name;
     }
 
     /**
@@ -125,7 +136,9 @@ export function uniform<D extends Any, S extends StructSchema>(
     // Value-based: uniform(Uniform)
     if (typeof init === 'object' && init !== null && 'isUniform' in init) {
         const u = init as Uniform<D>;
-        return new UniformNode(u, `uniform_${_nodeId}`);
+        // `name` is identity only — the emitted spelling comes from the Uniform's label (or a
+        // numbered fallback allocated per compile), so a node id never reaches the source.
+        return new UniformNode(u, `uniform_${_nodeId}`, true);
     }
 
     // Name-based: uniform('name', schema) or uniform('name', StructDef)
@@ -155,7 +168,7 @@ export function uniform<D extends Any, S extends StructSchema>(
     const initialValue = extractValue(initNode);
 
     const u = new Uniform(initNode.type, initialValue as UniformValue<D>);
-    return new UniformNode(u, uniformId);
+    return new UniformNode(u, uniformId, name === undefined);
 }
 
 /**

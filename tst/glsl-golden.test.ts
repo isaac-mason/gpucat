@@ -112,6 +112,21 @@ describe('golden GLSL — render path', () => {
         expect(renderShape(result)).toMatchSnapshot();
     });
 
+    test('select whose condition is itself a select: the inner ternary keeps its parentheses', () => {
+        // `a ? b : c ? d : e` chains RIGHT, so an unparenthesised ternary CONDITION would silently
+        // regroup as `a ? b : (c ? d : e)` — valid GLSL that computes something else entirely.
+        const position = attribute('position', d.vec3f);
+        const a = varying(position.x, 'vA');
+        const b = varying(position.y, 'vB');
+        const c = varying(position.z, 'vC');
+        const inner = select(a.greaterThan(f32(0.5)), b.greaterThan(f32(0.5)), c.greaterThan(f32(0.25)));
+        const fragment = vec4(select(vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), inner), f32(1));
+
+        const result = compileGlsl({ vertex: vec4(position, f32(1)), fragment, depth: undefined });
+
+        expect(result.code).toContain('(vC > 0.25 ? vB > 0.5 : vA > 0.5) ?');
+    });
+
     test('control flow: Var + Loop + If accumulate in the fragment', () => {
         // A value-returning user Fn body exercises Var/Let/Loop/If/Assign statements.
         const accumulate = Fn(

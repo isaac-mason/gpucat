@@ -29,6 +29,7 @@ import {
     type IfNode,
     type IndexNode,
     isNode,
+    type LetNode,
     type LoopNode,
     type Node,
     NodeKind,
@@ -37,6 +38,7 @@ import {
     type StackNode,
     type StructDef,
     u32,
+    type VarNode,
     type WgslFunctionNodeRef,
 } from '../../lib/core';
 import type { MRTNode } from '../../lib/mrt';
@@ -51,6 +53,8 @@ import {
 } from '../../lib/texture';
 import type { UniformGroup, UniformNode } from '../../lib/uniform';
 import type { VaryingNode } from '../../lib/varying';
+import { allocName, createNameScope, cseBaseName, loopVarName, type NameScope, reserveName, tracedFnCallees } from '../names';
+import { binaryOperandMin, binaryPrec, Prec, paren, shortestF32, unary } from '../print';
 import type { TracedFn } from '../wgsl/emit';
 
 type ShaderStage = 'vertex' | 'fragment';
@@ -84,6 +88,35 @@ function glslScalarKind(desc: d.Any): 'f32' | 'i32' | 'u32' | 'bool' | null {
     // this feeds the scalar/operator paths a matrix never takes. f16 has no GLSL ES 3.00 form.
     if (!('len' in desc) || desc.scalar === 'f16') return null;
     return desc.scalar;
+}
+
+/**
+ * The value a numeric scalar conversion of a literal collapses to, or undefined if the node is not
+ * one. `uint(0.0)` means `0u`, which is what an array index should look like; the constructor form
+ * only obscured it. Bool is excluded on both sides — those conversions are value tests, not a
+ * respelling.
+ */
+function foldScalarConversion(node: { args: readonly Node<d.Any>[]; type: d.Any }): number | undefined {
+    const isNumericScalar = (desc: d.Any) =>
+        glslVecLen(desc) === 1 && glslScalarKind(desc) !== null && glslScalarKind(desc) !== 'bool';
+    if (node.args.length !== 1 || !isNumericScalar(node.type)) return undefined;
+    const arg = node.args[0] as AnyNode;
+    if (arg.kind !== NodeKind.Literal || typeof arg.value !== 'number') return undefined;
+    return isNumericScalar(arg.type) ? arg.value : undefined;
+}
+
+/**
+ * The operand of a one-argument conversion whose target type is ALREADY the argument's type — a
+ * `vec2i(v)` where `v` is a vec2i, which spells out nothing. Mirrors three.js's NodeBuilder.format(),
+ * which returns the operand untouched when the two types match.
+ *
+ * Composites are excluded: a one-field struct or array constructor is a construction, not a respelling.
+ */
+function identityConversionArg(node: { args: readonly Node<d.Any>[]; type: d.Any }): Node<d.Any> | undefined {
+    if (node.args.length !== 1) return undefined;
+    if (d.isStructDesc(node.type) || d.isArrayDesc(node.type) || d.isSizedArrayDesc(node.type)) return undefined;
+    const arg = node.args[0];
+    return arg.type.wgslType === node.type.wgslType ? arg : undefined;
 }
 
 /** Component count (1 for scalars, 2..4 for vectors) of a scalar/vector descriptor, or null otherwise. */
@@ -208,7 +241,9 @@ function glslLiteral(wgslType: string, value: number | number[] | string): strin
     const scalar = (t: string, v: number): string => {
         switch (t) {
             case 'f32':
-                return Number.isInteger(v) ? `${v}.0` : `${v}`;
+                // Printed at the fewest digits that still round-trip through f32 — the full f64
+                // expansion of something like 1/12 carries eight digits GLSL cannot represent.
+                return Number.isInteger(v) ? `${v}.0` : shortestF32(v);
             case 'i32':
                 return `${Math.trunc(v)}`;
             case 'u32':
@@ -280,6 +315,9 @@ export type GlslBuildContext = {
     // ignores the SamplerNode as a code object and folds the sampler's settings into the combined
     // uniform's runtime metadata instead.
     textures: Map<string, TextureBindingNode>; // textureId -> binding node (insertion-ordered)
+    textureNames: Map<string, string>; // textureId -> shader identifier (see builder's nameBindings)
+    uniformNames: Map<string, string>; // uniform identity -> block member identifier
+    bindingNames: NameScope; // the scope those were allocated from (for bindings found during emission)
     textureSamplers: Map<string, SamplerNode<d.sampler | d.samplerComparison>>; // textureId -> its sampler
     // Texture ids whose 2D samples are wrapped in the per-texture flipY conditional (`u_flipY_<id>`). This
     // is the two-level flip three.js does in TextureNode.setupUV: PRESENCE is baked per-backend (only this
@@ -305,7 +343,13 @@ export type GlslBuildContext = {
     varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>;
     builtins: Set<string>;
     nodeVars: Map<number, string>;
-    varCounter: number;
+    /** node.id -> binding strength of the expression string generateExpr() produced for it. */
+    precOf: Map<number, Prec>;
+    /** Identifiers taken in this emission scope: locals, loop counters, CSE locals, attributes, and
+     *  every global name already in scope (see {@link seedGlslGlobalNames}). */
+    names: NameScope;
+    /** Just the global half of the above, kept so a function body can start a fresh scope from it. */
+    globalNames: ReadonlySet<string>;
     // Indentation level for nested control flow (1 = main body, 2 = first nested block, …).
     indentLevel: number;
     code: string[];
@@ -323,6 +367,7 @@ export type GlslBuildContext = {
 };
 
 export function createGlslContext(stage: ShaderStage, discovery: Discovery): GlslBuildContext {
+    const globalNames = seedGlslGlobalNames(discovery);
     return {
         stage,
         uniforms: discovery.uniforms,
@@ -332,6 +377,9 @@ export function createGlslContext(stage: ShaderStage, discovery: Discovery): Gls
         fnDefs: discovery.fnDefs,
         rawFnDefs: discovery.wgslFnDefs,
         structDefs: discovery.structDefs,
+        textureNames: discovery.textureNames,
+        uniformNames: discovery.uniformNames,
+        bindingNames: discovery.bindingNames,
         // Fresh per-context: the emitter registers textures/samplers as it walks each stage.
         textures: new Map(),
         textureSamplers: new Map(),
@@ -343,13 +391,34 @@ export function createGlslContext(stage: ShaderStage, discovery: Discovery): Gls
         varyings: new Map(),
         builtins: new Set(),
         nodeVars: new Map(),
-        varCounter: 0,
+        precOf: new Map(),
+        names: new Set(globalNames),
+        globalNames,
         indentLevel: 1,
         code: [],
         hoistBuffer: [],
         hoistedIds: new Set(),
         paramIds: new Set(),
     };
+}
+
+/**
+ * A name scope holding every identifier the shader's GLOBALS already occupy, so a local allocated
+ * later cannot take one. GLSL puts more names in the flat namespace than WGSL does — combined
+ * samplers and their flip flags, the flip helper — and varyings are bare identifiers rather than
+ * struct members, so those are reserved as they are collected (see {@link generateVarying}).
+ */
+function seedGlslGlobalNames(discovery: Discovery): NameScope {
+    const names = createNameScope();
+    for (const helper of FLIP_HELPER_NAMES) reserveName(names, helper);
+    for (const name of discovery.textureNames.values()) {
+        reserveName(names, `u_${name}`);
+        reserveName(names, `u_flipY_${name}`);
+    }
+    for (const { group } of discovery.uniforms.values()) reserveName(names, `uniforms_${group.name}`);
+    for (const node of discovery.privateVars.values()) reserveName(names, node.varName);
+    for (const fnName of discovery.fnDefs.keys()) reserveName(names, glslFnName(fnName));
+    return names;
 }
 
 /** Guard: reject node kinds outside this slice with a clear, uniform error. */
@@ -440,14 +509,32 @@ function matchStorageRead(ctx: GlslBuildContext, node: AnyNode): StorageReadMatc
     return null;
 }
 
-/** Emit a matched storage read through the same `decodeField` path as `texture(t).load(schema, i)`. */
-function lowerStorageRead(ctx: GlslBuildContext, m: StorageReadMatch): string {
-    return generateExpr(ctx, decodeField(m.base, m.texelBase, m.width, m.byteOffset, m.type));
+/** Lower a matched storage read to the same `decodeField` graph as `texture(t).load(schema, i)`. */
+function storageReadNode(m: StorageReadMatch): Node<d.Any> {
+    return decodeField(m.base, m.texelBase, m.width, m.byteOffset, m.type);
 }
 
 function storageTexelBase(indexNode: Node<d.Any>, texelStride: number): Node<d.u32> {
     const idx = u32(indexNode);
     return texelStride === 1 ? idx : idx.mul(u32(texelStride));
+}
+
+/**
+ * Binding strength of the string {@link generateExpr} returned for `node`, recorded by that function
+ * as it emits. Reading it back — rather than re-deriving it from the node kind — keeps the two in step
+ * by construction. Only meaningful AFTER generateExpr(node) has run.
+ */
+function emittedPrec(ctx: GlslBuildContext, node: Node<d.Any>): Prec {
+    // A node bound to a name — a CSE local, a Let/Var, a loop counter, a parameter — emits as a bare
+    // identifier. Several of those are registered outside generateExpr, so this is checked first.
+    if (ctx.nodeVars.has(node.id)) return Prec.Postfix;
+    return ctx.precOf.get(node.id) ?? Prec.Lowest;
+}
+
+/** Generate an operand and wrap it if it binds looser than `min`. */
+function generateOperand(ctx: GlslBuildContext, node: Node<d.Any>, min: Prec): string {
+    const expr = generateExpr(ctx, node);
+    return paren(expr, emittedPrec(ctx, node), min);
 }
 
 function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
@@ -459,10 +546,16 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
     }
 
     let expr: string;
+    // Binding strength of `expr`, recorded into ctx.precOf at the bottom so callers can decide whether
+    // to parenthesise it. Nearly every branch below emits a name, a call, a constructor or a member
+    // chain, so Postfix is the default; a branch that emits anything looser MUST say so.
+    let prec: Prec = Prec.Postfix;
 
     switch (node.kind) {
         case NodeKind.Literal:
             expr = glslLiteral(node.type.wgslType, node.value);
+            // A negative scalar literal lexes as unary minus applied to a literal.
+            if (typeof node.value === 'number' && node.value < 0) prec = Prec.Unary;
             break;
         case NodeKind.Uniform:
             expr = generateUniform(ctx, node);
@@ -472,6 +565,8 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
             break;
         case NodeKind.Varying:
             expr = generateVarying(ctx, node);
+            // In the vertex stage a varying emits its SOURCE expression rather than a name.
+            if (ctx.stage === 'vertex') prec = emittedPrec(ctx, node.node.node);
             break;
         case NodeKind.Builtin:
             expr = generateBuiltin(ctx, node);
@@ -479,6 +574,8 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
         case NodeKind.BinaryOp: {
             let left = generateExpr(ctx, node.left);
             let right = generateExpr(ctx, node.right);
+            let leftPrec = emittedPrec(ctx, node.left);
+            let rightPrec = emittedPrec(ctx, node.right);
             // Operand coercion: GLSL ES 3.00 has no implicit numeric conversions, so a mixed-kind binary
             // op (int with uint, int/uint with float) is a hard compile error unless one side is wrapped
             // in an explicit conversion. Shifts are exempt — GLSL allows a differing-kind shift amount —
@@ -491,8 +588,13 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
                     leftKind === 'f32' || rightKind === 'f32'
                         ? 'f32'
                         : ((glslScalarKind(node.type) as 'i32' | 'u32' | null) ?? 'i32');
+                const rawLeft = left;
+                const rawRight = right;
                 left = coerceOperandScalar(node.left, left, target);
                 right = coerceOperandScalar(node.right, right, target);
+                // A coerced operand is now a conversion constructor, which never needs parens.
+                if (left !== rawLeft) leftPrec = Prec.Postfix;
+                if (right !== rawRight) rightPrec = Prec.Postfix;
             }
             // Componentwise vector comparisons: GLSL ES rejects the relational/equality OPERATORS on
             // vectors and instead provides built-in functions returning a bvec. Detect via the result
@@ -505,11 +607,25 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
                 // allow `%` on floats). Keyed on the component scalar, since `vec4f` never spells `f32`.
                 expr = `mod(${left}, ${right})`;
             } else {
-                expr = `(${left} ${node.op} ${right})`;
+                prec = binaryPrec(node.op);
+                const [leftMin, rightMin] = binaryOperandMin(prec);
+                expr = `${paren(left, leftPrec, leftMin)} ${node.op} ${paren(right, rightPrec, rightMin)}`;
             }
             break;
         }
         case NodeKind.Construct: {
+            const folded = foldScalarConversion(node);
+            if (folded !== undefined) {
+                expr = glslLiteral(node.type.wgslType, folded);
+                if (folded < 0) prec = Prec.Unary;
+                break;
+            }
+            const identity = identityConversionArg(node);
+            if (identity) {
+                expr = generateExpr(ctx, identity);
+                prec = emittedPrec(ctx, identity);
+                break;
+            }
             const args = node.args.map((a) => generateExpr(ctx, a));
             // A struct construct uses the struct's own name (e.g. `Foo(...)`), not a WGSL→GLSL scalar
             // mapping; the struct declaration is emitted ahead of use by emitGlslStructs.
@@ -529,31 +645,36 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
             // target it samples). Depth-scope passes read the linear-depth node instead.
             const textureNode = node.read === 'depth' ? node.getLinearDepthNode() : node.getTextureNode();
             expr = generateExpr(ctx, textureNode);
+            prec = emittedPrec(ctx, textureNode);
             break;
         }
         case NodeKind.Field: {
             const storageRead = matchStorageRead(ctx, node);
             if (storageRead) {
-                expr = lowerStorageRead(ctx, storageRead);
+                const decoded = storageReadNode(storageRead);
+                expr = generateExpr(ctx, decoded);
+                prec = emittedPrec(ctx, decoded);
                 break;
             }
-            const obj = generateExpr(ctx, node.object);
-            expr = `${obj}.${node.fieldName}`;
+            expr = `${generateOperand(ctx, node.object, Prec.Postfix)}.${node.fieldName}`;
             break;
         }
         case NodeKind.Index: {
             const storageRead = matchStorageRead(ctx, node);
             if (storageRead) {
-                expr = lowerStorageRead(ctx, storageRead);
+                const decoded = storageReadNode(storageRead);
+                expr = generateExpr(ctx, decoded);
+                prec = emittedPrec(ctx, decoded);
                 break;
             }
-            const arr = generateExpr(ctx, node.array);
+            const arr = generateOperand(ctx, node.array, Prec.Postfix);
             const idx = generateExpr(ctx, node.index);
             expr = `${arr}[${idx}]`;
             break;
         }
         case NodeKind.Call:
             expr = generateCall(ctx, node);
+            prec = callPrec(ctx, node);
             break;
         case NodeKind.TextureBinding:
             // A bare texture handle used as an expression resolves to its combined-sampler name.
@@ -593,9 +714,9 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
                     unsupported(`componentwise select producing '${node.type.wgslType}'`);
                 }
                 const ind = '    '.repeat(ctx.indentLevel);
-                const cv = `_sc${ctx.varCounter++}`;
-                const tv = `_st${ctx.varCounter++}`;
-                const fv = `_sf${ctx.varCounter++}`;
+                const cv = allocName(ctx.names, '_selCond');
+                const tv = allocName(ctx.names, '_selTrue');
+                const fv = allocName(ctx.names, '_selFalse');
                 const ifFalse = node.ifFalse;
                 if (!ifFalse) unsupported(`componentwise select of '${node.type.wgslType}' without an ifFalse value`);
                 ctx.code.push(`${ind}${glslLocalDecl(node.condition.type, cv)} = ${generateExpr(ctx, node.condition)};`);
@@ -606,13 +727,16 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
                 break;
             }
             const cond = generateExpr(ctx, node.condition);
+            const condPrec = emittedPrec(ctx, node.condition);
             const t = generateExpr(ctx, node.ifTrue);
             // A missing ifFalse only has a well-defined zero for scalar/vec/mat numeric types; struct and
             // array results have no `T(0)` form, so reject rather than emit un-compilable GLSL. (In
             // practice select() always carries an ifFalse — this guards the degenerate graph.)
             let f: string;
+            let fPrec: Prec = Prec.Postfix;
             if (node.ifFalse) {
                 f = generateExpr(ctx, node.ifFalse);
+                fPrec = emittedPrec(ctx, node.ifFalse);
             } else if (d.isStructDesc(node.type) || d.isSizedArrayDesc(node.type)) {
                 unsupported(
                     `select without an ifFalse value producing '${node.type.wgslType}' (no zero literal for struct/array)`,
@@ -620,20 +744,22 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
             } else {
                 f = `${glslType(node.type)}(0)`;
             }
-            expr = condIsVec ? `mix(${f}, ${t}, ${cond})` : `(${cond} ? ${t} : ${f})`;
+            if (condIsVec) {
+                expr = `mix(${f}, ${t}, ${cond})`;
+            } else {
+                // `?:` binds looser than every operator, so it is wrapped almost everywhere it lands.
+                // Its own condition must bind at least as tightly as `||`, so a nested ternary there is
+                // parenthesised; the else-branch may be a bare ternary, which chains right as written.
+                prec = Prec.Ternary;
+                expr = `${paren(cond, condPrec, Prec.LogicalOr)} ? ${t} : ${paren(f, fPrec, Prec.Ternary)}`;
+            }
             break;
         }
         case NodeKind.Let:
         case NodeKind.Var: {
             // A Let/Var node used as an expression resolves to its variable name; if it hasn't been
             // emitted as a statement yet, emit its declaration now (lazy, like the WGSL emitter).
-            if (!ctx.nodeVars.has(node.id)) {
-                const ind = '    '.repeat(ctx.indentLevel);
-                const init = generateExpr(ctx, node.init);
-                ctx.code.push(`${ind}${glslLocalDecl(node.type, node.varName)} = ${init};`);
-                ctx.nodeVars.set(node.id, node.varName);
-            }
-            expr = node.varName;
+            expr = ctx.nodeVars.get(node.id) ?? declareLocal(ctx, node);
             break;
         }
         case NodeKind.PrivateVar:
@@ -659,11 +785,15 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
                 glslStr = glslStr.replace(new RegExp(`\\$${i}`, 'g'), depExpr);
             }
             expr = glslStr;
+            // Hand-written source of unknown shape: wrap it wherever it lands, so a template holding
+            // `a + b` cannot silently re-associate against the operator it is spliced into.
+            prec = Prec.Lowest;
             break;
         }
         case NodeKind.Inspector:
             // Inspector is transparent — emit the wrapped node.
             expr = generateExpr(ctx, node.wrappedNode);
+            prec = emittedPrec(ctx, node.wrappedNode);
             break;
 
         // Everything else is explicitly out-of-scope: fail loudly with a clear message rather than
@@ -672,10 +802,12 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
             unsupported(`node kind '${node.constructor.name}'`);
     }
 
+    ctx.precOf.set(node.id, prec);
+
     // CSE: hoist multi-use, non-trivial expressions into a local.
     const usage = ctx.usageCount.get(node.id) ?? 1;
-    if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr(node)) {
-        const varName = `_v${ctx.varCounter++}`;
+    if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr(ctx, node)) {
+        const varName = allocName(ctx.names, cseBaseName(node));
         const decl = glslLocalDecl(node.type, varName);
         // A CSE local first materialized inside a nested block (indentLevel > 1) but read again outside
         // it would be out of GLSL block scope. When the value depends ONLY on always-in-scope inputs
@@ -753,9 +885,12 @@ function glslLocalDecl(desc: d.Any, varName: string): string {
 }
 
 /** Trivial expressions (cheap to repeat / global names) are not worth hoisting. */
-function isTrivialExpr(node: Node<d.Any>): boolean {
+function isTrivialExpr(ctx: GlslBuildContext, node: Node<d.Any>): boolean {
     return (
         node.kind === NodeKind.Literal ||
+        // A varying READ is a bare `in` variable, as cheap to repeat as an attribute. In the VERTEX
+        // stage it is the varying's whole source expression instead, which is not.
+        (node.kind === NodeKind.Varying && ctx.stage !== 'vertex') ||
         node.kind === NodeKind.Builtin ||
         node.kind === NodeKind.Field ||
         node.kind === NodeKind.Uniform ||
@@ -773,7 +908,21 @@ function isTrivialExpr(node: Node<d.Any>): boolean {
 function generateUniform(ctx: GlslBuildContext, node: UniformNode<d.Any>): string {
     ctx.uniforms.set(node.name, { node, group: node.group });
     // std140 UBO instance name mirrors the WGSL `uniforms_<group>` binding instance.
-    return `uniforms_${node.group.name}.${node.name}`;
+    return `uniforms_${node.group.name}.${uniformMemberName(ctx, node)}`;
+}
+
+/**
+ * The block-member spelling for a uniform, allocated on first sight. `node.name` is identity — for a
+ * value-based uniform that is a node-id placeholder, which must never reach the source: node ids come
+ * from a process-wide counter, so emitting one makes the shader text differ between two compiles of
+ * the same graph (and the WebGL program cache keys on that text).
+ */
+function uniformMemberName(ctx: GlslBuildContext, node: UniformNode<d.Any>): string {
+    const existing = ctx.uniformNames.get(node.name);
+    if (existing !== undefined) return existing;
+    const name = allocName(ctx.bindingNames, node.uniform.label || `uniform${ctx.uniformNames.size}`);
+    ctx.uniformNames.set(node.name, name);
+    return name;
 }
 
 /**
@@ -1024,6 +1173,20 @@ const GLSL_RESERVED_NAMES = new Set([
  * Map a user `Fn` name to a GLSL-safe identifier: reserved / builtin names are prefixed `fn_`, all
  * others pass through unchanged. Must be applied consistently at the definition and every call site.
  */
+/**
+ * A texel coordinate as GLSL's `ivec2`. WGSL's textureLoad accepts signed OR unsigned coords, so the
+ * conversion has to be available — but `vec2i` is the common case and converting it to the type it
+ * already has is pure noise, so the wrap is emitted only when the node is something else.
+ */
+function texelCoord(ctx: GlslBuildContext, node: Node<d.Any>): string {
+    const expr = generateExpr(ctx, node);
+    const glsl = 'glslType' in node.type ? node.type.glslType : null;
+    return glsl === 'ivec2' ? expr : `ivec2(${expr})`;
+}
+
+/** The Y-flip helper functions the texture wrappers may emit (see emitGlslTextures). */
+const FLIP_HELPER_NAMES = ['_flipY2f', '_flipY2i', '_flipYd'] as const;
+
 function glslFnName(name: string): string {
     return GLSL_RESERVED_NAMES.has(name) ? `fn_${name}` : name;
 }
@@ -1056,11 +1219,9 @@ function generateAttribute(ctx: GlslBuildContext, node: AttributeNode<d.Any>): s
     // one 32-byte-stride buffer): they must get distinct locations, matching vertexBufferGroups. Aliasing
     // them by name alone collapses both to offset 0, so the second's data (which the VAO binds to its own
     // location) is silently dropped by the shader. Unnamed/buffer attributes stay deduped by id.
-    let sameNameSeen = false;
     if (node.isNamedReference && node.name) {
         for (const entry of ctx.attributes.values()) {
             if (!entry.node.isNamedReference || entry.node.name !== node.name) continue;
-            sameNameSeen = true;
             if (entry.node.offset === node.offset && entry.node.stride === node.stride) {
                 ctx.attributes.set(node.id, entry);
                 return entry.shaderName;
@@ -1071,21 +1232,19 @@ function generateAttribute(ctx: GlslBuildContext, node: AttributeNode<d.Any>): s
     // Next location counts DISTINCT attributes (distinct locations), not aliased map entries — aliasing
     // multiple node ids to one entry would make `ctx.attributes.size` overcount.
     const location = distinctAttributeCount(ctx);
-    // Prefix with `a_` so attribute names never collide with GLSL keywords or varyings. When a same-named
-    // but distinct-offset attribute already exists, suffix with the location to keep the `in` decls unique
-    // (the VAO binds by layout(location), so this identifier is cosmetic).
-    const shaderName =
-        node.isNamedReference && node.name
-            ? sameNameSeen
-                ? `a_${node.name}_${location}`
-                : `a_${node.name}`
-            : `a_buf_${location}`;
+    // Prefix with `a_` so attribute names read as vertex inputs, and allocate through the scope so a
+    // same-named attribute at a distinct offset — or a local that got there first — cannot shadow this
+    // `in` decl. The VAO binds by layout(location), so the identifier itself is cosmetic.
+    const shaderName = allocName(ctx.names, node.isNamedReference && node.name ? `a_${node.name}` : 'a_buf');
     ctx.attributes.set(node.id, { shaderName, type: node.type, location, node });
     return shaderName;
 }
 
 function generateVarying(ctx: GlslBuildContext, node: VaryingNode<d.Any>): string {
     const name = node.name ?? `v_${node.id}`;
+    // A GLSL varying is a bare identifier, and both stages must spell it the same way for the program
+    // to link — so it keeps the name it was given and locals allocate around it.
+    reserveName(ctx.names, name);
 
     if (ctx.stage === 'vertex') {
         // In the vertex stage a varying evaluates to its source expression (assigned to `out` in main).
@@ -1165,6 +1324,27 @@ const TEXTURE_FNS = new Set([
     'textureStore',
 ]);
 
+/**
+ * Binding strength of what {@link generateCall} emits. Every call is a `f(…)` postfix form except the
+ * lowerings that spell out an operator instead — keep this in step with them.
+ */
+function callPrec(ctx: GlslBuildContext, node: CallNode<d.Any>): Prec {
+    if (node.fn === node.type.wgslType && 'glslType' in node.type) {
+        const folded = foldScalarConversion(node);
+        if (folded !== undefined) return folded < 0 ? Prec.Unary : Prec.Postfix;
+        const identity = identityConversionArg(node);
+        if (identity) return emittedPrec(ctx, identity);
+    }
+    if (node.args.length === 1) {
+        if (node.fn === 'negate' || node.fn === 'not') return Prec.Unary;
+        // `x * 0.5 + 0.5`
+        if (node.fn === 'ndcDepthToStorage') return Prec.Additive;
+        // `vec4(uvec4(…))/255.0`
+        if (node.fn === 'unpack4x8unorm') return Prec.Multiplicative;
+    }
+    return Prec.Postfix;
+}
+
 function generateCall(ctx: GlslBuildContext, node: CallNode<d.Any>): string {
     // Raw escape-hatch functions (wgslFn / glslFn): emit the GLSL companion (defined by
     // emitGlslRawFunctions) and call it by name. Reject if there is no GLSL variant.
@@ -1196,10 +1376,12 @@ function generateCall(ctx: GlslBuildContext, node: CallNode<d.Any>): string {
 
     const args = node.args.map((a) => generateExpr(ctx, a));
 
-    if (node.fn === 'negate' && args.length === 1) return `(-${args[0]})`;
-    if (node.fn === 'not' && args.length === 1) return `(!${args[0]})`;
+    if (node.fn === 'negate' && args.length === 1) return unary('-', args[0], emittedPrec(ctx, node.args[0]));
+    if (node.fn === 'not' && args.length === 1) return unary('!', args[0], emittedPrec(ctx, node.args[0]));
     // NDC depth → stored [0,1]. WebGL NDC z is [-1,1] (NO projection), so remap; WGSL passes through.
-    if (node.fn === 'ndcDepthToStorage' && args.length === 1) return `((${args[0]}) * 0.5 + 0.5)`;
+    if (node.fn === 'ndcDepthToStorage' && args.length === 1) {
+        return `${paren(args[0], emittedPrec(ctx, node.args[0]), Prec.Multiplicative)} * 0.5 + 0.5`;
+    }
 
     if (UNSUPPORTED_DERIVATIVES.has(node.fn)) {
         throw new Error(
@@ -1226,12 +1408,14 @@ function generateCall(ctx: GlslBuildContext, node: CallNode<d.Any>): string {
     if (node.fn === 'unpack2x16float') return `unpackHalf2x16(${args[0]})`;
     if (node.fn === 'unpack2x16unorm') return `unpackUnorm2x16(${args[0]})`;
     if (node.fn === 'unpack2x16snorm') return `unpackSnorm2x16(${args[0]})`;
+    // The 4×8 emulations splice their operand into shift/mask expressions, so it has to be tight
+    // enough to bind ahead of `&` and `>>`; anything below a postfix form gets wrapped.
     if (node.fn === 'unpack4x8unorm') {
-        const p = args[0];
-        return `(vec4(uvec4(${p}&0xFFu,(${p}>>8u)&0xFFu,(${p}>>16u)&0xFFu,(${p}>>24u)&0xFFu))/255.0)`;
+        const p = paren(args[0], emittedPrec(ctx, node.args[0]), Prec.Postfix);
+        return `vec4(uvec4(${p}&0xFFu,(${p}>>8u)&0xFFu,(${p}>>16u)&0xFFu,(${p}>>24u)&0xFFu))/255.0`;
     }
     if (node.fn === 'unpack4x8snorm') {
-        const p = args[0];
+        const p = paren(args[0], emittedPrec(ctx, node.args[0]), Prec.Postfix);
         return `max(vec4(ivec4(int(${p}<<24u)>>24,int(${p}<<16u)>>24,int(${p}<<8u)>>24,int(${p})>>24))/127.0,vec4(-1.0))`;
     }
 
@@ -1250,6 +1434,11 @@ function generateCall(ctx: GlslBuildContext, node: CallNode<d.Any>): string {
     // produces that type; emit the GLSL type name from the descriptor's `glslType` companion. Types with
     // no GLSL form (e.g. f16 vectors) lack `glslType` and fall through to the rename table / verbatim.
     if (node.fn === node.type.wgslType && 'glslType' in node.type) {
+        const folded = foldScalarConversion(node);
+        if (folded !== undefined) return glslLiteral(node.type.wgslType, folded);
+        // A conversion to the type the operand already has spells out nothing.
+        const identity = identityConversionArg(node);
+        if (identity) return generateExpr(ctx, identity);
         return `${node.type.glslType}(${args.join(', ')})`;
     }
 
@@ -1384,9 +1573,8 @@ function generateTextureCall(ctx: GlslBuildContext, node: CallNode<d.Any>): stri
         }
         case 'textureLoad': {
             // (t, coords, level) → texelFetch(name, ivec2(coords), level).
-            const coords = generateExpr(ctx, rawArgs[1]);
             const level = rawArgs[2] ? generateExpr(ctx, rawArgs[2]) : '0';
-            const coordExpr = f.texel(`ivec2(${coords})`, `textureSize(${name}, ${level}).y`);
+            const coordExpr = f.texel(texelCoord(ctx, rawArgs[1]), `textureSize(${name}, ${level}).y`);
             return `texelFetch(${name}, ${coordExpr}, ${level})`;
         }
         case 'textureDimensions': {
@@ -1421,6 +1609,20 @@ function generateTextureCall(ctx: GlslBuildContext, node: CallNode<d.Any>): stri
  */
 
 /** Combined-sampler uniform name for a texture binding. */
+/**
+ * The shader spelling for a texture binding, allocating one if this is the first time it has been
+ * seen. Discovery names everything it can reach, but a texture sampled only inside an Fn body first
+ * appears when that body is traced during emission — so the name is allocated here, from the same
+ * scope, and recorded for the declaration pass that follows.
+ */
+function textureShaderName(ctx: GlslBuildContext, binding: TextureBindingNode): string {
+    const existing = ctx.textureNames.get(binding.textureId);
+    if (existing !== undefined) return existing;
+    const name = allocName(ctx.bindingNames, binding.value?.label || `t${ctx.textureNames.size}`);
+    ctx.textureNames.set(binding.textureId, name);
+    return name;
+}
+
 function samplerUniformName(textureId: string): string {
     // Collapse runs of underscores: texture ids that begin with '_' (e.g. a pass output like
     // '_pass0_output') would otherwise yield `u__…`, and GLSL ES reserves any '__' sequence.
@@ -1454,7 +1656,7 @@ function textureNeedsFlip(binding: TextureBindingNode): boolean {
  */
 function textureFlip(ctx: GlslBuildContext, binding: TextureBindingNode) {
     const flip = textureNeedsFlip(binding) && !isStorageMirrorTexture(ctx, binding.textureId);
-    const name = flipUniformName(binding.textureId);
+    const name = flipUniformName(textureShaderName(ctx, binding));
     const wrap = (fn: string, ...args: string[]): string => {
         ctx.flipYTextures.add(binding.textureId);
         ctx.flipHelperFns.add(fn); // only emit the helper functions actually referenced
@@ -1530,7 +1732,7 @@ function registerTexture(
     if (samplerNode && !ctx.textureSamplers.has(id)) {
         ctx.textureSamplers.set(id, samplerNode);
     }
-    return samplerUniformName(id);
+    return samplerUniformName(textureShaderName(ctx, binding));
 }
 
 /** Bare texture handle used as an expression → its combined-sampler uniform name. */
@@ -1564,10 +1766,8 @@ function generateTexture(ctx: GlslBuildContext, node: TextureNode): string {
     if (node.samplingMode === 'load') {
         if (!node.loadCoords) throw new Error(`[glsl] TextureNode '${id}' in load mode has no loadCoords`);
         const name = registerTexture(ctx, binding, null);
-        const coords = generateExpr(ctx, node.loadCoords);
         const level = node.loadLevel ? generateExpr(ctx, node.loadLevel) : '0';
-        // WGSL loadCoords are already integer (vec2i); wrap defensively for GLSL's ivec2 texelFetch.
-        const coordExpr = f.texel(`ivec2(${coords})`, `textureSize(${name}, ${level}).y`);
+        const coordExpr = f.texel(texelCoord(ctx, node.loadCoords), `textureSize(${name}, ${level}).y`);
         return `texelFetch(${name}, ${coordExpr}, ${level})`;
     }
 
@@ -1607,7 +1807,7 @@ function generateCubeTexture(ctx: GlslBuildContext, node: CubeTextureNode): stri
 
     if (!node.directionNode) throw new Error(`[glsl] CubeTextureNode '${id}' has no directionNode. Use cube.sample(dir).`);
     // Mirror the WGSL emitter: negate the sample direction's X to un-do the CubeCamera's face swap.
-    const dir = `((${generateExpr(ctx, node.directionNode)}) * vec3(-1.0, 1.0, 1.0))`;
+    const dir = `${generateOperand(ctx, node.directionNode, Prec.Multiplicative)} * vec3(-1.0, 1.0, 1.0)`;
 
     switch (node.samplingMode) {
         case 'grad': {
@@ -1644,9 +1844,8 @@ function generateDepthTexture(ctx: GlslBuildContext, node: DepthTextureNode): st
     if (node.samplingMode === 'load') {
         if (!node.loadCoords) throw new Error(`[glsl] DepthTextureNode '${id}' in load mode has no loadCoords`);
         const name = registerTexture(ctx, binding, null);
-        const coords = generateExpr(ctx, node.loadCoords);
         const level = node.loadLevel ? generateExpr(ctx, node.loadLevel) : '0';
-        const coordExpr = f.texel(`ivec2(${coords})`, `textureSize(${name}, ${level}).y`);
+        const coordExpr = f.texel(texelCoord(ctx, node.loadCoords), `textureSize(${name}, ${level}).y`);
         return `texelFetch(${name}, ${coordExpr}, ${level}).x`;
     }
 
@@ -1776,7 +1975,7 @@ export function emitGlslUniformBlocks(ctx: GlslBuildContext): { glsl: string; un
             // glslLocalDecl (not glslType) so struct and fixed-size-array members declare correctly: a
             // struct member uses its name, and an array member uses GLSL's `<elem> <name>[N]` syntax
             // (sized-array descriptors have no scalar `glslType`, so glslType() would throw on them).
-            lines.push(`    ${glslLocalDecl(u.type, u.name)};`);
+            lines.push(`    ${glslLocalDecl(u.type, uniformMemberName(ctx, u))};`);
             members.push({ uniformId: u.name, schema: u.type, offset, size, node: u });
             offset += size;
             structAlign = Math.max(structAlign, align);
@@ -1857,7 +2056,8 @@ export function emitGlslTextures(ctx: GlslBuildContext): {
     sortedGroups.forEach((entry, groupIndex) => {
         for (const binding of entry.textures) {
             const id = binding.textureId;
-            const name = samplerUniformName(id);
+            const shaderName = textureShaderName(ctx, binding);
+            const name = samplerUniformName(shaderName);
             // A depth texture's GLSL sampler shape depends on whether a COMPARISON sampler is bound to
             // it (shadow sampler) or a regular one (plain sampler2D read).
             const isComparison = Boolean(ctx.textureSamplers.get(id)?.compare);
@@ -1868,10 +2068,11 @@ export function emitGlslTextures(ctx: GlslBuildContext): {
             // Per-texture flipY flag: set by the renderer from the bound texture's render-target status
             // (see the flipNorm/flipTexel wrap in generateTextureCall). Declared only for textures whose
             // 2D samples are wrapped, so ordinary textures pay nothing.
-            if (ctx.flipYTextures.has(id)) lines.push(`uniform bool ${flipUniformName(id)};`);
+            if (ctx.flipYTextures.has(id)) lines.push(`uniform bool ${flipUniformName(shaderName)};`);
 
             textures.push({
                 textureId: id,
+                shaderName,
                 // The declared combined-sampler type — the GLSL analogue of WGSL's texture var type.
                 type: samplerType,
                 group: groupIndex,
@@ -1928,25 +2129,30 @@ export function emitGlslTextures(ctx: GlslBuildContext): {
  * ctx.code at the current ctx.indentLevel; nested blocks bump the level and restore it.
  */
 
+/**
+ * Emit the declaration for a Let/Var and bind its node to the allocated name. The author's label is
+ * only a preference — the scope decides the final identifier.
+ *
+ * GLSL ES 3.00 has `const`, but a Let init here is a runtime expression (not a const-expression),
+ * which `const` forbids, so both forms emit a plain typed local — Let is immutable by convention.
+ */
+function declareLocal(ctx: GlslBuildContext, node: LetNode<d.Any> | VarNode<d.Any>): string {
+    const init = generateExpr(ctx, node.init);
+    const name = allocName(ctx.names, node.label ?? 'v');
+    ctx.code.push(`${'    '.repeat(ctx.indentLevel)}${glslLocalDecl(node.type, name)} = ${init};`);
+    ctx.nodeVars.set(node.id, name);
+    return name;
+}
+
 function generateStmt(ctx: GlslBuildContext, rawNode: Node<d.Any>): void {
     const node = rawNode as AnyNode;
     const ind = '    '.repeat(ctx.indentLevel);
 
     switch (node.kind) {
-        case NodeKind.Let: {
-            const init = generateExpr(ctx, node.init);
-            // GLSL ES 3.00 has `const`, but a Let init here is a runtime expression (not a const-
-            // expression), which `const` forbids. Emit a plain typed local — immutable by convention.
-            ctx.code.push(`${ind}${glslLocalDecl(node.type, node.varName)} = ${init};`);
-            ctx.nodeVars.set(node.id, node.varName);
+        case NodeKind.Let:
+        case NodeKind.Var:
+            declareLocal(ctx, node);
             break;
-        }
-        case NodeKind.Var: {
-            const init = generateExpr(ctx, node.init);
-            ctx.code.push(`${ind}${glslLocalDecl(node.type, node.varName)} = ${init};`);
-            ctx.nodeVars.set(node.id, node.varName);
-            break;
-        }
         case NodeKind.Assign: {
             const target = generateExpr(ctx, node.target);
             const value = generateExpr(ctx, node.value);
@@ -2031,9 +2237,9 @@ function generateIfStmt(ctx: GlslBuildContext, node: IfNode): void {
 function generateLoopStmt(ctx: GlslBuildContext, node: LoopNode): void {
     const { config, loopVar, body } = node;
 
-    // Unique loop-variable name per nesting depth (mirrors the WGSL emitter's naming).
+    // Conventional counter name for the nesting depth; the scope resolves any collision.
     const depth = ctx.indentLevel - 1;
-    const varName = `i_${depth}_${ctx.varCounter++}`;
+    const varName = allocName(ctx.names, loopVarName(depth));
     ctx.nodeVars.set(loopVar.id, varName);
 
     let loopHeader: string;
@@ -2041,7 +2247,7 @@ function generateLoopStmt(ctx: GlslBuildContext, node: LoopNode): void {
     if (typeof config === 'number') {
         loopHeader = `for (int ${varName} = 0; ${varName} < ${config}; ${varName}++)`;
     } else if (isNode(config) && (config.kind === NodeKind.Literal || config.kind === NodeKind.Uniform)) {
-        const endExpr = generateExpr(ctx, config as Node<d.Any>);
+        const endExpr = generateOperand(ctx, config as Node<d.Any>, Prec.Relational + 1);
         loopHeader = `for (int ${varName} = 0; ${varName} < ${endExpr}; ${varName}++)`;
     } else if (isNode(config)) {
         // Bare condition node (from `While(cond, …)`): GLSL re-evaluates the header condition every
@@ -2061,7 +2267,8 @@ function generateLoopStmt(ctx: GlslBuildContext, node: LoopNode): void {
         const getExpr = (v: Node<d.Any> | number | undefined): string | undefined => {
             if (v === undefined) return undefined;
             if (typeof v === 'number') return glslLiteral(typeDesc.wgslType, v);
-            return generateExpr(ctx, v as Node<d.Any>);
+            // Both land beside the loop variable in a comparison or an initialiser.
+            return generateOperand(ctx, v as Node<d.Any>, Prec.Relational + 1);
         };
 
         const startExpr = getExpr(cfg.start) ?? '0';
@@ -2170,24 +2377,6 @@ export function emitGlslRawFunctions(ctx: GlslBuildContext, allow?: Set<WgslFunc
  * (which allows out-of-order module functions). Discovery registers callers before callees, so without
  * this reorder a `step` that calls `wrap` would emit `step` first and fail ("no matching function").
  */
-function tracedFnCallees(traced: TracedFn): string[] {
-    const callees: string[] = [];
-    const seen = new Set<number>();
-    const walk = (rawNode: Node<d.Any>): void => {
-        const node = rawNode as AnyNode;
-        if (seen.has(node.id)) return;
-        seen.add(node.id);
-        if (node.kind === NodeKind.Call) {
-            const fnNode = (node as CallNode<d.Any>).fnNode;
-            if (fnNode) callees.push(fnNode.fnName);
-        }
-        for (const child of getChildren(node)) walk(child);
-    };
-    walk(traced.body);
-    walk(traced.output);
-    return callees;
-}
-
 /**
  * The DSL Fn names and raw (wgslFn/glslFn) functions reachable from a stage's root nodes, transitively
  * through called Fn bodies. Functions are emitted PER STAGE from this set (see the builder assembly) so
@@ -2250,7 +2439,7 @@ export function emitGlslDslFunctions(ctx: GlslBuildContext, allow?: Set<string>)
         visiting.add(name);
         const entry = ctx.fnDefs.get(name);
         if (entry) {
-            for (const callee of tracedFnCallees(entry.traced)) visit(callee);
+            for (const callee of tracedFnCallees(entry.traced)) visit(callee.fnName);
         }
         visiting.delete(name);
         done.add(name);
@@ -2280,7 +2469,8 @@ export function emitGlslDslFunctions(ctx: GlslBuildContext, allow?: Set<string>)
             varyings: new Map(),
             builtins: ctx.builtins,
             nodeVars: new Map(),
-            varCounter: 0,
+            precOf: new Map(),
+            names: new Set(ctx.globalNames),
             indentLevel: 1,
             code: [],
             hoistBuffer: [],
@@ -2290,7 +2480,9 @@ export function emitGlslDslFunctions(ctx: GlslBuildContext, allow?: Set<string>)
 
         // Register param names so parameter references resolve to them (and mark them top-hoist-safe).
         for (const p of traced.params as ParameterNode<d.Any>[]) {
-            fnCtx.nodeVars.set(p.id, p.paramName ?? `p${p.paramIndex}`);
+            const paramName = p.paramName ?? `p${p.paramIndex}`;
+            fnCtx.nodeVars.set(p.id, paramName);
+            reserveName(fnCtx.names, paramName);
             fnCtx.paramIds.add(p.id);
         }
 

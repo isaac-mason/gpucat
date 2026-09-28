@@ -19,19 +19,20 @@ void main() {}",
     },
   ],
   "vertexCode": "#version 300 es
-// Uniform blocks (std140)
+
 // Combined samplers
 precision highp sampler2D;
 uniform sampler2D u_t0;
 uniform bool u_flipY_t0;
 ivec2 _flipY2i(bool f, ivec2 c, int h) { return f ? ivec2(c.x, h - c.y - 1) : c; }
+
 // Transform-feedback vertex shader
 layout(location = 0) in vec4 a_pos;
 
 out vec4 v_pos;
 
 void main() {
-    v_pos = (a_pos + (texelFetch(u_t0, _flipY2i(u_flipY_t0, ivec2(ivec2((int(uint(gl_VertexID)) + 1), 0)), textureSize(u_t0, 0).y), 0) * 0.5));
+    v_pos = a_pos + texelFetch(u_t0, _flipY2i(u_flipY_t0, ivec2(int(uint(gl_VertexID)) + 1, 0), textureSize(u_t0, 0).y), 0) * 0.5;
     gl_Position = vec4(0.0);
 }",
 }
@@ -59,7 +60,7 @@ void main() {}",
     },
   ],
   "vertexCode": "#version 300 es
-// Uniform blocks (std140)
+
 // Transform-feedback vertex shader
 layout(location = 0) in vec4 a_pos;
 layout(location = 1) in vec4 a_vel;
@@ -67,7 +68,7 @@ layout(location = 1) in vec4 a_vel;
 out vec4 v_pos;
 
 void main() {
-    v_pos = (a_pos + a_vel);
+    v_pos = a_pos + a_vel;
     gl_Position = vec4(0.0);
 }",
 }

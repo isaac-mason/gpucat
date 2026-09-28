@@ -1359,11 +1359,16 @@ export class LiteralNode<D extends Any> extends Node<D> {
     }
 }
 
+/**
+ * `label` is what the author called the value, not its shader identifier — the emitters allocate that
+ * per function scope, so the same name can be requested twice without the graph having to disambiguate.
+ * Undefined for an unnamed `.toVar()` / `.toConst()`.
+ */
 export class LetNode<D extends Any> extends Node<D> {
     readonly kind = NodeKind.Let;
     constructor(
         type: D,
-        readonly varName: string,
+        readonly label: string | undefined,
         readonly init: Node<D>,
     ) {
         super(type);
@@ -1374,7 +1379,7 @@ export class VarNode<D extends Any> extends Node<D> {
     readonly kind = NodeKind.Var;
     constructor(
         type: D,
-        readonly varName: string,
+        readonly label: string | undefined,
         readonly init: Node<D>,
     ) {
         super(type);
@@ -2256,8 +2261,7 @@ export const select = <D extends Any>(falseVal: Node<D>, trueVal: Node<D>, condi
     new ConditionalNode(condition, trueVal, falseVal);
 
 function makeVar<D extends Any>(init: Node<D>, label?: string): VarNode<D> {
-    const varName = label ? `var_${_nodeId}_${label}` : `var_${_nodeId}`;
-    const v = new VarNode(init.type, varName, init);
+    const v = new VarNode(init.type, label, init);
     // Add to current stack if building inside Fn, otherwise return standalone node.
     // The standalone VarNode still participates in the graph via its `init` reference.
     if (currentStack !== null) currentStack.push(v);
@@ -2265,8 +2269,7 @@ function makeVar<D extends Any>(init: Node<D>, label?: string): VarNode<D> {
 }
 
 function makeLet<D extends Any>(init: Node<D>, label?: string): LetNode<D> {
-    const varName = label ? `let_${_nodeId}_${label}` : `let_${_nodeId}`;
-    const v = new LetNode(init.type, varName, init);
+    const v = new LetNode(init.type, label, init);
     if (currentStack !== null) currentStack.push(v);
     return v;
 }

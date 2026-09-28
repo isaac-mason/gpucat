@@ -17,6 +17,8 @@ import {
     generateGlslVertexShader,
     type StorageMirror,
 } from './backend/glsl/emit';
+import { allocName, createNameScope, derivedSamplerName, type NameScope } from './backend/names';
+import { joinSections } from './backend/print';
 import {
     collectVaryings,
     createContext,
@@ -117,22 +119,15 @@ export function compileWgsl(slots: CompileSlots): CompileResult {
     const dslFnsCode = emitDslFunctions(vertexCtx);
 
     // assemble full shader
-    const codeParts = [
-        '// Bindings (uniforms, storage, textures, samplers)',
-        bindingsWgsl,
-        '// Module-scope variables',
-        moduleScopeVarsWgsl,
-        '// WGSL Functions',
-        wgslFnsCode,
-        '// DSL Functions',
-        dslFnsCode,
-        '// Vertex Shader',
-        vertexBody,
+    const sections = [
+        { title: '// Bindings (uniforms, storage, textures, samplers)', body: bindingsWgsl },
+        { title: '// Module-scope variables', body: moduleScopeVarsWgsl },
+        { title: '// WGSL Functions', body: wgslFnsCode },
+        { title: '// DSL Functions', body: dslFnsCode },
+        { title: '// Vertex Shader', body: vertexBody },
     ];
-    if (emitFragment) {
-        codeParts.push('', '// Fragment Shader', fragmentBody);
-    }
-    const code = codeParts.filter(Boolean).join('\n');
+    if (emitFragment) sections.push({ title: '// Fragment Shader', body: fragmentBody });
+    const code = joinSections(sections);
 
     // collect graph info
     const graphNodes = new Map<number, Node<d.Any>>();
@@ -424,63 +419,43 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
 
     const version = '#version 300 es';
 
-    // Only prefix the header when there are combined-sampler declarations, so texture-free shaders
-    // stay byte-clean. Both stages get the same declarations; unused ones are harmless in GLSL.
-    const structsSection = structsGlsl ? `// Structs\n${structsGlsl}` : '';
-    const samplersSection = samplersGlsl ? `// Combined samplers\n${samplersGlsl}` : '';
-    const moduleScopeSection = moduleScopeVarsGlsl ? `// Module-scope variables\n${moduleScopeVarsGlsl}` : '';
-    // Function sections are per-stage (only the fns reachable in that stage), so the vertex shader never
-    // carries a fragment-only fn definition and vice versa.
-    const vertexRawFnsSection = rawFnsGlsl ? `// Raw functions (wgslFn/glslFn)\n${rawFnsGlsl}` : '';
-    const vertexDslFnsSection = dslFnsGlsl ? `// Functions\n${dslFnsGlsl}` : '';
-    const fragmentRawFnsSection = fragmentRawFnsGlsl ? `// Raw functions (wgslFn/glslFn)\n${fragmentRawFnsGlsl}` : '';
-    const fragmentDslFnsSection = fragmentDslFnsGlsl ? `// Functions\n${fragmentDslFnsGlsl}` : '';
-
-    const vertexParts = [
-        version,
-        '',
-        structsSection,
-        '// Uniform blocks (std140)',
-        uniformBlocksGlsl,
-        samplersSection,
-        moduleScopeSection,
-        vertexRawFnsSection,
-        vertexDslFnsSection,
-        '// Vertex shader',
-        vertexBody,
+    // Sections emitted into BOTH stages; unused declarations are harmless in GLSL. An empty one is
+    // dropped whole by joinSections, so a texture-free shader carries no combined-sampler heading.
+    // The function sections below are per-stage (only the fns reachable in that stage), so the vertex
+    // shader never carries a fragment-only fn definition.
+    const sharedSections = [
+        { title: '// Structs', body: structsGlsl },
+        { title: '// Uniform blocks (std140)', body: uniformBlocksGlsl },
+        { title: '// Combined samplers', body: samplersGlsl },
+        { title: '// Module-scope variables', body: moduleScopeVarsGlsl },
     ];
-    const fragmentParts = emitFragment
-        ? [
-              version,
-              '',
-              // GLSL ES 3.00 fragment shaders have no default float precision — one must be declared
-              // before any float-typed declaration (struct fields, UBO members, varyings). It sits at
-              // the very top so every downstream section is covered. (Vertex defaults to highp, so it
-              // needs none.) The qualifier is 'highp' by default (byte-identical to the golden
-              // snapshots); the WebGL backend can request 'mediump'/'lowp' via CompileGlslOptions.
-              `precision ${opts.precision ?? 'highp'} float;`,
-              `precision ${opts.precision ?? 'highp'} int;`,
-              '',
-              structsSection,
-              '// Uniform blocks (std140)',
-              uniformBlocksGlsl,
-              samplersSection,
-              moduleScopeSection,
-              fragmentRawFnsSection,
-              fragmentDslFnsSection,
-              '// Fragment shader',
-              fragmentBody,
-          ]
-        : [];
+
+    const vertexCode = joinSections([
+        { body: version },
+        ...sharedSections,
+        { title: '// Raw functions (wgslFn/glslFn)', body: rawFnsGlsl },
+        { title: '// Functions', body: dslFnsGlsl },
+        { title: '// Vertex shader', body: vertexBody },
+    ]);
+    // GLSL ES 3.00 fragment shaders have no default float precision — one must be declared before any
+    // float-typed declaration (struct fields, UBO members, varyings). It sits at the very top so every
+    // downstream section is covered. (Vertex defaults to highp, so it needs none.) The qualifier is
+    // 'highp' by default; the WebGL backend can request 'mediump'/'lowp' via CompileGlslOptions.
+    const precision = opts.precision ?? 'highp';
+    const fragmentCode = emitFragment
+        ? joinSections([
+              { body: `${version}\nprecision ${precision} float;\nprecision ${precision} int;` },
+              ...sharedSections,
+              { title: '// Raw functions (wgslFn/glslFn)', body: fragmentRawFnsGlsl },
+              { title: '// Functions', body: fragmentDslFnsGlsl },
+              { title: '// Fragment shader', body: fragmentBody },
+          ])
+        : '';
 
     // Emit vertex + fragment as a single string, separated by a stage marker. WebGL compiles the
     // two stages from distinct sources; this combined `.code` is the snapshot/regression surface,
     // mirroring how the WGSL path returns one combined module string.
-    const codeParts = [vertexParts.filter(Boolean).join('\n')];
-    if (emitFragment) {
-        codeParts.push('', '// ---- fragment stage ----', '', fragmentParts.filter(Boolean).join('\n'));
-    }
-    const code = codeParts.join('\n');
+    const code = emitFragment ? `${vertexCode}\n\n// ---- fragment stage ----\n\n${fragmentCode}` : vertexCode;
 
     // Graph info (same shape as compile(), for inspector parity).
     const graphNodes = new Map<number, Node<d.Any>>();
@@ -575,20 +550,13 @@ export function compileComputeWgsl(node: ComputeNode): ComputeCompileResult {
     const dslFnsCode = emitDslFunctions(ctx);
 
     // assemble full shader
-    const code = [
-        '// Bindings (uniforms, storage, textures, samplers)',
-        bindingsWgsl,
-        '// Module-scope variables',
-        moduleScopeVarsWgsl,
-        '// WGSL Functions',
-        wgslFnsCode,
-        '// DSL Functions',
-        dslFnsCode,
-        '// Compute Shader',
-        computeBody,
-    ]
-        .filter(Boolean)
-        .join('\n');
+    const code = joinSections([
+        { title: '// Bindings (uniforms, storage, textures, samplers)', body: bindingsWgsl },
+        { title: '// Module-scope variables', body: moduleScopeVarsWgsl },
+        { title: '// WGSL Functions', body: wgslFnsCode },
+        { title: '// DSL Functions', body: dslFnsCode },
+        { title: '// Compute Shader', body: computeBody },
+    ]);
 
     // convert storage entries to compute format
     const computeStorage: ComputeStorageEntry[] = storageEntries.map((e) => ({
@@ -679,32 +647,23 @@ export function compileTransformFeedback(
     // leaving the sampler undeclared. The declarations still precede the functions in the output.
     const { glsl: samplersGlsl, textures: textureEntries, samplers: samplerEntries } = emitGlslTextures(ctx);
 
-    const version = '#version 300 es';
-    const structsSection = structsGlsl ? `// Structs\n${structsGlsl}` : '';
-    const samplersSection = samplersGlsl ? `// Combined samplers\n${samplersGlsl}` : '';
-    const moduleScopeSection = moduleScopeVarsGlsl ? `// Module-scope variables\n${moduleScopeVarsGlsl}` : '';
-    const rawFnsSection = rawFnsGlsl ? `// Raw functions (wgslFn/glslFn)\n${rawFnsGlsl}` : '';
-    const dslFnsSection = dslFnsGlsl ? `// Functions\n${dslFnsGlsl}` : '';
-
-    const vertexCode = [
-        version,
-        // The vertex stage defaults to highp; a precision qualifier is emitted only when a non-default
-        // was requested, keeping texture-free kernels byte-clean.
+    // The vertex stage defaults to highp; a precision qualifier is emitted only when a non-default was
+    // requested, keeping texture-free kernels byte-clean.
+    const header =
         opts.precision && opts.precision !== 'highp'
-            ? `precision ${opts.precision} float;\nprecision ${opts.precision} int;\n`
-            : '',
-        structsSection,
-        '// Uniform blocks (std140)',
-        uniformBlocksGlsl,
-        samplersSection,
-        moduleScopeSection,
-        rawFnsSection,
-        dslFnsSection,
-        '// Transform-feedback vertex shader',
-        main,
-    ]
-        .filter(Boolean)
-        .join('\n');
+            ? `#version 300 es\nprecision ${opts.precision} float;\nprecision ${opts.precision} int;`
+            : '#version 300 es';
+
+    const vertexCode = joinSections([
+        { body: header },
+        { title: '// Structs', body: structsGlsl },
+        { title: '// Uniform blocks (std140)', body: uniformBlocksGlsl },
+        { title: '// Combined samplers', body: samplersGlsl },
+        { title: '// Module-scope variables', body: moduleScopeVarsGlsl },
+        { title: '// Raw functions (wgslFn/glslFn)', body: rawFnsGlsl },
+        { title: '// Functions', body: dslFnsGlsl },
+        { title: '// Transform-feedback vertex shader', body: main },
+    ]);
 
     // No-op fragment shader — rasterization is discarded, but the program must still link.
     const fragmentCode = ['#version 300 es', 'precision highp float;', 'void main() {}'].join('\n');
@@ -823,7 +782,10 @@ export type StorageEntry = {
 };
 
 export type TextureEntry = {
+    /** Identity: dedup key for bind groups and the emitter's texture table. Never a shader spelling. */
     textureId: string;
+    /** The identifier this binding is declared under in the emitted source (see `nameBindings`). */
+    shaderName: string;
     type: string;
     group: number;
     binding: number;
@@ -831,7 +793,10 @@ export type TextureEntry = {
 };
 
 export type StorageTextureEntry = {
+    /** Identity: dedup key for bind groups and the emitter's texture table. Never a shader spelling. */
     textureId: string;
+    /** The identifier this binding is declared under in the emitted source (see `nameBindings`). */
+    shaderName: string;
     /** Composed WGSL binding type, e.g. `texture_storage_2d<rgba8unorm, write>`. */
     type: string;
     format: d.StorageTextureFormat;
@@ -1004,10 +969,19 @@ export type Discovery = {
     fnDefs: Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>;
     wgslFnDefs: Map<string, WgslFunctionNode>;
     structDefs: Map<string, StructDef<StructSchema>>;
-    storageNames: Map<number, string>; // node.id -> globally unique name
+    storageNames: Map<number, string>; // node.id -> shader identifier
     textures: Map<string, TextureBindingNode>;
     storageTextures: Map<string, StorageTextureBindingNode>;
     samplers: Map<string, SamplerNode>; // keyed by settingsKey for deduplication
+    /** textureId -> shader identifier. See {@link nameBindings}. */
+    textureNames: Map<string, string>;
+    /** sampler settingsKey -> shader identifier. See {@link nameBindings}. */
+    samplerNames: Map<string, string>;
+    /** uniform identity name -> shader identifier (the block member). See {@link nameBindings}. */
+    uniformNames: Map<string, string>;
+    /** The scope those names were allocated from, kept so a binding first reached while emitting a
+     *  function body can allocate one too (discovery only sees the graph as written). */
+    bindingNames: NameScope;
     uniforms: Map<string, { node: UniformNode<d.Any>; group: UniformGroup }>;
     storages: Map<string, StorageNode<d.Any>>;
     privateVars: Map<number, PrivateVarNode<d.Any>>; // node.id -> node
@@ -1017,6 +991,80 @@ export type Discovery = {
     updateAfterNodes: UpdateAfterNode[];
     updateNodes: UpdateNode[];
 };
+
+/**
+ * Assign every binding its shader identifier, once per compile.
+ *
+ * Names come from what the author already labelled: a `Texture`'s `name` (forwarded to
+ * `GpuTexture.label`), a `GpuBuffer`'s `label`, or the slot name a `storage('slot', …)` was declared
+ * with. Unlabelled bindings fall back to `t0`, `storage0`, … numbered in discovery order. Samplers
+ * have no resource to name them — several textures share one, deduped by settings — so they read as
+ * what they are: `linearSampler`, `nearestSampler`.
+ *
+ * Assigned HERE, not per stage or per backend, for three reasons: a WGSL module declares its bindings
+ * once but both stages reference them, the two backends should spell the same binding the same way,
+ * and the result has to be deterministic (the WebGL program cache keys on the emitted source). The
+ * identity of a binding stays its `textureId` / settingsKey — this is only how it is spelled.
+ */
+function nameBindings(
+    textures: Map<string, TextureBindingNode>,
+    storageTextures: Map<string, StorageTextureBindingNode>,
+    samplers: Map<string, SamplerNode>,
+    storages: Map<string, StorageNode<d.Any>>,
+    storageNames: Map<number, string>,
+    uniforms: Map<string, { node: UniformNode<d.Any>; group: UniformGroup }>,
+): {
+    textureNames: Map<string, string>;
+    samplerNames: Map<string, string>;
+    uniformNames: Map<string, string>;
+    bindingNames: NameScope;
+} {
+    const scope = createNameScope();
+    const textureNames = new Map<string, string>();
+    const samplerNames = new Map<string, string>();
+    const uniformNames = new Map<string, string>();
+
+    // Sampled and storage textures keep distinct fallback prefixes (`t0` / `st0`), so an unlabelled
+    // binding still says which kind it is.
+    let unnamedTextures = 0;
+    for (const [textureId, binding] of textures) {
+        textureNames.set(textureId, allocName(scope, binding.value?.label || `t${unnamedTextures++}`));
+    }
+    let unnamedStorageTextures = 0;
+    for (const [textureId, binding] of storageTextures) {
+        textureNames.set(textureId, allocName(scope, binding.value?.label || `st${unnamedStorageTextures++}`));
+    }
+
+    for (const [key, sampler] of samplers) {
+        samplerNames.set(key, allocName(scope, sampler.value.label || derivedSamplerName(sampler)));
+    }
+
+    // The walk filled storageNames with placeholders and keyed `storages` by them; respell from the
+    // buffer's own label (or the slot name it was declared with) and re-key in step. `storages` is
+    // aliased into every emission context, so it is refilled in place rather than replaced.
+    let unnamedStorages = 0;
+    const renamedStorages = new Map<string, StorageNode<d.Any>>();
+    for (const storage of storages.values()) {
+        const label = storage.bufferName ?? storage.value?.label;
+        const name = allocName(scope, label || `storage${unnamedStorages++}`);
+        storageNames.set(storage.id, name);
+        renamedStorages.set(name, storage);
+    }
+    storages.clear();
+    for (const [name, storage] of renamedStorages) storages.set(name, storage);
+
+    // Uniform block members. A name-based uniform already reads as what the author called it; a
+    // value-based one carries the Uniform's label, and an unlabelled one is numbered here rather than
+    // keeping the node-id placeholder it was given for identity. Members live inside `uniforms_<group>`
+    // so they allocate from their own scope, free to reuse a name a binding took.
+    const memberScope = createNameScope();
+    let unnamedUniforms = 0;
+    for (const [identity, { node }] of uniforms) {
+        uniformNames.set(identity, allocName(memberScope, node.uniform.label || `uniform${unnamedUniforms++}`));
+    }
+
+    return { textureNames, samplerNames, uniformNames, bindingNames: scope };
+}
 
 function discover(roots: Node<d.Any>[]): Discovery {
     const nodeIdToNode = new Map<number, Node<d.Any>>();
@@ -1226,6 +1274,15 @@ function discover(roots: Node<d.Any>[]): Discovery {
         walkTypeForStructs(node.type, registerStructDef);
     }
 
+    const { textureNames, samplerNames, uniformNames, bindingNames } = nameBindings(
+        textures,
+        storageTextures,
+        samplers,
+        storages,
+        storageNames,
+        uniforms,
+    );
+
     return {
         nodeIdToNode,
         nodeIdToUsages,
@@ -1234,6 +1291,10 @@ function discover(roots: Node<d.Any>[]): Discovery {
         wgslFnDefs,
         structDefs,
         storageNames,
+        textureNames,
+        samplerNames,
+        uniformNames,
+        bindingNames,
         updateBeforeNodes,
         updateAfterNodes,
         updateNodes,

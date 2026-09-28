@@ -46,7 +46,7 @@ describe('control flow', () => {
 
         const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
-        expect(result.code).toContain('if ((1.0 > 0.0))');
+        expect(result.code).toContain('if (1.0 > 0.0)');
         expect(result.code).toContain('} else {');
         expect(result.code).toContain('result = 1.0');
         expect(result.code).toContain('result = 0.0');
@@ -71,9 +71,9 @@ describe('control flow', () => {
 
         const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
-        expect(result.code).toContain('if ((15.0 > 10.0))');
-        expect(result.code).toContain('} else if ((7.0 > 5.0))');
-        expect(result.code).toContain('} else if ((2.0 > 0.0))');
+        expect(result.code).toContain('if (15.0 > 10.0)');
+        expect(result.code).toContain('} else if (7.0 > 5.0)');
+        expect(result.code).toContain('} else if (2.0 > 0.0)');
         expect(result.code).toContain('} else {');
         expect(result.code).toContain('result = 100.0');
         expect(result.code).toContain('result = 50.0');
@@ -97,12 +97,12 @@ describe('control flow', () => {
 
         const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
-        expect(result.code).toContain('for (var i_0_0: i32 = 0i; i_0_0 < 100i; i_0_0++)');
-        expect(result.code).toContain('if ((i_0_0 == 50i))');
+        expect(result.code).toContain('for (var i: i32 = 0i; i < 100i; i++)');
+        expect(result.code).toContain('if (i == 50i)');
         expect(result.code).toContain('break;');
-        expect(result.code).toContain('if ((i_0_0 < 10i))');
+        expect(result.code).toContain('if (i < 10i)');
         expect(result.code).toContain('continue;');
-        expect(result.code).toMatch(/_sum.*=.*\(.*\+ f32\(i_0_0\)\)/);
+        expect(result.code).toContain('sum = sum + f32(i);');
     });
 
     test('nested loops generate unique loop variables and proper bounds', () => {
@@ -117,13 +117,9 @@ describe('control flow', () => {
 
         const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
-        expect(result.code).toContain('for (var i_0_0: i32 = 0i; i_0_0 < 3i; i_0_0++)');
-        expect(result.code).toContain('for (var i_1_1: i32 = 0i; i_1_1 < 4i; i_1_1++)');
-        expect(result.code).toMatch(/_sum.*=.*\(.*\+.*f32\(i_0_0\).*\*.*f32\(i_1_1\).*\)/);
-
-        const loopVars = result.code.match(/i_\d+_\d+/g) ?? [];
-        const uniqueVars = new Set(loopVars);
-        expect(uniqueVars.size).toBe(2);
+        expect(result.code).toContain('for (var i: i32 = 0i; i < 3i; i++)');
+        expect(result.code).toContain('for (var j: i32 = 0i; j < 4i; j++)');
+        expect(result.code).toContain('sum = sum + f32(i) * f32(j);');
     });
 
     test('While generates a condition-driven while loop with a mutating body', () => {
@@ -139,10 +135,10 @@ describe('control flow', () => {
         const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
         // condition-driven header, not a broken `for (… < 0i; …)`
-        expect(result.code).toMatch(/while \(.*_i < 10i.*\)/);
+        expect(result.code).toContain('while (i < 10i)');
         expect(result.code).not.toContain('< 0i');
         // body is emitted and mutates the condition variable
-        expect(result.code).toMatch(/var_\d+_i = \(var_\d+_i \+ 1i\)/);
+        expect(result.code).toContain('i = i + 1i;');
     });
 });
 
@@ -185,7 +181,8 @@ describe('common subexpression elimination', () => {
 
         const sinCalls = result.code.match(/sin\(/g)?.length ?? 0;
         expect(sinCalls).toBe(1);
-        expect(result.code).toMatch(/_v\d+/);
+        // the temp is named after what it computes, not a counter
+        expect(result.code).toContain('let _sin = sin(');
     });
 
     test('independent expressions with same fn are not merged', () => {
@@ -253,8 +250,8 @@ describe('module-scope variables', () => {
         const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
         expect(result.code).toContain('var<private> counter: u32;');
-        // i32(1).toU32() generates u32(1i)
-        expect(result.code).toContain('counter = (counter + u32(1i))');
+        // i32(1).toU32() is a scalar conversion of a literal, so it folds to the literal itself
+        expect(result.code).toContain('counter = counter + 1u;');
     });
 
     test('privateVar with literal initializer emits var<private> with init', () => {

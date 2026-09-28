@@ -35,8 +35,11 @@ describe('compileCompute — single-trace invariant', () => {
         // no phantom binding and no undefined refs in body
         expect(result.code).not.toContain('undefined');
 
-        // every name-based storage gets a `_storageN` binding + at least one body reference
-        const storageDecls = [...result.code.matchAll(/var<storage,[^>]+>\s+(_storage\d+):/g)].map((m) => m[1]);
+        // every name-based storage gets a binding named after its slot + at least one body reference
+        const storageDecls = [...result.code.matchAll(/var<storage,[^>]+>\s+(\w+):/g)].map((m) => m[1]);
+        // Named after their slots. 'out' is a GLSL keyword, and the emitters allocate from the UNION of
+        // both languages' reserved words so a graph spells the same on either backend — hence 'out_1'.
+        expect(storageDecls.sort()).toEqual(['out_1', 'planes', 'table']);
         expect(storageDecls.length).toBe(3);
         for (const name of storageDecls) {
             // each declared storage must be referenced somewhere outside the binding line itself

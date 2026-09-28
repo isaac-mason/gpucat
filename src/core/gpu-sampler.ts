@@ -11,6 +11,12 @@ export type GpuSamplerOptions = {
     compare?: GPUCompareFunction;
     lodMinClamp?: number;
     lodMaxClamp?: number;
+    /**
+     * Name this sampler reads under in emitted shader source. Unlabelled samplers are named after
+     * what distinguishes them — `linearSampler`, `nearestSampler` — since settings are what they
+     * dedupe on and several textures share one.
+     */
+    label?: string;
 };
 
 /**
@@ -37,6 +43,9 @@ export class GpuSampler {
     /** For comparison samplers (shadow mapping) */
     compare?: GPUCompareFunction;
 
+    /** Name used for the emitted shader binding; see GpuSamplerOptions.label. */
+    label: string | undefined;
+
     /** Renderer-set callback to clean up cache entry */
     _onDispose: (() => void) | null = null;
 
@@ -53,6 +62,7 @@ export class GpuSampler {
         this.lodMinClamp = options.lodMinClamp ?? 0;
         this.lodMaxClamp = options.lodMaxClamp ?? 32;
         this.compare = options.compare;
+        this.label = options.label;
     }
 
     /** Is this a comparison sampler? */

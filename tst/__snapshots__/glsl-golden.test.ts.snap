@@ -4,7 +4,7 @@ exports[`golden GLSL — render path > MRT: two fragment outputs → two layout(
 {
   "builtins": [],
   "code": "#version 300 es
-// Uniform blocks (std140)
+
 // Vertex shader
 layout(location = 0) in vec3 a_position;
 
@@ -17,7 +17,7 @@ void main() {
 #version 300 es
 precision highp float;
 precision highp int;
-// Uniform blocks (std140)
+
 // Fragment shader
 layout(location = 0) out vec4 color;
 layout(location = 1) out vec4 normal;
@@ -39,7 +39,7 @@ exports[`golden GLSL — render path > array construct used in the fragment 1`] 
 {
   "builtins": [],
   "code": "#version 300 es
-// Uniform blocks (std140)
+
 // Vertex shader
 layout(location = 0) in vec3 a_position;
 
@@ -52,7 +52,7 @@ void main() {
 #version 300 es
 precision highp float;
 precision highp int;
-// Uniform blocks (std140)
+
 // Fragment shader
 layout(location = 0) out vec4 fragColor;
 
@@ -72,7 +72,7 @@ exports[`golden GLSL — render path > control flow: Var + Loop + If accumulate 
 {
   "builtins": [],
   "code": "#version 300 es
-// Uniform blocks (std140)
+
 // Vertex shader
 layout(location = 0) in vec3 a_position;
 
@@ -85,26 +85,26 @@ void main() {
 #version 300 es
 precision highp float;
 precision highp int;
-// Uniform blocks (std140)
+
 // Functions
 float accumulate() {
-    float var_195_sum = 0.0;
-    for (int i_0_0 = 0; i_0_0 < 8; i_0_0++) {
-        if ((i_0_0 < 4)) {
-            var_195_sum = (var_195_sum + float(i_0_0));
+    float sum = 0.0;
+    for (int i = 0; i < 8; i++) {
+        if (i < 4) {
+            sum = sum + float(i);
         } else {
-            var_195_sum = (var_195_sum + 1.0);
+            sum = sum + 1.0;
         }
     }
-    float let_212_scaled = (var_195_sum * 0.1);
-    return let_212_scaled;
+    float scaled = sum * 0.1;
+    return scaled;
 }
 
 // Fragment shader
 layout(location = 0) out vec4 fragColor;
 
 void main() {
-    fragColor = vec4((vec3(0.2, 0.4, 0.6) * accumulate()), 1.0);
+    fragColor = vec4(vec3(0.2, 0.4, 0.6) * accumulate(), 1.0);
 }",
   "fragmentEntryPoint": "main",
   "samplers": [],
@@ -119,7 +119,7 @@ exports[`golden GLSL — render path > frag_depth override (color + depth): writ
 {
   "builtins": [],
   "code": "#version 300 es
-// Uniform blocks (std140)
+
 // Vertex shader
 layout(location = 0) in vec3 a_position;
 
@@ -135,7 +135,7 @@ void main() {
 #version 300 es
 precision highp float;
 precision highp int;
-// Uniform blocks (std140)
+
 // Fragment shader
 in float vZ;
 
@@ -143,7 +143,7 @@ layout(location = 0) out vec4 fragColor;
 
 void main() {
     fragColor = vec4(vec3(0.4, 0.7, 1.0), 1.0);
-    gl_FragDepth = (0.25 + (vZ * 0.5));
+    gl_FragDepth = 0.25 + vZ * 0.5;
 }",
   "fragmentEntryPoint": "main",
   "samplers": [],
@@ -164,7 +164,7 @@ exports[`golden GLSL — render path > frag_depth override (depth-only): fragmen
 {
   "builtins": [],
   "code": "#version 300 es
-// Uniform blocks (std140)
+
 // Vertex shader
 layout(location = 0) in vec3 a_position;
 
@@ -177,7 +177,7 @@ void main() {
 #version 300 es
 precision highp float;
 precision highp int;
-// Uniform blocks (std140)
+
 // Fragment shader
 void main() {
     gl_FragDepth = 0.75;
@@ -195,6 +195,7 @@ exports[`golden GLSL — render path > lit mesh: attributes, camera/model unifor
 {
   "builtins": [],
   "code": "#version 300 es
+
 // Uniform blocks (std140)
 layout(std140) uniform Uniforms_render {
     mat4 cameraProjectionMatrix;
@@ -213,8 +214,8 @@ layout(location = 1) in vec3 a_position;
 out vec3 vNormal;
 
 void main() {
-    vNormal = normalize((uniforms_object.modelNormalMatrix * a_normal));
-    gl_Position = (uniforms_render.cameraProjectionMatrix * (uniforms_render.cameraViewMatrix * (uniforms_object.modelWorldMatrix * vec4(a_position, 1.0))));
+    vNormal = normalize(uniforms_object.modelNormalMatrix * a_normal);
+    gl_Position = uniforms_render.cameraProjectionMatrix * (uniforms_render.cameraViewMatrix * (uniforms_object.modelWorldMatrix * vec4(a_position, 1.0)));
 }
 
 // ---- fragment stage ----
@@ -222,6 +223,7 @@ void main() {
 #version 300 es
 precision highp float;
 precision highp int;
+
 // Uniform blocks (std140)
 layout(std140) uniform Uniforms_render {
     mat4 cameraProjectionMatrix;
@@ -239,7 +241,7 @@ in vec3 vNormal;
 layout(location = 0) out vec4 fragColor;
 
 void main() {
-    fragColor = vec4((vec3(0.4, 0.7, 1.0) * (0.15 + max(dot(vNormal, normalize(vec3(0.6, 1.0, 0.8))), 0.0))), 1.0);
+    fragColor = vec4(vec3(0.4, 0.7, 1.0) * (0.15 + max(dot(vNormal, normalize(vec3(0.6, 1.0, 0.8))), 0.0)), 1.0);
 }",
   "fragmentEntryPoint": "main",
   "samplers": [],
@@ -295,7 +297,7 @@ exports[`golden GLSL — render path > select: fragment ternary from a bool cond
 {
   "builtins": [],
   "code": "#version 300 es
-// Uniform blocks (std140)
+
 // Vertex shader
 layout(location = 0) in vec3 a_position;
 
@@ -311,14 +313,14 @@ void main() {
 #version 300 es
 precision highp float;
 precision highp int;
-// Uniform blocks (std140)
+
 // Fragment shader
 in vec2 vUV;
 
 layout(location = 0) out vec4 fragColor;
 
 void main() {
-    fragColor = vec4(((vUV.x > 0.5) ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)), 1.0);
+    fragColor = vec4(vUV.x > 0.5 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), 1.0);
 }",
   "fragmentEntryPoint": "main",
   "samplers": [],
@@ -339,13 +341,13 @@ exports[`golden GLSL — render path > struct construct + field access in the fr
 {
   "builtins": [],
   "code": "#version 300 es
+
 // Structs
 struct Material {
     vec3 albedo;
     float roughness;
 };
 
-// Uniform blocks (std140)
 // Vertex shader
 layout(location = 0) in vec3 a_position;
 
@@ -358,19 +360,19 @@ void main() {
 #version 300 es
 precision highp float;
 precision highp int;
+
 // Structs
 struct Material {
     vec3 albedo;
     float roughness;
 };
 
-// Uniform blocks (std140)
 // Fragment shader
 layout(location = 0) out vec4 fragColor;
 
 void main() {
-    Material _v0 = Material(vec3(0.9, 0.4, 0.2), 0.3);
-    fragColor = vec4((_v0.albedo * _v0.roughness), 1.0);
+    Material _material = Material(vec3(0.9, 0.4, 0.2), 0.3);
+    fragColor = vec4(_material.albedo * _material.roughness, 1.0);
 }",
   "fragmentEntryPoint": "main",
   "samplers": [],
@@ -387,6 +389,7 @@ exports[`golden GLSL — render path > textured: combined-sampler uniform + text
     "position",
   ],
   "code": "#version 300 es
+
 // Uniform blocks (std140)
 layout(std140) uniform Uniforms_render {
     vec2 screenSize;
@@ -397,6 +400,7 @@ precision highp sampler2D;
 uniform sampler2D u_t0;
 uniform bool u_flipY_t0;
 vec2 _flipY2f(bool f, vec2 uv) { return f ? vec2(uv.x, 1.0 - uv.y) : uv; }
+
 // Vertex shader
 layout(location = 0) in vec3 a_position;
 
@@ -409,6 +413,7 @@ void main() {
 #version 300 es
 precision highp float;
 precision highp int;
+
 // Uniform blocks (std140)
 layout(std140) uniform Uniforms_render {
     vec2 screenSize;
@@ -419,13 +424,14 @@ precision highp sampler2D;
 uniform sampler2D u_t0;
 uniform bool u_flipY_t0;
 vec2 _flipY2f(bool f, vec2 uv) { return f ? vec2(uv.x, 1.0 - uv.y) : uv; }
+
 // Fragment shader
 layout(location = 0) out vec4 fragColor;
 
 uniform highp float u_fragCoordFlipHeight;
 
 void main() {
-    fragColor = texture(u_t0, _flipY2f(u_flipY_t0, ((vec4(gl_FragCoord.x, u_fragCoordFlipHeight - gl_FragCoord.y, gl_FragCoord.z, gl_FragCoord.w)).xy / uniforms_render.screenSize)));
+    fragColor = texture(u_t0, _flipY2f(u_flipY_t0, (vec4(gl_FragCoord.x, u_fragCoordFlipHeight - gl_FragCoord.y, gl_FragCoord.z, gl_FragCoord.w)).xy / uniforms_render.screenSize));
 }",
   "fragmentEntryPoint": "main",
   "samplers": [
@@ -467,7 +473,7 @@ exports[`golden GLSL — render path > user function: define an Fn and call it i
 {
   "builtins": [],
   "code": "#version 300 es
-// Uniform blocks (std140)
+
 // Vertex shader
 layout(location = 0) in vec3 a_position;
 
@@ -480,7 +486,7 @@ void main() {
 #version 300 es
 precision highp float;
 precision highp int;
-// Uniform blocks (std140)
+
 // Functions
 float luminance(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -490,8 +496,8 @@ float luminance(vec3 c) {
 layout(location = 0) out vec4 fragColor;
 
 void main() {
-    float _v0 = luminance(vec3(0.8, 0.3, 0.1));
-    fragColor = vec4(vec3(_v0, _v0, _v0), 1.0);
+    float _luminance = luminance(vec3(0.8, 0.3, 0.1));
+    fragColor = vec4(vec3(_luminance, _luminance, _luminance), 1.0);
 }",
   "fragmentEntryPoint": "main",
   "samplers": [],

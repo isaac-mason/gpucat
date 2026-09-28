@@ -32,6 +32,7 @@ import {
     type FnNode,
     type IfNode,
     isNode,
+    type LetNode,
     type LoopNode,
     type Node,
     NodeKind,
@@ -40,6 +41,7 @@ import {
     type StackNode,
     type StructDef,
     type StructNode,
+    type VarNode,
     type WorkgroupVarNode,
 } from '../../lib/core';
 import type { MRTNode } from '../../lib/mrt';
@@ -57,6 +59,17 @@ import type { UniformGroup, UniformNode } from '../../lib/uniform';
 import type { VaryingNode } from '../../lib/varying';
 import type { WgslFunctionNode } from '../../lib/wgsl-fn';
 import { constLiteral } from '../../wgsl-utils';
+import {
+    allocName,
+    createNameScope,
+    cseBaseName,
+    derivedSamplerName,
+    loopVarName,
+    type NameScope,
+    reserveName,
+    tracedFnCallees,
+} from '../names';
+import { binaryOperandMin, binaryPrec, Prec, paren, unary } from '../print';
 
 type ShaderStage = 'vertex' | 'fragment' | 'compute';
 
@@ -76,11 +89,14 @@ export type BuildContext = {
     uniforms: Map<string, { node: UniformNode<d.Any>; group: UniformGroup }>;
     storages: Map<string, StorageNode<d.Any>>;
     storageNames: Map<number, string>; // node.id -> generated name
+    textureNames: Map<string, string>; // textureId -> shader identifier
+    samplerNames: Map<string, string>; // sampler settingsKey -> shader identifier
+    uniformNames: Map<string, string>; // uniform identity -> block member identifier
+    bindingNames: NameScope; // the scope those were allocated from (for bindings found during emission)
     textures: Map<string, TextureBindingNode>;
     storageTextures: Map<string, StorageTextureBindingNode>;
     samplers: Map<string, SamplerNode>; // keyed by settingsKey for deduplication
     attributes: Map<number, AttributeEntry>; // node.id -> entry
-    attrCounter: number;
     varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>;
     builtins: Set<string>;
 
@@ -96,7 +112,13 @@ export type BuildContext = {
     usageCount: Map<number, number>;
     mutatedNodes: Set<number>;
     nodeVars: Map<number, string>;
-    varCounter: number;
+
+    /** node.id -> binding strength of the expression string generateExpr() produced for it. */
+    precOf: Map<number, Prec>;
+
+    /** Identifiers taken in this emission scope: locals, loop counters, CSE temps, and every global
+     *  name already in scope (seeded from the discovery — see {@link seedGlobalNames}). */
+    names: NameScope;
 
     // CSE hoisting: when >= 0, a function-scope-stable CSE temp is spliced into `code` at this index
     // (the body top) instead of pushed at first use — so a temp used across a block boundary is in
@@ -134,6 +156,10 @@ function emptyDiscovery(): Discovery {
         wgslFnDefs: new Map(),
         structDefs: new Map(),
         storageNames: new Map(),
+        textureNames: new Map(),
+        samplerNames: new Map(),
+        uniformNames: new Map(),
+        bindingNames: createNameScope(),
         textures: new Map(),
         storageTextures: new Map(),
         samplers: new Map(),
@@ -163,6 +189,10 @@ export function createContext(stage: ShaderStage, isRender: boolean, discovery: 
         uniforms: discovery.uniforms,
         storages: discovery.storages,
         storageNames: discovery.storageNames,
+        textureNames: discovery.textureNames,
+        samplerNames: discovery.samplerNames,
+        uniformNames: discovery.uniformNames,
+        bindingNames: discovery.bindingNames,
         textures: discovery.textures,
         storageTextures: discovery.storageTextures,
         samplers: discovery.samplers,
@@ -175,12 +205,12 @@ export function createContext(stage: ShaderStage, isRender: boolean, discovery: 
         wgslFnDefs: discovery.wgslFnDefs,
         // Per-stage emission scratch — fresh each call.
         attributes: new Map(),
-        attrCounter: 0,
         varyings: new Map(),
         builtins: new Set(),
         structs: new Map(),
         nodeVars: new Map(),
-        varCounter: 0,
+        precOf: new Map(),
+        names: seedGlobalNames(discovery),
         hoistIndex: -1,
         topScopeParamIds: new Set(),
         hoistStableMemo: new Map(),
@@ -190,6 +220,23 @@ export function createContext(stage: ShaderStage, isRender: boolean, discovery: 
         graphEdges: new Map(),
         graphInfo: new Map(),
     };
+}
+
+/**
+ * A name scope holding every identifier the shader's GLOBALS already occupy, so a local allocated
+ * later cannot take one. Bindings, module-scope variables and function names are all known from the
+ * discovery pass, before a single statement is emitted; varyings are reserved as they are collected.
+ */
+function seedGlobalNames(discovery: Discovery): NameScope {
+    const names = createNameScope();
+    for (const name of discovery.storageNames.values()) reserveName(names, name);
+    for (const name of discovery.textureNames.values()) reserveName(names, name);
+    for (const name of discovery.samplerNames.values()) reserveName(names, name);
+    for (const { group } of discovery.uniforms.values()) reserveName(names, `uniforms_${group.name}`);
+    for (const node of discovery.privateVars.values()) reserveName(names, node.varName);
+    for (const node of discovery.workgroupVars.values()) reserveName(names, node.varName);
+    for (const fnName of discovery.fnDefs.keys()) reserveName(names, fnName);
+    return names;
 }
 
 /** Pre-collect VaryingNodes from roots and generate their vertex expressions. */
@@ -265,6 +312,27 @@ function isHoistStable(node: AnyNode, paramIds: Set<number>, memo: Map<number, b
     return result;
 }
 
+/**
+ * Binding strength of the string {@link generateExpr} returned for `node`, recorded by that function
+ * as it emits. Reading it back — rather than re-deriving it from the node kind — keeps the two in step
+ * by construction: a branch cannot change shape without changing what it records.
+ *
+ * Only meaningful AFTER generateExpr(node) has run; before that (and for a node whose branch never
+ * recorded one) it answers `Prec.Lowest`, which parenthesises unconditionally.
+ */
+function emittedPrec(ctx: BuildContext, node: Node<d.Any>): Prec {
+    // A node bound to a name — a CSE temp, a Let/Var, a loop counter, a parameter — emits as a bare
+    // identifier. Several of those are registered outside generateExpr, so this is checked first.
+    if (ctx.nodeVars.has(node.id)) return Prec.Postfix;
+    return ctx.precOf.get(node.id) ?? Prec.Lowest;
+}
+
+/** Generate an operand and wrap it if it binds looser than `min`. */
+function generateOperand(ctx: BuildContext, node: Node<d.Any>, min: Prec): string {
+    const expr = generateExpr(ctx, node);
+    return paren(expr, emittedPrec(ctx, node), min);
+}
+
 /* expression generation */
 
 function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
@@ -278,9 +346,15 @@ function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
     }
 
     let expr: string;
+    // Binding strength of `expr`, recorded into ctx.precOf at the bottom so callers can decide whether
+    // to parenthesise it. Nearly every branch below emits a name, a call, a constructor or a member
+    // chain, so Postfix is the default; a branch that emits anything looser MUST say so.
+    let prec: Prec = Prec.Postfix;
 
     if (node.kind === NodeKind.Literal) {
         expr = constLiteral(node.type.wgslType, node.value);
+        // A negative scalar literal lexes as unary minus applied to a literal.
+        if (typeof node.value === 'number' && node.value < 0) prec = Prec.Unary;
     } else if (node.kind === NodeKind.Uniform) {
         expr = generateUniform(ctx, node);
     } else if (node.kind === NodeKind.Attribute) {
@@ -291,6 +365,7 @@ function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
         // RenderTextureNode used as expression delegates to its texture node
         const textureNode = node.read === 'depth' ? node.getLinearDepthNode() : node.getTextureNode();
         expr = generateExpr(ctx, textureNode);
+        prec = emittedPrec(ctx, textureNode);
     } else if (node.kind === NodeKind.TextureBinding) {
         expr = generateTextureBinding(ctx, node);
     } else if (node.kind === NodeKind.StorageTextureBinding) {
@@ -307,22 +382,43 @@ function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
         expr = generateSampler(ctx, node);
     } else if (node.kind === NodeKind.Varying) {
         expr = generateVarying(ctx, node);
+        // In the vertex stage a varying emits its SOURCE expression rather than a name.
+        if (ctx.stage === 'vertex') prec = emittedPrec(ctx, node.node.node);
     } else if (node.kind === NodeKind.BinaryOp) {
-        const [left, right] = coerceBinaryOperands(node, generateExpr(ctx, node.left), generateExpr(ctx, node.right));
-        expr = `(${left} ${node.op} ${right})`;
+        const rawLeft = generateExpr(ctx, node.left);
+        const rawRight = generateExpr(ctx, node.right);
+        let leftPrec = emittedPrec(ctx, node.left);
+        let rightPrec = emittedPrec(ctx, node.right);
+        const [left, right] = coerceBinaryOperands(node, rawLeft, rawRight);
+        // A coerced operand has been wrapped in a conversion constructor, so it no longer needs parens.
+        if (left !== rawLeft) leftPrec = Prec.Postfix;
+        if (right !== rawRight) rightPrec = Prec.Postfix;
+        prec = binaryPrec(node.op);
+        const [leftMin, rightMin] = binaryOperandMin(prec);
+        expr = `${paren(left, leftPrec, leftMin)} ${node.op} ${paren(right, rightPrec, rightMin)}`;
     } else if (node.kind === NodeKind.Call) {
         expr = generateCall(ctx, node);
+        prec = callPrec(ctx, node);
     } else if (node.kind === NodeKind.Array) {
         const args = node.elements.map((e) => generateExpr(ctx, e));
         expr = `array<${node.type.element.wgslType}, ${node.elements.length}>(${args.join(', ')})`;
     } else if (node.kind === NodeKind.Construct) {
-        const args = node.args.map((a) => generateExpr(ctx, a));
-        expr = `${node.type.wgslType}(${args.join(', ')})`;
+        const folded = foldScalarConversion(node);
+        const identity = identityConversionArg(node);
+        if (folded !== undefined) {
+            expr = constLiteral(node.type.wgslType, folded);
+            if (folded < 0) prec = Prec.Unary;
+        } else if (identity) {
+            expr = generateExpr(ctx, identity);
+            prec = emittedPrec(ctx, identity);
+        } else {
+            const args = node.args.map((a) => generateExpr(ctx, a));
+            expr = `${node.type.wgslType}(${args.join(', ')})`;
+        }
     } else if (node.kind === NodeKind.Field) {
-        const obj = generateExpr(ctx, node.object);
-        expr = `${obj}.${node.fieldName}`;
+        expr = `${generateOperand(ctx, node.object, Prec.Postfix)}.${node.fieldName}`;
     } else if (node.kind === NodeKind.Index) {
-        const arr = generateExpr(ctx, node.array);
+        const arr = generateOperand(ctx, node.array, Prec.Postfix);
         const idx = generateExpr(ctx, node.index);
         expr = `${arr}[${idx}]`;
     } else if (node.kind === NodeKind.Builtin) {
@@ -347,24 +443,13 @@ function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
             wgsl = wgsl.replace(new RegExp(`\\$${i}`, 'g'), depExpr);
         }
         expr = wgsl;
-    } else if (node.kind === NodeKind.Let) {
-        // LetNode as expression returns the variable name
-        // If not yet declared, emit the declaration now
-        if (!ctx.nodeVars.has(node.id)) {
-            const init = generateExpr(ctx, node.init);
-            ctx.code.push(`    let ${node.varName} = ${init};`);
-            ctx.nodeVars.set(node.id, node.varName);
-        }
-        expr = node.varName;
-    } else if (node.kind === NodeKind.Var) {
-        // VarNode as expression returns the variable name
-        // If not yet declared, emit the declaration now
-        if (!ctx.nodeVars.has(node.id)) {
-            const init = generateExpr(ctx, node.init);
-            ctx.code.push(`    var ${node.varName} = ${init};`);
-            ctx.nodeVars.set(node.id, node.varName);
-        }
-        expr = node.varName;
+        // Hand-written source of unknown shape: wrap it wherever it lands, so a template holding
+        // `a + b` cannot silently re-associate against the operator it is spliced into.
+        prec = Prec.Lowest;
+    } else if (node.kind === NodeKind.Let || node.kind === NodeKind.Var) {
+        // A Let/Var used as an expression resolves to its name; if the statement that declares it has
+        // not run yet, declare it here.
+        expr = ctx.nodeVars.get(node.id) ?? declareLocal(ctx, node, '    ');
     } else if (node.kind === NodeKind.PrivateVar) {
         // PrivateVarNode is module-scope, emitted separately
         // Just return the variable name - declaration is in emitModuleScopeVars
@@ -385,29 +470,36 @@ function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
     } else if (node.kind === NodeKind.Inspector) {
         // inspector is transparent - just generate the wrapped node
         expr = generateExpr(ctx, node.wrappedNode);
+        prec = emittedPrec(ctx, node.wrappedNode);
     } else if (node.kind === NodeKind.OutputStruct || node.kind === NodeKind.MRT) {
         // these are handled specially at the fragment output level
         expr = `/* OutputStruct */`;
     } else {
         console.warn(`[builder] Unknown node kind for expr: ${node.constructor.name}`, node);
         expr = `/* unknown: ${node.constructor.name} */`;
+        prec = Prec.Lowest;
     }
+
+    ctx.precOf.set(node.id, prec);
 
     // CSE: if multi-use, extract to variable
     const usage = ctx.usageCount.get(node.id) ?? 1;
-    if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr(node) && !isNonCopyable(node)) {
-        const varName = `_v${ctx.varCounter++}`;
+    if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr(ctx, node) && !isNonCopyable(node)) {
+        const varName = allocName(ctx.names, cseBaseName(node));
         const keyword = ctx.mutatedNodes.has(node.id) ? 'var' : 'let';
-        const line = `    ${keyword} ${varName} = ${expr};`;
+        const decl = `${keyword} ${varName} = ${expr};`;
         // A pure temp used more than once may be used across a block boundary (e.g. inside an if AND
         // after it). Declaring it at first use would leave it out of scope for the later use, so if it's
         // stable at body top, splice it there. Only immutable (`let`) values built from function-scope
         // inputs qualify; anything touching a loop var or a block-local `let`/`var` stays at first use.
         if (ctx.hoistIndex >= 0 && keyword === 'let' && isHoistStable(node, ctx.topScopeParamIds, ctx.hoistStableMemo)) {
-            ctx.code.splice(ctx.hoistIndex, 0, line);
+            // The body top is always one level in, whatever block the temp was first reached from.
+            ctx.code.splice(ctx.hoistIndex, 0, `    ${decl}`);
             ctx.hoistIndex++;
         } else {
-            ctx.code.push(line);
+            // Declared where it is first used, so it takes the indentation of THAT block — not the
+            // body's. (This read `    ` regardless, so a temp inside an if landed a level out.)
+            ctx.code.push(`${'    '.repeat(ctx.indentLevel)}${decl}`);
         }
         ctx.nodeVars.set(node.id, varName);
 
@@ -421,6 +513,38 @@ function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
     }
 
     return expr;
+}
+
+/** Component kind of a numeric SCALAR descriptor (not a vector, not bool), else null. */
+function numericScalarKind(desc: d.Any): string | null {
+    if (!('len' in desc) || desc.len !== 1) return null;
+    return desc.scalar === 'bool' ? null : desc.scalar;
+}
+
+/**
+ * The value a numeric scalar conversion of a literal collapses to, or undefined if the node is not
+ * one. `u32(0.0)` means `0u`, which is what an array index should look like; the constructor form only
+ * obscured it. Bool is excluded on both sides — those conversions are value tests, not a respelling.
+ */
+function foldScalarConversion(node: { args: readonly Node<d.Any>[]; type: d.Any }): number | undefined {
+    if (node.args.length !== 1 || numericScalarKind(node.type) === null) return undefined;
+    const arg = node.args[0] as AnyNode;
+    if (arg.kind !== NodeKind.Literal || typeof arg.value !== 'number') return undefined;
+    return numericScalarKind(arg.type) === null ? undefined : arg.value;
+}
+
+/**
+ * The operand of a one-argument conversion whose target type is ALREADY the argument's type — a
+ * `vec2i(v)` where `v` is a vec2i, which spells out nothing. Mirrors three.js's NodeBuilder.format(),
+ * which returns the operand untouched when the two types match.
+ *
+ * Composites are excluded: a one-field struct or array constructor is a construction, not a respelling.
+ */
+function identityConversionArg(node: { args: readonly Node<d.Any>[]; type: d.Any }): Node<d.Any> | undefined {
+    if (node.args.length !== 1) return undefined;
+    if (d.isStructDesc(node.type) || d.isArrayDesc(node.type) || d.isSizedArrayDesc(node.type)) return undefined;
+    const arg = node.args[0];
+    return arg.type.wgslType === node.type.wgslType ? arg : undefined;
 }
 
 /** Check if a type descriptor contains atomic types (recursively) */
@@ -438,9 +562,12 @@ function containsAtomics(desc: d.Any): boolean {
 }
 
 /** Check if expression is trivial enough that repeating it is cheap (no need to extract) */
-function isTrivialExpr(node: Node<d.Any>): boolean {
+function isTrivialExpr(ctx: BuildContext, node: Node<d.Any>): boolean {
     return (
         node.kind === NodeKind.Literal ||
+        // A varying READ is `input.name`, as cheap to repeat as an attribute. In the VERTEX stage it
+        // is the varying's whole source expression instead, which is not.
+        (node.kind === NodeKind.Varying && ctx.stage !== 'vertex') ||
         node.kind === NodeKind.Let ||
         node.kind === NodeKind.Var ||
         node.kind === NodeKind.PrivateVar ||
@@ -479,11 +606,23 @@ function isStorageElementAccess(rawNode: Node<d.Any>): boolean {
 /* binding generation */
 
 function generateUniform(ctx: BuildContext, node: UniformNode<d.Any>): string {
-    const name = node.name;
     const group = node.group;
-    ctx.uniforms.set(name, { node, group });
+    ctx.uniforms.set(node.name, { node, group });
+    return `uniforms_${group.name}.${uniformMemberName(ctx, node)}`;
+}
 
-    return `uniforms_${group.name}.${name}`;
+/**
+ * The block-member spelling for a uniform, allocated on first sight. `node.name` is identity — for a
+ * value-based uniform that is a node-id placeholder, which must never reach the source: node ids come
+ * from a process-wide counter, so emitting one makes the shader text differ between two compiles of
+ * the same graph (and the WebGL program cache keys on that text).
+ */
+function uniformMemberName(ctx: BuildContext, node: UniformNode<d.Any>): string {
+    const existing = ctx.uniformNames.get(node.name);
+    if (existing !== undefined) return existing;
+    const name = allocName(ctx.bindingNames, node.uniform.label || `uniform${ctx.uniformNames.size}`);
+    ctx.uniformNames.set(node.name, name);
+    return name;
 }
 
 function generateAttribute(ctx: BuildContext, node: AttributeNode<d.Any>): string {
@@ -504,11 +643,12 @@ function generateAttribute(ctx: BuildContext, node: AttributeNode<d.Any>): strin
     }
 
     const location = ctx.attributes.size;
-    const index = ctx.attrCounter++;
 
     if (node.isNamedReference) {
         const geomName = node.name!;
-        const shaderName = `_${geomName}_${index}`;
+        // A VertexInput member, so it cannot collide with anything outside the struct; only distinct
+        // attributes sharing a geometry name need separating, which the suffix below handles.
+        const shaderName = uniqueAttributeName(ctx, geomName);
         ctx.attributes.set(node.id, {
             kind: 'geometry',
             name: geomName,
@@ -522,7 +662,7 @@ function generateAttribute(ctx: BuildContext, node: AttributeNode<d.Any>): strin
         });
         return `input.${shaderName}`;
     }
-    const shaderName = `_buf_${index}`;
+    const shaderName = uniqueAttributeName(ctx, 'buf');
     ctx.attributes.set(node.id, {
         kind: 'buffer',
         name: null,
@@ -537,6 +677,16 @@ function generateAttribute(ctx: BuildContext, node: AttributeNode<d.Any>): strin
     return `input.${shaderName}`;
 }
 
+/** `name`, or `name_1`, `name_2`, … if the VertexInput struct already has a member spelled that way. */
+function uniqueAttributeName(ctx: BuildContext, name: string): string {
+    const taken = new Set<string>();
+    for (const attr of ctx.attributes.values()) taken.add(attr.shaderName);
+    if (!taken.has(name)) return name;
+    for (let n = 1; ; n++) {
+        if (!taken.has(`${name}_${n}`)) return `${name}_${n}`;
+    }
+}
+
 function generateStorage(ctx: BuildContext, node: StorageNode<d.Any>): string {
     // name was assigned globally during discover()
     const name = ctx.storageNames.get(node.id)!;
@@ -549,20 +699,32 @@ function generateStorage(ctx: BuildContext, node: StorageNode<d.Any>): string {
     return name;
 }
 
-function generateTextureBinding(ctx: BuildContext, node: TextureBindingNode): string {
-    const name = node.textureId;
-    if (!ctx.textures.has(name)) {
-        ctx.textures.set(name, node);
-    }
+/**
+ * The shader spelling for a texture binding, allocating one if this is the first time it has been
+ * seen. Discovery names everything it can reach, but a texture sampled only inside an Fn body first
+ * appears when that body is traced during emission — so the name is allocated here, from the same
+ * scope, and recorded for the declaration pass that follows.
+ */
+function textureShaderName(ctx: BuildContext, node: TextureBindingNode | StorageTextureBindingNode, prefix: string): string {
+    const existing = ctx.textureNames.get(node.textureId);
+    if (existing !== undefined) return existing;
+    const name = allocName(ctx.bindingNames, node.value?.label || `${prefix}${ctx.textureNames.size}`);
+    ctx.textureNames.set(node.textureId, name);
     return name;
 }
 
-function generateStorageTextureBinding(ctx: BuildContext, node: StorageTextureBindingNode): string {
-    const name = node.textureId;
-    if (!ctx.storageTextures.has(name)) {
-        ctx.storageTextures.set(name, node);
+function generateTextureBinding(ctx: BuildContext, node: TextureBindingNode): string {
+    if (!ctx.textures.has(node.textureId)) {
+        ctx.textures.set(node.textureId, node);
     }
-    return name;
+    return textureShaderName(ctx, node, 't');
+}
+
+function generateStorageTextureBinding(ctx: BuildContext, node: StorageTextureBindingNode): string {
+    if (!ctx.storageTextures.has(node.textureId)) {
+        ctx.storageTextures.set(node.textureId, node);
+    }
+    return textureShaderName(ctx, node, 'st');
 }
 
 function generateTexture(ctx: BuildContext, node: TextureNode): string {
@@ -659,8 +821,7 @@ function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
     // Always negate the sample direction's X for WebGPU cube sampling. The CubeCamera stores
     // faces with swapped X (by design), and negating the sample direction un-does the swap so
     // the correct face is selected by the hardware.
-    const rawDir = generateExpr(ctx, node.directionNode);
-    const sampleDir = `((${rawDir}) * vec3f(-1.0, 1.0, 1.0))`;
+    const sampleDir = `${generateOperand(ctx, node.directionNode, Prec.Multiplicative)} * vec3f(-1.0, 1.0, 1.0)`;
 
     // Cube textures do NOT support offset
 
@@ -822,9 +983,17 @@ function generateSampler(ctx: BuildContext, node: SamplerNode): string {
         ctx.samplers.set(key, node);
     }
 
-    // Return the sampler variable name (uses the registered sampler's ID for deduplication)
-    const registeredSampler = ctx.samplers.get(key)!;
-    return `${registeredSampler.samplerId}_sampler`;
+    // The registered sampler's name — deduplicated by settings, so several textures share one.
+    return samplerShaderName(ctx, ctx.samplers.get(key)!, key);
+}
+
+/** The shader spelling for a sampler, allocated on first sight (see {@link textureShaderName}). */
+function samplerShaderName(ctx: BuildContext, node: SamplerNode, settingsKey: string): string {
+    const existing = ctx.samplerNames.get(settingsKey);
+    if (existing !== undefined) return existing;
+    const name = allocName(ctx.bindingNames, node.value.label || derivedSamplerName(node));
+    ctx.samplerNames.set(settingsKey, name);
+    return name;
 }
 
 function generateVarying(ctx: BuildContext, node: VaryingNode<d.Any>): string {
@@ -869,6 +1038,25 @@ function generateBuiltin(ctx: BuildContext, node: BuiltinNode<d.Any>): string {
 
 /* function call generation */
 
+/**
+ * Binding strength of what {@link generateCall} emits. Every call is a `f(…)` postfix form except the
+ * three lowerings below, which spell out an operator instead — keep this in step with them.
+ */
+function callPrec(ctx: BuildContext, node: CallNode<d.Any>): Prec {
+    if (node.fn === node.type.wgslType) {
+        const folded = foldScalarConversion(node);
+        if (folded !== undefined) return folded < 0 ? Prec.Unary : Prec.Postfix;
+        const identity = identityConversionArg(node);
+        if (identity) return emittedPrec(ctx, identity);
+    }
+    if (node.args.length === 1) {
+        if (node.fn === 'negate' || node.fn === 'not') return Prec.Unary;
+        // A passthrough forwards its operand's spelling verbatim, so it inherits its strength.
+        if (node.fn === 'ndcDepthToStorage') return emittedPrec(ctx, node.args[0]);
+    }
+    return Prec.Postfix;
+}
+
 function generateCall(ctx: BuildContext, node: CallNode<d.Any>): string {
     // if this calls an FnNode, make sure it's registered
     if (node.fnNode) {
@@ -898,18 +1086,27 @@ function generateCall(ctx: BuildContext, node: CallNode<d.Any>): string {
         }
     }
 
+    if (node.fn === node.type.wgslType) {
+        // A scalar conversion of a literal (`u32(0.0)`) is that literal in the target type (`0u`).
+        const folded = foldScalarConversion(node);
+        if (folded !== undefined) return constLiteral(node.type.wgslType, folded);
+        // A conversion to the type the operand already has spells out nothing.
+        const identity = identityConversionArg(node);
+        if (identity) return generateExpr(ctx, identity);
+    }
+
     const args = node.args.map((a) => generateExpr(ctx, a));
 
     // handle special cases
     if (node.fn === 'negate' && args.length === 1) {
-        return `(-${args[0]})`;
+        return unary('-', args[0], emittedPrec(ctx, node.args[0]));
     }
     if (node.fn === 'not' && args.length === 1) {
-        return `(!${args[0]})`;
+        return unary('!', args[0], emittedPrec(ctx, node.args[0]));
     }
     // NDC depth → stored [0,1]. WebGPU NDC z is already [0,1] (ZO projection) — passthrough; GLSL remaps.
     if (node.fn === 'ndcDepthToStorage' && args.length === 1) {
-        return `(${args[0]})`;
+        return args[0];
     }
 
     // atomic functions need pointer reference
@@ -929,10 +1126,25 @@ function generateCall(ctx: BuildContext, node: CallNode<d.Any>): string {
 
     if (atomicFns.includes(node.fn) && args.length >= 1) {
         const [ptr, ...rest] = args;
-        return `${node.fn}(&${ptr}, ${rest.join(', ')})`;
+        // atomicLoad takes the pointer alone, so the remaining args may be empty.
+        return `${node.fn}(${[`&${ptr}`, ...rest].join(', ')})`;
     }
 
     return `${node.fn}(${args.join(', ')})`;
+}
+
+/**
+ * Emit the declaration for a Let/Var and bind its node to the allocated name. The author's label is
+ * only a preference — the scope decides the final identifier, so two `Var('t', …)` in one function
+ * become `t` and `t_1` instead of both being stamped with their node ids.
+ */
+function declareLocal(ctx: BuildContext, node: LetNode<d.Any> | VarNode<d.Any>, indent: string): string {
+    const init = generateExpr(ctx, node.init);
+    const name = allocName(ctx.names, node.label ?? 'v');
+    const keyword = node.kind === NodeKind.Var ? 'var' : 'let';
+    ctx.code.push(`${indent}${keyword} ${name} = ${init};`);
+    ctx.nodeVars.set(node.id, name);
+    return name;
 }
 
 /* statement generation */
@@ -941,14 +1153,8 @@ function generateStmt(ctx: BuildContext, rawNode: Node<d.Any>): void {
     const node = rawNode as AnyNode;
     const ind = '    '.repeat(ctx.indentLevel);
 
-    if (node.kind === NodeKind.Let) {
-        const init = generateExpr(ctx, node.init);
-        ctx.code.push(`${ind}let ${node.varName} = ${init};`);
-        ctx.nodeVars.set(node.id, node.varName);
-    } else if (node.kind === NodeKind.Var) {
-        const init = generateExpr(ctx, node.init);
-        ctx.code.push(`${ind}var ${node.varName} = ${init};`);
-        ctx.nodeVars.set(node.id, node.varName);
+    if (node.kind === NodeKind.Let || node.kind === NodeKind.Var) {
+        declareLocal(ctx, node, ind);
     } else if (node.kind === NodeKind.Assign) {
         const target = generateExpr(ctx, node.target);
         const value = generateExpr(ctx, node.value);
@@ -1026,9 +1232,9 @@ function generateIfStmt(ctx: BuildContext, node: IfNode): void {
 function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
     const { config, loopVar, body } = node;
 
-    // Generate a unique WGSL variable name for this loop
+    // Conventional counter name for the nesting depth; the scope resolves any collision.
     const depth = ctx.indentLevel - 1;
-    const wgslVarName = `i_${depth}_${ctx.varCounter++}`;
+    const wgslVarName = allocName(ctx.names, loopVarName(depth));
 
     // Register the loop variable so references resolve to the WGSL name
     ctx.nodeVars.set(loopVar.id, wgslVarName);
@@ -1039,7 +1245,7 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
     if (typeof config === 'number') {
         loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${config}i; ${wgslVarName}++)`;
     } else if (isNode(config) && (config.kind === NodeKind.Literal || config.kind === NodeKind.Uniform)) {
-        const endExpr = generateExpr(ctx, config as Node<d.Any>);
+        const endExpr = generateOperand(ctx, config as Node<d.Any>, Prec.Relational + 1);
         loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${endExpr}; ${wgslVarName}++)`;
     } else if (isNode(config)) {
         // Bare expression node (from `While(cond, …)`): a condition-driven
@@ -1061,7 +1267,8 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
         const getExpr = (v: Node<d.Any> | number | undefined): string | undefined => {
             if (v === undefined) return undefined;
             if (typeof v === 'number') return constLiteral(typeStr, v);
-            return generateExpr(ctx, v as Node<d.Any>);
+            // Both land beside the loop variable in a comparison or an initialiser.
+            return generateOperand(ctx, v as Node<d.Any>, Prec.Relational + 1);
         };
 
         const startExpr = getExpr(cfg.start) ?? '0i';
@@ -1209,20 +1416,19 @@ export function emitAllBindings(ctx: BuildContext): {
         getGroup(node.group).storages.push({ name, node });
     }
 
-    // collect textures
-    for (const [name, node] of ctx.textures) {
-        getGroup(node.group).textures.push({ name, node });
+    // collect textures (`name` is the shader spelling, the map key is the binding's identity)
+    for (const [, node] of ctx.textures) {
+        getGroup(node.group).textures.push({ name: textureShaderName(ctx, node, 't'), node });
     }
 
     // collect storage textures
-    for (const [name, node] of ctx.storageTextures) {
-        getGroup(node.group).storageTextures.push({ name, node });
+    for (const [, node] of ctx.storageTextures) {
+        getGroup(node.group).storageTextures.push({ name: textureShaderName(ctx, node, 'st'), node });
     }
 
     // collect samplers (deduplicated by settingsKey)
-    for (const [_settingsKey, node] of ctx.samplers) {
-        const name = node.samplerId;
-        getGroup(node.group).samplers.push({ name, node });
+    for (const [settingsKey, node] of ctx.samplers) {
+        getGroup(node.group).samplers.push({ name: samplerShaderName(ctx, node, settingsKey), node });
     }
 
     // step 2: sort groups by their order, then assign sequential group indices
@@ -1292,7 +1498,8 @@ export function emitAllBindings(ctx: BuildContext): {
                 // align offset
                 offset = Math.ceil(offset / align) * align;
 
-                lines.push(`    @align(${align}) @size(${size}) ${u.name}: ${u.type.wgslType},`);
+                const memberName = uniformMemberName(ctx, u);
+                lines.push(`    @align(${align}) @size(${size}) ${memberName}: ${u.type.wgslType},`);
                 members.push({
                     uniformId: u.name,
                     schema: u.type,
@@ -1358,7 +1565,8 @@ export function emitAllBindings(ctx: BuildContext): {
         for (const { name, node } of bindGroup.textures) {
             lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}: ${node.type.wgslType};`);
             textureEntries.push({
-                textureId: name,
+                textureId: node.textureId,
+                shaderName: name,
                 type: node.type.wgslType,
                 group: groupIndex,
                 binding: bindingIndex,
@@ -1381,7 +1589,8 @@ export function emitAllBindings(ctx: BuildContext): {
             const wgslType = `texture_storage_${node.dim}<${node.format}, ${access}>`;
             lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}: ${wgslType};`);
             storageTextureEntries.push({
-                textureId: name,
+                textureId: node.textureId,
+                shaderName: name,
                 type: wgslType,
                 format: node.format,
                 access,
@@ -1396,9 +1605,9 @@ export function emitAllBindings(ctx: BuildContext): {
         for (const { name, node } of bindGroup.samplers) {
             // node is now a SamplerNode - get sampler type from its compare property
             const samplerType = node.compare ? 'sampler_comparison' : 'sampler';
-            lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}_sampler: ${samplerType};`);
+            lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}: ${samplerType};`);
             samplerEntries.push({
-                samplerId: `${name}_sampler`,
+                samplerId: name,
                 type: samplerType,
                 group: groupIndex,
                 binding: bindingIndex,
@@ -1443,10 +1652,45 @@ export function emitWgslFunctions(ctx: BuildContext): string {
     return lines.join('\n');
 }
 
+/**
+ * The DSL function table, closed over the call graph and ordered callee-before-caller. WGSL accepts
+ * module-scope declarations in any order, so the ordering is purely so the source reads bottom-up
+ * like the GLSL backend's does. A `visiting` guard tolerates self/mutual recursion by emitting each
+ * function once.
+ *
+ * Closing the table matters: discovery only sees the graph as written, and a function called solely
+ * from ANOTHER function's body first appears when that body is traced. Emission used to pick those up
+ * by iterating the live table as it grew; ordering needs the full set up front, so the walk traces and
+ * registers each callee it meets, exactly as {@link generateCall} would have.
+ */
+function orderedFnDefs(ctx: BuildContext): [string, { fn: FnNode<d.Any>; traced: TracedFn }][] {
+    const ordered: [string, { fn: FnNode<d.Any>; traced: TracedFn }][] = [];
+    const done = new Set<string>();
+    const visiting = new Set<string>();
+    const visit = (name: string): void => {
+        if (done.has(name) || visiting.has(name)) return;
+        visiting.add(name);
+        const entry = ctx.fnDefs.get(name);
+        if (entry) {
+            for (const callee of tracedFnCallees(entry.traced)) {
+                if (!ctx.fnDefs.has(callee.fnName)) {
+                    ctx.fnDefs.set(callee.fnName, { fn: callee, traced: callee.trace() });
+                }
+                visit(callee.fnName);
+            }
+        }
+        visiting.delete(name);
+        done.add(name);
+        if (entry) ordered.push([name, entry]);
+    };
+    for (const name of [...ctx.fnDefs.keys()]) visit(name);
+    return ordered;
+}
+
 export function emitDslFunctions(ctx: BuildContext): string {
     const lines: string[] = [];
 
-    for (const [name, { fn, traced }] of ctx.fnDefs) {
+    for (const [name, { fn, traced }] of orderedFnDefs(ctx)) {
         // build parameter list
         const params = traced.params
             .map((p, i) => {
@@ -1467,11 +1711,21 @@ export function emitDslFunctions(ctx: BuildContext): string {
         fnDiscovery.uniforms = ctx.uniforms;
         fnDiscovery.storages = ctx.storages;
         fnDiscovery.storageNames = ctx.storageNames;
+        fnDiscovery.textureNames = ctx.textureNames;
+        fnDiscovery.uniformNames = ctx.uniformNames;
+        fnDiscovery.samplerNames = ctx.samplerNames;
+        fnDiscovery.bindingNames = ctx.bindingNames;
+        // Spliced in for name reservation only (the body may READ a module-scope variable, so a local
+        // must not take its name); emitModuleScopeVars runs on the stage context, never on this one.
+        fnDiscovery.privateVars = ctx.privateVars;
+        fnDiscovery.workgroupVars = ctx.workgroupVars;
         const fnCtx = createContext(ctx.stage, ctx.isRender, fnDiscovery);
 
         // register param names in context
         for (const p of traced.params) {
-            fnCtx.nodeVars.set(p.id, p.paramName ?? `p${p.paramIndex}`);
+            const paramName = p.paramName ?? `p${p.paramIndex}`;
+            fnCtx.nodeVars.set(p.id, paramName);
+            reserveName(fnCtx.names, paramName);
         }
 
         // Enable CSE hoisting to this body's top (params are the top-scope stable inputs).
@@ -1724,7 +1978,8 @@ export function generateFragmentShader(
         lines.push('}');
     }
 
-    lines.push('');
+    // One blank line before the entry point, whether or not an I/O struct just closed one.
+    if (lines[lines.length - 1] !== '') lines.push('');
 
     // emit main function - omit input parameter if no inputs
     lines.push('@fragment');

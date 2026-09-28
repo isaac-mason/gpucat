@@ -21,14 +21,16 @@ import { getSampler } from './samplers';
 import { getTextureData, isIntegerTextureFormat, type TextureCache, updateStorageBufferTexture, updateTexture } from './textures';
 import type { WebGLBackend } from './webgl-backend';
 
-/** The combined-sampler uniform name for a texture id (mirrors the GLSL emitter's `samplerUniformName`). */
-function samplerUniformName(textureId: string): string {
-    return `u_${textureId}`;
+/** The combined-sampler uniform name for a binding's SHADER name (mirrors the GLSL emitter's own
+ *  `samplerUniformName`). Keyed on the emitted spelling, not the binding's identity — the two differ
+ *  once a texture carries a label. */
+function samplerUniformName(shaderName: string): string {
+    return `u_${shaderName}`;
 }
 
-/** The per-texture flipY uniform name (mirrors the GLSL emitter's `flipUniformName`). */
-function flipUniformName(textureId: string): string {
-    return `u_flipY_${textureId}`.replace(/_{2,}/g, '_');
+/** The per-texture flipY uniform name, likewise keyed on the emitted spelling. */
+function flipUniformName(shaderName: string): string {
+    return `u_flipY_${shaderName}`.replace(/_{2,}/g, '_');
 }
 
 /** Cached OES_texture_float_linear support (probed once): null = unprobed, then true/false. */
@@ -210,7 +212,7 @@ export function bindTextures(
                 gl.activeTexture(gl.TEXTURE0 + unit); // updateStorageBufferTexture may have left another unit active
                 gl.bindTexture(gl.TEXTURE_2D, glTexture);
                 gl.bindSampler(unit, null);
-                const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.textureId));
+                const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.shaderName));
                 if (loc) gl.uniform1i(loc, unit);
                 continue;
             }
@@ -248,14 +250,14 @@ export function bindTextures(
             }
 
             // Set the combined-sampler uniform to this texture unit.
-            const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.textureId));
+            const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.shaderName));
             if (loc) gl.uniform1i(loc, unit);
 
             // Drive the per-texture flipY conditional (declared only for flip-wrapped 2D samples): a
             // render-target texture was rendered bottom-up vs WebGPU's top-down, so its 2D samples flip V;
             // an ordinary texture (flipped at upload instead) does not. `getFlipLocation` returns null when
             // this texture's samples weren't wrapped, so the set is skipped.
-            const flipLoc = getFlipLocation(gl, programInfo, flipUniformName(entry.textureId));
+            const flipLoc = getFlipLocation(gl, programInfo, flipUniformName(entry.shaderName));
             if (flipLoc) gl.uniform1i(flipLoc, gpuTexture.isRenderTargetTexture ? 1 : 0);
         }
     }
@@ -309,7 +311,7 @@ export function bindStandaloneTextures(
             gl.bindSampler(unit, null);
         }
 
-        const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.textureId));
+        const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.shaderName));
         if (loc) gl.uniform1i(loc, unit);
     }
 }

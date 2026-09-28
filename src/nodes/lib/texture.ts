@@ -739,7 +739,17 @@ export function comparisonSampler(
 }
 
 /** Counter for generating unique texture IDs when using GpuTexture directly */
-let _textureIdCounter = 0;
+/**
+ * Identity of a texture binding, taken from the backing GpuTexture's own id.
+ *
+ * It MUST come from that one counter. Two paths used to number independently — a high-level Texture's
+ * `id` and a module-local counter for a bare GpuTexture — and both formatted `t<n>`, so a Texture and a
+ * GpuTexture could claim the same id. The emitters key their texture table on it, so the second
+ * binding was dropped and both sampled the first texture.
+ */
+function textureBindingId(gpuTexture: { id: number }): string {
+    return `t${gpuTexture.id}`;
+}
 
 /** The sampled-texture descriptor a storage texture is sampled as (dual-usage). */
 export type StorageSampledOf<S extends d.StorageTexture> = S extends d.textureStorage3d
@@ -809,7 +819,7 @@ export function texture(
         // sample type matches the storage format's channel.
         if (d.isStorageTextureDesc(source.type)) {
             const sampledDesc = sampledDescForStorage(source.type);
-            const binding = new TextureBindingNode(sampledDesc, `t${_textureIdCounter++}`);
+            const binding = new TextureBindingNode(sampledDesc, textureBindingId(source));
             binding.value = source as unknown as GpuTexture<FlatSampledTexture>;
             const node = new TextureNode(binding);
             node.samplerNode = sampler(gpuSampler, binding.group);
@@ -818,7 +828,7 @@ export function texture(
         // Widen the type for the binding to FlatSampledTexture
         const sampledSource = source as GpuTexture<FlatSampledTexture>;
         const desc = sampledSource.type as FlatSampledTexture;
-        const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
+        const binding = new TextureBindingNode(desc, textureBindingId(sampledSource));
         binding.value = sampledSource;
         const node = new TextureNode(binding);
         node.samplerNode = sampler(gpuSampler, binding.group);
@@ -831,7 +841,7 @@ export function texture(
         // this same branch, no cast needed.
         const gpuTex = source._gpuTexture;
         const desc = gpuTex.type as FlatSampledTexture;
-        const binding = new TextureBindingNode(desc, `t${source.id}`);
+        const binding = new TextureBindingNode(desc, textureBindingId(gpuTex));
         binding.value = gpuTex;
         const node = new TextureNode(binding);
         node.samplerNode = sampler(source._gpuSampler, binding.group);
@@ -850,7 +860,7 @@ export const textureBinding = <D extends d.Texture>(
     tex: { _gpuTexture: GpuTexture<D>; id: number },
     textureDesc: D,
 ): TextureBindingNode<D> => {
-    const binding = new TextureBindingNode(textureDesc, `t${tex.id}`);
+    const binding = new TextureBindingNode(textureDesc, textureBindingId(tex._gpuTexture));
     binding.value = tex._gpuTexture;
     return binding;
 };
@@ -1005,7 +1015,7 @@ export function cubeTexture(source: CubeTexture | GpuTexture<CubeSampledTexture>
             throw new Error('cubeTexture(): GpuSampler required when passing GpuTexture directly');
         }
         const desc = source.type as CubeSampledTexture;
-        const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
+        const binding = new TextureBindingNode(desc, textureBindingId(source));
         binding.value = source;
         const node = new CubeTextureNode(binding);
         node.samplerNode = sampler(gpuSampler, binding.group);
@@ -1013,7 +1023,7 @@ export function cubeTexture(source: CubeTexture | GpuTexture<CubeSampledTexture>
     } else {
         const gpuTex = source._gpuTexture;
         const desc = gpuTex.type as CubeSampledTexture;
-        const binding = new TextureBindingNode(desc, `t${source.id}`);
+        const binding = new TextureBindingNode(desc, textureBindingId(gpuTex));
         binding.value = gpuTex;
         const node = new CubeTextureNode(binding);
         node.samplerNode = sampler(source._gpuSampler, binding.group);
@@ -1209,7 +1219,7 @@ export function depthTexture(source: DepthTexture | GpuTexture<FlatDepthTexture>
             throw new Error('depthTexture(): GpuSampler required when passing GpuTexture directly');
         }
         const desc = source.type as FlatDepthTexture;
-        const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
+        const binding = new TextureBindingNode(desc, textureBindingId(source));
         binding.value = source;
         const node = new DepthTextureNode(binding);
         node.samplerNode = sampler(plainDepthSampler(gpuSampler), binding.group);
@@ -1217,7 +1227,7 @@ export function depthTexture(source: DepthTexture | GpuTexture<FlatDepthTexture>
     } else {
         const gpuTex = source._gpuTexture;
         const desc = gpuTex.type as FlatDepthTexture;
-        const binding = new TextureBindingNode(desc, `t${source.id}`);
+        const binding = new TextureBindingNode(desc, textureBindingId(gpuTex));
         binding.value = gpuTex;
         const node = new DepthTextureNode(binding);
         node.samplerNode = sampler(plainDepthSampler(source._gpuSampler), binding.group);
@@ -1427,7 +1437,7 @@ export function arrayTexture(
     if ('isGpuTexture' in source) {
         const gpuSampler = samplerOrLayer as GpuSampler;
         const layerNode = maybeLayerNode!;
-        const binding = new TextureBindingNode(source.type, `t${_textureIdCounter++}`);
+        const binding = new TextureBindingNode(source.type, textureBindingId(source));
         binding.value = source;
         const node = new ArrayTextureNode(binding, layerNode);
         node.samplerNode = sampler(gpuSampler, binding.group);
@@ -1435,7 +1445,7 @@ export function arrayTexture(
     } else {
         const layerNode = samplerOrLayer as Node<d.i32>;
         const gpuTex = source._gpuTexture;
-        const binding = new TextureBindingNode(gpuTex.type, `t${source.id}`);
+        const binding = new TextureBindingNode(gpuTex.type, textureBindingId(gpuTex));
         binding.value = gpuTex;
         const node = new ArrayTextureNode(binding, layerNode);
         node.samplerNode = sampler(source._gpuSampler, binding.group);

@@ -3,13 +3,9 @@
 exports[`frag_depth override (Material.depth) > color + depth: FragmentOutput struct carries @location(0) color AND @builtin(frag_depth) 1`] = `
 {
   "builtins": [],
-  "code": "// Bindings (uniforms, storage, textures, samplers)
-// Module-scope variables
-// WGSL Functions
-// DSL Functions
-// Vertex Shader
+  "code": "// Vertex Shader
 struct VertexInput {
-    @location(0) _position_0: vec3f,
+    @location(0) position: vec3f,
 }
 
 struct VertexOutput {
@@ -20,10 +16,11 @@ struct VertexOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = vec4f(input._position_0, 1.0);
-    output.vZ = input._position_0.z;
+    output.position = vec4f(input.position, 1.0);
+    output.vZ = input.position.z;
     return output;
 }
+
 // Fragment Shader
 struct FragmentInput {
     @location(0) vZ: f32,
@@ -38,7 +35,7 @@ struct FragmentOutput {
 fn fs_main(input: FragmentInput) -> FragmentOutput {
     var output: FragmentOutput;
     output.color = vec4f(vec3f(0.4, 0.7, 1.0), 1.0);
-    output.frag_depth = (0.25 + (input.vZ * 0.5));
+    output.frag_depth = 0.25 + input.vZ * 0.5;
     return output;
 }",
   "fragmentEntryPoint": "fs_main",
@@ -56,13 +53,9 @@ fn fs_main(input: FragmentInput) -> FragmentOutput {
 exports[`frag_depth override (Material.depth) > depth-only: fragment stage still runs and writes frag_depth, no color output 1`] = `
 {
   "builtins": [],
-  "code": "// Bindings (uniforms, storage, textures, samplers)
-// Module-scope variables
-// WGSL Functions
-// DSL Functions
-// Vertex Shader
+  "code": "// Vertex Shader
 struct VertexInput {
-    @location(0) _position_0: vec3f,
+    @location(0) position: vec3f,
 }
 
 struct VertexOutput {
@@ -72,9 +65,10 @@ struct VertexOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = vec4f(input._position_0, 1.0);
+    output.position = vec4f(input.position, 1.0);
     return output;
 }
+
 // Fragment Shader
 struct FragmentOutput {
     @builtin(frag_depth) frag_depth: f32,
@@ -95,13 +89,9 @@ fn fs_main() -> FragmentOutput {
 exports[`golden WGSL — MRT integer targets > FragmentOutput field type comes from the member node, not a hardcoded vec4f 1`] = `
 {
   "builtins": [],
-  "code": "// Bindings (uniforms, storage, textures, samplers)
-// Module-scope variables
-// WGSL Functions
-// DSL Functions
-// Vertex Shader
+  "code": "// Vertex Shader
 struct VertexInput {
-    @location(0) _position_0: vec3f,
+    @location(0) position: vec3f,
 }
 
 struct VertexOutput {
@@ -111,9 +101,10 @@ struct VertexOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = vec4f(input._position_0, 1.0);
+    output.position = vec4f(input.position, 1.0);
     return output;
 }
+
 // Fragment Shader
 struct FragmentOutput {
     @location(0) color: vec4f,
@@ -139,34 +130,32 @@ exports[`golden WGSL — compute path > atomic histogram: storage atomics + inde
     "global_invocation_id",
   ],
   "code": "// Bindings (uniforms, storage, textures, samplers)
-@group(0) @binding(0) var<storage, read_write> _storage0: array<atomic<u32>>;
-@group(0) @binding(1) var<storage, read_write> _storage1: array<u32>;
-// Module-scope variables
-// WGSL Functions
-// DSL Functions
+@group(0) @binding(0) var<storage, read_write> storage0: array<atomic<u32>>;
+@group(0) @binding(1) var<storage, read_write> storage1: array<u32>;
+
 // Compute Shader
 @compute @workgroup_size(64, 1, 1)
 fn cs_main(
     @builtin(global_invocation_id) global_id: vec3u
 ) {
-    let _v0 = (global_id.x % 64u);
-    let _v1 = atomicAdd(&_storage0[_v0], 1u);
-    var var_183_slot = _v1;
-    _storage1[((_v0 * 16u) + var_183_slot)] = global_id.x;
+    let _mod = global_id.x % 64u;
+    let _atomicAdd = atomicAdd(&storage0[_mod], 1u);
+    var slot = _atomicAdd;
+    storage1[_mod * 16u + slot] = global_id.x;
 }",
   "storage": [
     {
       "access": "read_write",
       "binding": 0,
       "group": 0,
-      "name": "_storage0",
+      "name": "storage0",
       "type": "array<atomic<u32>>",
     },
     {
       "access": "read_write",
       "binding": 1,
       "group": 0,
-      "name": "_storage1",
+      "name": "storage1",
       "type": "array<u32>",
     },
   ],
@@ -189,34 +178,32 @@ struct Particle {
     life: f32,
 }
 
-@group(0) @binding(0) var<storage, read_write> _storage0: array<Particle>;
-// Module-scope variables
-// WGSL Functions
-// DSL Functions
+@group(0) @binding(0) var<storage, read_write> storage0: array<Particle>;
+
 // Compute Shader
 @compute @workgroup_size(64, 1, 1)
 fn cs_main(
     @builtin(global_invocation_id) global_id: vec3u
 ) {
-    var var_260_acc = 0.0;
-    for (var i_0_0: i32 = 0i; i_0_0 < 4i; i_0_0++) {
-        if ((_storage0[global_id.x].life < 0.0)) {
+    var acc = 0.0;
+    for (var i: i32 = 0i; i < 4i; i++) {
+        if (storage0[global_id.x].life < 0.0) {
             continue;
         }
-        if ((i_0_0 > 2i)) {
+        if (i > 2i) {
             break;
         }
-        var_260_acc = (var_260_acc + _storage0[global_id.x].life);
+        acc = acc + storage0[global_id.x].life;
     }
-    let let_281_scaled = (var_260_acc * 0.5);
-    _storage0[global_id.x].life = let_281_scaled;
+    let scaled = acc * 0.5;
+    storage0[global_id.x].life = scaled;
 }",
   "storage": [
     {
       "access": "read_write",
       "binding": 0,
       "group": 0,
-      "name": "_storage0",
+      "name": "storage0",
       "type": "array<Particle>",
     },
   ],
@@ -234,33 +221,32 @@ exports[`golden WGSL — compute path > workgroup atomic + barriers 1`] = `
     "local_invocation_id",
   ],
   "code": "// Bindings (uniforms, storage, textures, samplers)
-@group(0) @binding(0) var<storage, read_write> _storage0: array<u32>;
+@group(0) @binding(0) var<storage, read_write> storage0: array<u32>;
+
 // Module-scope variables
 var<workgroup> wgCount: atomic<u32>;
 
-// WGSL Functions
-// DSL Functions
 // Compute Shader
 @compute @workgroup_size(64, 1, 1)
 fn cs_main(
     @builtin(local_invocation_id) local_id: vec3u
 ) {
-    if ((local_id.x == 0u)) {
+    if (local_id.x == 0u) {
         atomicStore(&wgCount, 0u);
     }
     workgroupBarrier();
-    let _v0 = atomicAdd(&wgCount, 1u);
-    var var_220_slot = _v0;
+    let _atomicAdd = atomicAdd(&wgCount, 1u);
+    var slot = _atomicAdd;
     workgroupBarrier();
-    var var_223_total = atomicLoad(&wgCount, );
-    _storage0[var_220_slot] = var_223_total;
+    var total = atomicLoad(&wgCount);
+    storage0[slot] = total;
 }",
   "storage": [
     {
       "access": "read_write",
       "binding": 0,
       "group": 0,
-      "name": "_storage0",
+      "name": "storage0",
       "type": "array<u32>",
     },
   ],
@@ -283,12 +269,9 @@ struct Uniforms_render {
 }
 @group(0) @binding(0) var<uniform> uniforms_render: Uniforms_render;
 
-// Module-scope variables
-// WGSL Functions
-// DSL Functions
 // Vertex Shader
 struct VertexInput {
-    @location(0) _position_0: vec3f,
+    @location(0) position: vec3f,
 }
 
 struct VertexOutput {
@@ -298,19 +281,19 @@ struct VertexOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = vec4f(input._position_0, 1.0);
+    output.position = vec4f(input.position, 1.0);
     return output;
 }
+
 // Fragment Shader
 struct FragmentInput {
     @builtin(position) position: vec4f,
 }
 
-
 @fragment
 fn fs_main(input: FragmentInput) -> @location(0) vec4f {
-    let _v0 = select(vec3f(0.1, 0.1, 0.1), vec3f(0.9, 0.2, 0.2), ((input.position.xy / uniforms_render.screenSize).x > 0.5));
-    return vec4f((_v0 * dot(_v0, vec3f(0.299, 0.587, 0.114))), 1.0);
+    let _sel = select(vec3f(0.1, 0.1, 0.1), vec3f(0.9, 0.2, 0.2), (input.position.xy / uniforms_render.screenSize).x > 0.5);
+    return vec4f(_sel * (dot(_sel, vec3f(0.299, 0.587, 0.114))), 1.0);
 }",
   "fragmentEntryPoint": "fs_main",
   "varyings": [],
@@ -334,13 +317,10 @@ struct Uniforms_object {
 }
 @group(1) @binding(0) var<uniform> uniforms_object: Uniforms_object;
 
-// Module-scope variables
-// WGSL Functions
-// DSL Functions
 // Vertex Shader
 struct VertexInput {
-    @location(0) _normal_0: vec3f,
-    @location(1) _position_1: vec3f,
+    @location(0) normal: vec3f,
+    @location(1) position: vec3f,
 }
 
 struct VertexOutput {
@@ -351,19 +331,19 @@ struct VertexOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = (uniforms_render.cameraProjectionMatrix * (uniforms_render.cameraViewMatrix * (uniforms_object.modelWorldMatrix * vec4f(input._position_1, 1.0))));
-    output.vNormal = normalize((uniforms_object.modelNormalMatrix * input._normal_0));
+    output.position = uniforms_render.cameraProjectionMatrix * (uniforms_render.cameraViewMatrix * (uniforms_object.modelWorldMatrix * vec4f(input.position, 1.0)));
+    output.vNormal = normalize(uniforms_object.modelNormalMatrix * input.normal);
     return output;
 }
+
 // Fragment Shader
 struct FragmentInput {
     @location(0) vNormal: vec3f,
 }
 
-
 @fragment
 fn fs_main(input: FragmentInput) -> @location(0) vec4f {
-    return vec4f((vec3f(0.4, 0.7, 1.0) * (0.15 + max(dot(input.vNormal, normalize(vec3f(0.6, 1.0, 0.8))), 0.0))), 1.0);
+    return vec4f(vec3f(0.4, 0.7, 1.0) * (0.15 + max(dot(input.vNormal, normalize(vec3f(0.6, 1.0, 0.8))), 0.0)), 1.0);
 }",
   "fragmentEntryPoint": "fs_main",
   "varyings": [
@@ -389,13 +369,11 @@ struct Uniforms_render {
 @group(0) @binding(0) var<uniform> uniforms_render: Uniforms_render;
 
 @group(1) @binding(0) var t0: texture_2d<f32>;
-@group(1) @binding(1) var s0_sampler: sampler;
-// Module-scope variables
-// WGSL Functions
-// DSL Functions
+@group(1) @binding(1) var linearSampler: sampler;
+
 // Vertex Shader
 struct VertexInput {
-    @location(0) _position_0: vec3f,
+    @location(0) position: vec3f,
 }
 
 struct VertexOutput {
@@ -405,18 +383,18 @@ struct VertexOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = vec4f(input._position_0, 1.0);
+    output.position = vec4f(input.position, 1.0);
     return output;
 }
+
 // Fragment Shader
 struct FragmentInput {
     @builtin(position) position: vec4f,
 }
 
-
 @fragment
 fn fs_main(input: FragmentInput) -> @location(0) vec4f {
-    return textureSample(t0, s0_sampler, (input.position.xy / uniforms_render.screenSize));
+    return textureSample(t0, linearSampler, input.position.xy / uniforms_render.screenSize);
 }",
   "fragmentEntryPoint": "fs_main",
   "varyings": [],

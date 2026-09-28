@@ -49,6 +49,13 @@ export type BaseOptions = {
 
     /** Storage textures only: regenerate mips after a compute write (default true). */
     mipmapsAutoUpdate?: boolean;
+
+    /**
+     * Name this texture reads under in emitted shader source, and in devtools via `GPUTexture.label`.
+     * A high-level {@link Texture} passes its own `name` down, so this is for a bare GpuTexture built
+     * by hand. Unlabelled textures fall back to `t0`, `t1`, … in source order.
+     */
+    label?: string;
 };
 
 export type Options2D = BaseOptions & {
@@ -172,6 +179,9 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
     /** Storage textures: regenerate mips after a compute pass writes this texture (if it has mips). */
     mipmapsAutoUpdate: boolean = true;
 
+    /** Name used for the emitted shader binding and for `GPUTexture.label`; see BaseOptions.label. */
+    label: string | undefined;
+
     /** Flip Y on upload (for image sources) */
     flipY: boolean = false;
 
@@ -294,6 +304,7 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
                 ? TEXTURE_USAGE.STORAGE_BINDING | TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST | TEXTURE_USAGE.COPY_SRC
                 : TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST);
         this.mipmapsAutoUpdate = options.mipmapsAutoUpdate ?? true;
+        this.label = options.label;
 
         // Mip levels
         this.mipLevelCount = options.mipLevelCount ?? 1;
