@@ -25,6 +25,7 @@ import {
     struct,
     texture,
     textureSampleCompare,
+    u32,
     Var,
     varying,
     vec2i,
@@ -300,5 +301,25 @@ describe('golden GLSL — render path', () => {
             depth: undefined,
         });
         expect(rCompare.code).toContain('_flipY2f');
+    });
+
+    test('Fn params and locals named after reserved words are renamed', () => {
+        // `packed` / `row_major` compile in Chromium but not in iOS 18 Safari, so the compile harness
+        // can't catch them reaching the source.
+        const decode = Fn(
+            (packed: Node<d.u32>) => {
+                const low = packed.bitwiseAnd(u32(0xff)).toF32().toVar('row_major');
+                return low.div(f32(255));
+            },
+            { name: 'decode', params: [{ name: 'packed', type: d.u32 }] as const, return: d.f32 },
+        );
+        const value = decode(u32(0x80));
+        const result = compileGlsl({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(vec3(value, value, value), f32(1)),
+            depth: undefined,
+        });
+        expect(result.code).toContain('float decode(uint packed_1)');
+        expect(result.code).not.toMatch(/\b(packed|row_major)\b/);
     });
 });

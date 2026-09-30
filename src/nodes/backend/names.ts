@@ -55,7 +55,12 @@ const GLSL_KEYWORDS = words(
         'mat2 mat3 mat4 mat2x2 mat2x3 mat2x4 mat3x2 mat3x3 mat3x4 mat4x2 mat4x3 mat4x4 vec2 vec3 vec4 ivec2 ivec3 ivec4 bvec2 bvec3 bvec4 uvec2 uvec3 uvec4 dvec2 dvec3 dvec4 uint ' +
         'dmat2 dmat3 dmat4 dmat2x2 dmat2x3 dmat2x4 dmat3x2 dmat3x3 dmat3x4 dmat4x2 dmat4x3 dmat4x4 sampler3DRect ' +
         'sampler2D sampler3D samplerCube sampler2DShadow samplerCubeShadow sampler2DArray sampler2DArrayShadow isampler2D isampler3D isamplerCube isampler2DArray usampler2D usampler3D usamplerCube usampler2DArray ' +
-        'common partition active asm class union enum typedef template this resource goto inline noinline public static extern external interface long short half fixed unsigned superp input output hvec2 hvec3 hvec4 fvec2 fvec3 fvec4 filter sizeof cast namespace using',
+        'common partition active asm class union enum typedef template this resource goto inline noinline public static extern external interface long short half fixed unsigned superp input output hvec2 hvec3 hvec4 fvec2 fvec3 fvec4 filter sizeof cast namespace using ' +
+        'image1D image2D image3D imageCube iimage1D iimage2D iimage3D iimageCube uimage1D uimage2D uimage3D uimageCube image1DArray image2DArray iimage1DArray iimage2DArray uimage1DArray uimage2DArray imageBuffer iimageBuffer uimageBuffer ' +
+        'sampler1D sampler1DShadow sampler1DArray sampler1DArrayShadow isampler1D isampler1DArray usampler1D usampler1DArray sampler2DRect sampler2DRectShadow isampler2DRect usampler2DRect ' +
+        'samplerBuffer isamplerBuffer usamplerBuffer sampler2DMS isampler2DMS usampler2DMS sampler2DMSArray isampler2DMSArray usampler2DMSArray ' +
+        // Not in the spec's list, but WebKit's compiler rejects them as reserved words.
+        'packed row_major',
 );
 
 /**
@@ -67,7 +72,7 @@ const BUILTIN_FNS = words(
         'floatBitsToInt floatBitsToUint intBitsToFloat uintBitsToFloat bitcast packSnorm2x16 unpackSnorm2x16 packUnorm2x16 unpackUnorm2x16 packHalf2x16 unpackHalf2x16 pack4x8snorm pack4x8unorm unpack4x8snorm unpack4x8unorm pack2x16float unpack2x16float ' +
         'length distance dot cross normalize faceforward reflect refract fma ldexp frexp countOneBits reverseBits firstLeadingBit firstTrailingBit extractBits insertBits ' +
         'matrixCompMult outerProduct transpose determinant inverse lessThan lessThanEqual greaterThan greaterThanEqual equal notEqual any all not select arrayLength ' +
-        'textureSize texture textureProj textureLod textureOffset texelFetch texelFetchOffset textureProjOffset textureLodOffset textureProjLod textureProjLodOffset textureGrad textureGradOffset textureProjGrad textureProjGradOffset ' +
+        'textureSize texture textureProj textureLod textureOffset texelFetch texelFetchOffset textureProjOffset textureLodOffset textureProjLod textureProjLodOffset textureGrad textureGradOffset textureProjGrad textureProjGradOffset textureGather emitVertex endPrimitive ' +
         'textureSample textureSampleLevel textureSampleBias textureSampleGrad textureSampleCompare textureSampleCompareLevel textureLoad textureStore textureDimensions textureNumLayers textureNumLevels textureNumSamples ' +
         'dFdx dFdy fwidth dpdx dpdy dpdxCoarse dpdyCoarse dpdxFine dpdyFine ' +
         'atomicAdd atomicSub atomicMax atomicMin atomicAnd atomicOr atomicXor atomicStore atomicLoad atomicExchange atomicCompareExchangeWeak workgroupBarrier storageBarrier textureBarrier',

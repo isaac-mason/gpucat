@@ -281,6 +281,31 @@ export const cases: Case[] = [
         },
     },
     {
+        // Regression: Fn params and locals named after reserved words must be renamed, not emitted
+        // verbatim. `input` is rejected here; `packed` / `row_major` are accepted by this Chromium but
+        // rejected by older WebKit (iOS 18 Safari), so glsl-golden asserts they never reach the source.
+        name: 'reserved param + local names',
+        build: () => {
+            const position = attribute('position', d.vec3f);
+            const decode = Fn(
+                (packed: Node<d.u32>, input: Node<d.f32>) => {
+                    const u = packed.bitwiseAnd(u32(0xff)).toF32().div(f32(255)).toVar('row_major');
+                    return vec3(u, packed.shiftRight(u32(8)).bitwiseAnd(u32(0xff)).toF32().div(f32(255)), input);
+                },
+                {
+                    name: 'decode',
+                    params: [
+                        { name: 'packed', type: d.u32 },
+                        { name: 'input', type: d.f32 },
+                    ] as const,
+                    return: d.vec3f,
+                },
+            );
+            const color = varying(decode(u32(0x8040), f32(1)), 'vColor');
+            return { vertex: vec4(position, f32(1)), fragment: vec4(color, f32(1)), depth: undefined };
+        },
+    },
+    {
         name: 'select ternary',
         build: () => {
             const position = attribute('position', d.vec3f);

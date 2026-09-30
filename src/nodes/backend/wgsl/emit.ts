@@ -1691,14 +1691,6 @@ export function emitDslFunctions(ctx: BuildContext): string {
     const lines: string[] = [];
 
     for (const [name, { fn, traced }] of orderedFnDefs(ctx)) {
-        // build parameter list
-        const params = traced.params
-            .map((p, i) => {
-                const pName = p.paramName ?? `p${i}`;
-                return `${pName}: ${p.type.wgslType}`;
-            })
-            .join(', ');
-
         // Fresh emission scope for this function body: its own CSE vars / code / indentation, but it
         // shares the parent's bindings + function tables so references resolve to the same WGSL names.
         // Deliberately does NOT share mutatedNodes or module-scope vars — the body has its own CSE scope.
@@ -1721,12 +1713,15 @@ export function emitDslFunctions(ctx: BuildContext): string {
         fnDiscovery.workgroupVars = ctx.workgroupVars;
         const fnCtx = createContext(ctx.stage, ctx.isRender, fnDiscovery);
 
-        // register param names in context
+        // Allocated rather than taken verbatim, matching the GLSL emitter: a user's name can be
+        // reserved in either language.
+        const paramDecls: string[] = [];
         for (const p of traced.params) {
-            const paramName = p.paramName ?? `p${p.paramIndex}`;
+            const paramName = allocName(fnCtx.names, p.paramName ?? `p${p.paramIndex}`);
             fnCtx.nodeVars.set(p.id, paramName);
-            reserveName(fnCtx.names, paramName);
+            paramDecls.push(`${paramName}: ${p.type.wgslType}`);
         }
+        const params = paramDecls.join(', ');
 
         // Enable CSE hoisting to this body's top (params are the top-scope stable inputs).
         fnCtx.topScopeParamIds = new Set(traced.params.map((p) => p.id));
