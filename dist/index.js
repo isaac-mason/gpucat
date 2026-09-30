@@ -17954,7 +17954,12 @@ const GLSL_KEYWORDS = words('const uniform buffer shared attribute varying coher
     'mat2 mat3 mat4 mat2x2 mat2x3 mat2x4 mat3x2 mat3x3 mat3x4 mat4x2 mat4x3 mat4x4 vec2 vec3 vec4 ivec2 ivec3 ivec4 bvec2 bvec3 bvec4 uvec2 uvec3 uvec4 dvec2 dvec3 dvec4 uint ' +
     'dmat2 dmat3 dmat4 dmat2x2 dmat2x3 dmat2x4 dmat3x2 dmat3x3 dmat3x4 dmat4x2 dmat4x3 dmat4x4 sampler3DRect ' +
     'sampler2D sampler3D samplerCube sampler2DShadow samplerCubeShadow sampler2DArray sampler2DArrayShadow isampler2D isampler3D isamplerCube isampler2DArray usampler2D usampler3D usamplerCube usampler2DArray ' +
-    'common partition active asm class union enum typedef template this resource goto inline noinline public static extern external interface long short half fixed unsigned superp input output hvec2 hvec3 hvec4 fvec2 fvec3 fvec4 filter sizeof cast namespace using');
+    'common partition active asm class union enum typedef template this resource goto inline noinline public static extern external interface long short half fixed unsigned superp input output hvec2 hvec3 hvec4 fvec2 fvec3 fvec4 filter sizeof cast namespace using ' +
+    'image1D image2D image3D imageCube iimage1D iimage2D iimage3D iimageCube uimage1D uimage2D uimage3D uimageCube image1DArray image2DArray iimage1DArray iimage2DArray uimage1DArray uimage2DArray imageBuffer iimageBuffer uimageBuffer ' +
+    'sampler1D sampler1DShadow sampler1DArray sampler1DArrayShadow isampler1D isampler1DArray usampler1D usampler1DArray sampler2DRect sampler2DRectShadow isampler2DRect usampler2DRect ' +
+    'samplerBuffer isamplerBuffer usamplerBuffer sampler2DMS isampler2DMS usampler2DMS sampler2DMSArray isampler2DMSArray usampler2DMSArray ' +
+    // Not in the spec's list, but WebKit's compiler rejects them as reserved words.
+    'packed row_major');
 /**
  * Built-in function names in either language. A local variable may legally shadow one, but that makes
  * every later call to it in the same scope a compile error, so they are treated as taken.
@@ -17963,7 +17968,7 @@ const BUILTIN_FNS = words('radians degrees sin cos tan asin acos atan atan2 sinh
     'floatBitsToInt floatBitsToUint intBitsToFloat uintBitsToFloat bitcast packSnorm2x16 unpackSnorm2x16 packUnorm2x16 unpackUnorm2x16 packHalf2x16 unpackHalf2x16 pack4x8snorm pack4x8unorm unpack4x8snorm unpack4x8unorm pack2x16float unpack2x16float ' +
     'length distance dot cross normalize faceforward reflect refract fma ldexp frexp countOneBits reverseBits firstLeadingBit firstTrailingBit extractBits insertBits ' +
     'matrixCompMult outerProduct transpose determinant inverse lessThan lessThanEqual greaterThan greaterThanEqual equal notEqual any all not select arrayLength ' +
-    'textureSize texture textureProj textureLod textureOffset texelFetch texelFetchOffset textureProjOffset textureLodOffset textureProjLod textureProjLodOffset textureGrad textureGradOffset textureProjGrad textureProjGradOffset ' +
+    'textureSize texture textureProj textureLod textureOffset texelFetch texelFetchOffset textureProjOffset textureLodOffset textureProjLod textureProjLodOffset textureGrad textureGradOffset textureProjGrad textureProjGradOffset textureGather emitVertex endPrimitive ' +
     'textureSample textureSampleLevel textureSampleBias textureSampleGrad textureSampleCompare textureSampleCompareLevel textureLoad textureStore textureDimensions textureNumLayers textureNumLevels textureNumSamples ' +
     'dFdx dFdy fwidth dpdx dpdy dpdxCoarse dpdyCoarse dpdxFine dpdyFine ' +
     'atomicAdd atomicSub atomicMax atomicMin atomicAnd atomicOr atomicXor atomicStore atomicLoad atomicExchange atomicCompareExchangeWeak workgroupBarrier storageBarrier textureBarrier');
@@ -19047,229 +19052,6 @@ function distinctAttributes(ctx) {
     return Array.from(byLocation.values()).sort((a, b) => a.location - b.location);
 }
 /**
- * GLSL ES 3.00 reserved keywords + built-in function names. A user `Fn` named one of these can't be
- * declared (`vec4 step(...)` → "Name of a built-in function cannot be redeclared"), so such names are
- * mangled to `fn_<name>` at both the definition and every call site. Non-colliding names are left as-is
- * (so existing goldens don't move).
- */
-const GLSL_RESERVED_NAMES = new Set([
-    // Common built-in functions.
-    'radians',
-    'degrees',
-    'sin',
-    'cos',
-    'tan',
-    'asin',
-    'acos',
-    'atan',
-    'sinh',
-    'cosh',
-    'tanh',
-    'asinh',
-    'acosh',
-    'atanh',
-    'pow',
-    'exp',
-    'log',
-    'exp2',
-    'log2',
-    'sqrt',
-    'inversesqrt',
-    'abs',
-    'sign',
-    'floor',
-    'trunc',
-    'round',
-    'roundEven',
-    'ceil',
-    'fract',
-    'mod',
-    'modf',
-    'min',
-    'max',
-    'clamp',
-    'mix',
-    'step',
-    'smoothstep',
-    'isnan',
-    'isinf',
-    'floatBitsToInt',
-    'floatBitsToUint',
-    'intBitsToFloat',
-    'uintBitsToFloat',
-    'fma',
-    'frexp',
-    'ldexp',
-    'packSnorm2x16',
-    'unpackSnorm2x16',
-    'packUnorm2x16',
-    'unpackUnorm2x16',
-    'packHalf2x16',
-    'unpackHalf2x16',
-    'length',
-    'distance',
-    'dot',
-    'cross',
-    'normalize',
-    'faceforward',
-    'reflect',
-    'refract',
-    'matrixCompMult',
-    'outerProduct',
-    'transpose',
-    'determinant',
-    'inverse',
-    'lessThan',
-    'lessThanEqual',
-    'greaterThan',
-    'greaterThanEqual',
-    'equal',
-    'notEqual',
-    'any',
-    'all',
-    'not',
-    'texture',
-    'textureProj',
-    'textureLod',
-    'textureOffset',
-    'texelFetch',
-    'texelFetchOffset',
-    'textureProjOffset',
-    'textureLodOffset',
-    'textureProjLod',
-    'textureProjLodOffset',
-    'textureGrad',
-    'textureGradOffset',
-    'textureProjGrad',
-    'textureProjGradOffset',
-    'textureSize',
-    'textureGather',
-    'dFdx',
-    'dFdy',
-    'fwidth',
-    'emitVertex',
-    'endPrimitive',
-    // Keywords / reserved words.
-    'const',
-    'uniform',
-    'buffer',
-    'shared',
-    'attribute',
-    'varying',
-    'coherent',
-    'volatile',
-    'restrict',
-    'readonly',
-    'writeonly',
-    'layout',
-    'centroid',
-    'flat',
-    'smooth',
-    'noperspective',
-    'patch',
-    'sample',
-    'break',
-    'continue',
-    'do',
-    'for',
-    'while',
-    'switch',
-    'case',
-    'default',
-    'if',
-    'else',
-    'in',
-    'out',
-    'inout',
-    'float',
-    'int',
-    'void',
-    'bool',
-    'true',
-    'false',
-    'invariant',
-    'precise',
-    'discard',
-    'return',
-    'mat2',
-    'mat3',
-    'mat4',
-    'vec2',
-    'vec3',
-    'vec4',
-    'ivec2',
-    'ivec3',
-    'ivec4',
-    'bvec2',
-    'bvec3',
-    'bvec4',
-    'uint',
-    'uvec2',
-    'uvec3',
-    'uvec4',
-    'lowp',
-    'mediump',
-    'highp',
-    'precision',
-    'sampler2D',
-    'sampler3D',
-    'samplerCube',
-    'struct',
-    'main',
-    // GLSL ES 3.00 reserved-for-future-use words — illegal as identifiers even though unused.
-    'input',
-    'output',
-    'filter',
-    'sizeof',
-    'cast',
-    'namespace',
-    'using',
-    'common',
-    'partition',
-    'active',
-    'asm',
-    'class',
-    'union',
-    'enum',
-    'typedef',
-    'template',
-    'this',
-    'resource',
-    'goto',
-    'inline',
-    'noinline',
-    'public',
-    'static',
-    'extern',
-    'external',
-    'interface',
-    'long',
-    'short',
-    'double',
-    'half',
-    'fixed',
-    'unsigned',
-    'superp',
-    'hvec2',
-    'hvec3',
-    'hvec4',
-    'dvec2',
-    'dvec3',
-    'dvec4',
-    'fvec2',
-    'fvec3',
-    'fvec4',
-    'sampler1D',
-    'sampler1DShadow',
-    'sampler2DRectShadow',
-    'row_major',
-    'packed',
-]);
-/**
- * Map a user `Fn` name to a GLSL-safe identifier: reserved / builtin names are prefixed `fn_`, all
- * others pass through unchanged. Must be applied consistently at the definition and every call site.
- */
-/**
  * A texel coordinate as GLSL's `ivec2`. WGSL's textureLoad accepts signed OR unsigned coords, so the
  * conversion has to be available — but `vec2i` is the common case and converting it to the type it
  * already has is pure noise, so the wrap is emitted only when the node is something else.
@@ -19281,8 +19063,12 @@ function texelCoord(ctx, node) {
 }
 /** The Y-flip helper functions the texture wrappers may emit (see emitGlslTextures). */
 const FLIP_HELPER_NAMES = ['_flipY2f', '_flipY2i', '_flipYd'];
+/**
+ * Map a user `Fn` name to a GLSL-safe identifier: reserved / builtin names are prefixed `fn_`, all
+ * others pass through unchanged. Must be applied consistently at the definition and every call site.
+ */
 function glslFnName(name) {
-    return GLSL_RESERVED_NAMES.has(name) ? `fn_${name}` : name;
+    return RESERVED_NAMES.has(name) ? `fn_${name}` : name;
 }
 /**
  * Map an MRT fragment-output name to a GLSL-safe identifier: reserved names (e.g. `output`) are
@@ -19290,7 +19076,7 @@ function glslFnName(name) {
  * targets by `layout(location)`, not by this identifier — so mangling is safe.
  */
 function glslOutputName(name) {
-    return GLSL_RESERVED_NAMES.has(name) ? `out_${name}` : name;
+    return RESERVED_NAMES.has(name) ? `out_${name}` : name;
 }
 function generateAttribute$1(ctx, node) {
     if (ctx.stage !== 'vertex') {
@@ -20469,12 +20255,6 @@ function emitGlslDslFunctions(ctx, allow) {
         if (!entry)
             continue;
         const { fn, traced } = entry;
-        const params = traced.params
-            .map((p, i) => {
-            const pName = p.paramName ?? `p${i}`;
-            return `${glslType(p.type)} ${pName}`;
-        })
-            .join(', ');
         // Fresh sub-context for the body: its own CSE / code / indentation, sharing the parent's
         // discovered facts (uniforms, textures, fn table) so names resolve consistently.
         const fnCtx = {
@@ -20491,13 +20271,16 @@ function emitGlslDslFunctions(ctx, allow) {
             hoistedIds: new Set(),
             paramIds: new Set(),
         };
-        // Register param names so parameter references resolve to them (and mark them top-hoist-safe).
+        // Allocate param names so parameter references resolve to them (and mark them top-hoist-safe).
+        // Allocated rather than taken verbatim: a user's name can be a reserved word (`packed`).
+        const paramDecls = [];
         for (const p of traced.params) {
-            const paramName = p.paramName ?? `p${p.paramIndex}`;
+            const paramName = allocName(fnCtx.names, p.paramName ?? `p${p.paramIndex}`);
             fnCtx.nodeVars.set(p.id, paramName);
-            reserveName(fnCtx.names, paramName);
             fnCtx.paramIds.add(p.id);
+            paramDecls.push(`${glslType(p.type)} ${paramName}`);
         }
+        const params = paramDecls.join(', ');
         for (const stmt of traced.body.body)
             generateStmt$1(fnCtx, stmt);
         const retType = fn.type.wgslType === 'void' ? 'void' : glslType(fn.type);
@@ -22318,13 +22101,6 @@ function orderedFnDefs(ctx) {
 function emitDslFunctions(ctx) {
     const lines = [];
     for (const [name, { fn, traced }] of orderedFnDefs(ctx)) {
-        // build parameter list
-        const params = traced.params
-            .map((p, i) => {
-            const pName = p.paramName ?? `p${i}`;
-            return `${pName}: ${p.type.wgslType}`;
-        })
-            .join(', ');
         // Fresh emission scope for this function body: its own CSE vars / code / indentation, but it
         // shares the parent's bindings + function tables so references resolve to the same WGSL names.
         // Deliberately does NOT share mutatedNodes or module-scope vars — the body has its own CSE scope.
@@ -22346,12 +22122,15 @@ function emitDslFunctions(ctx) {
         fnDiscovery.privateVars = ctx.privateVars;
         fnDiscovery.workgroupVars = ctx.workgroupVars;
         const fnCtx = createContext$1(ctx.stage, ctx.isRender, fnDiscovery);
-        // register param names in context
+        // Allocated rather than taken verbatim, matching the GLSL emitter: a user's name can be
+        // reserved in either language.
+        const paramDecls = [];
         for (const p of traced.params) {
-            const paramName = p.paramName ?? `p${p.paramIndex}`;
+            const paramName = allocName(fnCtx.names, p.paramName ?? `p${p.paramIndex}`);
             fnCtx.nodeVars.set(p.id, paramName);
-            reserveName(fnCtx.names, paramName);
+            paramDecls.push(`${paramName}: ${p.type.wgslType}`);
         }
+        const params = paramDecls.join(', ');
         // Enable CSE hoisting to this body's top (params are the top-scope stable inputs).
         fnCtx.topScopeParamIds = new Set(traced.params.map((p) => p.id));
         fnCtx.hoistIndex = fnCtx.code.length;
