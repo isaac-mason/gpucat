@@ -18523,8 +18523,13 @@ function createGlslContext(stage, discovery) {
  * samplers and their flip flags, the flip helper — and varyings are bare identifiers rather than
  * struct members, so those are reserved as they are collected (see {@link generateVarying}).
  */
+/** Globals the emitter declares itself, which a local must never shadow: a local `fragColor` would take the
+ *  assignment meant for the fragment output, leaving the output unwritten. */
+const EMITTER_GLOBAL_NAMES = ['fragColor', 'u_fragCoordFlipHeight'];
 function seedGlslGlobalNames(discovery) {
     const names = createNameScope();
+    for (const name of EMITTER_GLOBAL_NAMES)
+        reserveName(names, name);
     for (const helper of FLIP_HELPER_NAMES)
         reserveName(names, helper);
     for (const name of discovery.textureNames.values()) {
@@ -20523,6 +20528,13 @@ function generateGlslFragmentShader(fragmentNode, ctx, varyings, depthNode = nul
     let mrtOutputs = null;
     let colorExpr = '';
     if (mrtNode) {
+        // each output is a global; reserved before any expression allocates a local that could shadow one
+        for (let i = 0; i < mrtNode.members.length; i++) {
+            if (mrtNode.members[i])
+                reserveName(ctx.names, glslOutputName(mrtNode._resolvedNames[i] || `output_${i}`));
+        }
+        for (const name in mrtNode.outputNodes)
+            reserveName(ctx.names, glslOutputName(name));
         mrtOutputs = [];
         if (mrtNode.members.length > 0) {
             // Resolved members: the array index is the @location.
