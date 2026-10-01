@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { attribute, compileGlsl, d, f32, mrt, vec4 } from '../src/index';
+import { attribute, compileGlsl, d, f32, mrt, varying, vec2, vec4 } from '../src/index';
 
 const vertex = () => vec4(attribute('position', d.vec3f), f32(1));
 
@@ -26,5 +26,20 @@ describe('GLSL fragment outputs', () => {
 
         expect(main).not.toMatch(/\bvec4 albedo\b/);
         expect(main).toMatch(/\n\s+albedo = /);
+    });
+
+    test("a local named like a varying doesn't shadow it, so the varying is still written", () => {
+        // a local `vec2 vUv` made before the varying is reached took its name, the vertex stage wrote the
+        // local, and the fragment stage read an unwritten (zero) varying
+        const uv = vec2(attribute('uv', d.vec2f).x, f32(0.25)).toVar('vUv');
+        // used by the position first, so the local is emitted before the varying is reached
+        const position = vec4(attribute('position', d.vec3f).x.add(uv.x), f32(0), f32(0), f32(1));
+        const vUv = varying(uv.mul(f32(2)), 'vUv');
+        const { code } = compileGlsl({ vertex: position, fragment: vec4(vUv, f32(0), f32(1)), depth: undefined });
+        const vertexMain = code.slice(0, code.lastIndexOf('#version'));
+
+        expect(vertexMain).toContain('out vec2 vUv;');
+        expect(vertexMain).not.toMatch(/\bvec2 vUv =/);
+        expect(vertexMain).toMatch(/\n\s+vUv = /);
     });
 });

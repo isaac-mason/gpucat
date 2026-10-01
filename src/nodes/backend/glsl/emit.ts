@@ -424,6 +424,11 @@ const EMITTER_GLOBAL_NAMES = ['fragColor', 'u_fragCoordFlipHeight'] as const;
 function seedGlslGlobalNames(discovery: Discovery): NameScope {
     const names = createNameScope();
     for (const name of EMITTER_GLOBAL_NAMES) reserveName(names, name);
+    // up front, not as each is reached: a local allocated earlier in main() would otherwise take a varying's
+    // name and shadow it, so the vertex stage writes the local and the varying arrives unwritten
+    for (const node of discovery.nodeIdToNode.values()) {
+        if (node.kind === NodeKind.Varying) reserveName(names, (node as VaryingNode<d.Any>).name ?? `v_${node.id}`);
+    }
     for (const helper of FLIP_HELPER_NAMES) reserveName(names, helper);
     for (const name of discovery.textureNames.values()) {
         reserveName(names, `u_${name}`);
