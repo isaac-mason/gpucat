@@ -142,13 +142,14 @@ export class CanvasTarget {
     }
 
     /**
-     * Set the pixel ratio and resize the canvas to match.
+     * Set the pixel ratio and resize the backing store to match. Leaves the canvas's CSS size alone: the ratio
+     * changes how many pixels back the canvas, not how big it is on the page.
      */
     setPixelRatio(value: number): void {
         const next = this._dprRange === null ? value : clamp(value, this._dprRange);
         if (this._pixelRatio === next) return;
         this._pixelRatio = next;
-        this.setSize(this._width, this._height);
+        this.setSize(this._width, this._height, false);
     }
 
     /**
@@ -168,10 +169,6 @@ export class CanvasTarget {
         return { width: this._width, height: this._height };
     }
 
-    /**
-     * Set the size of the canvas in logical pixels.
-     * Updates canvas.width/height (physical) and fires 'resize'.
-     */
     /** No-op unless the layout size changed. Never writes CSS back, since CSS is what it is reading. */
     syncToClientSize(): void {
         const element = this.canvas as HTMLCanvasElement;
@@ -182,6 +179,10 @@ export class CanvasTarget {
         this.setSize(width, height, false);
     }
 
+    /**
+     * Set the size of the canvas in logical pixels.
+     * Updates canvas.width/height (physical), and its CSS size unless `updateStyle` is false, and fires 'resize'.
+     */
     setSize(width: number, height: number, updateStyle: boolean = true): void {
         this._width = width;
         this._height = height;
@@ -209,7 +210,7 @@ export class CanvasTarget {
         this.canvas.width = Math.floor(width * pixelRatio);
         this.canvas.height = Math.floor(height * pixelRatio);
 
-        this.setSize(width, height, false);
+        this._emitResize();
     }
 
     /**

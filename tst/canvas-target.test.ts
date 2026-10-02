@@ -80,6 +80,31 @@ test('autoResize defaults on for a DOM canvas and off for an OffscreenCanvas', (
     expect(offscreen.autoResize).toBe(false);
 });
 
+test('setPixelRatio resizes the backing store and leaves the CSS size alone', () => {
+    const canvas = { width: 300, height: 150, style: { width: '640px', height: '480px' } } as unknown as HTMLCanvasElement;
+    const target = createCanvasTarget(canvas);
+    target.setPixelRatio(2);
+
+    expect([canvas.width, canvas.height]).toEqual([600, 300]);
+    expect([canvas.style.width, canvas.style.height]).toEqual(['640px', '480px']);
+});
+
+test('setDrawingBufferSize sizes the backing store, fires resize once and leaves the CSS size alone', () => {
+    const canvas = { width: 8, height: 8, style: { width: '640px', height: '480px' } } as unknown as HTMLCanvasElement;
+    const target = createCanvasTarget(canvas);
+    const seen: [number, number, number][] = [];
+    target.onResize((e) => seen.push([e.width, e.height, e.pixelRatio]));
+
+    target.setDrawingBufferSize(100, 50, 2);
+
+    expect([canvas.width, canvas.height]).toEqual([200, 100]);
+    expect(seen).toEqual([
+        [8, 8, 1],
+        [200, 100, 2],
+    ]);
+    expect([canvas.style.width, canvas.style.height]).toEqual(['640px', '480px']);
+});
+
 test('syncToClientSize follows the layout without writing CSS back', () => {
     const canvas = { width: 8, height: 8, clientWidth: 8, clientHeight: 8, style: {} } as unknown as HTMLCanvasElement;
     const target = createCanvasTarget(canvas);
