@@ -79,7 +79,8 @@ export declare class CanvasTarget {
      */
     getPixelRatio(): number;
     /**
-     * Set the pixel ratio and resize the canvas to match.
+     * Set the pixel ratio and resize the backing store to match. Leaves the canvas's CSS size alone: the ratio
+     * changes how many pixels back the canvas, not how big it is on the page.
      */
     setPixelRatio(value: number): void;
     /**
@@ -96,12 +97,12 @@ export declare class CanvasTarget {
         width: number;
         height: number;
     };
-    /**
-     * Set the size of the canvas in logical pixels.
-     * Updates canvas.width/height (physical) and fires 'resize'.
-     */
     /** No-op unless the layout size changed. Never writes CSS back, since CSS is what it is reading. */
     syncToClientSize(): void;
+    /**
+     * Set the size of the canvas in logical pixels.
+     * Updates canvas.width/height (physical), and its CSS size unless `updateStyle` is false, and fires 'resize'.
+     */
     setSize(width: number, height: number, updateStyle?: boolean): void;
     /**
      * Set the drawing buffer size directly (width, height, pixelRatio all at once).

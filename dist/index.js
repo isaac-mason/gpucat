@@ -8850,14 +8850,15 @@ class CanvasTarget {
         return this._pixelRatio;
     }
     /**
-     * Set the pixel ratio and resize the canvas to match.
+     * Set the pixel ratio and resize the backing store to match. Leaves the canvas's CSS size alone: the ratio
+     * changes how many pixels back the canvas, not how big it is on the page.
      */
     setPixelRatio(value) {
         const next = this._dprRange === null ? value : clamp$1(value, this._dprRange);
         if (this._pixelRatio === next)
             return;
         this._pixelRatio = next;
-        this.setSize(this._width, this._height);
+        this.setSize(this._width, this._height, false);
     }
     /**
      * Returns the drawing buffer size in physical pixels (honors pixel ratio).
@@ -8874,10 +8875,6 @@ class CanvasTarget {
     getSize() {
         return { width: this._width, height: this._height };
     }
-    /**
-     * Set the size of the canvas in logical pixels.
-     * Updates canvas.width/height (physical) and fires 'resize'.
-     */
     /** No-op unless the layout size changed. Never writes CSS back, since CSS is what it is reading. */
     syncToClientSize() {
         const element = this.canvas;
@@ -8889,6 +8886,10 @@ class CanvasTarget {
             return;
         this.setSize(width, height, false);
     }
+    /**
+     * Set the size of the canvas in logical pixels.
+     * Updates canvas.width/height (physical), and its CSS size unless `updateStyle` is false, and fires 'resize'.
+     */
     setSize(width, height, updateStyle = true) {
         this._width = width;
         this._height = height;
@@ -8910,7 +8911,7 @@ class CanvasTarget {
         this._pixelRatio = pixelRatio;
         this.canvas.width = Math.floor(width * pixelRatio);
         this.canvas.height = Math.floor(height * pixelRatio);
-        this.setSize(width, height, false);
+        this._emitResize();
     }
     /**
      * Release what the renderer holds for this canvas: on WebGPU, its configured context and its depth
