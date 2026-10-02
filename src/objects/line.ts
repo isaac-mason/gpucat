@@ -588,8 +588,9 @@ function lineVertex(lineWidthNode: Node<d.f32>, worldUnits = false): Node<d.vec4
     // perpendicular in screen space, un-corrected back to NDC
     const perp = vec2f(div(dir.y.negate(), aspect), dir.x);
 
-    // offset magnitude: pixels → NDC (divide by screen height)
-    const halfOffset = mul(perp, div(mul(lineWidthNode, f32(0.5)), screenSize.y));
+    // each side moves out half the width; NDC spans 2 across the screen's height, so half the width in pixels is
+    // `width / screenSize.y` in NDC.
+    const halfOffset = mul(perp, div(lineWidthNode, screenSize.y));
 
     // apply offset in clip space (multiply by w to go NDC → clip)
     const offsetClip = mul(halfOffset, clipPos.w as unknown as Node<d.f32>);

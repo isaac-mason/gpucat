@@ -66,4 +66,6 @@ export const CASE_NAMES = [
     'struct-texture-half2x16',
     'struct-texture-mat4',
     'struct-texture-bits',
+    'line-width-inside',
+    'line-width-outside',
 ];

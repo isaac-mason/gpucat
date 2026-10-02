@@ -23,6 +23,9 @@ import {
     fullscreen,
     Geometry,
     globalId,
+    LineMaterial,
+    LineSegments,
+    LineSegmentsGeometry,
     i32,
     index,
     init,
@@ -2516,7 +2519,44 @@ const CASES: Record<string, Case> = {
     'struct-texture-half2x16': caseStructTexturePackedHalf,
     'struct-texture-mat4': caseStructTextureMat4,
     'struct-texture-bits': caseStructTextureBits,
+    'line-width-inside': caseLineWidthInside,
+    'line-width-outside': caseLineWidthOutside,
 };
+
+/** An 8-pixel screen-space line across the middle of the target: its rows, read top to bottom. */
+async function drawLineAcross(gpu: Renderer<WebGPUBackend>): Promise<Uint8Array> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const line = new LineSegments(
+        new LineSegmentsGeometry([-10, 0, 0, 10, 0, 0]),
+        new LineMaterial({ color: vec4(1, 0, 0, 1), lineWidth: 8 }),
+    );
+    const scene = new Scene();
+    const camera = new PerspectiveCamera(Math.PI / 4, 1, 0.1, 100);
+    camera.position[2] = 3;
+    scene.add(camera);
+    scene.add(line);
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    const f = frame(gpu);
+    const pass = f.pass({ target, camera, clear: [0, 0, 0, 1] });
+    drawScene(gpu, pass, scene, camera);
+    pass.end();
+    f.submit();
+    return read(gpu, target);
+}
+
+/** line-width-inside: a line `lineWidth` pixels wide reaches half that either side of its centre (rows 28 to 35 here). */
+async function caseLineWidthInside(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const pixel = pixelAt(await drawLineAcross(gpu), CENTER, CENTER + 3);
+    return { name: 'line-width-inside', pixel, expected: [255, 0, 0, 255], note: '3.5px from the centre of an 8px line' };
+}
+
+/** line-width-outside: and no further. */
+async function caseLineWidthOutside(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const pixel = pixelAt(await drawLineAcross(gpu), CENTER, CENTER + 5);
+    return { name: 'line-width-outside', pixel, expected: [0, 0, 0, 255], note: '5.5px from the centre of an 8px line' };
+}
 
 /** One case on its own renderer. The runner gives each its own process; see child.mjs for why. */
 export async function runCase(device: GPUDevice, adapter: GPUAdapter, name: string): Promise<CaseResult> {
