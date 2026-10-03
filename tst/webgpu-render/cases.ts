@@ -419,6 +419,68 @@ async function caseCompute(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
 }
 
 /**
+ * compute-texture-load: a compute shader reads a depth target a render pass wrote earlier in the frame, and a
+ * filterable colour texture, both by `.load()`, then a draw shows what it wrote. The textures and the sampler the
+ * colour texture brings must reach the compute pipeline's layout and bind group, or the pipeline is invalid.
+ */
+async function caseComputeTextureLoad(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const depthOnly = createRenderTarget(SIZE, SIZE, { count: 0, depthFormat: 'depth32float', depthSampled: true });
+    const writeDepth = new Mesh(
+        fullscreenTriangle(),
+        new Material({ vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment: undefined, depth: f32(0.25) }),
+    );
+    writeDepth.updateWorldMatrix();
+    const colour = new DataTexture(new Uint8Array([0, 128, 0, 255]), 1, 1, {
+        format: 'rgba8unorm',
+        magFilter: 'linear',
+        minFilter: 'linear',
+    });
+
+    const values = createStorageBuffer(d.array(d.f32), new Float32Array(2));
+    const depthNode = depthTexture(depthOnly.depthTexture!);
+    const colourNode = texture(colour);
+    const gather = Fn(() => {
+        const out = storage('values', d.array(d.f32), 'read_write');
+        index(out, u32(0)).assign(depthNode.load(vec2i(i32(CENTER), i32(CENTER))));
+        index(out, u32(1)).assign(colourNode.load(vec2i(i32(0), i32(0))).y);
+    }).compute({ workgroupSize: [1, 1, 1] });
+
+    const shown = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const values0 = index(storage(values, 'read'), u32(0));
+    const values1 = index(storage(values, 'read'), u32(1));
+    const show = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(values0, values1, f32(0), f32(1)),
+            depthTest: false,
+        }),
+    );
+    show.updateWorldMatrix();
+
+    const camera = new PerspectiveCamera();
+    const f = frame(gpu);
+    const writePass = f.pass({ target: depthOnly, camera, clearDepth: 1 });
+    writePass.draw(writeDepth);
+    writePass.end();
+    const compute = f.compute({ label: 'gather' });
+    compute.dispatch(gather, [1, 1, 1], { buffers: { values } });
+    compute.end();
+    const showPass = f.pass({ target: shown, camera, clear: [0, 0, 0, 1] });
+    showPass.draw(show);
+    showPass.end();
+    f.submit();
+
+    const pixel = centerPixel(await read(gpu, shown));
+    return {
+        name: 'compute-texture-load',
+        pixel,
+        expected: [u8(0.25), 128, 0, 255],
+        note: 'red is the depth compute loaded, green the colour texel',
+    };
+}
+
+/**
  * compute-uniform-per-dispatch: one compute node dispatched in two compute passes of one frame, its
  * uniform changed in between. A pass reads uniform values when it ends, so the change sits between the
  * passes. Each dispatch writes `200 + value` at index `value`, so index 1 holds 201 only if the first
@@ -2487,6 +2549,7 @@ const CASES: Record<string, Case> = {
     'draw-material': caseDrawMaterial,
     compute: caseCompute,
     'wgsl-operand-grammar': caseWgslOperandGrammar,
+    'compute-texture-load': caseComputeTextureLoad,
     'compute-uniform-per-dispatch': caseComputeUniformPerDispatch,
     'compute-uniform-within-pass': caseComputeUniformWithinPass,
     'draw-uniform-within-pass': caseDrawUniformWithinPass,

@@ -86,10 +86,10 @@ export type NodeBuilderState = {
     /** Storage buffer bindings. */
     storage: StorageEntry[];
 
-    /** Texture bindings. Empty for compute (for now). */
+    /** Texture bindings. */
     textures: TextureEntry[];
 
-    /** Sampler bindings. Empty for compute (for now). */
+    /** Sampler bindings. */
     samplers: SamplerEntry[];
 
     /** Varying entries (vertex → fragment). Empty for compute. */
@@ -181,9 +181,9 @@ export function createNodeBuilderStateForCompute(compileResult: ComputeCompileRe
     const bindings = buildTemplateBindGroups(
         compileResult.uniformGroups,
         compileResult.storage,
-        [], // no sampled textures for compute
+        compileResult.textures,
         compileResult.storageTextures,
-        [], // no samplers for compute (for now)
+        compileResult.samplers,
         context,
     );
 
@@ -199,8 +199,8 @@ export function createNodeBuilderStateForCompute(compileResult: ComputeCompileRe
         vertexBufferGroups: [], // no vertex buffer groups for compute
         uniformGroups: compileResult.uniformGroups,
         storage: compileResult.storage,
-        textures: [], // no textures for compute (for now)
-        samplers: [], // no samplers for compute (for now)
+        textures: compileResult.textures,
+        samplers: compileResult.samplers,
         varyings: [], // no varyings for compute
         builtinsUsed: compileResult.builtinsUsed,
         bindings,

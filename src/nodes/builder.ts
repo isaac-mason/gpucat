@@ -540,7 +540,14 @@ export function compileComputeWgsl(node: ComputeNode): ComputeCompileResult {
     const computeBody = generateComputeShader(node, traced, ctx);
 
     // emit all bindings (each group gets its own @group index)
-    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, storageTextureEntries: storageTextures } = emitAllBindings(ctx);
+    const {
+        wgsl: bindingsWgsl,
+        uniformBlocks,
+        storageEntries,
+        textureEntries: textures,
+        storageTextureEntries: storageTextures,
+        samplerEntries: samplers,
+    } = emitAllBindings(ctx);
 
     // emit module-scope variables (var<private>, var<workgroup>)
     const moduleScopeVarsWgsl = emitModuleScopeVars(ctx);
@@ -571,7 +578,9 @@ export function compileComputeWgsl(node: ComputeNode): ComputeCompileResult {
     return {
         code,
         storage: computeStorage,
+        textures,
         storageTextures,
+        samplers,
         workgroupSize: node.workgroupSize ?? [64, 1, 1],
         builtinsUsed: ctx.builtins,
         uniformGroups: uniformBlocks,
@@ -861,7 +870,9 @@ export type CompileResult = {
 export type ComputeCompileResult = {
     code: string;
     storage: ComputeStorageEntry[];
+    textures: TextureEntry[];
     storageTextures: StorageTextureEntry[];
+    samplers: SamplerEntry[];
     workgroupSize: [number, number, number];
     builtinsUsed: Set<string>;
     uniformGroups: UniformGroupBlock[];
