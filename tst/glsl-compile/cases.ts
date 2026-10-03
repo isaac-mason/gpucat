@@ -48,6 +48,7 @@ import {
     vec3,
     vec3b,
     vec3i,
+    vec3u,
     vec4,
     vec4u,
     vertexIndex,
@@ -302,6 +303,22 @@ export const cases: Case[] = [
                 },
             );
             const color = varying(decode(u32(0x8040), f32(1)), 'vColor');
+            return { vertex: vec4(position, f32(1)), fragment: vec4(color, f32(1)), depth: undefined };
+        },
+    },
+    {
+        // A signed value shifts by an unsigned amount: WGSL rejects `i32 >> i32`, and GLSL takes the mixed form as is.
+        name: 'signed shift by unsigned amount',
+        build: () => {
+            const position = attribute('position', d.vec3f);
+            const cell = position.x.mul(f32(-37)).toI32().toVar('cell');
+            const chunk = cell.shiftRight(u32(4)).toVar('chunk');
+            const local = cell.bitwiseAnd(i32(15)).toVar('local');
+            const rebuilt = chunk.shiftLeft(u32(4)).add(local).toVar('rebuilt');
+            const lanes = vec3i(cell, chunk, rebuilt)
+                .shiftRight(vec3u(u32(1), u32(2), u32(3)))
+                .toVar('lanes');
+            const color = varying(vec3(lanes.x.toF32(), lanes.y.toF32(), lanes.z.toF32()), 'vShifted');
             return { vertex: vec4(position, f32(1)), fragment: vec4(color, f32(1)), depth: undefined };
         },
     },

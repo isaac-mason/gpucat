@@ -34,6 +34,7 @@ export const CASE_NAMES = [
     'draw-material',
     'compute',
     'wgsl-operand-grammar',
+    'signed-shift',
     'compute-uniform-per-dispatch',
     'compute-uniform-within-pass',
     'compute-texture-load',

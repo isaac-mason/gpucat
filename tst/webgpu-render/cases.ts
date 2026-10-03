@@ -23,17 +23,18 @@ import {
     fullscreen,
     Geometry,
     globalId,
-    LineMaterial,
-    LineSegments,
-    LineSegmentsGeometry,
     i32,
     index,
     init,
+    LineMaterial,
+    LineSegments,
+    LineSegmentsGeometry,
     Material,
     Mesh,
     modelWorldMatrix,
     mrt,
     mul,
+    type Node,
     PerspectiveCamera,
     type RenderTarget,
     read,
@@ -56,6 +57,8 @@ import {
     vec2f,
     vec2i,
     vec3,
+    vec3i,
+    vec3u,
     vec4,
     type WebGPUBackend,
     webgpu,
@@ -584,6 +587,66 @@ async function caseWgslOperandGrammar(gpu: Renderer<WebGPUBackend>): Promise<Cas
         pixel: centerPixel(await read(gpu, target)),
         expected: [255, 255, 255, 255],
         note: 'one channel per lane; 0 is a lane whose shift or mask computed the wrong value',
+    };
+}
+
+/**
+ * signed-shift: an i32 shifted by a u32 amount is an arithmetic shift, so a negative cell coordinate floors to its
+ * chunk (-37 >> 4 is -3, and -37 & 15 is 11), and a vec3i shifts by a vec3u lane by lane. One channel per check.
+ */
+async function caseSignedShift(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+
+    const values = createStorageBuffer(d.array(d.u32), new Uint32Array(4));
+    const check = Fn(() => {
+        const out = storage('values', d.array(d.u32), 'read_write');
+        // -37 at run time, so nothing folds it to a constant
+        const cell = globalId.x.toI32().sub(i32(37)).toVar('cell');
+        const chunk = cell.shiftRight(u32(4)).toVar('chunk');
+        const local = cell.bitwiseAnd(i32(15)).toVar('local');
+        const rebuilt = chunk.shiftLeft(u32(4)).add(local);
+        const lanes = vec3i(cell, i32(300), i32(-1))
+            .shiftRight(vec3u(u32(1), u32(2), u32(3)))
+            .toVar('lanes');
+        const pass = (ok: Node<d.bool>) => select(u32(0), u32(255), ok);
+        index(out, u32(0)).assign(pass(chunk.equal(i32(-3))));
+        index(out, u32(1)).assign(pass(local.equal(i32(11))));
+        index(out, u32(2)).assign(pass(rebuilt.equal(cell)));
+        index(out, u32(3)).assign(
+            pass(
+                lanes.x
+                    .equal(i32(-19))
+                    .and(lanes.y.equal(i32(75)))
+                    .and(lanes.z.equal(i32(-1))),
+            ),
+        );
+    }).compute({ workgroupSize: [1, 1, 1] });
+
+    const readSlot = (slot: number) => index(storage(values, 'read'), u32(slot)).toF32().div(f32(255));
+    const mesh = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(readSlot(0), readSlot(1), readSlot(2), readSlot(3)),
+            depthTest: false,
+        }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const compute = f.compute({ label: 'shift' });
+    compute.dispatch(check, [1, 1, 1], { buffers: { values } });
+    compute.end();
+    const pass = f.pass({ target, clear: [0, 0, 0, 0] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    return {
+        name: 'signed-shift',
+        pixel: centerPixel(await read(gpu, target)),
+        expected: [255, 255, 255, 255],
+        note: 'chunk floor, local mask, rebuild, vector lanes; 0 is the check that failed',
     };
 }
 
@@ -2549,6 +2612,7 @@ const CASES: Record<string, Case> = {
     'draw-material': caseDrawMaterial,
     compute: caseCompute,
     'wgsl-operand-grammar': caseWgslOperandGrammar,
+    'signed-shift': caseSignedShift,
     'compute-texture-load': caseComputeTextureLoad,
     'compute-uniform-per-dispatch': caseComputeUniformPerDispatch,
     'compute-uniform-within-pass': caseComputeUniformWithinPass,

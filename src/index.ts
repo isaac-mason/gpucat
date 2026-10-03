@@ -287,6 +287,7 @@ export {
     type SamplingMode,
     type ScalarResultDesc,
     type ScalarType,
+    type ShiftAmount,
     type StackNode,
     type StorageBufferTextureSource,
     type StorageCoord,

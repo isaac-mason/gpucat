@@ -601,10 +601,10 @@ export class Node<D extends Any> {
     bitwiseXor(b: Node<D>): Node<D> {
         return bitwiseXor(this, b);
     }
-    shiftLeft(b: Node<D>): Node<D> {
+    shiftLeft(b: Node<ShiftAmount<D>>): Node<D> {
         return shiftLeft(this, b);
     }
-    shiftRight(b: Node<D>): Node<D> {
+    shiftRight(b: Node<ShiftAmount<D>>): Node<D> {
         return shiftRight(this, b);
     }
 
@@ -1928,8 +1928,20 @@ export const fwidthFine = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a
 export const bitwiseAnd = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinaryOpNode('&', a.type, a, b);
 export const bitwiseOr = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinaryOpNode('|', a.type, a, b);
 export const bitwiseXor = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinaryOpNode('^', a.type, a, b);
-export const shiftLeft = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinaryOpNode('<<', a.type, a, b);
-export const shiftRight = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinaryOpNode('>>', a.type, a, b);
+/**
+ * what a value of type D shifts by: WGSL takes an unsigned amount whatever the value's signedness, one lane per lane of
+ * the value, so `i32 >> u32` (arithmetic) and `vec3i << vec3u` are the valid forms.
+ */
+export type ShiftAmount<D> = D extends { len: 2 }
+    ? d.vec2u
+    : D extends { len: 3 }
+      ? d.vec3u
+      : D extends { len: 4 }
+        ? d.vec4u
+        : d.u32;
+
+export const shiftLeft = <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>>): Node<D> => new BinaryOpNode('<<', a.type, a, b);
+export const shiftRight = <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>>): Node<D> => new BinaryOpNode('>>', a.type, a, b);
 
 // ── Lang ──────────────────────────────────────────────────────────────────────
 
