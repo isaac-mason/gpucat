@@ -195,9 +195,14 @@ function buildRenderPipelineDescriptor(
         bindGroupLayouts,
     });
 
+    // Labelled as three.js labels them (`stage_name`, `renderPipeline_name`), for native GPU tools (Xcode, PIX,
+    // RenderDoc) to show when the browser forwards labels. One module holds both stages, so its stage is `render`.
+    const name = material.name || 'Material';
+
     // Create shader module (vertexCode contains combined vertex+fragment shader)
     const shaderCode = nodeState.vertexCode!;
     const shaderModule = device.createShaderModule({
+        label: `render_${name}`,
         code: shaderCode,
     });
     shaderModule.getCompilationInfo().then((info) => {
@@ -247,6 +252,7 @@ function buildRenderPipelineDescriptor(
             : undefined;
 
     return {
+        label: `renderPipeline_${name}`,
         layout: pipelineLayout,
         vertex: {
             module: shaderModule,
@@ -324,7 +330,8 @@ export function getForCompute(
     const bindGroupLayouts = buildComputeBindGroupLayouts(device, nodeBuilderState.bindings, state.bindGroupLayoutCache);
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts });
 
-    const shaderModule = device.createShaderModule({ code: nodeBuilderState.computeCode! });
+    const stage = node.name ? `compute_${node.name}` : 'compute';
+    const shaderModule = device.createShaderModule({ label: stage, code: nodeBuilderState.computeCode! });
 
     entry = {
         pipeline: null,
@@ -333,6 +340,7 @@ export function getForCompute(
     state.computePipelines.set(key, entry);
 
     const descriptor: GPUComputePipelineDescriptor = {
+        label: `computePipeline_${stage}`,
         layout: pipelineLayout,
         compute: { module: shaderModule, entryPoint: 'cs_main' },
     };
