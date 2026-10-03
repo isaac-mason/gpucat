@@ -22172,9 +22172,12 @@ function emitDslFunctions(ctx) {
  * Coerce a binary op's operands to a common scalar kind. WGSL forbids mixing scalar kinds in an operator
  * (`5u + 3i` is an error), so wrap the operand whose kind differs from the target in a length-preserving
  * conversion constructor (`u32(x)` / `vec3f(x)` …). Target = the op's result kind for arithmetic, or the
- * promoted operand kind for comparisons (which produce bool). Bool operands (logical ops) are left alone.
+ * promoted operand kind for comparisons (which produce bool). Bool operands (logical ops) are left alone, and so
+ * are shifts: their amount is always unsigned, whatever the value's kind.
  */
 function coerceBinaryOperands(node, left, right) {
+    if (node.op === '<<' || node.op === '>>')
+        return [left, right];
     const lk = node.left.type.scalar;
     const rk = node.right.type.scalar;
     if (!lk || !rk || lk === rk || lk === 'bool' || rk === 'bool')

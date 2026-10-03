@@ -192,8 +192,8 @@ export declare class Node<D extends Any> {
     bitwiseAnd(b: Node<D>): Node<D>;
     bitwiseOr(b: Node<D>): Node<D>;
     bitwiseXor(b: Node<D>): Node<D>;
-    shiftLeft(b: Node<D>): Node<D>;
-    shiftRight(b: Node<D>): Node<D>;
+    shiftLeft(b: Node<ShiftAmount<D>>): Node<D>;
+    shiftRight(b: Node<ShiftAmount<D>>): Node<D>;
     transpose(): Node<D>;
     get x(): Node<VecElementDesc<D>>;
     get y(): Node<VecElementDesc<D>>;
@@ -852,8 +852,19 @@ export declare const fwidthFine: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const bitwiseAnd: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
 export declare const bitwiseOr: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
 export declare const bitwiseXor: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
-export declare const shiftLeft: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
-export declare const shiftRight: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+/**
+ * what a value of type D shifts by: WGSL takes an unsigned amount whatever the value's signedness, one lane per lane of
+ * the value, so `i32 >> u32` (arithmetic) and `vec3i << vec3u` are the valid forms.
+ */
+export type ShiftAmount<D> = D extends {
+    len: 2;
+} ? d.vec2u : D extends {
+    len: 3;
+} ? d.vec3u : D extends {
+    len: 4;
+} ? d.vec4u : d.u32;
+export declare const shiftLeft: <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>>) => Node<D>;
+export declare const shiftRight: <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>>) => Node<D>;
 export declare class StackNode extends Node<d.Void> {
     readonly kind = NodeKind.Stack;
     readonly body: Node<Any>[];
