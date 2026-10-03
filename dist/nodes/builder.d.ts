@@ -212,7 +212,9 @@ export type CompileResult = {
 export type ComputeCompileResult = {
     code: string;
     storage: ComputeStorageEntry[];
+    textures: TextureEntry[];
     storageTextures: StorageTextureEntry[];
+    samplers: SamplerEntry[];
     workgroupSize: [number, number, number];
     builtinsUsed: Set<string>;
     uniformGroups: UniformGroupBlock[];

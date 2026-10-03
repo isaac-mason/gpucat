@@ -35,9 +35,9 @@ export type NodeBuilderState = {
     uniformGroups: UniformGroupBlock[];
     /** Storage buffer bindings. */
     storage: StorageEntry[];
-    /** Texture bindings. Empty for compute (for now). */
+    /** Texture bindings. */
     textures: TextureEntry[];
-    /** Sampler bindings. Empty for compute (for now). */
+    /** Sampler bindings. */
     samplers: SamplerEntry[];
     /** Varying entries (vertex → fragment). Empty for compute. */
     varyings: VaryingEntry[];

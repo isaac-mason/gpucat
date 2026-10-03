@@ -9128,9 +9128,7 @@ function createNodeBuilderState(compileResult, cacheKey, context) {
  */
 function createNodeBuilderStateForCompute(compileResult, context) {
     // build template BindGroups from compile result
-    const bindings = buildTemplateBindGroups(compileResult.uniformGroups, compileResult.storage, [], // no sampled textures for compute
-    compileResult.storageTextures, [], // no samplers for compute (for now)
-    context);
+    const bindings = buildTemplateBindGroups(compileResult.uniformGroups, compileResult.storage, compileResult.textures, compileResult.storageTextures, compileResult.samplers, context);
     return {
         // No render shaders
         vertexCode: null,
@@ -9143,8 +9141,8 @@ function createNodeBuilderStateForCompute(compileResult, context) {
         vertexBufferGroups: [], // no vertex buffer groups for compute
         uniformGroups: compileResult.uniformGroups,
         storage: compileResult.storage,
-        textures: [], // no textures for compute (for now)
-        samplers: [], // no samplers for compute (for now)
+        textures: compileResult.textures,
+        samplers: compileResult.samplers,
         varyings: [], // no varyings for compute
         builtinsUsed: compileResult.builtinsUsed,
         bindings,
@@ -22882,7 +22880,7 @@ function compileComputeWgsl(node) {
     // causing emits like `undefined[...]`).
     const computeBody = generateComputeShader(node, traced, ctx);
     // emit all bindings (each group gets its own @group index)
-    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, storageTextureEntries: storageTextures } = emitAllBindings(ctx);
+    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, storageTextureEntries: storageTextures, samplerEntries: samplers, } = emitAllBindings(ctx);
     // emit module-scope variables (var<private>, var<workgroup>)
     const moduleScopeVarsWgsl = emitModuleScopeVars(ctx);
     // emit functions
@@ -22908,7 +22906,9 @@ function compileComputeWgsl(node) {
     return {
         code,
         storage: computeStorage,
+        textures,
         storageTextures,
+        samplers,
         workgroupSize: node.workgroupSize ?? [64, 1, 1],
         builtinsUsed: ctx.builtins,
         uniformGroups: uniformBlocks,
