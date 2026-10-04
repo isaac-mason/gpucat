@@ -163,10 +163,7 @@ export function storageMirrorBytesPerTexel(element: Any): number {
     );
 }
 
-/**
- * The texel grid a storage mirror of `byteLength` bytes takes: rows `min(texels, maxTextureSize)` wide, the
- * last one padded. Throws for a length that is not a non-zero whole number of texels.
- */
+/** the texel grid a storage mirror of `byteLength` bytes takes: rows `min(texels, maxTextureSize)` wide, the last padded. */
 export function storageMirrorGrid(
     byteLength: number,
     bytesPerTexel: number,

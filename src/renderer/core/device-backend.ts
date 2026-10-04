@@ -35,8 +35,7 @@ export interface DeviceBackend extends FrameBackend {
         mipLevel: number,
     ): Promise<Uint8Array>;
 
-    /** Copy `byteSize` bytes of `data`, from `dataByteOffset`, into a `cpu: false` buffer at `byteOffset`, before
-     *  returning. Bounds and alignment are already checked. */
+    /** copies `byteSize` bytes of `data` into a `cpu: false` buffer at `byteOffset` before returning; bounds already checked. */
     /** @internal */ writeBuffer(
         buffer: GpuBuffer,
         byteOffset: number,
@@ -45,8 +44,7 @@ export interface DeviceBackend extends FrameBackend {
         byteSize: number,
     ): void;
 
-    /** Copy tightly packed `data` into one box of a `cpu: false` texture before returning. The region is already
-     *  checked against the level, and `data` against the region. */
+    /** copies packed `data` into one box of a `cpu: false` texture before returning; region and size already checked. */
     /** @internal */ writeTexture(texture: GpuTexture, region: TextureRegion, data: ArrayBufferView): void;
 
     /**

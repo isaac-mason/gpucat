@@ -362,10 +362,7 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
     return data;
 }
 
-/**
- * `writeTexture` for WebGPU: a queue write of one box from tightly packed `data`, which copies before
- * returning. The region is already validated against the level.
- */
+/** `writeTexture` for WebGPU: a queue write of one box from packed `data`, which copies before returning. */
 export function writeTextureRegion(
     cache: TextureCache,
     device: GPUDevice,

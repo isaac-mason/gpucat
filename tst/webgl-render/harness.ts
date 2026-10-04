@@ -3525,12 +3525,7 @@ function fullscreenScene(
     return { scene, camera };
 }
 
-/**
- * write-buffer: a `cpu: false` storage buffer filled only by `writeBuffer`, read through its r32uint mirror. The
- * first write lands before anything has bound the buffer, from an offset into its data, which is then overwritten
- * at once: the write must already have copied it. A second write after a frame rewrites one slot. Slot 0 is never
- * written, so it shows the zeroes the mirror starts as.
- */
+/** write-buffer: a write before any binding from an offset into data overwritten at once, then a one-slot write after a frame. */
 async function caseWriteBuffer(): Promise<CaseResult> {
     const renderer = await newRenderer();
     activeClear = [0, 0, 0, 1];
@@ -3555,10 +3550,7 @@ async function caseWriteBuffer(): Promise<CaseResult> {
     return { name: 'write-buffer', pixel: firstOk ? second : first, expected: [0, 64, 255, 255] };
 }
 
-/**
- * write-buffer-rows: one write across three rows of a `cpu: false` buffer's mirror, from an offset into its data,
- * so it splits into a head of row 0, the whole of row 1 and a tail of row 2. One slot read from each piece.
- */
+/** write-buffer-rows: one write across three mirror rows, from an offset into its data: a head, a whole row, a tail. */
 async function caseWriteBufferRows(): Promise<CaseResult> {
     const renderer = await newRenderer();
     activeClear = [0, 0, 0, 1];
@@ -3584,10 +3576,7 @@ async function caseWriteBufferRows(): Promise<CaseResult> {
     return { name: 'write-buffer-rows', pixel, expected: [230, 153, 77, 255] };
 }
 
-/**
- * write-buffer-texel-align: a `vec4u` buffer mirrors as 16-byte texels, so a write of one u32 inside a texel cannot
- * be expressed and throws, where WebGPU would take it. Green when it throws.
- */
+/** write-buffer-texel-align: a u32 write inside a 16-byte `vec4u` texel can't be expressed on WebGL and throws. */
 async function caseWriteBufferTexelAlign(): Promise<CaseResult> {
     const renderer = await newRenderer();
     const values = new GpuBuffer(d.array(d.vec4u), { count: 4, usage: 'storage', cpu: false });
@@ -3620,11 +3609,7 @@ function drawFullscreen(
     return readCenter(renderer.backend.gl!);
 }
 
-/**
- * write-texture: a `cpu: false` 4x4 texture filled red by one whole-level write before anything binds it, its source
- * overwritten at once, then a 2x2 green box written over its far corner after a frame. Red comes from a texel only
- * the first write reached, green and the missing red from one the box rewrote.
- */
+/** write-texture: a whole-level red write before any binding, its source overwritten at once, then a green 2x2 box. */
 async function caseWriteTexture(): Promise<CaseResult> {
     const renderer = await newRenderer();
     const image = new GpuTexture(d.texture2d(), { width: 4, height: 4, cpu: false });
@@ -3658,10 +3643,7 @@ async function caseWriteTextureLayers(): Promise<CaseResult> {
     return { name: 'write-texture-layers', pixel, expected: [64, 128, 255, 255] };
 }
 
-/**
- * write-texture-cube: one write of faces 0 and 1 of a `cpu: false` cube, which WebGL2 takes as one call per face,
- * each read by its own direction. gpucat mirrors X when sampling a cube, so -X reads face 0 and +X face 1.
- */
+/** write-texture-cube: one write of faces 0 and 1; cube sampling mirrors X, so -X reads face 0 and +X face 1. */
 async function caseWriteTextureCube(): Promise<CaseResult> {
     const renderer = await newRenderer();
     const cube = new GpuTexture(d.textureCube(), { size: 2, cpu: false });
@@ -3689,10 +3671,7 @@ async function caseCpuLessIndex(): Promise<CaseResult> {
     return { name: 'cpu-less-index', pixel, expected: [0, 255, 0, 255] };
 }
 
-/**
- * write-buffer-tf-input: a `cpu: false` storage buffer written through its read texture holds nothing in a GL buffer,
- * so feeding it to transform feedback afterwards throws instead of reading zeroes. Green when it throws.
- */
+/** write-buffer-tf-input: a storage buffer written only through its read texture throws when fed to transform feedback. */
 async function caseWriteBufferTfInput(): Promise<CaseResult> {
     const renderer = await newRenderer();
     const N = 4;

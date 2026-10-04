@@ -540,11 +540,7 @@ export function updateStorageBufferTexture(
     return data.texture;
 }
 
-/**
- * The mirror texture of a `cpu: false` storage buffer, created zeroed on first use. Only `writeBuffer` fills it,
- * so it is never re-specified: a binding that would read it at another texel width is an error rather than a
- * silent wipe.
- */
+/** the mirror texture of a `cpu: false` storage buffer, zeroed on first use and never re-specified, since only writes fill it. */
 function ensureCpuLessStorageTexture(
     gl: WebGL2RenderingContext,
     state: TextureCache,
@@ -595,10 +591,7 @@ function ensureCpuLessStorageTexture(
     return data;
 }
 
-/**
- * `writeBuffer` into a `cpu: false` storage buffer's mirror texture: the span's texels, `texSubImage2D`d straight
- * from `data`. The texel is the buffer element's (4, 8 or 16 bytes), and the span must cover whole texels.
- */
+/** `writeBuffer` into a `cpu: false` storage buffer's mirror texture; the span must cover whole texels of the element. */
 export function writeStorageTexture(
     gl: WebGL2RenderingContext,
     state: TextureCache,
@@ -1134,10 +1127,7 @@ function allocateCpuLessStorage(gl: WebGL2RenderingContext, texture: GpuTexture,
     }
 }
 
-/**
- * `writeTexture` for WebGL2: `texSubImage` of one box from tightly packed `data`, one call per cube face since a
- * face is its own bind target. The region is already validated against the level.
- */
+/** `writeTexture` for WebGL2: `texSubImage` of one box from packed `data`, one call per cube face. */
 export function writeTextureRegion(
     gl: WebGL2RenderingContext,
     state: TextureCache,

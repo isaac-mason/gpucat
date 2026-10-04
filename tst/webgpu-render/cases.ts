@@ -487,12 +487,7 @@ async function caseComputeTextureLoad(gpu: Renderer<WebGPUBackend>): Promise<Cas
     };
 }
 
-/**
- * write-buffer: a `cpu: false` storage buffer filled only by `writeBuffer`. The first write lands before anything
- * has bound the buffer, from an offset into its data, which is then overwritten at once: the write must already
- * have copied it. A second write after a frame rewrites one slot of the buffer that frame created. Slot 0 is never
- * written, so it shows the zeroes the buffer starts as.
- */
+/** write-buffer: a write before any binding from an offset into data overwritten at once, then a one-slot write after a frame. */
 async function caseWriteBuffer(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
     const values = new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage', cpu: false });
@@ -561,11 +556,7 @@ function texels(count: number, rgba: [number, number, number, number]): Uint8Arr
     return out;
 }
 
-/**
- * write-texture: a `cpu: false` 4x4 texture filled red by one whole-level write before anything binds it, its source
- * overwritten at once, then a 2x2 green box written over its far corner after a frame. Red comes from a texel only
- * the first write reached, green and the missing red from one the box rewrote.
- */
+/** write-texture: a whole-level red write before any binding, its source overwritten at once, then a green 2x2 box. */
 async function caseWriteTexture(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     const image = new GpuTexture(d.texture2d(), { width: 4, height: 4, cpu: false });
     const red = texels(16, [255, 0, 0, 255]);
@@ -594,10 +585,7 @@ async function caseWriteTextureLayers(gpu: Renderer<WebGPUBackend>): Promise<Cas
     return { name: 'write-texture-layers', pixel: await drawFullscreen(gpu, fragment), expected: [64, 128, 255, 255] };
 }
 
-/**
- * write-texture-cube: one write of faces 0 and 1 of a `cpu: false` cube, each read by its own direction. gpucat
- * mirrors X when sampling a cube, as three.js does, so direction -X reads face 0 and +X reads face 1.
- */
+/** write-texture-cube: one write of faces 0 and 1; cube sampling mirrors X, so -X reads face 0 and +X face 1. */
 async function caseWriteTextureCube(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     const cube = new GpuTexture(d.textureCube(), { size: 2, cpu: false });
     const data = new Uint8Array(2 * 4 * 4);

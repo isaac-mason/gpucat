@@ -208,10 +208,7 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
     return buf;
 }
 
-/**
- * `writeBuffer` for WebGPU: a queue write, which copies `data` before returning. Offsets and size are
- * bytes, already validated by the caller.
- */
+/** `writeBuffer` for WebGPU: a queue write, which copies `data` before returning. */
 export function writeBufferBytes(
     cache: BufferCache,
     device: GPUDevice,
