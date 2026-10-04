@@ -41,8 +41,7 @@ export type BufferCache = {
     all: Set<WebGLBuffer>;
     bufferCount: number;
     rawCount: number;
-    /** `cpu: false` storage buffers written with no GL buffer: their bytes live only in their read texture, so a
-     *  GL buffer made for them later would be zeroes. */
+    /** `cpu: false` storage buffers written with no GL buffer: one made for them later would hold zeroes. */
     textureOnly: WeakSet<GpuBuffer>;
     /** Where upload volume is tallied. Held by reference so the frame boundary that zeroes it stays
      *  in one place (the renderer) and every reader sees the same numbers; see `core/info.ts`. */
@@ -74,12 +73,7 @@ export declare function glUsageHint(gl: WebGL2RenderingContext, buffer: GpuBuffe
  * escape hatch, because its usage flags are correctness rather than an advisory hint.
  */
 export declare function ensureUploaded(gl: WebGL2RenderingContext, cache: BufferCache, buffer: GpuBuffer, target: GLenum, name: string, usageHint?: number): WebGLBuffer;
-/**
- * `writeBuffer` into a `cpu: false` buffer's GL buffer, creating it zeroed first. Writes go through
- * `COPY_WRITE_BUFFER`, which no VAO captures, and leave it unbound. An index buffer is created through
- * `ELEMENT_ARRAY_BUFFER` instead: a GL buffer's first binding fixes whether it can ever hold indices, and one
- * first bound to a copy target never can. That binding is VAO state, so it is made with no VAO bound.
- */
+/** `writeBuffer` into a GL buffer through `COPY_WRITE_BUFFER`; an index buffer is created through `ELEMENT_ARRAY_BUFFER`, as its first binding decides. */
 export declare function writeBufferBytes(gl: WebGL2RenderingContext, cache: BufferCache, buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void;
 /** The GL buffer already created for a `GpuBuffer`, or undefined. Never uploads. */
 export declare function getUploaded(cache: BufferCache, buffer: GpuBuffer): WebGLBuffer | undefined;

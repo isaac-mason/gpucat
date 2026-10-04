@@ -9835,8 +9835,7 @@ var BufferUpload;
 (function (BufferUpload) {
     /** already current; no GPU work. */
     BufferUpload[BufferUpload["Skip"] = 0] = "Skip";
-    /** no GPU buffer yet, or the data outgrew it: (re)allocate, then write the whole array. A `cpu: false`
-     *  buffer has no array, so it is allocated zeroed at its `byteLength`. */
+    /** no GPU buffer yet, or the data outgrew it: (re)allocate and write the whole array, or zeroes for a `cpu: false` buffer. */
     BufferUpload[BufferUpload["Allocate"] = 1] = "Allocate";
     /** write only the pending `buffer.updateRanges`, which `planBufferUpload` has already merged. */
     BufferUpload[BufferUpload["Partial"] = 2] = "Partial";
@@ -10176,10 +10175,7 @@ function ensureUploaded$1(cache, device, buffer, name) {
     entry.version = buffer.version;
     return buf;
 }
-/**
- * `writeBuffer` for WebGPU: a queue write, which copies `data` before returning. Offsets and size are
- * bytes, already validated by the caller.
- */
+/** `writeBuffer` for WebGPU: a queue write, which copies `data` before returning. */
 function writeBufferBytes$1(cache, device, buffer, byteOffset, data, dataByteOffset, byteSize) {
     const label = buffer.label ?? 'write-buffer';
     const buf = ensureUploaded$1(cache, device, buffer, label);
@@ -11152,10 +11148,7 @@ function updateTexture$1(cache, device, texture) {
     data.initialized = true;
     return data;
 }
-/**
- * `writeTexture` for WebGPU: a queue write of one box from tightly packed `data`, which copies before
- * returning. The region is already validated against the level.
- */
+/** `writeTexture` for WebGPU: a queue write of one box from packed `data`, which copies before returning. */
 function writeTextureRegion$1(cache, device, texture, region, data) {
     const target = updateTexture$1(cache, device, texture);
     const bytesPerRow = region.width * bytesPerTexel(texture.format);
@@ -15362,10 +15355,7 @@ function storageMirrorBytesPerTexel(element) {
         `(supported: 4 → r32uint, 8 → rg32uint, multiples of 16 → rgba32uint). Pad the element to a ` +
         `multiple of 16 bytes to read it on WebGL2.`);
 }
-/**
- * The texel grid a storage mirror of `byteLength` bytes takes: rows `min(texels, maxTextureSize)` wide, the
- * last one padded. Throws for a length that is not a non-zero whole number of texels.
- */
+/** the texel grid a storage mirror of `byteLength` bytes takes: rows `min(texels, maxTextureSize)` wide, the last padded. */
 function storageMirrorGrid(byteLength, bytesPerTexel, maxTextureSize, what) {
     if (byteLength === 0 || byteLength % bytesPerTexel !== 0) {
         throw new Error(`${what}: buffer byte length ${byteLength} must be a non-zero multiple of ${bytesPerTexel} ` +
@@ -35550,14 +35540,7 @@ function read(renderer, target, opts = {}) {
     return renderer.backend.readPixels(target, opts.attachment ?? 0, opts.layer ?? 0, opts.mipLevel ?? 0);
 }
 
-/**
- * Writes `data` into a `cpu: false` buffer at `byteOffset`, copying it before returning, so the caller may reuse,
- * transfer or drop it straight away. `dataOffset` and `size` count elements of `data`, as `GPUQueue.writeBuffer`
- * does for a typed array; `size` defaults to the rest of it. Byte offset and byte size must be multiples of 4.
- *
- * The buffer's GPU storage is created zeroed by the first write or binding. Like any upload, a write made while a
- * frame is being recorded is seen by that whole frame on WebGPU, and by the work recorded after it on WebGL.
- */
+/** copies `data` into a `cpu: false` buffer at `byteOffset` before returning; `dataOffset` and `size` count elements of `data`. */
 function writeBuffer(renderer, buffer, byteOffset, data, dataOffset = 0, size = data.length - dataOffset) {
     renderer._assertInitialized('writeBuffer');
     const what = `[writeBuffer] buffer '${buffer.label ?? 'unlabelled'}'`;
@@ -35581,16 +35564,7 @@ function writeBuffer(renderer, buffer, byteOffset, data, dataOffset = 0, size = 
     renderer.backend.writeBuffer(buffer, byteOffset, data, dataOffset * data.BYTES_PER_ELEMENT, byteSize);
 }
 
-/**
- * Writes `data` into one box of a `cpu: false` texture, copying it before returning, so the caller may reuse,
- * transfer or drop it straight away. `data` holds exactly the box, tightly packed: rows of `width` texels, then
- * `height` rows per layer. Omitted region fields default to the whole level at its origin; `z` addresses array
- * layers, cube faces and 3D slices alike, as in `addUpdateRegion`. A box outside the level throws rather than
- * being clamped, since the data would no longer line up with it.
- *
- * The texture's GPU storage is created zeroed by the first write or binding. Like any upload, a write made while a
- * frame is being recorded is seen by that whole frame on WebGPU, and by the work recorded after it on WebGL.
- */
+/** copies tightly packed `data` into one box of a `cpu: false` texture before returning; omitted region fields cover the rest of the level. */
 function writeTexture(renderer, texture, data, region = {}) {
     renderer._assertInitialized('writeTexture');
     const what = `[writeTexture] texture '${texture.label ?? 'unlabelled'}'`;
@@ -35792,12 +35766,7 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
     entry.version = buffer.version;
     return entry.glBuffer;
 }
-/**
- * `writeBuffer` into a `cpu: false` buffer's GL buffer, creating it zeroed first. Writes go through
- * `COPY_WRITE_BUFFER`, which no VAO captures, and leave it unbound. An index buffer is created through
- * `ELEMENT_ARRAY_BUFFER` instead: a GL buffer's first binding fixes whether it can ever hold indices, and one
- * first bound to a copy target never can. That binding is VAO state, so it is made with no VAO bound.
- */
+/** `writeBuffer` into a GL buffer through `COPY_WRITE_BUFFER`; an index buffer is created through `ELEMENT_ARRAY_BUFFER`, as its first binding decides. */
 function writeBufferBytes(gl, cache, buffer, byteOffset, data, dataByteOffset, byteSize) {
     const label = buffer.label ?? 'write-buffer';
     let glBuffer = cache.bufferMap.get(buffer)?.glBuffer;
@@ -36989,11 +36958,7 @@ function updateStorageBufferTexture(gl, state, source) {
     data.version = buffer.version;
     return data.texture;
 }
-/**
- * The mirror texture of a `cpu: false` storage buffer, created zeroed on first use. Only `writeBuffer` fills it,
- * so it is never re-specified: a binding that would read it at another texel width is an error rather than a
- * silent wipe.
- */
+/** the mirror texture of a `cpu: false` storage buffer, zeroed on first use and never re-specified, since only writes fill it. */
 function ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel) {
     const existing = state.bufferData.get(buffer);
     if (existing) {
@@ -37031,10 +36996,7 @@ function ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel) {
     state.bufferData.set(buffer, data);
     return data;
 }
-/**
- * `writeBuffer` into a `cpu: false` storage buffer's mirror texture: the span's texels, `texSubImage2D`d straight
- * from `data`. The texel is the buffer element's (4, 8 or 16 bytes), and the span must cover whole texels.
- */
+/** `writeBuffer` into a `cpu: false` storage buffer's mirror texture; the span must cover whole texels of the element. */
 function writeStorageTexture(gl, state, buffer, byteOffset, data, dataByteOffset, byteSize) {
     const element = buffer.schema.element ?? buffer.schema;
     const bytesPerTexel = storageMirrorBytesPerTexel(element);
@@ -37501,10 +37463,7 @@ function allocateCpuLessStorage(gl, texture, data) {
         gl.texStorage2D(data.target, levels, internalFormat, texture.width, texture.height);
     }
 }
-/**
- * `writeTexture` for WebGL2: `texSubImage` of one box from tightly packed `data`, one call per cube face since a
- * face is its own bind target. The region is already validated against the level.
- */
+/** `writeTexture` for WebGL2: `texSubImage` of one box from packed `data`, one call per cube face. */
 function writeTextureRegion(gl, state, texture, region, data) {
     const target = updateTexture(gl, state, texture);
     const { format, type } = target.fmt;
@@ -40230,11 +40189,7 @@ class WebGLBackend {
             return Promise.resolve();
         return clientWaitAsync(gl, sync, 'frame.done').finally(() => gl.deleteSync(sync));
     }
-    /**
-     * A storage buffer reads as a mirror texture here, and a vertex or index buffer as a GL buffer, so the write
-     * goes to each the buffer's usage gives it. A storage-only buffer that transform feedback has already given a
-     * GL buffer gets that one written too; one written before that only ever has the texture.
-     */
+    /** writes the mirror texture of a storage buffer and the GL buffer of any other usage, or of one transform feedback made. */
     writeBuffer(buffer, byteOffset, data, dataByteOffset, byteSize) {
         const gl = this.gl;
         if (buffer.usage.has('storage')) {

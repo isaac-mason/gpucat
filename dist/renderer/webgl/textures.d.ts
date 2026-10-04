@@ -115,10 +115,7 @@ export declare function createTextureCache(): TextureCache;
  * for a bare version bump, or a full re-allocation if the texel grid grew. The caller binds it.
  */
 export declare function updateStorageBufferTexture(gl: WebGL2RenderingContext, state: TextureCache, source: ResolvedStorageBufferTexture): WebGLTexture;
-/**
- * `writeBuffer` into a `cpu: false` storage buffer's mirror texture: the span's texels, `texSubImage2D`d straight
- * from `data`. The texel is the buffer element's (4, 8 or 16 bytes), and the span must cover whole texels.
- */
+/** `writeBuffer` into a `cpu: false` storage buffer's mirror texture; the span must cover whole texels of the element. */
 export declare function writeStorageTexture(gl: WebGL2RenderingContext, state: TextureCache, buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void;
 /** Get the cached GlTextureData for a GpuTexture (or null if never seen). */
 export declare function getTextureData(state: TextureCache, texture: GpuTexture): GlTextureData | null;
@@ -132,10 +129,7 @@ export declare function getTextureData(state: TextureCache, texture: GpuTexture)
  * allocates them (via `texImage2D`/`texStorage` with a null/absent source), never uploads.
  */
 export declare function updateTexture(gl: WebGL2RenderingContext, state: TextureCache, texture: GpuTexture): GlTextureData;
-/**
- * `writeTexture` for WebGL2: `texSubImage` of one box from tightly packed `data`, one call per cube face since a
- * face is its own bind target. The region is already validated against the level.
- */
+/** `writeTexture` for WebGL2: `texSubImage` of one box from packed `data`, one call per cube face. */
 export declare function writeTextureRegion(gl: WebGL2RenderingContext, state: TextureCache, texture: GpuTexture, region: TextureRegion, data: ArrayBufferView): void;
 /**
  * Generate mipmaps for an already-allocated render-target color texture once the render pass that

@@ -3,8 +3,7 @@ import type { GpuBuffer } from '../../core/gpu-buffer';
 export declare enum BufferUpload {
     /** already current; no GPU work. */
     Skip = 0,
-    /** no GPU buffer yet, or the data outgrew it: (re)allocate, then write the whole array. A `cpu: false`
-     *  buffer has no array, so it is allocated zeroed at its `byteLength`. */
+    /** no GPU buffer yet, or the data outgrew it: (re)allocate and write the whole array, or zeroes for a `cpu: false` buffer. */
     Allocate = 1,
     /** write only the pending `buffer.updateRanges`, which `planBufferUpload` has already merged. */
     Partial = 2,

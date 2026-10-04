@@ -763,13 +763,7 @@ export type BaseOptions = {
      * by hand. Unlabelled textures fall back to `t0`, `t1`, … in source order.
      */
     label?: string;
-    /**
-     * False for a texture with no CPU copy: it is allocated zeroed at its size and filled only through
-     * `writeTexture`, which copies at call time, so the caller's data can be dropped or transferred straight
-     * after. It takes no `source`, `sources`, `faces` or `mipmaps`, never generates mips (write each level
-     * yourself), and `needsUpdate` / `addUpdateRegion` throw. Defaults to true. The buffer counterpart is
-     * `GpuBuffer`'s `cpu: false` with `writeBuffer`.
-     */
+    /** false for a texture with no CPU copy, allocated zeroed and filled only through `writeTexture`; defaults to true. */
     cpu?: boolean;
 };
 ```
@@ -5894,14 +5888,7 @@ export type GpuBufferOptions<T extends Any = Any> = {
      * only where several buffers would otherwise collide in one row.
      */
     label?: string;
-    /**
-     * False for a buffer with no CPU copy: the GPU buffer is allocated zeroed at `count` elements and
-     * filled only through `writeBuffer`, which copies at call time, so the caller's data can be dropped
-     * or transferred straight after. Its `array` is always null, and the CPU-side writes (`packAt*`,
-     * `addUpdateRange`, `needsUpdate`) throw. A CPU-less index buffer declares its `indexFormat`; uniform
-     * buffers cannot be CPU-less. Defaults to true. `cpu: false` textures and `writeTexture` are the
-     * texture counterpart.
-     */
+    /** false for a buffer with no CPU copy, allocated zeroed and filled only through `writeBuffer`; defaults to true. */
     cpu?: boolean;
     /** An index buffer's format. Read off the array when there is one, and required for a `cpu: false` one. */
     indexFormat?: IndexFormat;

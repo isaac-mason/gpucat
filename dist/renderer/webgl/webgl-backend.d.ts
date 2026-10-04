@@ -157,11 +157,7 @@ export declare class WebGLBackend implements DeviceBackend {
      * A synchronous spin never signals on a single-threaded backend, which `readBufferAsync` found first.
      */
     awaitCompletion(): Promise<void>;
-    /**
-     * A storage buffer reads as a mirror texture here, and a vertex or index buffer as a GL buffer, so the write
-     * goes to each the buffer's usage gives it. A storage-only buffer that transform feedback has already given a
-     * GL buffer gets that one written too; one written before that only ever has the texture.
-     */
+    /** writes the mirror texture of a storage buffer and the GL buffer of any other usage, or of one transform feedback made. */
     writeBuffer(buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void;
     writeTexture(texture: GpuTexture, region: TextureRegion, data: ArrayBufferView): void;
     readPixels(renderTarget: RenderTarget, attachmentIndex?: number, layer?: number, mipLevel?: number): Promise<Uint8Array>;
