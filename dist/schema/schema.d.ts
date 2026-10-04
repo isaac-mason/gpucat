@@ -819,7 +819,7 @@ export declare function wgslAlignOf(desc: Any): number;
 export declare function wgslSizeOf(desc: Any): number;
 export declare function wgslStrideOf(desc: Any): number;
 export declare function itemSizeOf(desc: Any): number;
-export declare function typedArrayCtorOf(desc: Any): new (length: number) => Float32Array | Int32Array | Uint32Array;
+export declare function typedArrayCtorOf(desc: Any): typeof Float32Array | typeof Int32Array | typeof Uint32Array;
 export declare function descFromWgslType(wgslType: string): Any;
 export declare function descFromGlslType(glslType: string): Any;
 export declare function vecElementDescOrSelf(desc: Any): Any;

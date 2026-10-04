@@ -1,3 +1,4 @@
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { RenderTarget } from '../../core/render-target';
 import type { ComputeNode } from '../../nodes/nodes';
 import type { CanvasTarget } from '../core/canvas-target';
@@ -93,6 +94,7 @@ export declare class WebGPUBackend implements DeviceBackend {
     /** @internal */
     compileObjects(objects: RenderObject[], params: RenderPassParams): Promise<void>;
     readPixels(renderTarget: RenderTarget, attachmentIndex: number, layer: number, mipLevel: number): Promise<Uint8Array>;
+    writeBuffer(buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void;
     /** Off the `DeviceBackend` contract on purpose: a neutral signature would widen this to `string`. */
     awaitCompletion(): Promise<void>;
     hasFeature(feature: GPUFeatureName): boolean;

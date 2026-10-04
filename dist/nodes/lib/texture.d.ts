@@ -98,6 +98,14 @@ export type StorageBufferTextureSource = ResolvedStorageBufferTexture | {
  * 20-byte all-scalar struct) that has no whole-texel home — pad the struct to a multiple of 16 to read it.
  */
 export declare function storageMirrorBytesPerTexel(element: Any): number;
+/**
+ * The texel grid a storage mirror of `byteLength` bytes takes: rows `min(texels, maxTextureSize)` wide, the
+ * last one padded. Throws for a length that is not a non-zero whole number of texels.
+ */
+export declare function storageMirrorGrid(byteLength: number, bytesPerTexel: number, maxTextureSize: number, what: string): {
+    width: number;
+    height: number;
+};
 export declare class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D> {
     readonly kind = NodeKind.TextureBinding;
     /** The GpuTexture */

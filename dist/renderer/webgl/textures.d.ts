@@ -22,7 +22,7 @@
  */
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
-import type { ResolvedStorageBufferTexture } from '../../nodes/lib/texture';
+import { type ResolvedStorageBufferTexture } from '../../nodes/lib/texture';
 import { type TextureTally, type TextureTallyEntry } from '../core/info';
 /** GL format triple for a color/depth texture: the sized internal format + upload format + type. */
 type GlFormat = {
@@ -84,6 +84,7 @@ export type GlBufferTextureData = {
     /** GL-allocated texel dimensions (a grow re-allocates rather than sub-uploading). */
     width: number;
     height: number;
+    bytesPerTexel: number;
 };
 /** Textures state: per-GpuTexture GL data, keyed by GpuTexture identity, plus a disposal set. */
 export type TextureCache = {
@@ -113,6 +114,11 @@ export declare function createTextureCache(): TextureCache;
  * for a bare version bump, or a full re-allocation if the texel grid grew. The caller binds it.
  */
 export declare function updateStorageBufferTexture(gl: WebGL2RenderingContext, state: TextureCache, source: ResolvedStorageBufferTexture): WebGLTexture;
+/**
+ * `writeBuffer` into a `cpu: false` storage buffer's mirror texture: the span's texels, `texSubImage2D`d straight
+ * from `data`. The texel is the buffer element's (4, 8 or 16 bytes), and the span must cover whole texels.
+ */
+export declare function writeStorageTexture(gl: WebGL2RenderingContext, state: TextureCache, buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void;
 /** Get the cached GlTextureData for a GpuTexture (or null if never seen). */
 export declare function getTextureData(state: TextureCache, texture: GpuTexture): GlTextureData | null;
 /**

@@ -914,11 +914,24 @@ buf.needsUpdate = true;     // re-upload the whole buffer
 buf.addUpdateRange(0, 4);   // or upload just 4 components from offset 0
 ```
 
+### Buffers with no CPU copy
+
+A buffer that is only ever written in pieces from data you already hold, like a streaming arena of meshes, has no use for a CPU mirror the size of the whole buffer. Make it `cpu: false` and write it with `writeBuffer`, which copies at call time, so the data can be dropped or transferred away straight after:
+
+```ts
+const arena = new GpuBuffer(d.array(d.u32), { count: 16_000_000, usage: 'storage', cpu: false });
+
+writeBuffer(renderer, arena, byteOffset, meshWords);           // all of it
+writeBuffer(renderer, arena, byteOffset, meshWords, 16, 64);   // 64 elements of it, from element 16
+```
+
+The GPU buffer starts zeroed. Offsets and sizes are bytes into the buffer and elements of the data, as with `GPUQueue.writeBuffer`, and both byte offset and byte size must be multiples of 4. Such a buffer has no `array`, so the CPU-side writes (`needsUpdate`, `addUpdateRange`, `packAtIndex`) throw, as does `writeBuffer` on a buffer that keeps one. On WebGL2 the write goes straight into the texture a read lowers to, which needs it to cover whole texels of the element: any 4-byte span for `u32`, but 16-byte ones for `vec4u`.
+
 ### Reads run on WebGL2 (as a texture)
 
 WebGL2 has no storage buffers, but a read-only storage buffer is an indexed array, and so is a texture. So `storage(buffer, 'read')` and the `index(_, i)` / `.field` reads over it work on both backends. On WebGPU it stays a native `var<storage>` array. On WebGL2 the renderer reads the buffer's own bytes as an `rgba32uint` texture and lowers each read to a `texelFetch`, using the same path as [Structured data](#structured-data). There is no second copy and no CPU round-trip.
 
-This covers the common case of per-instance data a vertex or fragment shader reads. It does not make writes portable: `read_write` storage, atomics, and compute output stay WebGPU-only, and on WebGL2 GPU writes go through [transform feedback](#transform-feedback-webgl2). The buffer must be value-form and keep its CPU `array` resident, since the texture reads from it. On WebGL2 the capacity is `MAX_TEXTURE_SIZE²` texels, which is 64 MB on the weakest conformant hardware and gigabytes on typical GPUs. Split the buffer if you need more.
+This covers the common case of per-instance data a vertex or fragment shader reads. It does not make writes portable: `read_write` storage, atomics, and compute output stay WebGPU-only, and on WebGL2 GPU writes go through [transform feedback](#transform-feedback-webgl2). The buffer must keep its CPU `array` resident, since the texture reads from it, or be [`cpu: false`](#buffers-with-no-cpu-copy) and written straight into the texture. On WebGL2 the capacity is `MAX_TEXTURE_SIZE²` texels, which is 64 MB on the weakest conformant hardware and gigabytes on typical GPUs. Split the buffer if you need more.
 
 See [`storage`](./api.md#storage), [`createStorageBuffer`](./api.md#createstoragebuffer), and [`GpuBuffer`](./api.md#gpubuffer).
 

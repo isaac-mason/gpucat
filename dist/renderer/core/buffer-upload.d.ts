@@ -1,9 +1,10 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 /** What a backend should do to bring one buffer up to date. */
-export declare const enum BufferUpload {
+export declare enum BufferUpload {
     /** already current; no GPU work. */
     Skip = 0,
-    /** no GPU buffer yet, or the data outgrew it: (re)allocate, then write the whole array. */
+    /** no GPU buffer yet, or the data outgrew it: (re)allocate, then write the whole array. A `cpu: false`
+     *  buffer has no array, so it is allocated zeroed at its `byteLength`. */
     Allocate = 1,
     /** write only the pending `buffer.updateRanges`, which `planBufferUpload` has already merged. */
     Partial = 2,

@@ -102,8 +102,8 @@ export class Node<D extends Any> {
     bitwiseAnd(b: Node<D>): Node<D>;
     bitwiseOr(b: Node<D>): Node<D>;
     bitwiseXor(b: Node<D>): Node<D>;
-    shiftLeft(b: Node<D>): Node<D>;
-    shiftRight(b: Node<D>): Node<D>;
+    shiftLeft(b: Node<ShiftAmount<D>>): Node<D>;
+    shiftRight(b: Node<ShiftAmount<D>>): Node<D>;
     transpose(): Node<D>;
     get x(): Node<VecElementDesc<D>>;
     get y(): Node<VecElementDesc<D>>;
@@ -447,55 +447,57 @@ The full node DSL, grouped by category. Learn it with examples in the [guide](./
 </tr><tr>
 <td><a href="#rgb"><code>rgb</code></a></td><td><a href="#samplertype"><code>SamplerType</code></a></td><td><a href="#samplingmode"><code>SamplingMode</code></a></td><td><a href="#scalarresultdesc"><code>ScalarResultDesc</code></a></td>
 </tr><tr>
-<td><a href="#scalartype"><code>ScalarType</code></a></td><td><a href="#storagebuffertexturesource"><code>StorageBufferTextureSource</code></a></td><td><a href="#storagecoord"><code>StorageCoord</code></a></td><td><a href="#storagesampledof"><code>StorageSampledOf</code></a></td>
+<td><a href="#scalartype"><code>ScalarType</code></a></td><td><a href="#shiftamount"><code>ShiftAmount</code></a></td><td><a href="#storagebuffertexturesource"><code>StorageBufferTextureSource</code></a></td><td><a href="#storagecoord"><code>StorageCoord</code></a></td>
 </tr><tr>
-<td><a href="#storagevalue"><code>StorageValue</code></a></td><td><a href="#structdef"><code>StructDef</code></a></td><td><a href="#structinstance"><code>StructInstance</code></a></td><td><a href="#structmember"><code>StructMember</code></a></td>
+<td><a href="#storagesampledof"><code>StorageSampledOf</code></a></td><td><a href="#storagevalue"><code>StorageValue</code></a></td><td><a href="#structdef"><code>StructDef</code></a></td><td><a href="#structinstance"><code>StructInstance</code></a></td>
 </tr><tr>
-<td><a href="#sampler"><code>sampler</code></a></td><td><a href="#screencoordinate"><code>screenCoordinate</code></a></td><td><a href="#screensize"><code>screenSize</code></a></td><td><a href="#screenuv"><code>screenUV</code></a></td>
+<td><a href="#structmember"><code>StructMember</code></a></td><td><a href="#sampler"><code>sampler</code></a></td><td><a href="#screencoordinate"><code>screenCoordinate</code></a></td><td><a href="#screensize"><code>screenSize</code></a></td>
 </tr><tr>
-<td><a href="#select"><code>select</code></a></td><td><a href="#shiftleft"><code>shiftLeft</code></a></td><td><a href="#shiftright"><code>shiftRight</code></a></td><td><a href="#sign"><code>sign</code></a></td>
+<td><a href="#screenuv"><code>screenUV</code></a></td><td><a href="#select"><code>select</code></a></td><td><a href="#shiftleft"><code>shiftLeft</code></a></td><td><a href="#shiftright"><code>shiftRight</code></a></td>
 </tr><tr>
-<td><a href="#sin"><code>sin</code></a></td><td><a href="#smoothstep"><code>smoothstep</code></a></td><td><a href="#sqrt"><code>sqrt</code></a></td><td><a href="#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td>
+<td><a href="#sign"><code>sign</code></a></td><td><a href="#sin"><code>sin</code></a></td><td><a href="#smoothstep"><code>smoothstep</code></a></td><td><a href="#sqrt"><code>sqrt</code></a></td>
 </tr><tr>
-<td><a href="#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td><td><a href="#step"><code>step</code></a></td><td><a href="#storage"><code>storage</code></a></td><td><a href="#storagebarrier"><code>storageBarrier</code></a></td>
+<td><a href="#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td><td><a href="#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td><td><a href="#step"><code>step</code></a></td><td><a href="#storage"><code>storage</code></a></td>
 </tr><tr>
-<td><a href="#storagetexture"><code>storageTexture</code></a></td><td><a href="#struct"><code>struct</code></a></td><td><a href="#sub"><code>sub</code></a></td><td><a href="#texturetype"><code>TextureType</code></a></td>
+<td><a href="#storagebarrier"><code>storageBarrier</code></a></td><td><a href="#storagetexture"><code>storageTexture</code></a></td><td><a href="#struct"><code>struct</code></a></td><td><a href="#sub"><code>sub</code></a></td>
 </tr><tr>
-<td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td><td><a href="#transformfeedbackcallback"><code>TransformFeedbackCallback</code></a></td><td><a href="#transformfeedbacklayout"><code>TransformFeedbackLayout</code></a></td><td><a href="#tan"><code>tan</code></a></td>
+<td><a href="#texturetype"><code>TextureType</code></a></td><td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td><td><a href="#transformfeedbackcallback"><code>TransformFeedbackCallback</code></a></td><td><a href="#transformfeedbacklayout"><code>TransformFeedbackLayout</code></a></td>
 </tr><tr>
-<td><a href="#targetcolor"><code>targetColor</code></a></td><td><a href="#targetdepth"><code>targetDepth</code></a></td><td><a href="#texture"><code>texture</code></a></td><td><a href="#texturebarrier"><code>textureBarrier</code></a></td>
+<td><a href="#tan"><code>tan</code></a></td><td><a href="#targetcolor"><code>targetColor</code></a></td><td><a href="#targetdepth"><code>targetDepth</code></a></td><td><a href="#texture"><code>texture</code></a></td>
 </tr><tr>
-<td><a href="#texturebinding"><code>textureBinding</code></a></td><td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td><td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td>
+<td><a href="#texturebarrier"><code>textureBarrier</code></a></td><td><a href="#texturebinding"><code>textureBinding</code></a></td><td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td>
 </tr><tr>
-<td><a href="#textureload"><code>textureLoad</code></a></td><td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td><td><a href="#texturesample"><code>textureSample</code></a></td>
+<td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td><td><a href="#textureload"><code>textureLoad</code></a></td><td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td>
 </tr><tr>
-<td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td><td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td>
+<td><a href="#texturesample"><code>textureSample</code></a></td><td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td>
 </tr><tr>
-<td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transformfeedback"><code>transformFeedback</code></a></td><td><a href="#transpose"><code>transpose</code></a></td>
+<td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transformfeedback"><code>transformFeedback</code></a></td>
 </tr><tr>
-<td><a href="#u32"><code>u32</code></a></td><td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td><td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td>
+<td><a href="#transpose"><code>transpose</code></a></td><td><a href="#u32"><code>u32</code></a></td><td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td>
 </tr><tr>
-<td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td><td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td><td><a href="#var"><code>Var</code></a></td>
+<td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td><td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td><td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td>
 </tr><tr>
-<td><a href="#vec2type"><code>Vec2Type</code></a></td><td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td><td><a href="#vectype"><code>VecType</code></a></td>
+<td><a href="#var"><code>Var</code></a></td><td><a href="#vec2type"><code>Vec2Type</code></a></td><td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td>
 </tr><tr>
-<td><a href="#varying"><code>varying</code></a></td><td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td><td><a href="#vec2f"><code>vec2f</code></a></td>
+<td><a href="#vectype"><code>VecType</code></a></td><td><a href="#varying"><code>varying</code></a></td><td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td>
 </tr><tr>
-<td><a href="#vec2h"><code>vec2h</code></a></td><td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td><td><a href="#vec3"><code>vec3</code></a></td>
+<td><a href="#vec2f"><code>vec2f</code></a></td><td><a href="#vec2h"><code>vec2h</code></a></td><td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td>
 </tr><tr>
-<td><a href="#vec3b"><code>vec3b</code></a></td><td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td><td><a href="#vec3i"><code>vec3i</code></a></td>
+<td><a href="#vec3"><code>vec3</code></a></td><td><a href="#vec3b"><code>vec3b</code></a></td><td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td>
 </tr><tr>
-<td><a href="#vec3u"><code>vec3u</code></a></td><td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td><td><a href="#vec4f"><code>vec4f</code></a></td>
+<td><a href="#vec3i"><code>vec3i</code></a></td><td><a href="#vec3u"><code>vec3u</code></a></td><td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td>
 </tr><tr>
-<td><a href="#vec4h"><code>vec4h</code></a></td><td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td><td><a href="#vertexindex"><code>vertexIndex</code></a></td>
+<td><a href="#vec4f"><code>vec4f</code></a></td><td><a href="#vec4h"><code>vec4h</code></a></td><td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td>
 </tr><tr>
-<td><a href="#wgslfncallable"><code>WgslFnCallable</code></a></td><td><a href="#wgslfncallabletyped"><code>WgslFnCallableTyped</code></a></td><td><a href="#wgslfncallableuntyped"><code>WgslFnCallableUntyped</code></a></td><td><a href="#wgslfnlayout"><code>WgslFnLayout</code></a></td>
+<td><a href="#vertexindex"><code>vertexIndex</code></a></td><td><a href="#wgslfncallable"><code>WgslFnCallable</code></a></td><td><a href="#wgslfncallabletyped"><code>WgslFnCallableTyped</code></a></td><td><a href="#wgslfncallableuntyped"><code>WgslFnCallableUntyped</code></a></td>
 </tr><tr>
-<td><a href="#wgslfunctionnoderef"><code>WgslFunctionNodeRef</code></a></td><td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunction-2"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td>
+<td><a href="#wgslfnlayout"><code>WgslFnLayout</code></a></td><td><a href="#wgslfunctionnoderef"><code>WgslFunctionNodeRef</code></a></td><td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunction-2"><code>WgslNodeFunction</code></a></td>
 </tr><tr>
-<td><a href="#wgslnodefunctioninput-2"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgsltype"><code>WgslType</code></a></td><td><a href="#while"><code>While</code></a></td><td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td>
+<td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgslnodefunctioninput-2"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgsltype"><code>WgslType</code></a></td><td><a href="#while"><code>While</code></a></td>
 </tr><tr>
-<td><a href="#wgsl"><code>wgsl</code></a></td><td><a href="#wgslfn"><code>wgslFn</code></a></td><td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td><td><a href="#workgroupid"><code>workgroupId</code></a></td>
+<td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td><td><a href="#wgsl"><code>wgsl</code></a></td><td><a href="#wgslfn"><code>wgslFn</code></a></td><td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td>
+</tr><tr>
+<td><a href="#workgroupid"><code>workgroupId</code></a></td><td></td><td></td><td></td>
 </tr></table>
 
 ### Renderer
@@ -1120,7 +1122,9 @@ export type CompileSlots = {
 export type ComputeCompileResult = {
     code: string;
     storage: ComputeStorageEntry[];
+    textures: TextureEntry[];
     storageTextures: StorageTextureEntry[];
+    samplers: SamplerEntry[];
     workgroupSize: [number, number, number];
     builtinsUsed: Set<string>;
     uniformGroups: UniformGroupBlock[];
@@ -3213,6 +3217,22 @@ export type ScalarResultDesc = d.i32 | d.u32;
 export type ScalarType = 'f32' | 'i32' | 'u32' | 'bool' | 'f16';
 ```
 
+#### `ShiftAmount`
+
+```ts
+/**
+ * what a value of type D shifts by: WGSL takes an unsigned amount whatever the value's signedness, one lane per lane of
+ * the value, so `i32 >> u32` (arithmetic) and `vec3i << vec3u` are the valid forms.
+ */
+export type ShiftAmount<D> = D extends {
+    len: 2;
+} ? d.vec2u : D extends {
+    len: 3;
+} ? d.vec3u : D extends {
+    len: 4;
+} ? d.vec4u : d.u32;
+```
+
 #### `StorageBufferTextureSource`
 
 ```ts
@@ -3350,13 +3370,13 @@ export const select: <D extends Any>(falseVal: Node<D>, trueVal: Node<D>, condit
 #### `shiftLeft`
 
 ```ts
-export const shiftLeft: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+export const shiftLeft: <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>>) => Node<D>;
 ```
 
 #### `shiftRight`
 
 ```ts
-export const shiftRight: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+export const shiftRight: <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>>) => Node<D>;
 ```
 
 #### `sign`
@@ -4764,6 +4784,8 @@ export class CanvasTarget {
     /** Whether a pass matches the backing store to the canvas's CSS layout size before drawing. */
     readonly autoResize: boolean;
     clearColor: [number, number, number, number];
+    /** Set when `dispose()` released what a backend held, cleared when a backend acquires the canvas again. */
+    disposed: boolean;
     constructor(canvas: HTMLCanvasElement | OffscreenCanvas, opts?: CanvasTargetOptions);
     /**
      * Subscribe to size changes. Fires immediately with the current size, then after every change.
@@ -4775,7 +4797,8 @@ export class CanvasTarget {
      */
     getPixelRatio(): number;
     /**
-     * Set the pixel ratio and resize the canvas to match.
+     * Set the pixel ratio and resize the backing store to match. Leaves the canvas's CSS size alone: the ratio
+     * changes how many pixels back the canvas, not how big it is on the page.
      */
     setPixelRatio(value: number): void;
     /**
@@ -4794,13 +4817,19 @@ export class CanvasTarget {
     };
     /** No-op unless the layout size changed. Never writes CSS back, since CSS is what it is reading. */
     syncToClientSize(): void;
+    /**
+     * Set the size of the canvas in logical pixels.
+     * Updates canvas.width/height (physical), and its CSS size unless `updateStyle` is false, and fires 'resize'.
+     */
     setSize(width: number, height: number, updateStyle?: boolean): void;
     /**
      * Set the drawing buffer size directly (width, height, pixelRatio all at once).
      */
     setDrawingBufferSize(width: number, height: number, pixelRatio: number): void;
     /**
-     * Dispose this target. The backend owns the graphics context and releases it separately.
+     * Release what the renderer holds for this canvas: on WebGPU, its configured context and its depth
+     * and MSAA attachments. Drawing to it again re-acquires them. On WebGL2 the canvas is the device
+     * itself, so there is nothing to release short of disposing the renderer.
      */
     dispose(): void;
 }
@@ -5836,6 +5865,7 @@ export function getIndexFormat(array: GpuTypedArray | null): IndexFormat | undef
 /**
  * Options for creating a GpuBuffer.
  * Provide either `data` (existing TypedArray) or `count` (allocate new array), not both.
+ * A `cpu: false` buffer takes `count` only.
  */
 export type GpuBufferOptions<T extends Any = Any> = {
     /** Initial data as a TypedArray. Mutually exclusive with `count`. */
@@ -5854,6 +5884,14 @@ export type GpuBufferOptions<T extends Any = Any> = {
      * only where several buffers would otherwise collide in one row.
      */
     label?: string;
+    /**
+     * False for a buffer with no CPU copy: the GPU buffer is allocated zeroed at `count` elements and
+     * filled only through `writeBuffer`, which copies at call time, so the caller's data can be dropped
+     * or transferred straight after. Its `array` is always null, and the CPU-side writes (`packAt*`,
+     * `addUpdateRange`, `needsUpdate`) throw. Index buffers cannot be CPU-less: their format is read off
+     * the array. Defaults to true.
+     */
+    cpu?: boolean;
 };
 ```
 
@@ -5890,16 +5928,23 @@ export class GpuBuffer<T extends Any = Any> {
     /** Name this buffer reports in the per-frame upload breakdown, when the caller set one.
      *  Undefined otherwise: the upload site supplies a name, since identity is call-site knowledge. */
     readonly label: string | undefined;
-    /** CPU-side typed array. Can be set to null after onUpload releases memory. */
+    /** CPU-side typed array. Can be set to null after onUpload releases memory; always null when `cpu` is false. */
     array: TypedArrayFor<T> | null;
+    /** False when the buffer has no CPU copy and is written only through `writeBuffer`. */
+    readonly cpu: boolean;
     /** Number of elements */
     readonly count: number;
+    /** Size in bytes, as constructed. */
+    readonly byteLength: number;
     /** Components per element (e.g., 3 for vec3f) */
     readonly itemSize: number;
     /** Version for dirty tracking. Incremented when needsUpdate is set. */
     version: number;
-    /** Pending partial-upload ranges (flat component indices). */
+    /** Partial-upload ranges (flat component indices). The first `updateRangeCount` are pending; the records
+     *  past them are spare, kept so queuing ranges every frame allocates nothing. */
     readonly updateRanges: UpdateRange[];
+    /** How many of `updateRanges` are pending. */
+    updateRangeCount: number;
     /** Callback after GPU upload (e.g., release CPU memory via `this.array = null`). */
     onUpload: (() => void) | null;
     /** The GPUVertexFormat for vertex buffers (e.g., 'float32x3'). Derived or explicit. */
@@ -7445,7 +7490,9 @@ export type CompileResult = {
 export type ComputeCompileResult = {
     code: string;
     storage: ComputeStorageEntry[];
+    textures: TextureEntry[];
     storageTextures: StorageTextureEntry[];
+    samplers: SamplerEntry[];
     workgroupSize: [number, number, number];
     builtinsUsed: Set<string>;
     uniformGroups: UniformGroupBlock[];

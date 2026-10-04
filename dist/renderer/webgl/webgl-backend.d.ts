@@ -155,6 +155,12 @@ export declare class WebGLBackend implements DeviceBackend {
      * A synchronous spin never signals on a single-threaded backend, which `readBufferAsync` found first.
      */
     awaitCompletion(): Promise<void>;
+    /**
+     * A storage buffer reads as a mirror texture here, and a vertex buffer as a GL buffer, so the write goes to
+     * each the buffer's usage gives it. A storage-only buffer some other path has given a GL buffer, transform
+     * feedback, gets that one written too.
+     */
+    writeBuffer(buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void;
     readPixels(renderTarget: RenderTarget, attachmentIndex?: number, layer?: number, mipLevel?: number): Promise<Uint8Array>;
     /**
      * Deliberately does not call `WEBGL_lose_context.loseContext()`: a context is per-canvas, so forcing

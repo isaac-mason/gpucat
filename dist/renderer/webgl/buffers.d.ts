@@ -71,6 +71,11 @@ export declare function glUsageHint(gl: WebGL2RenderingContext, buffer: GpuBuffe
  * escape hatch, because its usage flags are correctness rather than an advisory hint.
  */
 export declare function ensureUploaded(gl: WebGL2RenderingContext, cache: BufferCache, buffer: GpuBuffer, target: GLenum, name: string, usageHint?: number): WebGLBuffer;
+/**
+ * `writeBuffer` into a `cpu: false` buffer's GL buffer, creating it zeroed first. Goes through
+ * `COPY_WRITE_BUFFER`, which no VAO captures, and leaves it unbound.
+ */
+export declare function writeBufferBytes(gl: WebGL2RenderingContext, cache: BufferCache, buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void;
 /** The GL buffer already created for a `GpuBuffer`, or undefined. Never uploads. */
 export declare function getUploaded(cache: BufferCache, buffer: GpuBuffer): WebGLBuffer | undefined;
 export type UploadRawResult = {

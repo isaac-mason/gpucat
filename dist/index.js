@@ -6498,6 +6498,14 @@ function schemaItemSize(schema) {
         return wgslSizeOf(schema) / 4;
     return itemSizeOf(schema);
 }
+/** The typed array a `count`-allocated buffer of `schema` holds: the element's for an array, f32 for a struct. */
+function schemaArrayCtor(schema) {
+    if (isArrayDesc(schema) || isSizedArrayDesc(schema))
+        return schemaArrayCtor(schema.element);
+    if (isStructDesc(schema))
+        return Float32Array;
+    return typedArrayCtorOf(schema);
+}
 /**
  * Unified buffer class for vertex attributes, storage buffers, index buffers, etc.
  *
@@ -6530,10 +6538,14 @@ class GpuBuffer {
     label;
     /** Usage count for REF_COUNTED buffers. When this hits 0, GPU resources are disposed. */
     _usages = 0;
-    /** CPU-side typed array. Can be set to null after onUpload releases memory. */
+    /** CPU-side typed array. Can be set to null after onUpload releases memory; always null when `cpu` is false. */
     array;
+    /** False when the buffer has no CPU copy and is written only through `writeBuffer`. */
+    cpu;
     /** Number of elements */
     count;
+    /** Size in bytes, as constructed. */
+    byteLength;
     /** Components per element (e.g., 3 for vec3f) */
     itemSize;
     /** Version for dirty tracking. Incremented when needsUpdate is set. */
@@ -6562,22 +6574,37 @@ class GpuBuffer {
         if (options.data && options.count !== undefined) {
             throw new Error('GpuBuffer: provide either `data` or `count`, not both');
         }
-        if (options.data) {
+        this.cpu = options.cpu ?? true;
+        const ArrayCtor = schemaArrayCtor(schema);
+        if (!this.cpu) {
+            if (options.data || options.count === undefined) {
+                throw new Error('GpuBuffer: a `cpu: false` buffer takes `count`, not `data`');
+            }
+            if (this.usage.has('index')) {
+                throw new Error('GpuBuffer: an index buffer cannot be `cpu: false`, its format is read off the array');
+            }
+            this.array = null;
+            this.count = options.count;
+            this.byteLength = options.count * this.itemSize * ArrayCtor.BYTES_PER_ELEMENT;
+        }
+        else if (options.data) {
             this.array = options.data;
             this.count = options.data.length / this.itemSize;
+            this.byteLength = options.data.byteLength;
         }
         else if (options.count !== undefined) {
-            const ArrayCtor = isStructDesc(schema) ? Float32Array : typedArrayCtorOf(schema);
             this.array = new ArrayCtor(options.count * this.itemSize);
             this.count = options.count;
+            this.byteLength = this.array.byteLength;
         }
         else {
             this.array = null;
             this.count = 0;
+            this.byteLength = 0;
         }
         // Derive vertex format from array type + itemSize
-        if (this.usage.has('vertex') && this.array) {
-            this.format = deriveVertexFormat(this.array, this.itemSize);
+        if (this.usage.has('vertex')) {
+            this.format = deriveVertexFormat(this.array ?? new ArrayCtor(0), this.itemSize);
         }
         else {
             this.format = undefined;
@@ -6591,10 +6618,12 @@ class GpuBuffer {
     }
     /** Mark buffer as needing re-upload */
     set needsUpdate(_) {
+        this._assertCpu('needsUpdate');
         this.version++;
     }
     /** Register a dirty range for partial re-upload */
     addUpdateRange(start, count) {
+        this._assertCpu('addUpdateRange()');
         const range = this.updateRanges[this.updateRangeCount];
         if (range) {
             range.start = start;
@@ -6604,6 +6633,11 @@ class GpuBuffer {
             this.updateRanges.push({ start, count });
         }
         this.updateRangeCount++;
+    }
+    _assertCpu(member) {
+        if (!this.cpu) {
+            throw new Error(`[GpuBuffer] ${member}: this buffer is \`cpu: false\`; write it with writeBuffer().`);
+        }
     }
     /** Clear pending update ranges (called by renderer after upload) */
     clearUpdateRanges() {
@@ -6621,6 +6655,7 @@ class GpuBuffer {
      * else this throws rather than silently misaligning.
      */
     packAtIndex(schema, index, value) {
+        this._assertCpu('packAtIndex()');
         const array = this.array;
         if (array == null) {
             throw new Error('[GpuBuffer] packAtIndex(): buffer has no CPU `array` to write into (its data was released after upload).');
@@ -6641,6 +6676,7 @@ class GpuBuffer {
      * components; a subsequent `needsUpdate = true` (full re-upload) supersedes queued ranges.
      */
     packAtByte(schema, byteOffset, value) {
+        this._assertCpu('packAtByte()');
         const array = this.array;
         if (array == null) {
             throw new Error('[GpuBuffer] packAtByte(): buffer has no CPU `array` to write into (its data was released after upload).');
@@ -6663,6 +6699,7 @@ class GpuBuffer {
      * ELEMENT type; `values.length` must not exceed the buffer's element `count`.
      */
     pack(schema, values) {
+        this._assertCpu('pack()');
         const array = this.array;
         if (array == null) {
             throw new Error('[GpuBuffer] pack(): buffer has no CPU `array` to write into (its data was released after upload).');
@@ -9768,7 +9805,8 @@ var BufferUpload;
 (function (BufferUpload) {
     /** already current; no GPU work. */
     BufferUpload[BufferUpload["Skip"] = 0] = "Skip";
-    /** no GPU buffer yet, or the data outgrew it: (re)allocate, then write the whole array. */
+    /** no GPU buffer yet, or the data outgrew it: (re)allocate, then write the whole array. A `cpu: false`
+     *  buffer has no array, so it is allocated zeroed at its `byteLength`. */
     BufferUpload[BufferUpload["Allocate"] = 1] = "Allocate";
     /** write only the pending `buffer.updateRanges`, which `planBufferUpload` has already merged. */
     BufferUpload[BufferUpload["Partial"] = 2] = "Partial";
@@ -9790,6 +9828,8 @@ var BufferUpload;
  * false. Merging mutates `buffer.updateRanges` in place, keeping the hot path allocation-free.
  */
 function planBufferUpload(buffer, exists, capacityBytes, lastVersion) {
+    if (!buffer.cpu)
+        return exists ? BufferUpload.Skip : BufferUpload.Allocate;
     const array = buffer.array;
     // CPU data was released after upload: whatever is on the GPU is all there is.
     if (array === null || array === undefined)
@@ -10058,21 +10098,24 @@ function ensureUploaded$1(cache, device, buffer, name) {
         }
         return entry.buf;
     }
-    // non-null past the plan: Skip is the only outcome for a released array.
     const arr = buffer.array;
     const usage = primaryBufferUsage(buffer);
     const label = buffer.label ?? name;
     if (plan === BufferUpload.Allocate) {
         entry?.buf.destroy();
         // 4-byte alignment is a device requirement, so the size is decided here, not in the plan.
-        const buf = device.createBuffer({ size: alignTo4(arr.byteLength), usage: deriveGPUUsage(buffer) });
+        const byteLength = arr?.byteLength ?? buffer.byteLength;
+        const buf = device.createBuffer({ size: alignTo4(byteLength), usage: deriveGPUUsage(buffer) });
         // Both under the same guard: a reallocation must not count twice, nor hook dispose twice.
         if (!entry) {
             cache.bufferCount++;
             setupDispose(cache, buffer);
         }
-        device.queue.writeBuffer(buf, 0, arr.buffer, arr.byteOffset, arr.byteLength);
-        recordBufferWrite(cache.info, arr.byteLength, usage, true, label);
+        // a `cpu: false` buffer has no array, and starts as the zeroes WebGPU allocates
+        if (arr !== null) {
+            device.queue.writeBuffer(buf, 0, arr.buffer, arr.byteOffset, arr.byteLength);
+            recordBufferWrite(cache.info, arr.byteLength, usage, true, label);
+        }
         cache.bufferMap.set(buffer, { buf, version: buffer.version });
         // the allocate path wrote everything, so pending ranges are already covered; dropping them
         // stops the next frame replaying them as a redundant partial write.
@@ -10080,7 +10123,10 @@ function ensureUploaded$1(cache, device, buffer, name) {
         buffer.onUpload?.();
         return buf;
     }
+    // only a `cpu: false` buffer plans past Skip without an array, and it only ever allocates
     const { buf } = entry;
+    if (arr === null)
+        throw new Error('[gpucat] ensureUploaded: a write was planned for a buffer with no array');
     if (plan === BufferUpload.Partial) {
         // Ranges are flat component indices and arrive already merged.
         const bytesPerComponent = arr.BYTES_PER_ELEMENT;
@@ -10099,6 +10145,16 @@ function ensureUploaded$1(cache, device, buffer, name) {
     }
     entry.version = buffer.version;
     return buf;
+}
+/**
+ * `writeBuffer` for WebGPU: a queue write, which copies `data` before returning. Offsets and size are
+ * bytes, already validated by the caller.
+ */
+function writeBufferBytes$1(cache, device, buffer, byteOffset, data, dataByteOffset, byteSize) {
+    const label = buffer.label ?? 'write-buffer';
+    const buf = ensureUploaded$1(cache, device, buffer, label);
+    device.queue.writeBuffer(buf, byteOffset, data.buffer, data.byteOffset + dataByteOffset, byteSize);
+    recordBufferWrite(cache.info, byteSize, primaryBufferUsage(buffer), false, label);
 }
 /**
  * Return the GPUBuffer for an already-uploaded GpuBuffer, or undefined
@@ -15265,6 +15321,19 @@ function storageMirrorBytesPerTexel(element) {
     throw new Error(`[gpucat] storage() read-lowering: element stride ${stride} bytes has no whole-texel WebGL layout ` +
         `(supported: 4 → r32uint, 8 → rg32uint, multiples of 16 → rgba32uint). Pad the element to a ` +
         `multiple of 16 bytes to read it on WebGL2.`);
+}
+/**
+ * The texel grid a storage mirror of `byteLength` bytes takes: rows `min(texels, maxTextureSize)` wide, the
+ * last one padded. Throws for a length that is not a non-zero whole number of texels.
+ */
+function storageMirrorGrid(byteLength, bytesPerTexel, maxTextureSize, what) {
+    if (byteLength === 0 || byteLength % bytesPerTexel !== 0) {
+        throw new Error(`${what}: buffer byte length ${byteLength} must be a non-zero multiple of ${bytesPerTexel} ` +
+            `(whole texels) to reinterpret as a WebGL texture`);
+    }
+    const totalTexels = byteLength / bytesPerTexel;
+    const width = Math.min(totalTexels, maxTextureSize);
+    return { width, height: Math.ceil(totalTexels / width) };
 }
 class TextureBindingNode extends Node {
     kind = NodeKind.TextureBinding;
@@ -22613,19 +22682,13 @@ function createStorageBinding(node, maxTextureSize) {
     if (node.value != null) {
         // Value-based: buffer known at compile → size the tight texel grid now. `width = min(texels, cap)`,
         // `height = ceil`; the renderer pads the short last row and validates `height ≤ MAX_TEXTURE_SIZE`.
-        const arr = node.value.array;
-        if (arr == null) {
+        const buffer = node.value;
+        if (buffer.cpu && buffer.array == null) {
             throw new Error(`[glsl] storage() read-lowering needs a CPU-backed buffer, but this storage buffer has no ` +
                 `\`array\` (its CPU data was released after upload); keep the data resident to read it on WebGL`);
         }
-        if (arr.byteLength === 0 || arr.byteLength % bytesPerTexel !== 0) {
-            throw new Error(`[glsl] storage() read-lowering: buffer byte length ${arr.byteLength} must be a non-zero multiple ` +
-                `of ${bytesPerTexel} (whole texels) to reinterpret as a WebGL texture`);
-        }
-        const totalTexels = arr.byteLength / bytesPerTexel;
-        const cap = maxTextureSize ?? 2048;
-        const width = Math.min(totalTexels, cap);
-        binding.storageBufferSource = { buffer: node.value, width, height: Math.ceil(totalTexels / width), bytesPerTexel };
+        const grid = storageMirrorGrid(buffer.byteLength, bytesPerTexel, maxTextureSize ?? 2048, '[glsl] storage() read-lowering');
+        binding.storageBufferSource = { buffer, width: grid.width, height: grid.height, bytesPerTexel };
     }
     else {
         // Name-based: `storage('slot', 'read')` bound via `geometry.setBuffer('slot', buf)`. The buffer
@@ -35448,6 +35511,37 @@ function read(renderer, target, opts = {}) {
     return renderer.backend.readPixels(target, opts.attachment ?? 0, opts.layer ?? 0, opts.mipLevel ?? 0);
 }
 
+/**
+ * Writes `data` into a `cpu: false` buffer at `byteOffset`, copying it before returning, so the caller may reuse,
+ * transfer or drop it straight away. `dataOffset` and `size` count elements of `data`, as `GPUQueue.writeBuffer`
+ * does for a typed array; `size` defaults to the rest of it. Byte offset and byte size must be multiples of 4.
+ *
+ * The buffer's GPU storage is created zeroed by the first write or binding. Like any upload, a write made while a
+ * frame is being recorded is seen by that whole frame on WebGPU, and by the work recorded after it on WebGL.
+ */
+function writeBuffer(renderer, buffer, byteOffset, data, dataOffset = 0, size = data.length - dataOffset) {
+    renderer._assertInitialized('writeBuffer');
+    const what = `[writeBuffer] buffer '${buffer.label ?? 'unlabelled'}'`;
+    if (buffer.cpu) {
+        throw new Error(`${what} keeps a CPU array; write the array and queue a range instead, or make it \`cpu: false\`.`);
+    }
+    if (buffer.disposed)
+        throw new Error(`${what} is disposed.`);
+    if (dataOffset < 0 || size < 0 || dataOffset + size > data.length) {
+        throw new Error(`${what}: elements ${dataOffset}..${dataOffset + size} are outside the ${data.length}-element data.`);
+    }
+    const byteSize = size * data.BYTES_PER_ELEMENT;
+    if (byteOffset % 4 !== 0 || byteSize % 4 !== 0) {
+        throw new Error(`${what}: byte offset ${byteOffset} and byte size ${byteSize} must be multiples of 4.`);
+    }
+    if (byteOffset < 0 || byteOffset + byteSize > buffer.byteLength) {
+        throw new Error(`${what}: bytes ${byteOffset}..${byteOffset + byteSize} overrun its ${buffer.byteLength} bytes.`);
+    }
+    if (byteSize === 0)
+        return;
+    renderer.backend.writeBuffer(buffer, byteOffset, data, dataOffset * data.BYTES_PER_ELEMENT, byteSize);
+}
+
 function yieldToMain() {
     // modern browsers: scheduler.yield() is the most efficient way to yield
     if (typeof scheduler !== 'undefined' && typeof scheduler.yield === 'function') {
@@ -35543,7 +35637,7 @@ function uploadDirtyRanges(gl, cache, target, array, buffer, label) {
  */
 function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
     const array = buffer.array;
-    if (!array)
+    if (!array && buffer.cpu)
         throw new Error(`[webgl] buffer '${buffer.label ?? name}' has no CPU array to upload.`);
     const label = buffer.label ?? name;
     let entry = cache.bufferMap.get(buffer);
@@ -35562,14 +35656,23 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
             setupBufferDispose(gl, cache, buffer);
         }
         gl.bindBuffer(target, entry.glBuffer);
-        gl.bufferData(target, array, usageHint ?? glUsageHint(gl, buffer));
-        recordBufferWrite(cache.info, array.byteLength, primaryBufferUsage(buffer), true, label);
-        entry.byteLength = array.byteLength;
+        if (array) {
+            gl.bufferData(target, array, usageHint ?? glUsageHint(gl, buffer));
+            recordBufferWrite(cache.info, array.byteLength, primaryBufferUsage(buffer), true, label);
+        }
+        else {
+            // a `cpu: false` buffer starts as the zeroes GL allocates
+            gl.bufferData(target, buffer.byteLength, usageHint ?? glUsageHint(gl, buffer));
+        }
+        entry.byteLength = buffer.byteLength;
         entry.version = buffer.version;
         // the allocate path wrote everything, so pending ranges are already covered.
         buffer.clearUpdateRanges();
         return entry.glBuffer;
     }
+    // only a `cpu: false` buffer plans past Skip without an array, and it only ever allocates
+    if (!array)
+        throw new Error(`[webgl] buffer '${label}': a write was planned with no array.`);
     gl.bindBuffer(target, entry.glBuffer);
     if (plan === BufferUpload.Partial) {
         uploadDirtyRanges(gl, cache, target, array, buffer, label);
@@ -35580,6 +35683,19 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
     }
     entry.version = buffer.version;
     return entry.glBuffer;
+}
+/**
+ * `writeBuffer` into a `cpu: false` buffer's GL buffer, creating it zeroed first. Goes through
+ * `COPY_WRITE_BUFFER`, which no VAO captures, and leaves it unbound.
+ */
+function writeBufferBytes(gl, cache, buffer, byteOffset, data, dataByteOffset, byteSize) {
+    const label = buffer.label ?? 'write-buffer';
+    const glBuffer = ensureUploaded(gl, cache, buffer, gl.COPY_WRITE_BUFFER, label);
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER, glBuffer);
+    const bytes = new Uint8Array(data.buffer, data.byteOffset + dataByteOffset, byteSize);
+    gl.bufferSubData(gl.COPY_WRITE_BUFFER, byteOffset, bytes);
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
+    recordBufferWrite(cache.info, byteSize, primaryBufferUsage(buffer), false, label);
 }
 /** The GL buffer already created for a `GpuBuffer`, or undefined. Never uploads. */
 function getUploaded(cache, buffer) {
@@ -36560,7 +36676,8 @@ function createTextureCache() {
 /**
  * Upload texels `[texelStart, texelStart + texelCount)` of a storage buffer reinterpreted as a
  * `width`-wide grid of `bytesPerTexel`-byte texels (`glFormat` = RED/RG/RGBA_INTEGER to match),
- * sourcing ZERO-COPY `Uint32Array` views over the buffer's own bytes.
+ * sourcing ZERO-COPY `Uint32Array` views over `source`, whose bytes for texel `texelStart` begin at
+ * `sourceByteOffset`.
  *
  * A linear span is not a rectangle, so it decomposes into at most three uploads: the partial head row,
  * the block of whole rows, and the partial tail row. Head and tail are one row tall, so their row
@@ -36573,9 +36690,10 @@ function createTextureCache() {
  * last row when `width` doesn't divide the texel count) is never addressed — those texels stay zeroed,
  * and valid shader indices only reach `totalTexels - 1`.
  */
-function uploadStorageSpan(gl, arr, width, texelStart, texelCount, bytesPerTexel, glFormat) {
+function uploadStorageSpan(gl, source, sourceByteOffset, width, texelStart, texelCount, bytesPerTexel, glFormat) {
     const comps = bytesPerTexel / 4; // u32 lanes per texel (r32uint = 1, rg32uint = 2, rgba32uint = 4)
-    const base = arr.byteOffset;
+    // the source byte offset of texel 0, which the views below index from
+    const base = sourceByteOffset - texelStart * bytesPerTexel;
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     let texel = texelStart;
     let remaining = texelCount;
@@ -36583,7 +36701,7 @@ function uploadStorageSpan(gl, arr, width, texelStart, texelCount, bytesPerTexel
     const headX = texel % width;
     if (headX !== 0 && remaining > 0) {
         const count = Math.min(width - headX, remaining);
-        const view = new Uint32Array(arr.buffer, base + texel * bytesPerTexel, count * comps);
+        const view = new Uint32Array(source, base + texel * bytesPerTexel, count * comps);
         gl.texSubImage2D(gl.TEXTURE_2D, 0, headX, (texel - headX) / width, count, 1, glFormat, gl.UNSIGNED_INT, view);
         texel += count;
         remaining -= count;
@@ -36591,14 +36709,14 @@ function uploadStorageSpan(gl, arr, width, texelStart, texelCount, bytesPerTexel
     // Block: every whole row the span covers, in one call.
     const rows = Math.floor(remaining / width);
     if (rows > 0) {
-        const view = new Uint32Array(arr.buffer, base + texel * bytesPerTexel, rows * width * comps);
+        const view = new Uint32Array(source, base + texel * bytesPerTexel, rows * width * comps);
         gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, texel / width, width, rows, glFormat, gl.UNSIGNED_INT, view);
         texel += rows * width;
         remaining -= rows * width;
     }
     // Tail: the partial row the span ends in.
     if (remaining > 0) {
-        const view = new Uint32Array(arr.buffer, base + texel * bytesPerTexel, remaining * comps);
+        const view = new Uint32Array(source, base + texel * bytesPerTexel, remaining * comps);
         gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, texel / width, remaining, 1, glFormat, gl.UNSIGNED_INT, view);
     }
 }
@@ -36672,6 +36790,8 @@ function setupTextureDispose(gl, state, texture) {
  */
 function updateStorageBufferTexture(gl, state, source) {
     const { buffer, width, height, bytesPerTexel } = source;
+    if (!buffer.cpu)
+        return ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel).texture;
     const arr = buffer.array;
     if (arr == null) {
         throw new Error('[webgl] storage() read-lowering: the storage buffer has no CPU `array` to reinterpret ' +
@@ -36703,8 +36823,8 @@ function updateStorageBufferTexture(gl, state, source) {
         gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
         // Integer textures are never filterable — NEAREST, clamp; sampled only via texelFetch.
         setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
-        uploadStorageSpan(gl, arr, width, 0, totalTexels, bytesPerTexel, glFormat);
-        data = { texture, tally: createTextureTallyEntry(), version: buffer.version, width, height };
+        uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
+        data = { texture, tally: createTextureTallyEntry(), version: buffer.version, width, height, bytesPerTexel };
         // A storage() read-lowering IS a resident texture, so it counts like any other. Bucketed under
         // the u32 format it actually is; WebGPU reads the buffer directly and has no counterpart row.
         tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
@@ -36721,7 +36841,7 @@ function updateStorageBufferTexture(gl, state, source) {
     if (sizeChanged) {
         // Grow/shrink → re-specify the whole mutable texture at the new size (queued ranges are moot).
         gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
-        uploadStorageSpan(gl, arr, width, 0, totalTexels, bytesPerTexel, glFormat);
+        uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
         data.width = width;
         data.height = height;
         // Same entry, new size: move the bytes without moving the count.
@@ -36746,17 +36866,80 @@ function updateStorageBufferTexture(gl, state, source) {
                 const r = ranges[i];
                 const from = Math.floor(r.start / comps);
                 const to = Math.min(totalTexels, Math.ceil((r.start + r.count) / comps));
-                if (to > from)
-                    uploadStorageSpan(gl, arr, width, from, to - from, bytesPerTexel, glFormat);
+                if (to > from) {
+                    const sourceByteOffset = arr.byteOffset + from * bytesPerTexel;
+                    uploadStorageSpan(gl, arr.buffer, sourceByteOffset, width, from, to - from, bytesPerTexel, glFormat);
+                }
             }
         }
         else {
-            uploadStorageSpan(gl, arr, width, 0, totalTexels, bytesPerTexel, glFormat);
+            uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
         }
     }
     buffer.clearUpdateRanges();
     data.version = buffer.version;
     return data.texture;
+}
+/**
+ * The mirror texture of a `cpu: false` storage buffer, created zeroed on first use. Only `writeBuffer` fills it,
+ * so it is never re-specified: a binding that would read it at another texel width is an error rather than a
+ * silent wipe.
+ */
+function ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel) {
+    const existing = state.bufferData.get(buffer);
+    if (existing) {
+        if (existing.bytesPerTexel !== bytesPerTexel) {
+            throw new Error(`[webgl] storage() read-lowering: buffer '${buffer.label ?? 'unlabelled'}' is read with ${bytesPerTexel}-byte ` +
+                `texels but was written with ${existing.bytesPerTexel}-byte ones; read it with its own element type.`);
+        }
+        return existing;
+    }
+    if (state.maxTextureSize == null)
+        state.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    const { width, height } = storageMirrorGrid(buffer.byteLength, bytesPerTexel, state.maxTextureSize, '[webgl] storage() read-lowering');
+    if (height > state.maxTextureSize) {
+        throw new Error(`[webgl] storage() read-lowering: the buffer needs a ${width}x${height} texel grid, which ` +
+            `exceeds this device's MAX_TEXTURE_SIZE=${state.maxTextureSize}; split or reshape the buffer.`);
+    }
+    const { internalFormat, glFormat } = storageTexelFormat(gl, bytesPerTexel);
+    const texture = gl.createTexture();
+    if (!texture)
+        throw new Error('[webgl] gl.createTexture returned null (storage buffer texture).');
+    state.all.add(texture);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
+    setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
+    const data = {
+        texture,
+        tally: createTextureTallyEntry(),
+        version: buffer.version,
+        width,
+        height,
+        bytesPerTexel,
+    };
+    tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
+    setupStorageTextureDispose(gl, state, buffer);
+    state.bufferData.set(buffer, data);
+    return data;
+}
+/**
+ * `writeBuffer` into a `cpu: false` storage buffer's mirror texture: the span's texels, `texSubImage2D`d straight
+ * from `data`. The texel is the buffer element's (4, 8 or 16 bytes), and the span must cover whole texels.
+ */
+function writeStorageTexture(gl, state, buffer, byteOffset, data, dataByteOffset, byteSize) {
+    const element = buffer.schema.element ?? buffer.schema;
+    const bytesPerTexel = storageMirrorBytesPerTexel(element);
+    if (byteOffset % bytesPerTexel !== 0 || byteSize % bytesPerTexel !== 0) {
+        throw new Error(`[webgl] writeBuffer: buffer '${buffer.label ?? 'unlabelled'}' is mirrored as ${bytesPerTexel}-byte texels, ` +
+            `so the write's offset (${byteOffset}) and size (${byteSize}) must be multiples of ${bytesPerTexel}.`);
+    }
+    const mirror = ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel);
+    gl.bindTexture(gl.TEXTURE_2D, mirror.texture);
+    const { glFormat } = storageTexelFormat(gl, bytesPerTexel);
+    const texelStart = byteOffset / bytesPerTexel;
+    const texelCount = byteSize / bytesPerTexel;
+    const sourceByteOffset = data.byteOffset + dataByteOffset;
+    uploadStorageSpan(gl, data.buffer, sourceByteOffset, mirror.width, texelStart, texelCount, bytesPerTexel, glFormat);
 }
 /** Get the cached GlTextureData for a GpuTexture (or null if never seen). */
 function getTextureData(state, texture) {
@@ -38245,21 +38428,15 @@ function resolveStorageSource(gl, textures, renderObject, source) {
         throw new Error(`[webgl] storage('${source.name}') read-lowering: no buffer bound for that name on the ` +
             `geometry — call geometry.setBuffer('${source.name}', buffer).`);
     }
-    const arr = buffer.array;
-    if (arr == null) {
+    if (buffer.cpu && buffer.array == null) {
         throw new Error(`[webgl] storage('${source.name}') read-lowering: the buffer has no CPU \`array\` to ` +
             `reinterpret (released after upload); keep it resident to sample it on WebGL2.`);
     }
     const bytesPerTexel = source.bytesPerTexel;
-    if (arr.byteLength === 0 || arr.byteLength % bytesPerTexel !== 0) {
-        throw new Error(`[webgl] storage('${source.name}') read-lowering: buffer byte length ${arr.byteLength} must ` +
-            `be a non-zero multiple of ${bytesPerTexel} (whole texels) to reinterpret as a texture.`);
-    }
     if (textures.maxTextureSize == null)
         textures.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
-    const totalTexels = arr.byteLength / bytesPerTexel;
-    const width = Math.min(totalTexels, textures.maxTextureSize);
-    return { buffer, width, height: Math.ceil(totalTexels / width), bytesPerTexel };
+    const grid = storageMirrorGrid(buffer.byteLength, bytesPerTexel, textures.maxTextureSize, `[webgl] storage('${source.name}') read-lowering`);
+    return { buffer, width: grid.width, height: grid.height, bytesPerTexel };
 }
 /** Captures what `renderObject`'s texture bindings hold now, so its draw binds the values set before it. */
 function captureTextures(renderObject, out) {
@@ -38811,7 +38988,7 @@ function createTransformFeedbackState() {
  * discarded on every re-write (perf-warning spam). Inputs feed straight in as attributes.
  */
 function ensureIo(gl, buffers, buffer, role, name) {
-    if (!buffer.array) {
+    if (!buffer.array && buffer.cpu) {
         throw new Error(role === 'output'
             ? `[webgl] transform-feedback output buffer '${name}' has a null array; ` +
                 `allocate it with { count } or { data } so its size is known.`
@@ -39906,6 +40083,21 @@ class WebGLBackend {
         if (!sync)
             return Promise.resolve();
         return clientWaitAsync(gl, sync, 'frame.done').finally(() => gl.deleteSync(sync));
+    }
+    /**
+     * A storage buffer reads as a mirror texture here, and a vertex buffer as a GL buffer, so the write goes to
+     * each the buffer's usage gives it. A storage-only buffer some other path has given a GL buffer, transform
+     * feedback, gets that one written too.
+     */
+    writeBuffer(buffer, byteOffset, data, dataByteOffset, byteSize) {
+        const gl = this.gl;
+        if (buffer.usage.has('storage')) {
+            writeStorageTexture(gl, this.textures, buffer, byteOffset, data, dataByteOffset, byteSize);
+        }
+        const storageOnly = buffer.usage.size === 1 && buffer.usage.has('storage');
+        if (!storageOnly || getUploaded(this.buffers, buffer) !== undefined) {
+            writeBufferBytes(gl, this.buffers, buffer, byteOffset, data, dataByteOffset, byteSize);
+        }
     }
     readPixels(renderTarget, attachmentIndex = 0, layer = 0, mipLevel = 0) {
         return readPixels$1(this.gl, this, renderTarget, attachmentIndex, layer, mipLevel);
@@ -41684,6 +41876,9 @@ class WebGPUBackend {
     readPixels(renderTarget, attachmentIndex, layer, mipLevel) {
         return readPixels(this, renderTarget, attachmentIndex, layer, mipLevel);
     }
+    writeBuffer(buffer, byteOffset, data, dataByteOffset, byteSize) {
+        writeBufferBytes$1(this.buffers, this.device, buffer, byteOffset, data, dataByteOffset, byteSize);
+    }
     /** Off the `DeviceBackend` contract on purpose: a neutral signature would widen this to `string`. */
     awaitCompletion() {
         return this.device.queue.onSubmittedWorkDone();
@@ -42549,5 +42744,5 @@ function createData3DTexture(data = null, width = 1, height = 1, depth = 1, opti
     return new Data3DTexture(data, width, height, depth, options);
 }
 
-export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, Scene, Source, TOUCH, Texture, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId };
+export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, Scene, Source, TOUCH, Texture, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId, writeBuffer };
 //# sourceMappingURL=index.js.map

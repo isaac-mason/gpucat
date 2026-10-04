@@ -1,3 +1,4 @@
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { RenderTarget } from '../../core/render-target';
 import type { ComputeNode } from '../../nodes/lib/core';
 import type { FrameBackend } from './frame';
@@ -22,6 +23,9 @@ export interface DeviceBackend extends FrameBackend {
     /** Warm compute pipelines. WebGL2 implements it by refusing: it has no compute shaders. */
     /** @internal */ compileCompute(nodes: readonly ComputeNode[]): Promise<void>;
     /** @internal */ readPixels(target: RenderTarget, attachmentIndex: number, layer: number, mipLevel: number): Promise<Uint8Array>;
+    /** Copy `byteSize` bytes of `data`, from `dataByteOffset`, into a `cpu: false` buffer at `byteOffset`, before
+     *  returning. Bounds and alignment are already checked. */
+    /** @internal */ writeBuffer(buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void;
     /**
      * Fill the shared counts and this API's own, at the renderer's frame boundary. Read live off the
      * caches rather than mirrored at every create/dispose site, which would only ever approximate what

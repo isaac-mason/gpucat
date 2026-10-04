@@ -29,6 +29,7 @@ export declare function getIndexFormat(array: GpuTypedArray | null): IndexFormat
 /**
  * Options for creating a GpuBuffer.
  * Provide either `data` (existing TypedArray) or `count` (allocate new array), not both.
+ * A `cpu: false` buffer takes `count` only.
  */
 export type GpuBufferOptions<T extends Any = Any> = {
     /** Initial data as a TypedArray. Mutually exclusive with `count`. */
@@ -47,6 +48,14 @@ export type GpuBufferOptions<T extends Any = Any> = {
      * only where several buffers would otherwise collide in one row.
      */
     label?: string;
+    /**
+     * False for a buffer with no CPU copy: the GPU buffer is allocated zeroed at `count` elements and
+     * filled only through `writeBuffer`, which copies at call time, so the caller's data can be dropped
+     * or transferred straight after. Its `array` is always null, and the CPU-side writes (`packAt*`,
+     * `addUpdateRange`, `needsUpdate`) throw. Index buffers cannot be CPU-less: their format is read off
+     * the array. Defaults to true.
+     */
+    cpu?: boolean;
 };
 /**
  * Unified buffer class for vertex attributes, storage buffers, index buffers, etc.
@@ -80,10 +89,14 @@ export declare class GpuBuffer<T extends Any = Any> {
     readonly label: string | undefined;
     /** Usage count for REF_COUNTED buffers. When this hits 0, GPU resources are disposed. */
     _usages: number;
-    /** CPU-side typed array. Can be set to null after onUpload releases memory. */
+    /** CPU-side typed array. Can be set to null after onUpload releases memory; always null when `cpu` is false. */
     array: TypedArrayFor<T> | null;
+    /** False when the buffer has no CPU copy and is written only through `writeBuffer`. */
+    readonly cpu: boolean;
     /** Number of elements */
     readonly count: number;
+    /** Size in bytes, as constructed. */
+    readonly byteLength: number;
     /** Components per element (e.g., 3 for vec3f) */
     readonly itemSize: number;
     /** Version for dirty tracking. Incremented when needsUpdate is set. */
@@ -106,6 +119,7 @@ export declare class GpuBuffer<T extends Any = Any> {
     set needsUpdate(_: true);
     /** Register a dirty range for partial re-upload */
     addUpdateRange(start: number, count: number): void;
+    private _assertCpu;
     /** Clear pending update ranges (called by renderer after upload) */
     clearUpdateRanges(): void;
     /**
