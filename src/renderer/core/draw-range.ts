@@ -32,7 +32,7 @@ export type ResolvedDrawRange = {
 export function resolveIndexedDrawRange(geometry: Geometry, override?: DrawRange): ResolvedDrawRange {
     const range = override ?? geometry.drawRange;
     const first = range.start;
-    const total = geometry.index?.array?.length ?? 0;
+    const total = geometry.index?.count ?? 0;
     const remaining = Math.max(0, total - first);
     return { first, count: Math.min(range.count, remaining) };
 }

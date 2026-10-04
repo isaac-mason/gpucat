@@ -22,6 +22,8 @@ import {
     fields,
     fullscreen,
     Geometry,
+    GpuSampler,
+    GpuTexture,
     globalId,
     i32,
     index,
@@ -63,6 +65,7 @@ import {
     type WebGPUBackend,
     webgpu,
     writeBuffer,
+    writeTexture,
 } from '../../src/index';
 import { BlendMode } from '../../src/material/blend-mode';
 import type { MaterialOptions } from '../../src/material/material';
@@ -529,6 +532,92 @@ async function caseWriteBuffer(gpu: Renderer<WebGPUBackend>): Promise<CaseResult
         expected: [0, 64, 255, 192],
         note: firstOk ? 'second frame, after the one-slot write' : 'first frame, after the offset write',
     };
+}
+
+/** One flat colour drawn over the whole target, and its centre pixel read back. */
+async function drawFullscreen(
+    gpu: Renderer<WebGPUBackend>,
+    fragment: Node<d.vec4f>,
+    geometry: Geometry = fullscreenTriangle(),
+): Promise<[number, number, number, number]> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const mesh = new Mesh(
+        geometry,
+        new Material({ vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment, depthTest: false }),
+    );
+    mesh.updateWorldMatrix();
+    const f = frame(gpu);
+    const pass = f.pass({ target, clear: [0, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+    return centerPixel(await read(gpu, target));
+}
+
+/** `count` texels of one rgba8 colour, packed. */
+function texels(count: number, rgba: [number, number, number, number]): Uint8Array {
+    const out = new Uint8Array(count * 4);
+    for (let i = 0; i < count; i++) out.set(rgba, i * 4);
+    return out;
+}
+
+/**
+ * write-texture: a `cpu: false` 4x4 texture filled red by one whole-level write before anything binds it, its source
+ * overwritten at once, then a 2x2 green box written over its far corner after a frame. Red comes from a texel only
+ * the first write reached, green and the missing red from one the box rewrote.
+ */
+async function caseWriteTexture(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const image = new GpuTexture(d.texture2d(), { width: 4, height: 4, cpu: false });
+    const red = texels(16, [255, 0, 0, 255]);
+    writeTexture(gpu, image, red);
+    red.fill(7);
+    const node = texture(image, new GpuSampler({ minFilter: 'nearest', magFilter: 'nearest' }));
+    const untouched = node.load(vec2i(i32(1), i32(1)));
+    const rewritten = node.load(vec2i(i32(2), i32(2)));
+    const fragment = vec4(untouched.x, rewritten.y, rewritten.x, f32(1));
+
+    await drawFullscreen(gpu, fragment);
+    writeTexture(gpu, image, texels(4, [0, 255, 0, 255]), { x: 2, y: 2, width: 2, height: 2 });
+    return { name: 'write-texture', pixel: await drawFullscreen(gpu, fragment), expected: [255, 255, 0, 255] };
+}
+
+/** write-texture-layers: one write of two layers of a `cpu: false` array texture, from z = 1; layer 0 stays zero. */
+async function caseWriteTextureLayers(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const layers = new GpuTexture(d.texture2dArray(), { width: 2, height: 2, layers: 3, cpu: false });
+    const data = new Uint8Array(2 * 4 * 4);
+    data.set(texels(4, [64, 0, 0, 255]), 0);
+    data.set(texels(4, [0, 128, 255, 255]), 16);
+    writeTexture(gpu, layers, data, { z: 1, depth: 2 });
+    const sampler = new GpuSampler({ minFilter: 'nearest', magFilter: 'nearest' });
+    const layer = (z: number) => arrayTexture(layers, sampler, i32(z)).sample(screenUV);
+    const fragment = vec4(layer(1).x, layer(2).y, layer(2).z, layer(0).w.add(f32(1)));
+    return { name: 'write-texture-layers', pixel: await drawFullscreen(gpu, fragment), expected: [64, 128, 255, 255] };
+}
+
+/**
+ * write-texture-cube: one write of faces 0 and 1 of a `cpu: false` cube, each read by its own direction. gpucat
+ * mirrors X when sampling a cube, as three.js does, so direction -X reads face 0 and +X reads face 1.
+ */
+async function caseWriteTextureCube(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const cube = new GpuTexture(d.textureCube(), { size: 2, cpu: false });
+    const data = new Uint8Array(2 * 4 * 4);
+    data.set(texels(4, [255, 0, 0, 255]), 0);
+    data.set(texels(4, [0, 255, 0, 255]), 16);
+    writeTexture(gpu, cube, data, { z: 0, depth: 2 });
+    const sampler = new GpuSampler({ minFilter: 'nearest', magFilter: 'nearest' });
+    const face = (x: number) => cubeTexture(cube, sampler).sample(vec3(x, 0, 0));
+    const fragment = vec4(face(-1).x, face(1).y, face(-1).y, f32(1));
+    return { name: 'write-texture-cube', pixel: await drawFullscreen(gpu, fragment), expected: [255, 255, 0, 255] };
+}
+
+/** cpu-less-index: a fullscreen triangle drawn through a `cpu: false` 16-bit index buffer only writeBuffer fills. */
+async function caseCpuLessIndex(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const geometry = fullscreenTriangle();
+    const indices = new GpuBuffer(d.u32, { count: 4, usage: 'index', cpu: false, indexFormat: 'uint16' });
+    // four, not three: a write is whole 4-byte words, and the fourth index starts no triangle
+    writeBuffer(gpu, indices, 0, new Uint16Array([0, 1, 2, 0]));
+    geometry.setIndex(indices);
+    return { name: 'cpu-less-index', pixel: await drawFullscreen(gpu, vec4(0, 1, 0, 1), geometry), expected: [0, 255, 0, 255] };
 }
 
 /**
@@ -2662,6 +2751,10 @@ const CASES: Record<string, Case> = {
     'wgsl-operand-grammar': caseWgslOperandGrammar,
     'signed-shift': caseSignedShift,
     'write-buffer': caseWriteBuffer,
+    'write-texture': caseWriteTexture,
+    'write-texture-layers': caseWriteTextureLayers,
+    'write-texture-cube': caseWriteTextureCube,
+    'cpu-less-index': caseCpuLessIndex,
     'compute-texture-load': caseComputeTextureLoad,
     'compute-uniform-per-dispatch': caseComputeUniformPerDispatch,
     'compute-uniform-within-pass': caseComputeUniformWithinPass,

@@ -62,7 +62,16 @@ test('no graphics API leaks into the neutral surfaces the one Renderer serves ev
  * listed here, which is where the argument for it gets made.
  */
 const EXPECTED: Record<string, string[]> = {
-    DeviceBackend: ['init', 'dispose', 'compileObjects', 'compileCompute', 'readPixels', 'writeBuffer', 'readMemoryStats'],
+    DeviceBackend: [
+        'init',
+        'dispose',
+        'compileObjects',
+        'compileCompute',
+        'readPixels',
+        'writeBuffer',
+        'writeTexture',
+        'readMemoryStats',
+    ],
     Renderer: [
         'backend',
         '_initialized',

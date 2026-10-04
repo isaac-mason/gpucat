@@ -467,6 +467,7 @@ export type { RendererBackend } from './renderer/core/renderer-interface';
 export { isRenderTarget, renderTargetOf, type Target } from './renderer/core/target';
 export type { View } from './renderer/core/view';
 export { writeBuffer } from './renderer/core/write-buffer';
+export { writeTexture } from './renderer/core/write-texture';
 export { webgl } from './renderer/webgl/backend';
 export { glContext } from './renderer/webgl/device-api';
 export { readBuffer } from './renderer/webgl/transform-feedback-api';

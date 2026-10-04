@@ -72,20 +72,11 @@ function getGeometryBuffers(gl: WebGL2RenderingContext, state: GeometriesState, 
     return gb;
 }
 
-/**
- * GL index element type for an index typed array. WebGL2 accepts UNSIGNED_BYTE / UNSIGNED_SHORT /
- * UNSIGNED_INT indices; the type must match the array's element width or the draw reads garbage (a
- * Uint8Array read as UNSIGNED_INT walks 4 bytes per index). Any other array type throws.
- */
-function glIndexType(gl: WebGL2RenderingContext, array: ArrayBufferView | null | undefined): number {
-    if (array instanceof Uint8Array) return gl.UNSIGNED_BYTE;
-    if (array instanceof Uint16Array) return gl.UNSIGNED_SHORT;
-    if (array instanceof Uint32Array) return gl.UNSIGNED_INT;
-    const ctorName = (array as { constructor?: { name?: string } } | null)?.constructor?.name ?? typeof array;
-    throw new Error(
-        `[webgl] index buffer array type '${ctorName}' is not supported on the WebGL2 backend ` +
-            `(expected Uint8Array, Uint16Array, or Uint32Array).`,
-    );
+/** GL index element type for an index buffer's format; the draw reads garbage if the two disagree. */
+function glIndexType(gl: WebGL2RenderingContext, index: GpuBuffer): number {
+    if (index.indexFormat === 'uint16') return gl.UNSIGNED_SHORT;
+    if (index.indexFormat === 'uint32') return gl.UNSIGNED_INT;
+    throw new Error(`[webgl] index buffer '${index.label ?? 'unlabelled'}' has no index format.`);
 }
 
 // WGSL attribute type → GL vertex-attrib descriptor.
@@ -203,7 +194,7 @@ export function prepareGeometry(
     let indexType: number | null = null;
     if (geometry.index) {
         Buffers.ensureUploaded(gl, b.buffers, geometry.index, gl.ELEMENT_ARRAY_BUFFER, 'index');
-        indexType = glIndexType(gl, geometry.index.array);
+        indexType = glIndexType(gl, geometry.index);
     }
 
     if (gb.bindingsVersion !== geometry.bindingsVersion) {

@@ -14,7 +14,6 @@
  *  - The tab auto-shows itself when scenes are present (mirrors Viewer pattern).
  */
 
-import { getIndexFormat } from '../../core/gpu-buffer';
 import type { Object3D } from '../../core/object3d';
 import type { Mesh } from '../../objects/mesh';
 import type { Inspector } from '../inspector';
@@ -328,9 +327,9 @@ export class SceneHierarchy extends Tab {
         table.appendChild(makeKVRow('drawRange.count', String(geo.drawRange.count)));
 
         // Index info
-        if (geo.index && geo.index.array) {
-            table.appendChild(makeKVRow('indices', String(geo.index.array.length)));
-            table.appendChild(makeKVRow('index format', getIndexFormat(geo.index.array) ?? 'unknown'));
+        if (geo.index) {
+            table.appendChild(makeKVRow('indices', String(geo.index.count)));
+            table.appendChild(makeKVRow('index format', geo.index.indexFormat ?? 'unknown'));
         } else {
             table.appendChild(makeKVRow('indices', 'none'));
         }

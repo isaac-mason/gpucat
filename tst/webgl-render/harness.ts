@@ -27,6 +27,8 @@ import {
     fullscreen,
     Geometry,
     GpuBuffer,
+    GpuSampler,
+    GpuTexture,
     i32,
     init,
     instanceIndex,
@@ -71,6 +73,7 @@ import {
     type WebGLBackend,
     webgl,
     writeBuffer,
+    writeTexture,
 } from '../../src/index';
 import { RendererInspector } from '../../src/inspector/renderer-inspector';
 import * as Programs from '../../src/renderer/webgl/programs';
@@ -3505,14 +3508,17 @@ async function caseStoragePartialSpans(): Promise<CaseResult> {
 }
 
 /** A fullscreen draw of `fragment`, in a scene ready to render. */
-function fullscreenScene(fragment: Node<d.Any>): { scene: Scene; camera: PerspectiveCamera } {
+function fullscreenScene(
+    fragment: Node<d.Any>,
+    geometry: Geometry = createFullscreenTriangleGeometry(),
+): { scene: Scene; camera: PerspectiveCamera } {
     const material = new Material({
         vertex: vec4(attribute('position', d.vec3f), f32(1)),
         fragment,
         depthTest: false,
     });
     const scene = new Scene();
-    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    scene.add(new Mesh(geometry, material));
     const camera = new PerspectiveCamera();
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
@@ -3593,6 +3599,123 @@ async function caseWriteBufferTexelAlign(): Promise<CaseResult> {
     }
     renderer.dispose();
     return { name: 'write-buffer-texel-align', pixel: threw ? [0, 255, 0, 255] : [255, 0, 0, 255], expected: [0, 255, 0, 255] };
+}
+
+/** `count` texels of one rgba8 colour, packed. */
+function texels(count: number, rgba: [number, number, number, number]): Uint8Array {
+    const out = new Uint8Array(count * 4);
+    for (let i = 0; i < count; i++) out.set(rgba, i * 4);
+    return out;
+}
+
+/** Draw `fragment` (over `geometry`, a fullscreen triangle by default) and read the centre pixel. */
+function drawFullscreen(
+    renderer: Renderer<WebGLBackend>,
+    fragment: Node<d.Any>,
+    geometry?: Geometry,
+): [number, number, number, number] {
+    activeClear = [0, 0, 0, 1];
+    const { scene, camera } = fullscreenScene(fragment, geometry);
+    renderScene(renderer, scene, camera);
+    return readCenter(renderer.backend.gl!);
+}
+
+/**
+ * write-texture: a `cpu: false` 4x4 texture filled red by one whole-level write before anything binds it, its source
+ * overwritten at once, then a 2x2 green box written over its far corner after a frame. Red comes from a texel only
+ * the first write reached, green and the missing red from one the box rewrote.
+ */
+async function caseWriteTexture(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const image = new GpuTexture(d.texture2d(), { width: 4, height: 4, cpu: false });
+    const red = texels(16, [255, 0, 0, 255]);
+    writeTexture(renderer, image, red);
+    red.fill(7);
+    const node = texture(image, new GpuSampler({ minFilter: 'nearest', magFilter: 'nearest' }));
+    const untouched = node.load(vec2i(i32(1), i32(1)));
+    const rewritten = node.load(vec2i(i32(2), i32(2)));
+    const fragment = vec4(untouched.x, rewritten.y, rewritten.x, f32(1));
+
+    drawFullscreen(renderer, fragment);
+    writeTexture(renderer, image, texels(4, [0, 255, 0, 255]), { x: 2, y: 2, width: 2, height: 2 });
+    const pixel = drawFullscreen(renderer, fragment);
+    renderer.dispose();
+    return { name: 'write-texture', pixel, expected: [255, 255, 0, 255] };
+}
+
+/** write-texture-layers: one write of two layers of a `cpu: false` array texture, from z = 1; layer 0 stays zero. */
+async function caseWriteTextureLayers(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const layers = new GpuTexture(d.texture2dArray(), { width: 2, height: 2, layers: 3, cpu: false });
+    const data = new Uint8Array(2 * 4 * 4);
+    data.set(texels(4, [64, 0, 0, 255]), 0);
+    data.set(texels(4, [0, 128, 255, 255]), 16);
+    writeTexture(renderer, layers, data, { z: 1, depth: 2 });
+    const sampler = new GpuSampler({ minFilter: 'nearest', magFilter: 'nearest' });
+    const layer = (z: number) => arrayTexture(layers, sampler, i32(z)).sample(screenUV);
+    const pixel = drawFullscreen(renderer, vec4(layer(1).x, layer(2).y, layer(2).z, layer(0).w.add(f32(1))));
+    renderer.dispose();
+    return { name: 'write-texture-layers', pixel, expected: [64, 128, 255, 255] };
+}
+
+/**
+ * write-texture-cube: one write of faces 0 and 1 of a `cpu: false` cube, which WebGL2 takes as one call per face,
+ * each read by its own direction. gpucat mirrors X when sampling a cube, so -X reads face 0 and +X face 1.
+ */
+async function caseWriteTextureCube(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const cube = new GpuTexture(d.textureCube(), { size: 2, cpu: false });
+    const data = new Uint8Array(2 * 4 * 4);
+    data.set(texels(4, [255, 0, 0, 255]), 0);
+    data.set(texels(4, [0, 255, 0, 255]), 16);
+    writeTexture(renderer, cube, data, { z: 0, depth: 2 });
+    const sampler = new GpuSampler({ minFilter: 'nearest', magFilter: 'nearest' });
+    const face = (x: number) => cubeTexture(cube, sampler).sample(vec3(x, 0, 0));
+    const pixel = drawFullscreen(renderer, vec4(face(-1).x, face(1).y, face(-1).y, f32(1)));
+    renderer.dispose();
+    return { name: 'write-texture-cube', pixel, expected: [255, 255, 0, 255] };
+}
+
+/** cpu-less-index: a fullscreen triangle drawn through a `cpu: false` 16-bit index buffer only writeBuffer fills. */
+async function caseCpuLessIndex(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const geometry = createFullscreenTriangleGeometry();
+    const indices = new GpuBuffer(d.u32, { count: 4, usage: 'index', cpu: false, indexFormat: 'uint16' });
+    // four, not three: a write is whole 4-byte words, and the fourth index starts no triangle
+    writeBuffer(renderer, indices, 0, new Uint16Array([0, 1, 2, 0]));
+    geometry.setIndex(indices);
+    const pixel = drawFullscreen(renderer, vec4(0, 1, 0, 1), geometry);
+    renderer.dispose();
+    return { name: 'cpu-less-index', pixel, expected: [0, 255, 0, 255] };
+}
+
+/**
+ * write-buffer-tf-input: a `cpu: false` storage buffer written through its read texture holds nothing in a GL buffer,
+ * so feeding it to transform feedback afterwards throws instead of reading zeroes. Green when it throws.
+ */
+async function caseWriteBufferTfInput(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const N = 4;
+    const positions = new GpuBuffer(d.vec4f, { count: N, usage: 'storage', cpu: false });
+    writeBuffer(renderer, positions, 0, new Float32Array(N * 4).fill(1));
+    const outputs = new GpuBuffer(d.vec4f, { count: N });
+    const kernel = transformFeedback((io) => ({ pos: io.pos.add(f32(1)) }), {
+        inputs: { pos: d.vec4f },
+        outputs: { pos: d.vec4f },
+    });
+    let message = '';
+    try {
+        runTf(renderer, kernel, { inputs: { pos: positions }, outputs: { pos: outputs }, count: N });
+    } catch (error) {
+        message = (error as Error).message;
+    }
+    renderer.dispose();
+    const threw = message.includes('storage()');
+    return {
+        name: 'write-buffer-tf-input',
+        pixel: threw ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+    };
 }
 
 /**
@@ -4579,6 +4702,11 @@ export async function run(): Promise<RunResult> {
             caseWriteBuffer,
             caseWriteBufferRows,
             caseWriteBufferTexelAlign,
+            caseWriteTexture,
+            caseWriteTextureLayers,
+            caseWriteTextureCube,
+            caseCpuLessIndex,
+            caseWriteBufferTfInput,
             caseRenderToTexture,
             caseReadbackOrientation,
             caseReadbackInFlight,

@@ -12,7 +12,6 @@
  * - This ensures shared groups (camera, time) are reused across all RenderObjects
  */
 
-import { getIndexFormat } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
 import type { Material } from '../../material/material';
 import type { Mesh } from '../../objects/mesh';
@@ -236,7 +235,7 @@ export function computeRenderObjectCacheKey(
 
     // Index format
     if (geometry.index) {
-        const fmt = getIndexFormat(geometry.index.array);
+        const fmt = geometry.index.indexFormat;
         if (fmt) parts.push(fmt);
     }
 

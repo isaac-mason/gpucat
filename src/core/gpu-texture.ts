@@ -56,6 +56,15 @@ export type BaseOptions = {
      * by hand. Unlabelled textures fall back to `t0`, `t1`, … in source order.
      */
     label?: string;
+
+    /**
+     * False for a texture with no CPU copy: it is allocated zeroed at its size and filled only through
+     * `writeTexture`, which copies at call time, so the caller's data can be dropped or transferred straight
+     * after. It takes no `source`, `sources`, `faces` or `mipmaps`, never generates mips (write each level
+     * yourself), and `needsUpdate` / `addUpdateRegion` throw. Defaults to true. The buffer counterpart is
+     * `GpuBuffer`'s `cpu: false` with `writeBuffer`.
+     */
+    cpu?: boolean;
 };
 
 export type Options2D = BaseOptions & {
@@ -188,6 +197,9 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
     /** Premultiply alpha on upload */
     premultiplyAlpha: boolean = false;
 
+    /** False when the texture has no CPU copy and is written only through `writeTexture`. */
+    readonly cpu: boolean;
+
     // ─────────────────────────────────────────────────────────────────────────
     // Dirty tracking (same pattern as GpuBuffer)
     // ─────────────────────────────────────────────────────────────────────────
@@ -197,6 +209,7 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
 
     /** Mark texture as needing a FULL re-upload. Takes priority over {@link updateRegions}. */
     set needsUpdate(_: true) {
+        this._assertCpu('needsUpdate');
         this.version++;
         this.needsFullUpload = true;
     }
@@ -226,6 +239,7 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
      * alike.
      */
     addUpdateRegion(region: TextureRegionInit): void {
+        this._assertCpu('addUpdateRegion()');
         const base = normalizeRegion(region, {
             width: this.width,
             height: this.height,
@@ -244,6 +258,12 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
             }
         }
         this.version++;
+    }
+
+    private _assertCpu(member: string): void {
+        if (!this.cpu) {
+            throw new Error(`[GpuTexture] ${member}: this texture is \`cpu: false\`; write it with writeTexture().`);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -318,6 +338,13 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
         // Handle source(s) based on texture type
         const opts = options as BaseOptions & { sources?: (Source | SourceData)[]; faces?: (Source | SourceData)[] };
 
+        this.cpu = opts.cpu ?? true;
+        if (!this.cpu && (opts.source || opts.sources || opts.faces || opts.mipmaps || opts.generateMipmaps)) {
+            throw new Error(
+                'GpuTexture: a `cpu: false` texture takes no source, sources, faces, mipmaps or generateMipmaps; fill it with writeTexture()',
+            );
+        }
+
         if (opts.mipmaps) {
             this.mipmaps = opts.mipmaps.map((s: Source | SourceData) => (s instanceof Source ? s : new Source(s)));
         }
@@ -364,6 +391,7 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
 
     /** Is all source data ready for upload? */
     get isComplete(): boolean {
+        if (!this.cpu) return true;
         if (this.source && !this.source.dataReady) return false;
         for (const s of this.sources) {
             if (!s.dataReady) return false;

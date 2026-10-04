@@ -47,6 +47,9 @@ export type BufferCache = {
     all: Set<WebGLBuffer>;
     bufferCount: number;
     rawCount: number;
+    /** `cpu: false` storage buffers written with no GL buffer: their bytes live only in their read texture, so a
+     *  GL buffer made for them later would be zeroes. */
+    textureOnly: WeakSet<GpuBuffer>;
     /** Where upload volume is tallied. Held by reference so the frame boundary that zeroes it stays
      *  in one place (the renderer) and every reader sees the same numbers; see `core/info.ts`. */
     info: RendererInfo;
@@ -58,7 +61,15 @@ export type BufferCacheStats = {
 };
 
 export function createBufferCache(info: RendererInfo): BufferCache {
-    return { bufferMap: new WeakMap(), rawMap: new WeakMap(), all: new Set(), bufferCount: 0, rawCount: 0, info };
+    return {
+        bufferMap: new WeakMap(),
+        rawMap: new WeakMap(),
+        all: new Set(),
+        bufferCount: 0,
+        rawCount: 0,
+        textureOnly: new WeakSet(),
+        info,
+    };
 }
 
 /**
@@ -144,6 +155,12 @@ export function ensureUploaded(
     if (plan === BufferUpload.Skip && entry) return entry.glBuffer;
 
     if (plan === BufferUpload.Allocate) {
+        if (!array && cache.textureOnly.has(buffer)) {
+            throw new Error(
+                `[webgl] buffer '${label}' is a \`cpu: false\` storage buffer already written into the texture its reads ` +
+                    'use, so a GL buffer for it now would hold none of that; on WebGL2 it can only be read through storage().',
+            );
+        }
         if (!entry) {
             const created = gl.createBuffer();
             if (!created) throw new Error('[webgl] gl.createBuffer returned null.');
@@ -182,8 +199,10 @@ export function ensureUploaded(
 }
 
 /**
- * `writeBuffer` into a `cpu: false` buffer's GL buffer, creating it zeroed first. Goes through
- * `COPY_WRITE_BUFFER`, which no VAO captures, and leaves it unbound.
+ * `writeBuffer` into a `cpu: false` buffer's GL buffer, creating it zeroed first. Writes go through
+ * `COPY_WRITE_BUFFER`, which no VAO captures, and leave it unbound. An index buffer is created through
+ * `ELEMENT_ARRAY_BUFFER` instead: a GL buffer's first binding fixes whether it can ever hold indices, and one
+ * first bound to a copy target never can. That binding is VAO state, so it is made with no VAO bound.
  */
 export function writeBufferBytes(
     gl: WebGL2RenderingContext,
@@ -195,7 +214,14 @@ export function writeBufferBytes(
     byteSize: number,
 ): void {
     const label = buffer.label ?? 'write-buffer';
-    const glBuffer = ensureUploaded(gl, cache, buffer, gl.COPY_WRITE_BUFFER, label);
+    let glBuffer = cache.bufferMap.get(buffer)?.glBuffer;
+    if (glBuffer === undefined && buffer.usage.has('index')) {
+        const vao = gl.getParameter(gl.VERTEX_ARRAY_BINDING) as WebGLVertexArrayObject | null;
+        gl.bindVertexArray(null);
+        glBuffer = ensureUploaded(gl, cache, buffer, gl.ELEMENT_ARRAY_BUFFER, label);
+        gl.bindVertexArray(vao);
+    }
+    glBuffer ??= ensureUploaded(gl, cache, buffer, gl.COPY_WRITE_BUFFER, label);
     gl.bindBuffer(gl.COPY_WRITE_BUFFER, glBuffer);
     const bytes = new Uint8Array(data.buffer, data.byteOffset + dataByteOffset, byteSize);
     gl.bufferSubData(gl.COPY_WRITE_BUFFER, byteOffset, bytes);

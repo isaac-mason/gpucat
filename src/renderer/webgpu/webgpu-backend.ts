@@ -1,5 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
+import type { TextureRegion } from '../../core/texture-region';
 import type { ComputeNode } from '../../nodes/nodes';
 import { yieldToMain } from '../../utils/yield-to-main';
 import type { CanvasTarget } from '../core/canvas-target';
@@ -243,6 +245,10 @@ export class WebGPUBackend implements DeviceBackend {
 
     writeBuffer(buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void {
         Buffers.writeBufferBytes(this.buffers, this.device, buffer, byteOffset, data, dataByteOffset, byteSize);
+    }
+
+    writeTexture(texture: GpuTexture, region: TextureRegion, data: ArrayBufferView): void {
+        Textures.writeTextureRegion(this.textures, this.device, texture, region, data);
     }
 
     /** Off the `DeviceBackend` contract on purpose: a neutral signature would widen this to `string`. */

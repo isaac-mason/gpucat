@@ -13,7 +13,6 @@
  * The list is rebuilt only when the frame's shape changes, so a steady frame touches no DOM.
  */
 
-import { getIndexFormat } from '../../core/gpu-buffer';
 import type { NodeBuilderState } from '../../renderer/core/node-builder-state';
 import type { RenderObject } from '../../renderer/core/render-object';
 import type { Inspector } from '../inspector';
@@ -331,9 +330,9 @@ function _buildPipelineTable(ro: RenderObject): HTMLDivElement {
     const geo = ro.geometry;
     rows.push(['drawRange.start', String(geo.drawRange.start)]);
     rows.push(['drawRange.count', String(geo.drawRange.count)]);
-    if (geo.index && geo.index.array) {
-        rows.push(['indexFormat', getIndexFormat(geo.index.array) ?? 'unknown']);
-        rows.push(['indexCount', String(geo.index.array.length)]);
+    if (geo.index) {
+        rows.push(['indexFormat', geo.index.indexFormat ?? 'unknown']);
+        rows.push(['indexCount', String(geo.index.count)]);
     }
     rows.push(['instanceCount', String(ro.mesh.count)]);
 

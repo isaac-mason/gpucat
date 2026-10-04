@@ -25,7 +25,6 @@ export type {
     TimelineEntry,
 } from './renderer-inspector';
 
-import { getIndexFormat } from '../core/gpu-buffer';
 import type { ComputeNode, InspectorNode } from '../nodes/nodes';
 import { type CanvasTarget, createCanvasTarget } from '../renderer/core/canvas-target';
 import type { RenderObject } from '../renderer/core/render-object';
@@ -836,8 +835,7 @@ export class Inspector extends RendererInspector {
                 if (!gpuBuffer) {
                     throw new Error(`[gpucat] VertexBufferGroup has no buffer`);
                 }
-                const arr = gpuBuffer.array;
-                if (arr) {
+                if (gpuBuffer.array || !gpuBuffer.cpu) {
                     const gpuBuf = Buffers.ensureUploaded(
                         bufferCache,
                         renderer.backend.device,
@@ -855,7 +853,7 @@ export class Inspector extends RendererInspector {
         // the compute pass this frame; getUploaded() does a non-uploading lookup.
         if (geometry.index) {
             const idxBuf = Buffers.ensureUploaded(bufferCache, renderer.backend.device, geometry.index, 'index');
-            pass.setIndexBuffer(idxBuf, getIndexFormat(geometry.index.array)!);
+            pass.setIndexBuffer(idxBuf, geometry.index.indexFormat!);
             if (geometry.indirect) {
                 const indBuf = Buffers.getUploaded(bufferCache, geometry.indirect);
                 if (indBuf) {
@@ -866,7 +864,7 @@ export class Inspector extends RendererInspector {
                 }
             } else {
                 pass.drawIndexed(
-                    Math.min(geometry.drawRange.count, geometry.index.array!.length),
+                    Math.min(geometry.drawRange.count, geometry.index.count),
                     ro.mesh.count,
                     geometry.drawRange.start,
                 );

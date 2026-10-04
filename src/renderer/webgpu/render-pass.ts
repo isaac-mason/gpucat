@@ -1,5 +1,4 @@
 import type { CubeRenderTarget } from '../../core/cube-render-target';
-import { getIndexFormat } from '../../core/gpu-buffer';
 import type { RenderTarget } from '../../core/render-target';
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { IndexedMeshDraw, NonIndexedMeshDraw } from '../../objects/mesh';
@@ -667,8 +666,7 @@ function encodeDrawRange(ctx: EncodeContext, from: number, to: number, { gpuPass
                 if (!gpuBuffer) {
                     throw new Error(`[gpucat] VertexBufferGroup has no buffer`);
                 }
-                const arr = gpuBuffer.array;
-                if (!arr) {
+                if (!gpuBuffer.array && gpuBuffer.cpu) {
                     throw new Error(`[gpucat] VertexBufferGroup buffer array is null`);
                 }
                 gpuBuf = Buffers.ensureUploaded(b.buffers, b.device, gpuBuffer, group.name ?? 'vertex');
@@ -683,7 +681,7 @@ function encodeDrawRange(ctx: EncodeContext, from: number, to: number, { gpuPass
         if (geometry.index) {
             const idxBuf = Buffers.ensureUploaded(b.buffers, b.device, geometry.index, 'index');
             if (currentSets.index !== idxBuf) {
-                passSetIndexBuffer(gpuPass, inspector, idxBuf, getIndexFormat(geometry.index.array)!);
+                passSetIndexBuffer(gpuPass, inspector, idxBuf, geometry.index.indexFormat!);
                 currentSets.index = idxBuf;
             }
             if (draws !== undefined) {

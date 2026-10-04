@@ -1,5 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
+import type { TextureRegion } from '../../core/texture-region';
 import type { ComputeNode } from '../../nodes/lib/core';
 import type { FrameBackend } from './frame';
 import type { MemoryInfo } from './info';
@@ -42,6 +44,10 @@ export interface DeviceBackend extends FrameBackend {
         dataByteOffset: number,
         byteSize: number,
     ): void;
+
+    /** Copy tightly packed `data` into one box of a `cpu: false` texture before returning. The region is already
+     *  checked against the level, and `data` against the region. */
+    /** @internal */ writeTexture(texture: GpuTexture, region: TextureRegion, data: ArrayBufferView): void;
 
     /**
      * Fill the shared counts and this API's own, at the renderer's frame boundary. Read live off the

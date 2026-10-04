@@ -231,8 +231,7 @@ export function renderProbe(
     const instances = mesh.count;
     const start = geometry.drawRange.start;
     if (geometry.index && drawInfo.indexType !== null) {
-        const indexArray = geometry.index.array!;
-        const count = Math.min(geometry.drawRange.count, indexArray.length);
+        const count = Math.min(geometry.drawRange.count, geometry.index.count);
         const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
         gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, start * bytesPerIndex, instances);
     } else {

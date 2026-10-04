@@ -1,5 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
+import type { TextureRegion } from '../../core/texture-region';
 import type { ComputeNode } from '../../nodes/lib/core';
 import { yieldToMain } from '../../utils/yield-to-main';
 import type { CanvasTarget } from '../core/canvas-target';
@@ -345,9 +347,9 @@ export class WebGLBackend implements DeviceBackend {
     }
 
     /**
-     * A storage buffer reads as a mirror texture here, and a vertex buffer as a GL buffer, so the write goes to
-     * each the buffer's usage gives it. A storage-only buffer some other path has given a GL buffer, transform
-     * feedback, gets that one written too.
+     * A storage buffer reads as a mirror texture here, and a vertex or index buffer as a GL buffer, so the write
+     * goes to each the buffer's usage gives it. A storage-only buffer that transform feedback has already given a
+     * GL buffer gets that one written too; one written before that only ever has the texture.
      */
     writeBuffer(buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void {
         const gl = this.gl!;
@@ -357,7 +359,13 @@ export class WebGLBackend implements DeviceBackend {
         const storageOnly = buffer.usage.size === 1 && buffer.usage.has('storage');
         if (!storageOnly || Buffers.getUploaded(this.buffers, buffer) !== undefined) {
             Buffers.writeBufferBytes(gl, this.buffers, buffer, byteOffset, data, dataByteOffset, byteSize);
+        } else {
+            this.buffers.textureOnly.add(buffer);
         }
+    }
+
+    writeTexture(texture: GpuTexture, region: TextureRegion, data: ArrayBufferView): void {
+        Textures.writeTextureRegion(this.gl!, this.textures, texture, region, data);
     }
 
     readPixels(renderTarget: RenderTarget, attachmentIndex = 0, layer = 0, mipLevel = 0): Promise<Uint8Array> {

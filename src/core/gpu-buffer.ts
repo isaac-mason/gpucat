@@ -141,10 +141,13 @@ export type GpuBufferOptions<T extends Any = Any> = {
      * False for a buffer with no CPU copy: the GPU buffer is allocated zeroed at `count` elements and
      * filled only through `writeBuffer`, which copies at call time, so the caller's data can be dropped
      * or transferred straight after. Its `array` is always null, and the CPU-side writes (`packAt*`,
-     * `addUpdateRange`, `needsUpdate`) throw. Index buffers cannot be CPU-less: their format is read off
-     * the array. Defaults to true.
+     * `addUpdateRange`, `needsUpdate`) throw. A CPU-less index buffer declares its `indexFormat`; uniform
+     * buffers cannot be CPU-less. Defaults to true. `cpu: false` textures and `writeTexture` are the
+     * texture counterpart.
      */
     cpu?: boolean;
+    /** An index buffer's format. Read off the array when there is one, and required for a `cpu: false` one. */
+    indexFormat?: IndexFormat;
 };
 
 function normalizeUsage(usage?: BufferUsage | BufferUsage[]): Set<BufferUsage> {
@@ -243,6 +246,9 @@ export class GpuBuffer<T extends Any = Any> {
     /** The GPUVertexFormat for vertex buffers (e.g., 'float32x3'). Derived or explicit. */
     readonly format: GPUVertexFormat | undefined;
 
+    /** An index buffer's format; undefined for any other buffer. */
+    readonly indexFormat: IndexFormat | undefined;
+
     /** Set to true after dispose() is called. */
     disposed: boolean = false;
 
@@ -265,16 +271,21 @@ export class GpuBuffer<T extends Any = Any> {
 
         this.cpu = options.cpu ?? true;
         const ArrayCtor = schemaArrayCtor(schema);
+        const isIndex = this.usage.has('index');
         if (!this.cpu) {
             if (options.data || options.count === undefined) {
                 throw new Error('GpuBuffer: a `cpu: false` buffer takes `count`, not `data`');
             }
-            if (this.usage.has('index')) {
-                throw new Error('GpuBuffer: an index buffer cannot be `cpu: false`, its format is read off the array');
+            if (this.usage.has('uniform')) {
+                throw new Error('GpuBuffer: a uniform buffer cannot be `cpu: false`; uniforms are packed from CPU values');
+            }
+            if (isIndex && options.indexFormat === undefined) {
+                throw new Error('GpuBuffer: a `cpu: false` index buffer needs its `indexFormat`, having no array to read it off');
             }
             this.array = null;
             this.count = options.count;
-            this.byteLength = options.count * this.itemSize * ArrayCtor.BYTES_PER_ELEMENT;
+            const bytesPerElement = isIndex ? (options.indexFormat === 'uint16' ? 2 : 4) : ArrayCtor.BYTES_PER_ELEMENT;
+            this.byteLength = options.count * this.itemSize * bytesPerElement;
         } else if (options.data) {
             this.array = options.data;
             this.count = options.data.length / this.itemSize;
@@ -297,10 +308,17 @@ export class GpuBuffer<T extends Any = Any> {
         }
 
         // Validate index buffer array type
-        if (this.usage.has('index') && this.array) {
+        if (isIndex && this.array) {
             if (!(this.array instanceof Uint16Array) && !(this.array instanceof Uint32Array)) {
                 throw new Error('GpuBuffer: index buffers must use Uint16Array or Uint32Array');
             }
+            const arrayFormat = getIndexFormat(this.array);
+            if (options.indexFormat !== undefined && options.indexFormat !== arrayFormat) {
+                throw new Error(`GpuBuffer: indexFormat '${options.indexFormat}' does not match the ${arrayFormat} array`);
+            }
+            this.indexFormat = arrayFormat;
+        } else {
+            this.indexFormat = isIndex ? options.indexFormat : undefined;
         }
     }
 

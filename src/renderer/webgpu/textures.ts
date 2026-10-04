@@ -246,7 +246,8 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
     // pass via textureStore. Create the real GPU texture (with STORAGE_BINDING usage) and
     // skip the source-upload path entirely; never fall back to the default texture.
     // A version bump (e.g. resize via needsUpdate) recreates the GPU texture at the new size.
-    if (isStorage) {
+    // A `cpu: false` texture is the same: no source, filled by writeTexture, created zeroed.
+    if (isStorage || !texture.cpu) {
         if (data && data.version === texture.version) {
             return data;
         }
@@ -359,6 +360,27 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
     data.initialized = true;
 
     return data;
+}
+
+/**
+ * `writeTexture` for WebGPU: a queue write of one box from tightly packed `data`, which copies before
+ * returning. The region is already validated against the level.
+ */
+export function writeTextureRegion(
+    cache: TextureCache,
+    device: GPUDevice,
+    texture: GpuTexture,
+    region: TextureRegion,
+    data: ArrayBufferView,
+): void {
+    const target = updateTexture(cache, device, texture);
+    const bytesPerRow = region.width * bytesPerTexel(texture.format);
+    device.queue.writeTexture(
+        { texture: target.texture, mipLevel: region.level, origin: { x: region.x, y: region.y, z: region.z } },
+        data.buffer as ArrayBuffer,
+        { offset: data.byteOffset, bytesPerRow, rowsPerImage: region.height },
+        [region.width, region.height, region.depth],
+    );
 }
 
 /** Check if a single source is ready */

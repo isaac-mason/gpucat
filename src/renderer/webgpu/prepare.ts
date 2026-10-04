@@ -70,8 +70,8 @@ export function uploadRenderObjectResources(
                 if (!gpuBuffer) {
                     throw new Error(`[gpucat] AttributeNode has no buffer for ${attrEntry.shaderName}`);
                 }
-                const arr = gpuBuffer.array;
-                if (arr) {
+                // a released array has nothing to upload; a `cpu: false` buffer still needs creating
+                if (gpuBuffer.array || !gpuBuffer.cpu) {
                     // node-owned attribute buffers are GpuBuffers too, so same gated path.
                     Buffers.ensureUploaded(b.buffers, b.device, gpuBuffer, attrEntry.shaderName);
                 }

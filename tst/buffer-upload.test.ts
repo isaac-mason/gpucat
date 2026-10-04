@@ -151,9 +151,16 @@ describe('cpu: false buffers', () => {
         expect(() => b.packAtIndex(d.u32, 0, 1)).toThrow(/writeBuffer/);
     });
 
-    test('take count, never data, and cannot be index buffers', () => {
+    test('take count, never data, and cannot be uniform buffers', () => {
         expect(() => new GpuBuffer(d.array(d.u32), { data: new Uint32Array(4), cpu: false })).toThrow(/count/);
-        expect(() => new GpuBuffer(d.u32, { count: 4, usage: 'index', cpu: false })).toThrow(/index/);
+        expect(() => new GpuBuffer(d.u32, { count: 4, usage: 'uniform', cpu: false })).toThrow(/uniform/);
+    });
+
+    test('are index buffers when they declare the format, sized by it', () => {
+        expect(() => new GpuBuffer(d.u32, { count: 4, usage: 'index', cpu: false })).toThrow(/indexFormat/);
+        const indices = new GpuBuffer(d.u32, { count: 6, usage: 'index', cpu: false, indexFormat: 'uint16' });
+        expect(indices.indexFormat).toBe('uint16');
+        expect(indices.byteLength).toBe(12);
     });
 
     test('still derive a vertex format', () => {
@@ -165,4 +172,12 @@ describe('cpu: false buffers', () => {
 test('a count-allocated array buffer holds its element type', () => {
     expect(new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage' }).array).toBeInstanceOf(Uint32Array);
     expect(new GpuBuffer(d.array(d.vec2i), { count: 4, usage: 'storage' }).array).toBeInstanceOf(Int32Array);
+});
+
+test('an index buffer reads its format off its array, and refuses a declared one that disagrees', () => {
+    // WGSL has no u16, so a 16-bit index array goes in under the u32 placeholder schema, as createIndexBuffer does
+    const shorts = new Uint16Array(3) as unknown as Uint32Array;
+    expect(new GpuBuffer(d.u32, { data: shorts, usage: 'index' }).indexFormat).toBe('uint16');
+    expect(() => new GpuBuffer(d.u32, { data: shorts, usage: 'index', indexFormat: 'uint32' })).toThrow(/does not match/);
+    expect(new GpuBuffer(d.u32, { data: new Uint32Array(3), usage: 'storage' }).indexFormat).toBeUndefined();
 });

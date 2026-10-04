@@ -36,7 +36,7 @@ import {
     tallySetTexture,
 } from '../core/info';
 import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
-import { gpuTextureBytes, mipLevelCountFor } from '../core/texture-size';
+import { bytesPerTexel, gpuTextureBytes, mipLevelCountFor } from '../core/texture-size';
 import { mergeUpdateRanges } from '../core/update-ranges';
 
 /** GL format triple for a color/depth texture: the sized internal format + upload format + type. */
@@ -1057,6 +1057,8 @@ export function updateTexture(gl: WebGL2RenderingContext, state: TextureCache, t
     if (texture.isRenderTargetTexture) {
         // Render-target color/depth: allocate storage only (no source). The FBO render fills it.
         allocateRenderTargetStorage(gl, texture, data);
+    } else if (!texture.cpu) {
+        allocateCpuLessStorage(gl, texture, data);
     } else if (dim === 'cube' || dim === 'cube-array') {
         uploadCube(gl, texture, data);
     } else if (dim === '2d-array') {
@@ -1119,6 +1121,46 @@ function allocateRenderTargetStorage(gl: WebGL2RenderingContext, texture: GpuTex
     }
     data.allocW = w;
     data.allocH = h;
+}
+
+/** Immutable storage for a `cpu: false` texture, every level, zeroed as WebGL allocates it; writeTexture fills it. */
+function allocateCpuLessStorage(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTextureData): void {
+    const levels = mipLevelCountFor(texture);
+    const { internalFormat } = data.fmt;
+    if (data.target === gl.TEXTURE_2D_ARRAY || data.target === gl.TEXTURE_3D) {
+        gl.texStorage3D(data.target, levels, internalFormat, texture.width, texture.height, texture.depthOrArrayLayers);
+    } else {
+        gl.texStorage2D(data.target, levels, internalFormat, texture.width, texture.height);
+    }
+}
+
+/**
+ * `writeTexture` for WebGL2: `texSubImage` of one box from tightly packed `data`, one call per cube face since a
+ * face is its own bind target. The region is already validated against the level.
+ */
+export function writeTextureRegion(
+    gl: WebGL2RenderingContext,
+    state: TextureCache,
+    texture: GpuTexture,
+    region: TextureRegion,
+    data: ArrayBufferView,
+): void {
+    const target = updateTexture(gl, state, texture);
+    const { format, type } = target.fmt;
+    const { x, y, z, width, height, depth, level } = region;
+    gl.bindTexture(target.target, target.texture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    if (target.target === gl.TEXTURE_2D_ARRAY || target.target === gl.TEXTURE_3D) {
+        gl.texSubImage3D(target.target, level, x, y, z, width, height, depth, format, type, data);
+    } else if (target.target === gl.TEXTURE_CUBE_MAP) {
+        const faceElements = (width * height * bytesPerTexel(texture.format)) / (data as Uint8Array).BYTES_PER_ELEMENT;
+        for (let face = 0; face < depth; face++) {
+            const faceTarget = gl.TEXTURE_CUBE_MAP_POSITIVE_X + z + face;
+            gl.texSubImage2D(faceTarget, level, x, y, width, height, format, type, data, face * faceElements);
+        }
+    } else {
+        gl.texSubImage2D(gl.TEXTURE_2D, level, x, y, width, height, format, type, data);
+    }
 }
 
 /**
