@@ -52,10 +52,13 @@ export type GpuBufferOptions<T extends Any = Any> = {
      * False for a buffer with no CPU copy: the GPU buffer is allocated zeroed at `count` elements and
      * filled only through `writeBuffer`, which copies at call time, so the caller's data can be dropped
      * or transferred straight after. Its `array` is always null, and the CPU-side writes (`packAt*`,
-     * `addUpdateRange`, `needsUpdate`) throw. Index buffers cannot be CPU-less: their format is read off
-     * the array. Defaults to true.
+     * `addUpdateRange`, `needsUpdate`) throw. A CPU-less index buffer declares its `indexFormat`; uniform
+     * buffers cannot be CPU-less. Defaults to true. `cpu: false` textures and `writeTexture` are the
+     * texture counterpart.
      */
     cpu?: boolean;
+    /** An index buffer's format. Read off the array when there is one, and required for a `cpu: false` one. */
+    indexFormat?: IndexFormat;
 };
 /**
  * Unified buffer class for vertex attributes, storage buffers, index buffers, etc.
@@ -110,6 +113,8 @@ export declare class GpuBuffer<T extends Any = Any> {
     onUpload: (() => void) | null;
     /** The GPUVertexFormat for vertex buffers (e.g., 'float32x3'). Derived or explicit. */
     readonly format: GPUVertexFormat | undefined;
+    /** An index buffer's format; undefined for any other buffer. */
+    readonly indexFormat: IndexFormat | undefined;
     /** Set to true after dispose() is called. */
     disposed: boolean;
     /** Renderer-set callback to destroy GPU resources when dispose() is called. */

@@ -763,6 +763,14 @@ export type BaseOptions = {
      * by hand. Unlabelled textures fall back to `t0`, `t1`, … in source order.
      */
     label?: string;
+    /**
+     * False for a texture with no CPU copy: it is allocated zeroed at its size and filled only through
+     * `writeTexture`, which copies at call time, so the caller's data can be dropped or transferred straight
+     * after. It takes no `source`, `sources`, `faces` or `mipmaps`, never generates mips (write each level
+     * yourself), and `needsUpdate` / `addUpdateRegion` throw. Defaults to true. The buffer counterpart is
+     * `GpuBuffer`'s `cpu: false` with `writeBuffer`.
+     */
+    cpu?: boolean;
 };
 ```
 
@@ -840,6 +848,8 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
     flipY: boolean;
     /** Premultiply alpha on upload */
     premultiplyAlpha: boolean;
+    /** False when the texture has no CPU copy and is written only through `writeTexture`. */
+    readonly cpu: boolean;
     /** Version number, incremented when needsUpdate is set */
     version: number;
     /** Mark texture as needing a FULL re-upload. Takes priority over {@link updateRegions}. */
@@ -5888,10 +5898,13 @@ export type GpuBufferOptions<T extends Any = Any> = {
      * False for a buffer with no CPU copy: the GPU buffer is allocated zeroed at `count` elements and
      * filled only through `writeBuffer`, which copies at call time, so the caller's data can be dropped
      * or transferred straight after. Its `array` is always null, and the CPU-side writes (`packAt*`,
-     * `addUpdateRange`, `needsUpdate`) throw. Index buffers cannot be CPU-less: their format is read off
-     * the array. Defaults to true.
+     * `addUpdateRange`, `needsUpdate`) throw. A CPU-less index buffer declares its `indexFormat`; uniform
+     * buffers cannot be CPU-less. Defaults to true. `cpu: false` textures and `writeTexture` are the
+     * texture counterpart.
      */
     cpu?: boolean;
+    /** An index buffer's format. Read off the array when there is one, and required for a `cpu: false` one. */
+    indexFormat?: IndexFormat;
 };
 ```
 
@@ -5949,6 +5962,8 @@ export class GpuBuffer<T extends Any = Any> {
     onUpload: (() => void) | null;
     /** The GPUVertexFormat for vertex buffers (e.g., 'float32x3'). Derived or explicit. */
     readonly format: GPUVertexFormat | undefined;
+    /** An index buffer's format; undefined for any other buffer. */
+    readonly indexFormat: IndexFormat | undefined;
     /** Set to true after dispose() is called. */
     disposed: boolean;
     constructor(schema: T, options?: GpuBufferOptions<T>);

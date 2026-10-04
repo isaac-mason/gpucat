@@ -30,6 +30,14 @@ export type BaseOptions = {
      * by hand. Unlabelled textures fall back to `t0`, `t1`, … in source order.
      */
     label?: string;
+    /**
+     * False for a texture with no CPU copy: it is allocated zeroed at its size and filled only through
+     * `writeTexture`, which copies at call time, so the caller's data can be dropped or transferred straight
+     * after. It takes no `source`, `sources`, `faces` or `mipmaps`, never generates mips (write each level
+     * yourself), and `needsUpdate` / `addUpdateRegion` throw. Defaults to true. The buffer counterpart is
+     * `GpuBuffer`'s `cpu: false` with `writeBuffer`.
+     */
+    cpu?: boolean;
 };
 export type Options2D = BaseOptions & {
     width: number;
@@ -114,6 +122,8 @@ export declare class GpuTexture<D extends d.Texture = d.Texture> {
     flipY: boolean;
     /** Premultiply alpha on upload */
     premultiplyAlpha: boolean;
+    /** False when the texture has no CPU copy and is written only through `writeTexture`. */
+    readonly cpu: boolean;
     /** Version number, incremented when needsUpdate is set */
     version: number;
     /** Mark texture as needing a FULL re-upload. Takes priority over {@link updateRegions}. */
@@ -141,6 +151,7 @@ export declare class GpuTexture<D extends d.Texture = d.Texture> {
      * alike.
      */
     addUpdateRegion(region: TextureRegionInit): void;
+    private _assertCpu;
     /**
      * Whether this texture is a render target (managed by RenderTarget system).
      * When true, the renderer skips source data upload - the GPU texture is

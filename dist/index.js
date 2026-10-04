@@ -4458,6 +4458,8 @@ class GpuTexture {
     flipY = false;
     /** Premultiply alpha on upload */
     premultiplyAlpha = false;
+    /** False when the texture has no CPU copy and is written only through `writeTexture`. */
+    cpu;
     // ─────────────────────────────────────────────────────────────────────────
     // Dirty tracking (same pattern as GpuBuffer)
     // ─────────────────────────────────────────────────────────────────────────
@@ -4465,6 +4467,7 @@ class GpuTexture {
     version = 0;
     /** Mark texture as needing a FULL re-upload. Takes priority over {@link updateRegions}. */
     set needsUpdate(_) {
+        this._assertCpu('needsUpdate');
         this.version++;
         this.needsFullUpload = true;
     }
@@ -4491,6 +4494,7 @@ class GpuTexture {
      * alike.
      */
     addUpdateRegion(region) {
+        this._assertCpu('addUpdateRegion()');
         const base = normalizeRegion(region, {
             width: this.width,
             height: this.height,
@@ -4508,6 +4512,11 @@ class GpuTexture {
             }
         }
         this.version++;
+    }
+    _assertCpu(member) {
+        if (!this.cpu) {
+            throw new Error(`[GpuTexture] ${member}: this texture is \`cpu: false\`; write it with writeTexture().`);
+        }
     }
     // ─────────────────────────────────────────────────────────────────────────
     // Render target flag
@@ -4566,6 +4575,10 @@ class GpuTexture {
         this.premultiplyAlpha = options.premultiplyAlpha ?? false;
         // Handle source(s) based on texture type
         const opts = options;
+        this.cpu = opts.cpu ?? true;
+        if (!this.cpu && (opts.source || opts.sources || opts.faces || opts.mipmaps || opts.generateMipmaps)) {
+            throw new Error('GpuTexture: a `cpu: false` texture takes no source, sources, faces, mipmaps or generateMipmaps; fill it with writeTexture()');
+        }
         if (opts.mipmaps) {
             this.mipmaps = opts.mipmaps.map((s) => (s instanceof Source ? s : new Source(s)));
         }
@@ -4602,6 +4615,8 @@ class GpuTexture {
     }
     /** Is all source data ready for upload? */
     get isComplete() {
+        if (!this.cpu)
+            return true;
         if (this.source && !this.source.dataReady)
             return false;
         for (const s of this.sources) {
@@ -6559,6 +6574,8 @@ class GpuBuffer {
     onUpload = null;
     /** The GPUVertexFormat for vertex buffers (e.g., 'float32x3'). Derived or explicit. */
     format;
+    /** An index buffer's format; undefined for any other buffer. */
+    indexFormat;
     /** Set to true after dispose() is called. */
     disposed = false;
     /** Renderer-set callback to destroy GPU resources when dispose() is called. */
@@ -6576,16 +6593,21 @@ class GpuBuffer {
         }
         this.cpu = options.cpu ?? true;
         const ArrayCtor = schemaArrayCtor(schema);
+        const isIndex = this.usage.has('index');
         if (!this.cpu) {
             if (options.data || options.count === undefined) {
                 throw new Error('GpuBuffer: a `cpu: false` buffer takes `count`, not `data`');
             }
-            if (this.usage.has('index')) {
-                throw new Error('GpuBuffer: an index buffer cannot be `cpu: false`, its format is read off the array');
+            if (this.usage.has('uniform')) {
+                throw new Error('GpuBuffer: a uniform buffer cannot be `cpu: false`; uniforms are packed from CPU values');
+            }
+            if (isIndex && options.indexFormat === undefined) {
+                throw new Error('GpuBuffer: a `cpu: false` index buffer needs its `indexFormat`, having no array to read it off');
             }
             this.array = null;
             this.count = options.count;
-            this.byteLength = options.count * this.itemSize * ArrayCtor.BYTES_PER_ELEMENT;
+            const bytesPerElement = isIndex ? (options.indexFormat === 'uint16' ? 2 : 4) : ArrayCtor.BYTES_PER_ELEMENT;
+            this.byteLength = options.count * this.itemSize * bytesPerElement;
         }
         else if (options.data) {
             this.array = options.data;
@@ -6610,10 +6632,18 @@ class GpuBuffer {
             this.format = undefined;
         }
         // Validate index buffer array type
-        if (this.usage.has('index') && this.array) {
+        if (isIndex && this.array) {
             if (!(this.array instanceof Uint16Array) && !(this.array instanceof Uint32Array)) {
                 throw new Error('GpuBuffer: index buffers must use Uint16Array or Uint32Array');
             }
+            const arrayFormat = getIndexFormat(this.array);
+            if (options.indexFormat !== undefined && options.indexFormat !== arrayFormat) {
+                throw new Error(`GpuBuffer: indexFormat '${options.indexFormat}' does not match the ${arrayFormat} array`);
+            }
+            this.indexFormat = arrayFormat;
+        }
+        else {
+            this.indexFormat = isIndex ? options.indexFormat : undefined;
         }
     }
     /** Mark buffer as needing re-upload */
@@ -9450,7 +9480,7 @@ function computeRenderObjectCacheKey(material, geometry, renderContext, maxTextu
     parts.push(bufferKeys.join(','));
     // Index format
     if (geometry.index) {
-        const fmt = getIndexFormat(geometry.index.array);
+        const fmt = geometry.index.indexFormat;
         if (fmt)
             parts.push(fmt);
     }
@@ -11014,7 +11044,8 @@ function updateTexture$1(cache, device, texture) {
     // pass via textureStore. Create the real GPU texture (with STORAGE_BINDING usage) and
     // skip the source-upload path entirely; never fall back to the default texture.
     // A version bump (e.g. resize via needsUpdate) recreates the GPU texture at the new size.
-    if (isStorage) {
+    // A `cpu: false` texture is the same: no source, filled by writeTexture, created zeroed.
+    if (isStorage || !texture.cpu) {
         if (data && data.version === texture.version) {
             return data;
         }
@@ -11120,6 +11151,15 @@ function updateTexture$1(cache, device, texture) {
     data.version = texture.version;
     data.initialized = true;
     return data;
+}
+/**
+ * `writeTexture` for WebGPU: a queue write of one box from tightly packed `data`, which copies before
+ * returning. The region is already validated against the level.
+ */
+function writeTextureRegion$1(cache, device, texture, region, data) {
+    const target = updateTexture$1(cache, device, texture);
+    const bytesPerRow = region.width * bytesPerTexel(texture.format);
+    device.queue.writeTexture({ texture: target.texture, mipLevel: region.level, origin: { x: region.x, y: region.y, z: region.z } }, data.buffer, { offset: data.byteOffset, bytesPerRow, rowsPerImage: region.height }, [region.width, region.height, region.depth]);
 }
 /** Check if a single source is ready */
 function isSourceReady(source) {
@@ -26412,9 +26452,9 @@ function _buildPipelineTable(ro) {
     const geo = ro.geometry;
     rows.push(['drawRange.start', String(geo.drawRange.start)]);
     rows.push(['drawRange.count', String(geo.drawRange.count)]);
-    if (geo.index && geo.index.array) {
-        rows.push(['indexFormat', getIndexFormat(geo.index.array) ?? 'unknown']);
-        rows.push(['indexCount', String(geo.index.array.length)]);
+    if (geo.index) {
+        rows.push(['indexFormat', geo.index.indexFormat ?? 'unknown']);
+        rows.push(['indexCount', String(geo.index.count)]);
     }
     rows.push(['instanceCount', String(ro.mesh.count)]);
     for (const [k, v] of rows) {
@@ -29237,9 +29277,9 @@ class SceneHierarchy extends Tab {
         table.appendChild(makeKVRow('drawRange.start', String(geo.drawRange.start)));
         table.appendChild(makeKVRow('drawRange.count', String(geo.drawRange.count)));
         // Index info
-        if (geo.index && geo.index.array) {
-            table.appendChild(makeKVRow('indices', String(geo.index.array.length)));
-            table.appendChild(makeKVRow('index format', getIndexFormat(geo.index.array) ?? 'unknown'));
+        if (geo.index) {
+            table.appendChild(makeKVRow('indices', String(geo.index.count)));
+            table.appendChild(makeKVRow('index format', geo.index.indexFormat ?? 'unknown'));
         }
         else {
             table.appendChild(makeKVRow('indices', 'none'));
@@ -34278,8 +34318,7 @@ class Inspector extends RendererInspector {
                 if (!gpuBuffer) {
                     throw new Error(`[gpucat] VertexBufferGroup has no buffer`);
                 }
-                const arr = gpuBuffer.array;
-                if (arr) {
+                if (gpuBuffer.array || !gpuBuffer.cpu) {
                     const gpuBuf = ensureUploaded$1(bufferCache, renderer.backend.device, gpuBuffer, group.name ?? 'vertex');
                     pass.setVertexBuffer(slot, gpuBuf);
                 }
@@ -34291,7 +34330,7 @@ class Inspector extends RendererInspector {
         // the compute pass this frame; getUploaded() does a non-uploading lookup.
         if (geometry.index) {
             const idxBuf = ensureUploaded$1(bufferCache, renderer.backend.device, geometry.index, 'index');
-            pass.setIndexBuffer(idxBuf, getIndexFormat(geometry.index.array));
+            pass.setIndexBuffer(idxBuf, geometry.index.indexFormat);
             if (geometry.indirect) {
                 const indBuf = getUploaded$1(bufferCache, geometry.indirect);
                 if (indBuf) {
@@ -34302,7 +34341,7 @@ class Inspector extends RendererInspector {
                 }
             }
             else {
-                pass.drawIndexed(Math.min(geometry.drawRange.count, geometry.index.array.length), ro.mesh.count, geometry.drawRange.start);
+                pass.drawIndexed(Math.min(geometry.drawRange.count, geometry.index.count), ro.mesh.count, geometry.drawRange.start);
             }
         }
         else {
@@ -35542,6 +35581,63 @@ function writeBuffer(renderer, buffer, byteOffset, data, dataOffset = 0, size = 
     renderer.backend.writeBuffer(buffer, byteOffset, data, dataOffset * data.BYTES_PER_ELEMENT, byteSize);
 }
 
+/**
+ * Writes `data` into one box of a `cpu: false` texture, copying it before returning, so the caller may reuse,
+ * transfer or drop it straight away. `data` holds exactly the box, tightly packed: rows of `width` texels, then
+ * `height` rows per layer. Omitted region fields default to the whole level at its origin; `z` addresses array
+ * layers, cube faces and 3D slices alike, as in `addUpdateRegion`. A box outside the level throws rather than
+ * being clamped, since the data would no longer line up with it.
+ *
+ * The texture's GPU storage is created zeroed by the first write or binding. Like any upload, a write made while a
+ * frame is being recorded is seen by that whole frame on WebGPU, and by the work recorded after it on WebGL.
+ */
+function writeTexture(renderer, texture, data, region = {}) {
+    renderer._assertInitialized('writeTexture');
+    const what = `[writeTexture] texture '${texture.label ?? 'unlabelled'}'`;
+    if (texture.cpu) {
+        throw new Error(`${what} keeps a CPU source; update the source and queue a region instead, or make it \`cpu: false\`.`);
+    }
+    if (texture.disposed)
+        throw new Error(`${what} is disposed.`);
+    const level = region.level ?? 0;
+    if (level < 0 || level >= texture.mipLevelCount) {
+        throw new Error(`${what}: level ${level} is outside its ${texture.mipLevelCount} mip levels.`);
+    }
+    const levelWidth = Math.max(1, texture.width >> level);
+    const levelHeight = Math.max(1, texture.height >> level);
+    // slices shrink down a 3D chain; array layers and cube faces do not
+    const levelDepth = texture.dimension === '3d' ? Math.max(1, texture.depthOrArrayLayers >> level) : texture.depthOrArrayLayers;
+    const x = region.x ?? 0;
+    const y = region.y ?? 0;
+    const z = region.z ?? 0;
+    const box = {
+        x,
+        y,
+        z,
+        width: region.width ?? levelWidth - x,
+        height: region.height ?? levelHeight - y,
+        depth: region.depth ?? levelDepth - z,
+        level,
+    };
+    if (x < 0 ||
+        y < 0 ||
+        z < 0 ||
+        box.width <= 0 ||
+        box.height <= 0 ||
+        box.depth <= 0 ||
+        x + box.width > levelWidth ||
+        y + box.height > levelHeight ||
+        z + box.depth > levelDepth) {
+        throw new Error(`${what}: box at (${x}, ${y}, ${z}) of ${box.width}x${box.height}x${box.depth} is not inside level ${level}, ` +
+            `${levelWidth}x${levelHeight}x${levelDepth}.`);
+    }
+    const byteSize = box.width * box.height * box.depth * bytesPerTexel(texture.format);
+    if (data.byteLength !== byteSize) {
+        throw new Error(`${what}: the box takes ${byteSize} bytes of ${texture.format}, but the data is ${data.byteLength}.`);
+    }
+    renderer.backend.writeTexture(texture, box, data);
+}
+
 function yieldToMain() {
     // modern browsers: scheduler.yield() is the most efficient way to yield
     if (typeof scheduler !== 'undefined' && typeof scheduler.yield === 'function') {
@@ -35573,7 +35669,15 @@ function yieldToMain() {
  * so callers must upload with VAO 0 bound (see `prepareGeometry`).
  */
 function createBufferCache(info) {
-    return { bufferMap: new WeakMap(), rawMap: new WeakMap(), all: new Set(), bufferCount: 0, rawCount: 0, info };
+    return {
+        bufferMap: new WeakMap(),
+        rawMap: new WeakMap(),
+        all: new Set(),
+        bufferCount: 0,
+        rawCount: 0,
+        textureOnly: new WeakSet(),
+        info,
+    };
 }
 /**
  * GL usage hint from the buffer's declared usage, the analogue of WebGPU's `deriveGPUUsage`.
@@ -35645,6 +35749,10 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
     if (plan === BufferUpload.Skip && entry)
         return entry.glBuffer;
     if (plan === BufferUpload.Allocate) {
+        if (!array && cache.textureOnly.has(buffer)) {
+            throw new Error(`[webgl] buffer '${label}' is a \`cpu: false\` storage buffer already written into the texture its reads ` +
+                'use, so a GL buffer for it now would hold none of that; on WebGL2 it can only be read through storage().');
+        }
         if (!entry) {
             const created = gl.createBuffer();
             if (!created)
@@ -35685,12 +35793,21 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
     return entry.glBuffer;
 }
 /**
- * `writeBuffer` into a `cpu: false` buffer's GL buffer, creating it zeroed first. Goes through
- * `COPY_WRITE_BUFFER`, which no VAO captures, and leaves it unbound.
+ * `writeBuffer` into a `cpu: false` buffer's GL buffer, creating it zeroed first. Writes go through
+ * `COPY_WRITE_BUFFER`, which no VAO captures, and leave it unbound. An index buffer is created through
+ * `ELEMENT_ARRAY_BUFFER` instead: a GL buffer's first binding fixes whether it can ever hold indices, and one
+ * first bound to a copy target never can. That binding is VAO state, so it is made with no VAO bound.
  */
 function writeBufferBytes(gl, cache, buffer, byteOffset, data, dataByteOffset, byteSize) {
     const label = buffer.label ?? 'write-buffer';
-    const glBuffer = ensureUploaded(gl, cache, buffer, gl.COPY_WRITE_BUFFER, label);
+    let glBuffer = cache.bufferMap.get(buffer)?.glBuffer;
+    if (glBuffer === undefined && buffer.usage.has('index')) {
+        const vao = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
+        gl.bindVertexArray(null);
+        glBuffer = ensureUploaded(gl, cache, buffer, gl.ELEMENT_ARRAY_BUFFER, label);
+        gl.bindVertexArray(vao);
+    }
+    glBuffer ??= ensureUploaded(gl, cache, buffer, gl.COPY_WRITE_BUFFER, label);
     gl.bindBuffer(gl.COPY_WRITE_BUFFER, glBuffer);
     const bytes = new Uint8Array(data.buffer, data.byteOffset + dataByteOffset, byteSize);
     gl.bufferSubData(gl.COPY_WRITE_BUFFER, byteOffset, bytes);
@@ -36226,7 +36343,7 @@ function prepareRenderObject$1(gl, b, nodes, renderObject, glslOptions) {
 function resolveIndexedDrawRange(geometry, override) {
     const range = override ?? geometry.drawRange;
     const first = range.start;
-    const total = geometry.index?.array?.length ?? 0;
+    const total = geometry.index?.count ?? 0;
     const remaining = Math.max(0, total - first);
     return { first, count: Math.min(range.count, remaining) };
 }
@@ -36289,21 +36406,13 @@ function getGeometryBuffers(gl, state, geometry) {
     }
     return gb;
 }
-/**
- * GL index element type for an index typed array. WebGL2 accepts UNSIGNED_BYTE / UNSIGNED_SHORT /
- * UNSIGNED_INT indices; the type must match the array's element width or the draw reads garbage (a
- * Uint8Array read as UNSIGNED_INT walks 4 bytes per index). Any other array type throws.
- */
-function glIndexType(gl, array) {
-    if (array instanceof Uint8Array)
-        return gl.UNSIGNED_BYTE;
-    if (array instanceof Uint16Array)
+/** GL index element type for an index buffer's format; the draw reads garbage if the two disagree. */
+function glIndexType(gl, index) {
+    if (index.indexFormat === 'uint16')
         return gl.UNSIGNED_SHORT;
-    if (array instanceof Uint32Array)
+    if (index.indexFormat === 'uint32')
         return gl.UNSIGNED_INT;
-    const ctorName = array?.constructor?.name ?? typeof array;
-    throw new Error(`[webgl] index buffer array type '${ctorName}' is not supported on the WebGL2 backend ` +
-        `(expected Uint8Array, Uint16Array, or Uint32Array).`);
+    throw new Error(`[webgl] index buffer '${index.label ?? 'unlabelled'}' has no index format.`);
 }
 /** Derive the GL attribute format from the compiled WGSL type string (e.g. 'vec3f', 'mat4x4f'). */
 function attribFormat(type) {
@@ -36380,7 +36489,7 @@ function prepareGeometry(gl, b, geometry, nodeState, program, label = 'geometry'
     let indexType = null;
     if (geometry.index) {
         ensureUploaded(gl, b.buffers, geometry.index, gl.ELEMENT_ARRAY_BUFFER, 'index');
-        indexType = glIndexType(gl, geometry.index.array);
+        indexType = glIndexType(gl, geometry.index);
     }
     if (gb.bindingsVersion !== geometry.bindingsVersion) {
         for (const stale of gb.vaos.values())
@@ -37314,6 +37423,9 @@ function updateTexture(gl, state, texture) {
         // Render-target color/depth: allocate storage only (no source). The FBO render fills it.
         allocateRenderTargetStorage(gl, texture, data);
     }
+    else if (!texture.cpu) {
+        allocateCpuLessStorage(gl, texture, data);
+    }
     else if (dim === 'cube' || dim === 'cube-array') {
         uploadCube(gl, texture, data);
     }
@@ -37377,6 +37489,41 @@ function allocateRenderTargetStorage(gl, texture, data) {
     }
     data.allocW = w;
     data.allocH = h;
+}
+/** Immutable storage for a `cpu: false` texture, every level, zeroed as WebGL allocates it; writeTexture fills it. */
+function allocateCpuLessStorage(gl, texture, data) {
+    const levels = mipLevelCountFor(texture);
+    const { internalFormat } = data.fmt;
+    if (data.target === gl.TEXTURE_2D_ARRAY || data.target === gl.TEXTURE_3D) {
+        gl.texStorage3D(data.target, levels, internalFormat, texture.width, texture.height, texture.depthOrArrayLayers);
+    }
+    else {
+        gl.texStorage2D(data.target, levels, internalFormat, texture.width, texture.height);
+    }
+}
+/**
+ * `writeTexture` for WebGL2: `texSubImage` of one box from tightly packed `data`, one call per cube face since a
+ * face is its own bind target. The region is already validated against the level.
+ */
+function writeTextureRegion(gl, state, texture, region, data) {
+    const target = updateTexture(gl, state, texture);
+    const { format, type } = target.fmt;
+    const { x, y, z, width, height, depth, level } = region;
+    gl.bindTexture(target.target, target.texture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    if (target.target === gl.TEXTURE_2D_ARRAY || target.target === gl.TEXTURE_3D) {
+        gl.texSubImage3D(target.target, level, x, y, z, width, height, depth, format, type, data);
+    }
+    else if (target.target === gl.TEXTURE_CUBE_MAP) {
+        const faceElements = (width * height * bytesPerTexel(texture.format)) / data.BYTES_PER_ELEMENT;
+        for (let face = 0; face < depth; face++) {
+            const faceTarget = gl.TEXTURE_CUBE_MAP_POSITIVE_X + z + face;
+            gl.texSubImage2D(faceTarget, level, x, y, width, height, format, type, data, face * faceElements);
+        }
+    }
+    else {
+        gl.texSubImage2D(gl.TEXTURE_2D, level, x, y, width, height, format, type, data);
+    }
 }
 /**
  * Generate mipmaps for an already-allocated render-target color texture once the render pass that
@@ -39719,8 +39866,7 @@ function renderProbe(gl, state, caches, frame, ro, patchedFragment) {
     const instances = mesh.count;
     const start = geometry.drawRange.start;
     if (geometry.index && drawInfo.indexType !== null) {
-        const indexArray = geometry.index.array;
-        const count = Math.min(geometry.drawRange.count, indexArray.length);
+        const count = Math.min(geometry.drawRange.count, geometry.index.count);
         const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
         gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, start * bytesPerIndex, instances);
     }
@@ -40085,9 +40231,9 @@ class WebGLBackend {
         return clientWaitAsync(gl, sync, 'frame.done').finally(() => gl.deleteSync(sync));
     }
     /**
-     * A storage buffer reads as a mirror texture here, and a vertex buffer as a GL buffer, so the write goes to
-     * each the buffer's usage gives it. A storage-only buffer some other path has given a GL buffer, transform
-     * feedback, gets that one written too.
+     * A storage buffer reads as a mirror texture here, and a vertex or index buffer as a GL buffer, so the write
+     * goes to each the buffer's usage gives it. A storage-only buffer that transform feedback has already given a
+     * GL buffer gets that one written too; one written before that only ever has the texture.
      */
     writeBuffer(buffer, byteOffset, data, dataByteOffset, byteSize) {
         const gl = this.gl;
@@ -40098,6 +40244,12 @@ class WebGLBackend {
         if (!storageOnly || getUploaded(this.buffers, buffer) !== undefined) {
             writeBufferBytes(gl, this.buffers, buffer, byteOffset, data, dataByteOffset, byteSize);
         }
+        else {
+            this.buffers.textureOnly.add(buffer);
+        }
+    }
+    writeTexture(texture, region, data) {
+        writeTextureRegion(this.gl, this.textures, texture, region, data);
     }
     readPixels(renderTarget, attachmentIndex = 0, layer = 0, mipLevel = 0) {
         return readPixels$1(this.gl, this, renderTarget, attachmentIndex, layer, mipLevel);
@@ -40659,8 +40811,8 @@ function uploadRenderObjectResources(b, renderObject, geometry, frame) {
                 if (!gpuBuffer) {
                     throw new Error(`[gpucat] AttributeNode has no buffer for ${attrEntry.shaderName}`);
                 }
-                const arr = gpuBuffer.array;
-                if (arr) {
+                // a released array has nothing to upload; a `cpu: false` buffer still needs creating
+                if (gpuBuffer.array || !gpuBuffer.cpu) {
                     // node-owned attribute buffers are GpuBuffers too, so same gated path.
                     ensureUploaded$1(b.buffers, b.device, gpuBuffer, attrEntry.shaderName);
                 }
@@ -41145,8 +41297,7 @@ function encodeDrawRange(ctx, from, to, { gpuPass, currentSets }) {
                 if (!gpuBuffer) {
                     throw new Error(`[gpucat] VertexBufferGroup has no buffer`);
                 }
-                const arr = gpuBuffer.array;
-                if (!arr) {
+                if (!gpuBuffer.array && gpuBuffer.cpu) {
                     throw new Error(`[gpucat] VertexBufferGroup buffer array is null`);
                 }
                 gpuBuf = ensureUploaded$1(b.buffers, b.device, gpuBuffer, group.name ?? 'vertex');
@@ -41160,7 +41311,7 @@ function encodeDrawRange(ctx, from, to, { gpuPass, currentSets }) {
         if (geometry.index) {
             const idxBuf = ensureUploaded$1(b.buffers, b.device, geometry.index, 'index');
             if (currentSets.index !== idxBuf) {
-                passSetIndexBuffer(gpuPass, inspector, idxBuf, getIndexFormat(geometry.index.array));
+                passSetIndexBuffer(gpuPass, inspector, idxBuf, geometry.index.indexFormat);
                 currentSets.index = idxBuf;
             }
             if (draws !== undefined) {
@@ -41878,6 +42029,9 @@ class WebGPUBackend {
     }
     writeBuffer(buffer, byteOffset, data, dataByteOffset, byteSize) {
         writeBufferBytes$1(this.buffers, this.device, buffer, byteOffset, data, dataByteOffset, byteSize);
+    }
+    writeTexture(texture, region, data) {
+        writeTextureRegion$1(this.textures, this.device, texture, region, data);
     }
     /** Off the `DeviceBackend` contract on purpose: a neutral signature would widen this to `string`. */
     awaitCompletion() {
@@ -42744,5 +42898,5 @@ function createData3DTexture(data = null, width = 1, height = 1, depth = 1, opti
     return new Data3DTexture(data, width, height, depth, options);
 }
 
-export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, Scene, Source, TOUCH, Texture, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId, writeBuffer };
+export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, Scene, Source, TOUCH, Texture, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId, writeBuffer, writeTexture };
 //# sourceMappingURL=index.js.map

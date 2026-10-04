@@ -13,6 +13,7 @@
  * 5. Updates version tracking (textureData.version = texture.version)
  */
 import type { GpuTexture } from '../../core/gpu-texture';
+import type { TextureRegion } from '../../core/texture-region';
 import { type TextureTally, type TextureTallyEntry } from '../core/info';
 import { type MipmapState } from './mipmap-utils';
 /** Data stored per Texture in the cache */
@@ -72,6 +73,11 @@ export declare function generateTextureMipmaps(cache: TextureCache, device: GPUD
  * Returns the TextureData for the texture.
  */
 export declare function updateTexture(cache: TextureCache, device: GPUDevice, texture: GpuTexture): TextureData;
+/**
+ * `writeTexture` for WebGPU: a queue write of one box from tightly packed `data`, which copies before
+ * returning. The region is already validated against the level.
+ */
+export declare function writeTextureRegion(cache: TextureCache, device: GPUDevice, texture: GpuTexture, region: TextureRegion, data: ArrayBufferView): void;
 /**
  * Tear down the cache (called on renderer dispose).
  *

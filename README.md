@@ -925,7 +925,13 @@ writeBuffer(renderer, arena, byteOffset, meshWords);           // all of it
 writeBuffer(renderer, arena, byteOffset, meshWords, 16, 64);   // 64 elements of it, from element 16
 ```
 
-The GPU buffer starts zeroed. Offsets and sizes are bytes into the buffer and elements of the data, as with `GPUQueue.writeBuffer`, and both byte offset and byte size must be multiples of 4. Such a buffer has no `array`, so the CPU-side writes (`needsUpdate`, `addUpdateRange`, `packAtIndex`) throw, as does `writeBuffer` on a buffer that keeps one. On WebGL2 the write goes straight into the texture a read lowers to, which needs it to cover whole texels of the element: any 4-byte span for `u32`, but 16-byte ones for `vec4u`.
+The GPU buffer starts zeroed. Offsets and sizes are bytes into the buffer and elements of the data, as with `GPUQueue.writeBuffer`, and both byte offset and byte size must be multiples of 4. Such a buffer has no `array`, so the CPU-side writes (`needsUpdate`, `addUpdateRange`, `packAtIndex`) throw, as does `writeBuffer` on a buffer that keeps one.
+
+It works for storage, vertex, indirect and index buffers. An index buffer has no array to read its format off, so it declares one: `{ usage: 'index', cpu: false, indexFormat: 'uint16' }`. Uniform buffers cannot be CPU-less, since uniforms are packed from CPU values.
+
+On WebGL2 a storage buffer's write goes straight into the texture its reads lower to, which needs the write to cover whole texels of the element: any 4-byte span for `u32`, but 16-byte ones for `vec4u`. That texture is all there is of it, so a CPU-less storage buffer cannot then be fed to transform feedback.
+
+Textures have the same option, written with `writeTexture`; see [Textures with no CPU copy](#textures-with-no-cpu-copy).
 
 ### Reads run on WebGL2 (as a texture)
 
@@ -1370,6 +1376,23 @@ What the renderer guarantees:
 - **`needsUpdate` wins.** A full re-upload supersedes anything queued.
 - **Past half the texture, it stops bothering** and does one full upload instead, because fewer larger
   calls beat many small ones at that point.
+
+### Textures with no CPU copy
+
+A texture filled piece by piece from data you already hold need not keep a source the size of the whole
+texture. Make it `cpu: false` and write boxes into it with `writeTexture`, which copies at call time:
+
+```ts
+const tiles = new GpuTexture(d.texture2dArray(), { width: 256, height: 256, layers: 64, cpu: false });
+
+writeTexture(renderer, tiles, tilePixels, { z: 12, depth: 1 });                    // one whole layer
+writeTexture(renderer, tiles, patch, { x: 32, y: 32, width: 16, height: 16, z: 3 }); // a box of another
+```
+
+The texture starts zeroed. `data` holds exactly the box, tightly packed, and the region reads like
+`addUpdateRegion`'s: omitted fields cover the rest of the level, and `z` is the layer, cube face or 3D
+slice. A box outside the level throws rather than being clamped. A CPU-less texture takes no `source`
+and generates no mips (write each `level` yourself), and `needsUpdate` / `addUpdateRegion` throw on it.
 - **Mip chains stay correct.** A generated chain is regenerated after the write; an explicit one has the
   matching box of every level queued for you, so a partial write cannot leave a level stale.
 

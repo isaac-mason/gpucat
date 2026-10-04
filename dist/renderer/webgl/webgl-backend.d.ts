@@ -1,5 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
+import type { TextureRegion } from '../../core/texture-region';
 import type { ComputeNode } from '../../nodes/lib/core';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DeviceBackend } from '../core/device-backend';
@@ -156,11 +158,12 @@ export declare class WebGLBackend implements DeviceBackend {
      */
     awaitCompletion(): Promise<void>;
     /**
-     * A storage buffer reads as a mirror texture here, and a vertex buffer as a GL buffer, so the write goes to
-     * each the buffer's usage gives it. A storage-only buffer some other path has given a GL buffer, transform
-     * feedback, gets that one written too.
+     * A storage buffer reads as a mirror texture here, and a vertex or index buffer as a GL buffer, so the write
+     * goes to each the buffer's usage gives it. A storage-only buffer that transform feedback has already given a
+     * GL buffer gets that one written too; one written before that only ever has the texture.
      */
     writeBuffer(buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void;
+    writeTexture(texture: GpuTexture, region: TextureRegion, data: ArrayBufferView): void;
     readPixels(renderTarget: RenderTarget, attachmentIndex?: number, layer?: number, mipLevel?: number): Promise<Uint8Array>;
     /**
      * Deliberately does not call `WEBGL_lose_context.loseContext()`: a context is per-canvas, so forcing

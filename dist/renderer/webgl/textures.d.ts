@@ -22,6 +22,7 @@
  */
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
+import type { TextureRegion } from '../../core/texture-region';
 import { type ResolvedStorageBufferTexture } from '../../nodes/lib/texture';
 import { type TextureTally, type TextureTallyEntry } from '../core/info';
 /** GL format triple for a color/depth texture: the sized internal format + upload format + type. */
@@ -131,6 +132,11 @@ export declare function getTextureData(state: TextureCache, texture: GpuTexture)
  * allocates them (via `texImage2D`/`texStorage` with a null/absent source), never uploads.
  */
 export declare function updateTexture(gl: WebGL2RenderingContext, state: TextureCache, texture: GpuTexture): GlTextureData;
+/**
+ * `writeTexture` for WebGL2: `texSubImage` of one box from tightly packed `data`, one call per cube face since a
+ * face is its own bind target. The region is already validated against the level.
+ */
+export declare function writeTextureRegion(gl: WebGL2RenderingContext, state: TextureCache, texture: GpuTexture, region: TextureRegion, data: ArrayBufferView): void;
 /**
  * Generate mipmaps for an already-allocated render-target color texture once the render pass that
  * writes it has finished. Binds the texture at its view-dimension target (2D, cube, or 2D-array — the
