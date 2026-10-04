@@ -35,6 +35,7 @@ export const CASE_NAMES = [
     'compute',
     'wgsl-operand-grammar',
     'signed-shift',
+    'write-buffer',
     'compute-uniform-per-dispatch',
     'compute-uniform-within-pass',
     'compute-texture-load',

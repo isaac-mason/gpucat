@@ -163,6 +163,27 @@ export function storageMirrorBytesPerTexel(element: Any): number {
     );
 }
 
+/**
+ * The texel grid a storage mirror of `byteLength` bytes takes: rows `min(texels, maxTextureSize)` wide, the
+ * last one padded. Throws for a length that is not a non-zero whole number of texels.
+ */
+export function storageMirrorGrid(
+    byteLength: number,
+    bytesPerTexel: number,
+    maxTextureSize: number,
+    what: string,
+): { width: number; height: number } {
+    if (byteLength === 0 || byteLength % bytesPerTexel !== 0) {
+        throw new Error(
+            `${what}: buffer byte length ${byteLength} must be a non-zero multiple of ${bytesPerTexel} ` +
+                `(whole texels) to reinterpret as a WebGL texture`,
+        );
+    }
+    const totalTexels = byteLength / bytesPerTexel;
+    const width = Math.min(totalTexels, maxTextureSize);
+    return { width, height: Math.ceil(totalTexels / width) };
+}
+
 export class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D> {
     readonly kind = NodeKind.TextureBinding;
     /** The GpuTexture */

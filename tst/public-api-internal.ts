@@ -106,6 +106,7 @@ export const DELIBERATELY_INTERNAL: ReadonlySet<string> = new Set([
     './nodes/nodes#pushStack',
     './nodes/nodes#renderGroup',
     './nodes/nodes#storageMirrorBytesPerTexel',
+    './nodes/nodes#storageMirrorGrid',
     './nodes/nodes#storageRowWidth',
     './nodes/nodes#toF16',
     './nodes/nodes#toF32',

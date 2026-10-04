@@ -12,10 +12,11 @@ import type { GpuBuffer } from '../../core/gpu-buffer';
 import { mergeUpdateRanges } from './update-ranges';
 
 /** What a backend should do to bring one buffer up to date. */
-export const enum BufferUpload {
+export enum BufferUpload {
     /** already current; no GPU work. */
     Skip = 0,
-    /** no GPU buffer yet, or the data outgrew it: (re)allocate, then write the whole array. */
+    /** no GPU buffer yet, or the data outgrew it: (re)allocate, then write the whole array. A `cpu: false`
+     *  buffer has no array, so it is allocated zeroed at its `byteLength`. */
     Allocate = 1,
     /** write only the pending `buffer.updateRanges`, which `planBufferUpload` has already merged. */
     Partial = 2,
@@ -38,6 +39,7 @@ export const enum BufferUpload {
  * false. Merging mutates `buffer.updateRanges` in place, keeping the hot path allocation-free.
  */
 export function planBufferUpload(buffer: GpuBuffer, exists: boolean, capacityBytes: number, lastVersion: number): BufferUpload {
+    if (!buffer.cpu) return exists ? BufferUpload.Skip : BufferUpload.Allocate;
     const array = buffer.array;
     // CPU data was released after upload: whatever is on the GPU is all there is.
     if (array === null || array === undefined) return BufferUpload.Skip;

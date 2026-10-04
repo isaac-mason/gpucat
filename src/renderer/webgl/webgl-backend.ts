@@ -344,6 +344,22 @@ export class WebGLBackend implements DeviceBackend {
         return TransformFeedback.clientWaitAsync(gl, sync, 'frame.done').finally(() => gl.deleteSync(sync));
     }
 
+    /**
+     * A storage buffer reads as a mirror texture here, and a vertex buffer as a GL buffer, so the write goes to
+     * each the buffer's usage gives it. A storage-only buffer some other path has given a GL buffer, transform
+     * feedback, gets that one written too.
+     */
+    writeBuffer(buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void {
+        const gl = this.gl!;
+        if (buffer.usage.has('storage')) {
+            Textures.writeStorageTexture(gl, this.textures, buffer, byteOffset, data, dataByteOffset, byteSize);
+        }
+        const storageOnly = buffer.usage.size === 1 && buffer.usage.has('storage');
+        if (!storageOnly || Buffers.getUploaded(this.buffers, buffer) !== undefined) {
+            Buffers.writeBufferBytes(gl, this.buffers, buffer, byteOffset, data, dataByteOffset, byteSize);
+        }
+    }
+
     readPixels(renderTarget: RenderTarget, attachmentIndex = 0, layer = 0, mipLevel = 0): Promise<Uint8Array> {
         return ReadPixels.readPixels(this.gl!, this, renderTarget, attachmentIndex, layer, mipLevel);
     }

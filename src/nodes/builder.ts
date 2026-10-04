@@ -50,6 +50,7 @@ import {
     SamplerNode,
     type StorageTextureBindingNode,
     storageMirrorBytesPerTexel,
+    storageMirrorGrid,
     storageRowWidth,
     TextureBindingNode,
     TextureNode,
@@ -246,23 +247,20 @@ function createStorageBinding(node: StorageNode<d.Any>, maxTextureSize: number |
     if (node.value != null) {
         // Value-based: buffer known at compile → size the tight texel grid now. `width = min(texels, cap)`,
         // `height = ceil`; the renderer pads the short last row and validates `height ≤ MAX_TEXTURE_SIZE`.
-        const arr = node.value.array;
-        if (arr == null) {
+        const buffer = node.value;
+        if (buffer.cpu && buffer.array == null) {
             throw new Error(
                 `[glsl] storage() read-lowering needs a CPU-backed buffer, but this storage buffer has no ` +
                     `\`array\` (its CPU data was released after upload); keep the data resident to read it on WebGL`,
             );
         }
-        if (arr.byteLength === 0 || arr.byteLength % bytesPerTexel !== 0) {
-            throw new Error(
-                `[glsl] storage() read-lowering: buffer byte length ${arr.byteLength} must be a non-zero multiple ` +
-                    `of ${bytesPerTexel} (whole texels) to reinterpret as a WebGL texture`,
-            );
-        }
-        const totalTexels = arr.byteLength / bytesPerTexel;
-        const cap = maxTextureSize ?? 2048;
-        const width = Math.min(totalTexels, cap);
-        binding.storageBufferSource = { buffer: node.value, width, height: Math.ceil(totalTexels / width), bytesPerTexel };
+        const grid = storageMirrorGrid(
+            buffer.byteLength,
+            bytesPerTexel,
+            maxTextureSize ?? 2048,
+            '[glsl] storage() read-lowering',
+        );
+        binding.storageBufferSource = { buffer, width: grid.width, height: grid.height, bytesPerTexel };
     } else {
         // Name-based: `storage('slot', 'read')` bound via `geometry.setBuffer('slot', buf)`. The buffer
         // isn't known until draw; the renderer resolves it from the render object's geometry and sizes the

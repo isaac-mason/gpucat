@@ -128,3 +128,41 @@ describe('GpuBuffer update ranges', () => {
         expect(b.updateRanges.slice(0, b.updateRangeCount).map((r) => r.start)).toEqual([1, 3, 5, 7]);
     });
 });
+
+describe('cpu: false buffers', () => {
+    test('hold no array, and size themselves from count', () => {
+        const b = new GpuBuffer(d.array(d.vec4u), { count: 10, usage: 'storage', cpu: false });
+        expect(b.array).toBeNull();
+        expect(b.byteLength).toBe(160);
+    });
+
+    test('are allocated once, then left alone', () => {
+        const b = new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage', cpu: false });
+        expect(planBufferUpload(b, false, 0, -1)).toBe(BufferUpload.Allocate);
+        expect(planBufferUpload(b, true, 16, b.version)).toBe(BufferUpload.Skip);
+    });
+
+    test('refuse the CPU-side writes', () => {
+        const b = new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage', cpu: false });
+        expect(() => b.addUpdateRange(0, 1)).toThrow(/writeBuffer/);
+        expect(() => {
+            b.needsUpdate = true;
+        }).toThrow(/writeBuffer/);
+        expect(() => b.packAtIndex(d.u32, 0, 1)).toThrow(/writeBuffer/);
+    });
+
+    test('take count, never data, and cannot be index buffers', () => {
+        expect(() => new GpuBuffer(d.array(d.u32), { data: new Uint32Array(4), cpu: false })).toThrow(/count/);
+        expect(() => new GpuBuffer(d.u32, { count: 4, usage: 'index', cpu: false })).toThrow(/index/);
+    });
+
+    test('still derive a vertex format', () => {
+        const b = new GpuBuffer(d.vec2u, { count: 4, usage: 'vertex', cpu: false });
+        expect(b.format).toBe('uint32x2');
+    });
+});
+
+test('a count-allocated array buffer holds its element type', () => {
+    expect(new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage' }).array).toBeInstanceOf(Uint32Array);
+    expect(new GpuBuffer(d.array(d.vec2i), { count: 4, usage: 'storage' }).array).toBeInstanceOf(Int32Array);
+});

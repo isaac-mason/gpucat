@@ -16,7 +16,7 @@
 import type { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
-import type { ResolvedStorageBufferTexture, StorageBufferTextureSource } from '../../nodes/lib/texture';
+import { type ResolvedStorageBufferTexture, type StorageBufferTextureSource, storageMirrorGrid } from '../../nodes/lib/texture';
 import { getBindings, type RenderObject } from '../core/render-object';
 import type { ProgramInfo } from './programs';
 import { getSampler } from './samplers';
@@ -136,24 +136,21 @@ function resolveStorageSource(
                 `geometry — call geometry.setBuffer('${source.name}', buffer).`,
         );
     }
-    const arr = buffer.array;
-    if (arr == null) {
+    if (buffer.cpu && buffer.array == null) {
         throw new Error(
             `[webgl] storage('${source.name}') read-lowering: the buffer has no CPU \`array\` to ` +
                 `reinterpret (released after upload); keep it resident to sample it on WebGL2.`,
         );
     }
     const bytesPerTexel = source.bytesPerTexel;
-    if (arr.byteLength === 0 || arr.byteLength % bytesPerTexel !== 0) {
-        throw new Error(
-            `[webgl] storage('${source.name}') read-lowering: buffer byte length ${arr.byteLength} must ` +
-                `be a non-zero multiple of ${bytesPerTexel} (whole texels) to reinterpret as a texture.`,
-        );
-    }
     if (textures.maxTextureSize == null) textures.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
-    const totalTexels = arr.byteLength / bytesPerTexel;
-    const width = Math.min(totalTexels, textures.maxTextureSize);
-    return { buffer, width, height: Math.ceil(totalTexels / width), bytesPerTexel };
+    const grid = storageMirrorGrid(
+        buffer.byteLength,
+        bytesPerTexel,
+        textures.maxTextureSize,
+        `[webgl] storage('${source.name}') read-lowering`,
+    );
+    return { buffer, width: grid.width, height: grid.height, bytesPerTexel };
 }
 
 /**

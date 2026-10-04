@@ -1,3 +1,4 @@
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { RenderTarget } from '../../core/render-target';
 import type { ComputeNode } from '../../nodes/nodes';
 import { yieldToMain } from '../../utils/yield-to-main';
@@ -238,6 +239,10 @@ export class WebGPUBackend implements DeviceBackend {
 
     readPixels(renderTarget: RenderTarget, attachmentIndex: number, layer: number, mipLevel: number): Promise<Uint8Array> {
         return ReadPixels.readPixels(this, renderTarget, attachmentIndex, layer, mipLevel);
+    }
+
+    writeBuffer(buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void {
+        Buffers.writeBufferBytes(this.buffers, this.device, buffer, byteOffset, data, dataByteOffset, byteSize);
     }
 
     /** Off the `DeviceBackend` contract on purpose: a neutral signature would widen this to `string`. */

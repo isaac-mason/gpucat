@@ -156,23 +156,26 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
         return entry.buf;
     }
 
-    // non-null past the plan: Skip is the only outcome for a released array.
-    const arr = buffer.array!;
+    const arr = buffer.array;
     const usage = primaryBufferUsage(buffer);
     const label = buffer.label ?? name;
 
     if (plan === BufferUpload.Allocate) {
         entry?.buf.destroy();
         // 4-byte alignment is a device requirement, so the size is decided here, not in the plan.
-        const buf = device.createBuffer({ size: alignTo4(arr.byteLength), usage: deriveGPUUsage(buffer) });
+        const byteLength = arr?.byteLength ?? buffer.byteLength;
+        const buf = device.createBuffer({ size: alignTo4(byteLength), usage: deriveGPUUsage(buffer) });
         // Both under the same guard: a reallocation must not count twice, nor hook dispose twice.
         if (!entry) {
             cache.bufferCount++;
             setupDispose(cache, buffer);
         }
 
-        device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
-        recordBufferWrite(cache.info, arr.byteLength, usage, true, label);
+        // a `cpu: false` buffer has no array, and starts as the zeroes WebGPU allocates
+        if (arr !== null) {
+            device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
+            recordBufferWrite(cache.info, arr.byteLength, usage, true, label);
+        }
         cache.bufferMap.set(buffer, { buf, version: buffer.version });
 
         // the allocate path wrote everything, so pending ranges are already covered; dropping them
@@ -182,7 +185,9 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
         return buf;
     }
 
+    // only a `cpu: false` buffer plans past Skip without an array, and it only ever allocates
     const { buf } = entry!;
+    if (arr === null) throw new Error('[gpucat] ensureUploaded: a write was planned for a buffer with no array');
 
     if (plan === BufferUpload.Partial) {
         // Ranges are flat component indices and arrive already merged.
@@ -201,6 +206,25 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
     }
     entry!.version = buffer.version;
     return buf;
+}
+
+/**
+ * `writeBuffer` for WebGPU: a queue write, which copies `data` before returning. Offsets and size are
+ * bytes, already validated by the caller.
+ */
+export function writeBufferBytes(
+    cache: BufferCache,
+    device: GPUDevice,
+    buffer: GpuBuffer,
+    byteOffset: number,
+    data: ArrayBufferView,
+    dataByteOffset: number,
+    byteSize: number,
+): void {
+    const label = buffer.label ?? 'write-buffer';
+    const buf = ensureUploaded(cache, device, buffer, label);
+    device.queue.writeBuffer(buf, byteOffset, data.buffer as ArrayBuffer, data.byteOffset + dataByteOffset, byteSize);
+    recordBufferWrite(cache.info, byteSize, primaryBufferUsage(buffer), false, label);
 }
 
 /**

@@ -1304,7 +1304,7 @@ export function itemSizeOf(desc: Any): number {
     throw new Error(`[gpucat] itemSizeOf: unsupported type '${t}'`);
 }
 
-export function typedArrayCtorOf(desc: Any): new (length: number) => Float32Array | Int32Array | Uint32Array {
+export function typedArrayCtorOf(desc: Any): typeof Float32Array | typeof Int32Array | typeof Uint32Array {
     const t = desc.wgslType;
     if (t === 'i32' || t === 'vec2i' || t === 'vec3i' || t === 'vec4i') return Int32Array;
     if (t === 'u32' || t === 'vec2u' || t === 'vec3u' || t === 'vec4u') return Uint32Array;

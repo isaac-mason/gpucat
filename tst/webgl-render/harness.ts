@@ -37,6 +37,7 @@ import {
     modelWorldMatrix,
     mrt,
     mul,
+    type Node,
     normalize,
     type Object3D,
     PerspectiveCamera,
@@ -69,6 +70,7 @@ import {
     vertexIndex,
     type WebGLBackend,
     webgl,
+    writeBuffer,
 } from '../../src/index';
 import { RendererInspector } from '../../src/inspector/renderer-inspector';
 import * as Programs from '../../src/renderer/webgl/programs';
@@ -3502,6 +3504,97 @@ async function caseStoragePartialSpans(): Promise<CaseResult> {
     return { name: 'storage-partial-spans', pixel, expected: [u8(R), u8(G), u8(B), 255] };
 }
 
+/** A fullscreen draw of `fragment`, in a scene ready to render. */
+function fullscreenScene(fragment: Node<d.Any>): { scene: Scene; camera: PerspectiveCamera } {
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment,
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+    return { scene, camera };
+}
+
+/**
+ * write-buffer: a `cpu: false` storage buffer filled only by `writeBuffer`, read through its r32uint mirror. The
+ * first write lands before anything has bound the buffer, from an offset into its data, which is then overwritten
+ * at once: the write must already have copied it. A second write after a frame rewrites one slot. Slot 0 is never
+ * written, so it shows the zeroes the mirror starts as.
+ */
+async function caseWriteBuffer(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    activeClear = [0, 0, 0, 1];
+    const values = new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage', cpu: false });
+
+    const source = new Uint32Array([9, 64, 128, 192, 9]);
+    writeBuffer(renderer, values, 4, source, 1, 3);
+    source.fill(7);
+
+    const store = storage(values);
+    const readSlot = (slot: number) => store.element(u32(slot)).toF32().div(f32(255));
+    const { scene, camera } = fullscreenScene(vec4(readSlot(0), readSlot(1), readSlot(2), f32(1)));
+
+    renderScene(renderer, scene, camera);
+    const first = readCenter(renderer.backend.gl!);
+    writeBuffer(renderer, values, 8, new Uint32Array([255]));
+    renderScene(renderer, scene, camera);
+    const second = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+
+    const firstOk = first[0] === 0 && first[1] === 64 && first[2] === 128;
+    return { name: 'write-buffer', pixel: firstOk ? second : first, expected: [0, 64, 255, 255] };
+}
+
+/**
+ * write-buffer-rows: one write across three rows of a `cpu: false` buffer's mirror, from an offset into its data,
+ * so it splits into a head of row 0, the whole of row 1 and a tail of row 2. One slot read from each piece.
+ */
+async function caseWriteBufferRows(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    activeClear = [0, 0, 0, 1];
+    const MAX = renderer.backend.gl!.getParameter(renderer.backend.gl!.MAX_TEXTURE_SIZE) as number;
+    const values = new GpuBuffer(d.array(d.u32), { count: 2 * MAX + 8, usage: 'storage', cpu: false });
+
+    const HEAD = MAX - 2;
+    const MIDDLE = MAX + 5;
+    const TAIL = 2 * MAX + 1;
+    const SKIP = 3;
+    const source = new Uint32Array(SKIP + TAIL - HEAD + 1);
+    source[SKIP] = 230;
+    source[SKIP + MIDDLE - HEAD] = 153;
+    source[SKIP + TAIL - HEAD] = 77;
+    writeBuffer(renderer, values, HEAD * 4, source, SKIP);
+
+    const store = storage(values);
+    const readSlot = (slot: number) => store.element(u32(slot)).toF32().div(f32(255));
+    const { scene, camera } = fullscreenScene(vec4(readSlot(HEAD), readSlot(MIDDLE), readSlot(TAIL), f32(1)));
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    return { name: 'write-buffer-rows', pixel, expected: [230, 153, 77, 255] };
+}
+
+/**
+ * write-buffer-texel-align: a `vec4u` buffer mirrors as 16-byte texels, so a write of one u32 inside a texel cannot
+ * be expressed and throws, where WebGPU would take it. Green when it throws.
+ */
+async function caseWriteBufferTexelAlign(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const values = new GpuBuffer(d.array(d.vec4u), { count: 4, usage: 'storage', cpu: false });
+    let threw = false;
+    try {
+        writeBuffer(renderer, values, 4, new Uint32Array([1]));
+    } catch {
+        threw = true;
+    }
+    renderer.dispose();
+    return { name: 'write-buffer-texel-align', pixel: threw ? [0, 255, 0, 255] : [255, 0, 0, 255], expected: [0, 255, 0, 255] };
+}
+
 /**
  * readback-orientation: render a two-tone image (red where clip-space y > 0, green below) into an
  * rgba8unorm RenderTarget, then assert `readPixels` returns red in the TOP rows and green
@@ -4483,6 +4576,9 @@ export async function run(): Promise<RunResult> {
             caseStoragePad,
             caseStoragePadDynamic,
             caseStoragePartialSpans,
+            caseWriteBuffer,
+            caseWriteBufferRows,
+            caseWriteBufferTexelAlign,
             caseRenderToTexture,
             caseReadbackOrientation,
             caseReadbackInFlight,

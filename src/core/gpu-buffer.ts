@@ -118,6 +118,7 @@ export function getIndexFormat(array: GpuTypedArray | null): IndexFormat | undef
 /**
  * Options for creating a GpuBuffer.
  * Provide either `data` (existing TypedArray) or `count` (allocate new array), not both.
+ * A `cpu: false` buffer takes `count` only.
  */
 export type GpuBufferOptions<T extends Any = Any> = {
     /** Initial data as a TypedArray. Mutually exclusive with `count`. */
@@ -136,6 +137,14 @@ export type GpuBufferOptions<T extends Any = Any> = {
      * only where several buffers would otherwise collide in one row.
      */
     label?: string;
+    /**
+     * False for a buffer with no CPU copy: the GPU buffer is allocated zeroed at `count` elements and
+     * filled only through `writeBuffer`, which copies at call time, so the caller's data can be dropped
+     * or transferred straight after. Its `array` is always null, and the CPU-side writes (`packAt*`,
+     * `addUpdateRange`, `needsUpdate`) throw. Index buffers cannot be CPU-less: their format is read off
+     * the array. Defaults to true.
+     */
+    cpu?: boolean;
 };
 
 function normalizeUsage(usage?: BufferUsage | BufferUsage[]): Set<BufferUsage> {
@@ -157,6 +166,13 @@ function schemaItemSize(schema: Any): number {
     }
     if (isStructDesc(schema)) return wgslSizeOf(schema as StructDesc<StructSchema>) / 4;
     return itemSizeOf(schema);
+}
+
+/** The typed array a `count`-allocated buffer of `schema` holds: the element's for an array, f32 for a struct. */
+function schemaArrayCtor(schema: Any): typeof Float32Array | typeof Int32Array | typeof Uint32Array {
+    if (isArrayDesc(schema) || isSizedArrayDesc(schema)) return schemaArrayCtor((schema as array | sizedArray).element);
+    if (isStructDesc(schema)) return Float32Array;
+    return typedArrayCtorOf(schema);
 }
 
 /**
@@ -196,11 +212,17 @@ export class GpuBuffer<T extends Any = Any> {
     /** Usage count for REF_COUNTED buffers. When this hits 0, GPU resources are disposed. */
     _usages: number = 0;
 
-    /** CPU-side typed array. Can be set to null after onUpload releases memory. */
+    /** CPU-side typed array. Can be set to null after onUpload releases memory; always null when `cpu` is false. */
     array: TypedArrayFor<T> | null;
+
+    /** False when the buffer has no CPU copy and is written only through `writeBuffer`. */
+    readonly cpu: boolean;
 
     /** Number of elements */
     readonly count: number;
+
+    /** Size in bytes, as constructed. */
+    readonly byteLength: number;
 
     /** Components per element (e.g., 3 for vec3f) */
     readonly itemSize: number;
@@ -241,21 +263,35 @@ export class GpuBuffer<T extends Any = Any> {
             throw new Error('GpuBuffer: provide either `data` or `count`, not both');
         }
 
-        if (options.data) {
+        this.cpu = options.cpu ?? true;
+        const ArrayCtor = schemaArrayCtor(schema);
+        if (!this.cpu) {
+            if (options.data || options.count === undefined) {
+                throw new Error('GpuBuffer: a `cpu: false` buffer takes `count`, not `data`');
+            }
+            if (this.usage.has('index')) {
+                throw new Error('GpuBuffer: an index buffer cannot be `cpu: false`, its format is read off the array');
+            }
+            this.array = null;
+            this.count = options.count;
+            this.byteLength = options.count * this.itemSize * ArrayCtor.BYTES_PER_ELEMENT;
+        } else if (options.data) {
             this.array = options.data;
             this.count = options.data.length / this.itemSize;
+            this.byteLength = options.data.byteLength;
         } else if (options.count !== undefined) {
-            const ArrayCtor = isStructDesc(schema) ? Float32Array : typedArrayCtorOf(schema);
             this.array = new ArrayCtor(options.count * this.itemSize) as TypedArrayFor<T>;
             this.count = options.count;
+            this.byteLength = this.array.byteLength;
         } else {
             this.array = null;
             this.count = 0;
+            this.byteLength = 0;
         }
 
         // Derive vertex format from array type + itemSize
-        if (this.usage.has('vertex') && this.array) {
-            this.format = deriveVertexFormat(this.array, this.itemSize);
+        if (this.usage.has('vertex')) {
+            this.format = deriveVertexFormat(this.array ?? new ArrayCtor(0), this.itemSize);
         } else {
             this.format = undefined;
         }
@@ -270,11 +306,13 @@ export class GpuBuffer<T extends Any = Any> {
 
     /** Mark buffer as needing re-upload */
     set needsUpdate(_: true) {
+        this._assertCpu('needsUpdate');
         this.version++;
     }
 
     /** Register a dirty range for partial re-upload */
     addUpdateRange(start: number, count: number): void {
+        this._assertCpu('addUpdateRange()');
         const range = this.updateRanges[this.updateRangeCount];
         if (range) {
             range.start = start;
@@ -283,6 +321,12 @@ export class GpuBuffer<T extends Any = Any> {
             this.updateRanges.push({ start, count });
         }
         this.updateRangeCount++;
+    }
+
+    private _assertCpu(member: string): void {
+        if (!this.cpu) {
+            throw new Error(`[GpuBuffer] ${member}: this buffer is \`cpu: false\`; write it with writeBuffer().`);
+        }
     }
 
     /** Clear pending update ranges (called by renderer after upload) */
@@ -302,6 +346,7 @@ export class GpuBuffer<T extends Any = Any> {
      * else this throws rather than silently misaligning.
      */
     packAtIndex<D extends Any>(schema: D, index: number, value: Infer<D>): this {
+        this._assertCpu('packAtIndex()');
         const array = this.array;
         if (array == null) {
             throw new Error(
@@ -327,6 +372,7 @@ export class GpuBuffer<T extends Any = Any> {
      * components; a subsequent `needsUpdate = true` (full re-upload) supersedes queued ranges.
      */
     packAtByte<D extends Any>(schema: D, byteOffset: number, value: Infer<D>): this {
+        this._assertCpu('packAtByte()');
         const array = this.array;
         if (array == null) {
             throw new Error(
@@ -354,6 +400,7 @@ export class GpuBuffer<T extends Any = Any> {
      * ELEMENT type; `values.length` must not exceed the buffer's element `count`.
      */
     pack<D extends Any>(schema: D, values: Infer<D>[]): this {
+        this._assertCpu('pack()');
         const array = this.array;
         if (array == null) {
             throw new Error('[GpuBuffer] pack(): buffer has no CPU `array` to write into (its data was released after upload).');

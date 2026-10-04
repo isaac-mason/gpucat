@@ -62,6 +62,7 @@ import {
     vec4,
     type WebGPUBackend,
     webgpu,
+    writeBuffer,
 } from '../../src/index';
 import { BlendMode } from '../../src/material/blend-mode';
 import type { MaterialOptions } from '../../src/material/material';
@@ -480,6 +481,53 @@ async function caseComputeTextureLoad(gpu: Renderer<WebGPUBackend>): Promise<Cas
         pixel,
         expected: [u8(0.25), 128, 0, 255],
         note: 'red is the depth compute loaded, green the colour texel',
+    };
+}
+
+/**
+ * write-buffer: a `cpu: false` storage buffer filled only by `writeBuffer`. The first write lands before anything
+ * has bound the buffer, from an offset into its data, which is then overwritten at once: the write must already
+ * have copied it. A second write after a frame rewrites one slot of the buffer that frame created. Slot 0 is never
+ * written, so it shows the zeroes the buffer starts as.
+ */
+async function caseWriteBuffer(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const values = new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage', cpu: false });
+
+    const source = new Uint32Array([9, 64, 128, 192, 9]);
+    writeBuffer(gpu, values, 4, source, 1, 3);
+    source.fill(7);
+
+    const readSlot = (slot: number) => index(storage(values, 'read'), u32(slot)).toF32().div(f32(255));
+    const mesh = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(readSlot(0), readSlot(1), readSlot(2), readSlot(3)),
+            depthTest: false,
+        }),
+    );
+    mesh.updateWorldMatrix();
+    const draw = () => {
+        const f = frame(gpu);
+        const pass = f.pass({ target, clear: [0, 0, 0, 1] });
+        pass.draw(mesh);
+        pass.end();
+        f.submit();
+    };
+
+    draw();
+    const first = centerPixel(await read(gpu, target));
+    writeBuffer(gpu, values, 8, new Uint32Array([255]));
+    draw();
+    const second = centerPixel(await read(gpu, target));
+
+    const firstOk = first[0] === 0 && first[1] === 64 && first[2] === 128 && first[3] === 192;
+    return {
+        name: 'write-buffer',
+        pixel: firstOk ? second : first,
+        expected: [0, 64, 255, 192],
+        note: firstOk ? 'second frame, after the one-slot write' : 'first frame, after the offset write',
     };
 }
 
@@ -2613,6 +2661,7 @@ const CASES: Record<string, Case> = {
     compute: caseCompute,
     'wgsl-operand-grammar': caseWgslOperandGrammar,
     'signed-shift': caseSignedShift,
+    'write-buffer': caseWriteBuffer,
     'compute-texture-load': caseComputeTextureLoad,
     'compute-uniform-per-dispatch': caseComputeUniformPerDispatch,
     'compute-uniform-within-pass': caseComputeUniformWithinPass,

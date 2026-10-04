@@ -136,7 +136,7 @@ export function ensureUploaded(
     usageHint?: number,
 ): WebGLBuffer {
     const array = buffer.array;
-    if (!array) throw new Error(`[webgl] buffer '${buffer.label ?? name}' has no CPU array to upload.`);
+    if (!array && buffer.cpu) throw new Error(`[webgl] buffer '${buffer.label ?? name}' has no CPU array to upload.`);
 
     const label = buffer.label ?? name;
     let entry = cache.bufferMap.get(buffer);
@@ -154,15 +154,22 @@ export function ensureUploaded(
             setupBufferDispose(gl, cache, buffer);
         }
         gl.bindBuffer(target, entry.glBuffer);
-        gl.bufferData(target, array, usageHint ?? glUsageHint(gl, buffer));
-        recordBufferWrite(cache.info, array.byteLength, primaryBufferUsage(buffer), true, label);
-        entry.byteLength = array.byteLength;
+        if (array) {
+            gl.bufferData(target, array, usageHint ?? glUsageHint(gl, buffer));
+            recordBufferWrite(cache.info, array.byteLength, primaryBufferUsage(buffer), true, label);
+        } else {
+            // a `cpu: false` buffer starts as the zeroes GL allocates
+            gl.bufferData(target, buffer.byteLength, usageHint ?? glUsageHint(gl, buffer));
+        }
+        entry.byteLength = buffer.byteLength;
         entry.version = buffer.version;
         // the allocate path wrote everything, so pending ranges are already covered.
         buffer.clearUpdateRanges();
         return entry.glBuffer;
     }
 
+    // only a `cpu: false` buffer plans past Skip without an array, and it only ever allocates
+    if (!array) throw new Error(`[webgl] buffer '${label}': a write was planned with no array.`);
     gl.bindBuffer(target, entry!.glBuffer);
     if (plan === BufferUpload.Partial) {
         uploadDirtyRanges(gl, cache, target, array, buffer, label);
@@ -172,6 +179,28 @@ export function ensureUploaded(
     }
     entry!.version = buffer.version;
     return entry!.glBuffer;
+}
+
+/**
+ * `writeBuffer` into a `cpu: false` buffer's GL buffer, creating it zeroed first. Goes through
+ * `COPY_WRITE_BUFFER`, which no VAO captures, and leaves it unbound.
+ */
+export function writeBufferBytes(
+    gl: WebGL2RenderingContext,
+    cache: BufferCache,
+    buffer: GpuBuffer,
+    byteOffset: number,
+    data: ArrayBufferView,
+    dataByteOffset: number,
+    byteSize: number,
+): void {
+    const label = buffer.label ?? 'write-buffer';
+    const glBuffer = ensureUploaded(gl, cache, buffer, gl.COPY_WRITE_BUFFER, label);
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER, glBuffer);
+    const bytes = new Uint8Array(data.buffer, data.byteOffset + dataByteOffset, byteSize);
+    gl.bufferSubData(gl.COPY_WRITE_BUFFER, byteOffset, bytes);
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
+    recordBufferWrite(cache.info, byteSize, primaryBufferUsage(buffer), false, label);
 }
 
 /** The GL buffer already created for a `GpuBuffer`, or undefined. Never uploads. */

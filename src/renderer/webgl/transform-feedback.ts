@@ -96,7 +96,7 @@ function ensureIo(
     role: 'input' | 'output',
     name: string,
 ): WebGLBuffer {
-    if (!buffer.array) {
+    if (!buffer.array && buffer.cpu) {
         throw new Error(
             role === 'output'
                 ? `[webgl] transform-feedback output buffer '${name}' has a null array; ` +

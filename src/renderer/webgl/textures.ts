@@ -24,7 +24,8 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
-import type { ResolvedStorageBufferTexture } from '../../nodes/lib/texture';
+import { type ResolvedStorageBufferTexture, storageMirrorBytesPerTexel, storageMirrorGrid } from '../../nodes/lib/texture';
+import type { Any } from '../../schema/schema';
 import {
     createTextureTally,
     createTextureTallyEntry,
@@ -288,6 +289,7 @@ export type GlBufferTextureData = {
     /** GL-allocated texel dimensions (a grow re-allocates rather than sub-uploading). */
     width: number;
     height: number;
+    bytesPerTexel: number;
 };
 
 /** Textures state: per-GpuTexture GL data, keyed by GpuTexture identity, plus a disposal set. */
@@ -314,7 +316,8 @@ export function createTextureCache(): TextureCache {
 /**
  * Upload texels `[texelStart, texelStart + texelCount)` of a storage buffer reinterpreted as a
  * `width`-wide grid of `bytesPerTexel`-byte texels (`glFormat` = RED/RG/RGBA_INTEGER to match),
- * sourcing ZERO-COPY `Uint32Array` views over the buffer's own bytes.
+ * sourcing ZERO-COPY `Uint32Array` views over `source`, whose bytes for texel `texelStart` begin at
+ * `sourceByteOffset`.
  *
  * A linear span is not a rectangle, so it decomposes into at most three uploads: the partial head row,
  * the block of whole rows, and the partial tail row. Head and tail are one row tall, so their row
@@ -329,7 +332,8 @@ export function createTextureCache(): TextureCache {
  */
 function uploadStorageSpan(
     gl: WebGL2RenderingContext,
-    arr: ArrayBufferView,
+    source: ArrayBufferLike,
+    sourceByteOffset: number,
     width: number,
     texelStart: number,
     texelCount: number,
@@ -337,7 +341,8 @@ function uploadStorageSpan(
     glFormat: number,
 ): void {
     const comps = bytesPerTexel / 4; // u32 lanes per texel (r32uint = 1, rg32uint = 2, rgba32uint = 4)
-    const base = arr.byteOffset;
+    // the source byte offset of texel 0, which the views below index from
+    const base = sourceByteOffset - texelStart * bytesPerTexel;
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
     let texel = texelStart;
@@ -347,7 +352,7 @@ function uploadStorageSpan(
     const headX = texel % width;
     if (headX !== 0 && remaining > 0) {
         const count = Math.min(width - headX, remaining);
-        const view = new Uint32Array(arr.buffer, base + texel * bytesPerTexel, count * comps);
+        const view = new Uint32Array(source, base + texel * bytesPerTexel, count * comps);
         gl.texSubImage2D(gl.TEXTURE_2D, 0, headX, (texel - headX) / width, count, 1, glFormat, gl.UNSIGNED_INT, view);
         texel += count;
         remaining -= count;
@@ -356,7 +361,7 @@ function uploadStorageSpan(
     // Block: every whole row the span covers, in one call.
     const rows = Math.floor(remaining / width);
     if (rows > 0) {
-        const view = new Uint32Array(arr.buffer, base + texel * bytesPerTexel, rows * width * comps);
+        const view = new Uint32Array(source, base + texel * bytesPerTexel, rows * width * comps);
         gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, texel / width, width, rows, glFormat, gl.UNSIGNED_INT, view);
         texel += rows * width;
         remaining -= rows * width;
@@ -364,7 +369,7 @@ function uploadStorageSpan(
 
     // Tail: the partial row the span ends in.
     if (remaining > 0) {
-        const view = new Uint32Array(arr.buffer, base + texel * bytesPerTexel, remaining * comps);
+        const view = new Uint32Array(source, base + texel * bytesPerTexel, remaining * comps);
         gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, texel / width, remaining, 1, glFormat, gl.UNSIGNED_INT, view);
     }
 }
@@ -440,6 +445,7 @@ export function updateStorageBufferTexture(
     source: ResolvedStorageBufferTexture,
 ): WebGLTexture {
     const { buffer, width, height, bytesPerTexel } = source;
+    if (!buffer.cpu) return ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel).texture;
     const arr = buffer.array;
     if (arr == null) {
         throw new Error(
@@ -475,8 +481,8 @@ export function updateStorageBufferTexture(
         gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
         // Integer textures are never filterable — NEAREST, clamp; sampled only via texelFetch.
         setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
-        uploadStorageSpan(gl, arr, width, 0, totalTexels, bytesPerTexel, glFormat);
-        data = { texture, tally: createTextureTallyEntry(), version: buffer.version, width, height };
+        uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
+        data = { texture, tally: createTextureTallyEntry(), version: buffer.version, width, height, bytesPerTexel };
         // A storage() read-lowering IS a resident texture, so it counts like any other. Bucketed under
         // the u32 format it actually is; WebGPU reads the buffer directly and has no counterpart row.
         tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
@@ -495,7 +501,7 @@ export function updateStorageBufferTexture(
     if (sizeChanged) {
         // Grow/shrink → re-specify the whole mutable texture at the new size (queued ranges are moot).
         gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
-        uploadStorageSpan(gl, arr, width, 0, totalTexels, bytesPerTexel, glFormat);
+        uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
         data.width = width;
         data.height = height;
         // Same entry, new size: move the bytes without moving the count.
@@ -520,15 +526,103 @@ export function updateStorageBufferTexture(
                 const r = ranges[i]!;
                 const from = Math.floor(r.start / comps);
                 const to = Math.min(totalTexels, Math.ceil((r.start + r.count) / comps));
-                if (to > from) uploadStorageSpan(gl, arr, width, from, to - from, bytesPerTexel, glFormat);
+                if (to > from) {
+                    const sourceByteOffset = arr.byteOffset + from * bytesPerTexel;
+                    uploadStorageSpan(gl, arr.buffer, sourceByteOffset, width, from, to - from, bytesPerTexel, glFormat);
+                }
             }
         } else {
-            uploadStorageSpan(gl, arr, width, 0, totalTexels, bytesPerTexel, glFormat);
+            uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
         }
     }
     buffer.clearUpdateRanges();
     data.version = buffer.version;
     return data.texture;
+}
+
+/**
+ * The mirror texture of a `cpu: false` storage buffer, created zeroed on first use. Only `writeBuffer` fills it,
+ * so it is never re-specified: a binding that would read it at another texel width is an error rather than a
+ * silent wipe.
+ */
+function ensureCpuLessStorageTexture(
+    gl: WebGL2RenderingContext,
+    state: TextureCache,
+    buffer: GpuBuffer,
+    bytesPerTexel: number,
+): GlBufferTextureData {
+    const existing = state.bufferData.get(buffer);
+    if (existing) {
+        if (existing.bytesPerTexel !== bytesPerTexel) {
+            throw new Error(
+                `[webgl] storage() read-lowering: buffer '${buffer.label ?? 'unlabelled'}' is read with ${bytesPerTexel}-byte ` +
+                    `texels but was written with ${existing.bytesPerTexel}-byte ones; read it with its own element type.`,
+            );
+        }
+        return existing;
+    }
+    if (state.maxTextureSize == null) state.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+    const { width, height } = storageMirrorGrid(
+        buffer.byteLength,
+        bytesPerTexel,
+        state.maxTextureSize,
+        '[webgl] storage() read-lowering',
+    );
+    if (height > state.maxTextureSize) {
+        throw new Error(
+            `[webgl] storage() read-lowering: the buffer needs a ${width}x${height} texel grid, which ` +
+                `exceeds this device's MAX_TEXTURE_SIZE=${state.maxTextureSize}; split or reshape the buffer.`,
+        );
+    }
+    const { internalFormat, glFormat } = storageTexelFormat(gl, bytesPerTexel);
+    const texture = gl.createTexture();
+    if (!texture) throw new Error('[webgl] gl.createTexture returned null (storage buffer texture).');
+    state.all.add(texture);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
+    setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
+    const data: GlBufferTextureData = {
+        texture,
+        tally: createTextureTallyEntry(),
+        version: buffer.version,
+        width,
+        height,
+        bytesPerTexel,
+    };
+    tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
+    setupStorageTextureDispose(gl, state, buffer);
+    state.bufferData.set(buffer, data);
+    return data;
+}
+
+/**
+ * `writeBuffer` into a `cpu: false` storage buffer's mirror texture: the span's texels, `texSubImage2D`d straight
+ * from `data`. The texel is the buffer element's (4, 8 or 16 bytes), and the span must cover whole texels.
+ */
+export function writeStorageTexture(
+    gl: WebGL2RenderingContext,
+    state: TextureCache,
+    buffer: GpuBuffer,
+    byteOffset: number,
+    data: ArrayBufferView,
+    dataByteOffset: number,
+    byteSize: number,
+): void {
+    const element = (buffer.schema as { element?: Any }).element ?? buffer.schema;
+    const bytesPerTexel = storageMirrorBytesPerTexel(element);
+    if (byteOffset % bytesPerTexel !== 0 || byteSize % bytesPerTexel !== 0) {
+        throw new Error(
+            `[webgl] writeBuffer: buffer '${buffer.label ?? 'unlabelled'}' is mirrored as ${bytesPerTexel}-byte texels, ` +
+                `so the write's offset (${byteOffset}) and size (${byteSize}) must be multiples of ${bytesPerTexel}.`,
+        );
+    }
+    const mirror = ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel);
+    gl.bindTexture(gl.TEXTURE_2D, mirror.texture);
+    const { glFormat } = storageTexelFormat(gl, bytesPerTexel);
+    const texelStart = byteOffset / bytesPerTexel;
+    const texelCount = byteSize / bytesPerTexel;
+    const sourceByteOffset = data.byteOffset + dataByteOffset;
+    uploadStorageSpan(gl, data.buffer, sourceByteOffset, mirror.width, texelStart, texelCount, bytesPerTexel, glFormat);
 }
 
 /** Get the cached GlTextureData for a GpuTexture (or null if never seen). */
