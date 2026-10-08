@@ -8737,10 +8737,11 @@ class RendererInspector extends InspectorBase {
         // Capture the generation so a readback that lands after a teardown bails
         // instead of writing into a torn-down inspector (three.js's post-await
         // `isDisposed` re-check). Tracked in `_pendingMaps` so teardown can await it
-        // before destroying `rb`.
+        // before destroying `rb`, and mapped through the backend so a renderer disposed
+        // mid-map releases `rb` before its device goes.
         const gen = this._generation;
-        const mapDone = rb
-            .mapAsync(GPUMapMode.READ, 0, slotsToResolve * 2 * 8)
+        const mapDone = renderer.backend
+            .mapForRead(rb, 0, slotsToResolve * 2 * 8)
             .then(() => {
             if (gen !== this._generation) {
                 if (rb.mapState === 'mapped')
@@ -41824,7 +41825,7 @@ async function readPixels(backend, renderTarget, attachmentIndex = 0, layer = 0,
     const encoder = device.createCommandEncoder();
     encoder.copyTextureToBuffer({ texture: textureData.texture, mipLevel, origin: { x: 0, y: 0, z: layer } }, { buffer: stagingBuffer, bytesPerRow, rowsPerImage: height }, { width, height, depthOrArrayLayers: 1 });
     device.queue.submit([encoder.finish()]);
-    await stagingBuffer.mapAsync(GPUMapMode.READ);
+    await backend.mapForRead(stagingBuffer);
     const padded = new Uint8Array(stagingBuffer.getMappedRange());
     const tightlyPacked = new Uint8Array(width * height * bytesPerPixel);
     const rowBytes = width * bytesPerPixel;
@@ -41871,6 +41872,10 @@ class WebGPUBackend {
     /** Error scopes resolve after the pass that opened them, so a caller has to await these to see one. @internal */
     _pendingValidation = [];
     /** @internal */ _validationErrors = [];
+    /** Buffers with a read map in flight, released ahead of the device on dispose: Firefox's wgpu crashes
+     *  (its GPU process, or the whole browser where it runs without one) when a device is destroyed while a
+     *  read map is pending. A destroyed buffer rejects its map, as the device's destruction would. @internal */
+    _readbacks = new Set();
     _opts;
     /** A handed-in device is the caller's to destroy, not ours. */
     _deviceProvided;
@@ -42011,7 +42016,21 @@ class WebGPUBackend {
         memory.backend.dynamicUniformBuffers = dynamicUniforms.gpuBuffers;
         memory.backend.dynamicUniformStaging = dynamicUniforms.stagingBuffers;
     }
+    /** Map `buffer` for reading, held in `_readbacks` until the map settles. @internal */
+    async mapForRead(buffer, offset, size) {
+        this._readbacks.add(buffer);
+        try {
+            await buffer.mapAsync(GPUMapMode.READ, offset, size);
+        }
+        finally {
+            this._readbacks.delete(buffer);
+        }
+    }
     dispose() {
+        // whoever destroys the device, ours or the caller's, it must not meet a read map still pending
+        for (const buffer of this._readbacks)
+            buffer.destroy();
+        this._readbacks.clear();
         disposeSwapchain(this);
         disposeTextureCache$1(this.textures);
         disposeSamplerCache$1(this.samplers);

@@ -66,6 +66,10 @@ export declare class WebGPUBackend implements DeviceBackend {
     /** Error scopes resolve after the pass that opened them, so a caller has to await these to see one. @internal */
     _pendingValidation: Promise<void>[];
     /** @internal */ _validationErrors: string[];
+    /** Buffers with a read map in flight, released ahead of the device on dispose: Firefox's wgpu crashes
+     *  (its GPU process, or the whole browser where it runs without one) when a device is destroyed while a
+     *  read map is pending. A destroyed buffer rejects its map, as the device's destruction would. @internal */
+    readonly _readbacks: Set<GPUBuffer>;
     private readonly _opts;
     /** A handed-in device is the caller's to destroy, not ours. */
     private readonly _deviceProvided;
@@ -102,6 +106,8 @@ export declare class WebGPUBackend implements DeviceBackend {
     awaitCompletion(): Promise<void>;
     hasFeature(feature: GPUFeatureName): boolean;
     readMemoryStats(memory: Info.MemoryInfo): void;
+    /** Map `buffer` for reading, held in `_readbacks` until the map settles. @internal */
+    mapForRead(buffer: GPUBuffer, offset?: number, size?: number): Promise<void>;
     dispose(): void;
     /** The canvas context for a target, configured against this device. Acquired lazily per canvas. */
     getContext(canvasTarget: CanvasTarget, format: GPUTextureFormat, alphaMode?: GPUCanvasAlphaMode): GPUCanvasContext;
