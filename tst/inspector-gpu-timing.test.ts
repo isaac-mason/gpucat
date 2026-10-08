@@ -97,7 +97,8 @@ function createFakeDevice(): FakeDevice {
 
 /** The slice of a renderer the inspector's timing path touches. */
 function fakeRenderer(device: GPUDevice): InspectableRenderer {
-    return { api: 'webgpu', backend: { device } } as unknown as InspectableRenderer;
+    const mapForRead = (buffer: GPUBuffer, offset?: number, size?: number) => buffer.mapAsync(GPUMapMode.READ, offset, size);
+    return { api: 'webgpu', backend: { device, mapForRead } } as unknown as InspectableRenderer;
 }
 
 let fake: FakeDevice;

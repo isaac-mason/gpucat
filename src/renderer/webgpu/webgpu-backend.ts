@@ -106,6 +106,11 @@ export class WebGPUBackend implements DeviceBackend {
     _pendingValidation: Promise<void>[] = [];
     /** @internal */ _validationErrors: string[] = [];
 
+    /** Buffers with a read map in flight, released ahead of the device on dispose: Firefox's wgpu crashes
+     *  (its GPU process, or the whole browser where it runs without one) when a device is destroyed while a
+     *  read map is pending. A destroyed buffer rejects its map, as the device's destruction would. @internal */
+    readonly _readbacks = new Set<GPUBuffer>();
+
     private readonly _opts: WebGPUBackendOptions;
     /** A handed-in device is the caller's to destroy, not ours. */
     private readonly _deviceProvided: boolean;
@@ -277,7 +282,20 @@ export class WebGPUBackend implements DeviceBackend {
         memory.backend.dynamicUniformStaging = dynamicUniforms.stagingBuffers;
     }
 
+    /** Map `buffer` for reading, held in `_readbacks` until the map settles. @internal */
+    async mapForRead(buffer: GPUBuffer, offset?: number, size?: number): Promise<void> {
+        this._readbacks.add(buffer);
+        try {
+            await buffer.mapAsync(GPUMapMode.READ, offset, size);
+        } finally {
+            this._readbacks.delete(buffer);
+        }
+    }
+
     dispose(): void {
+        // whoever destroys the device, ours or the caller's, it must not meet a read map still pending
+        for (const buffer of this._readbacks) buffer.destroy();
+        this._readbacks.clear();
         RenderPass.disposeSwapchain(this);
         Textures.disposeTextureCache(this.textures);
         Samplers.disposeSamplerCache(this.samplers);

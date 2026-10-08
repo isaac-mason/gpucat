@@ -941,10 +941,11 @@ export class RendererInspector extends InspectorBase {
         // Capture the generation so a readback that lands after a teardown bails
         // instead of writing into a torn-down inspector (three.js's post-await
         // `isDisposed` re-check). Tracked in `_pendingMaps` so teardown can await it
-        // before destroying `rb`.
+        // before destroying `rb`, and mapped through the backend so a renderer disposed
+        // mid-map releases `rb` before its device goes.
         const gen = this._generation;
-        const mapDone = rb
-            .mapAsync(GPUMapMode.READ, 0, slotsToResolve * 2 * 8)
+        const mapDone = renderer.backend
+            .mapForRead(rb, 0, slotsToResolve * 2 * 8)
             .then(() => {
                 if (gen !== this._generation) {
                     if (rb.mapState === 'mapped') rb.unmap();

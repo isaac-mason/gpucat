@@ -59,7 +59,7 @@ export async function readPixels(
     );
     device.queue.submit([encoder.finish()]);
 
-    await stagingBuffer.mapAsync(GPUMapMode.READ);
+    await backend.mapForRead(stagingBuffer);
     const padded = new Uint8Array(stagingBuffer.getMappedRange());
 
     const tightlyPacked = new Uint8Array(width * height * bytesPerPixel);
