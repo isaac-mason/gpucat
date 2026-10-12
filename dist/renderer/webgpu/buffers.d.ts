@@ -81,6 +81,8 @@ export declare function createBufferCache(info: RendererInfo): BufferCache;
 export declare function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: GpuBuffer, name: string): GPUBuffer;
 /** `writeBuffer` for WebGPU: a queue write, which copies `data` before returning. */
 export declare function writeBufferBytes(cache: BufferCache, device: GPUDevice, buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void;
+/** `copyBuffer` for WebGPU: its own submission, so it lands after earlier queue writes and before later frames. */
+export declare function copyBufferBytes(cache: BufferCache, device: GPUDevice, source: GpuBuffer, sourceByteOffset: number, destination: GpuBuffer, destinationByteOffset: number, byteSize: number): void;
 /**
  * Return the GPUBuffer for an already-uploaded GpuBuffer, or undefined
  * if it has not been uploaded yet.

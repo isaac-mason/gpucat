@@ -75,6 +75,8 @@ export declare function glUsageHint(gl: WebGL2RenderingContext, buffer: GpuBuffe
 export declare function ensureUploaded(gl: WebGL2RenderingContext, cache: BufferCache, buffer: GpuBuffer, target: GLenum, name: string, usageHint?: number): WebGLBuffer;
 /** `writeBuffer` into a GL buffer through `COPY_WRITE_BUFFER`; an index buffer is created through `ELEMENT_ARRAY_BUFFER`, as its first binding decides. */
 export declare function writeBufferBytes(gl: WebGL2RenderingContext, cache: BufferCache, buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void;
+/** `copyBuffer` between two GL buffers through `COPY_READ_BUFFER` and `COPY_WRITE_BUFFER`. */
+export declare function copyBufferBytes(gl: WebGL2RenderingContext, cache: BufferCache, source: GpuBuffer, sourceByteOffset: number, destination: GpuBuffer, destinationByteOffset: number, byteSize: number): void;
 /** The GL buffer already created for a `GpuBuffer`, or undefined. Never uploads. */
 export declare function getUploaded(cache: BufferCache, buffer: GpuBuffer): WebGLBuffer | undefined;
 export type UploadRawResult = {

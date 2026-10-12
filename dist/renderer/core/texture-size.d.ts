@@ -14,6 +14,8 @@
 import type { GpuTexture } from '../../core/gpu-texture';
 /** A texel stride, for the row and offset arithmetic that has to be exact. */
 export declare function bytesPerTexel(format: GPUTextureFormat): number;
+/** Whether the format is one of the uncompressed colour formats gpucat knows the stride of. */
+export declare function isUncompressedColorFormat(format: GPUTextureFormat): boolean;
 /** The debug panel's figure, which wants a number more than it wants to be right. */
 export declare function estimatedBytesPerTexel(format: GPUTextureFormat): number;
 /** Levels in a full mip chain down to 1x1, for a texture of this size. */

@@ -3151,6 +3151,10 @@ function bytesPerTexel(format) {
     }
     return bytes;
 }
+/** Whether the format is one of the uncompressed colour formats gpucat knows the stride of. */
+function isUncompressedColorFormat(format) {
+    return knownBytesPerTexel(format) !== undefined;
+}
 /** The debug panel's figure, which wants a number more than it wants to be right. */
 function estimatedBytesPerTexel(format) {
     return knownBytesPerTexel(format) ?? 4;
@@ -4211,6 +4215,14 @@ function createSource(data) {
  * `z` addresses array layers, cube faces and 3D slices - one axis, the same meaning on both
  * backends, matching `writeTexture`'s `origin.z` and `texSubImage3D`'s `zoffset`.
  */
+/** The extent of one mip level: slices shrink down a 3D chain, array layers and cube faces do not. */
+function levelExtent(texture, level) {
+    return {
+        width: Math.max(1, texture.width >> level),
+        height: Math.max(1, texture.height >> level),
+        depth: texture.dimension === '3d' ? Math.max(1, texture.depthOrArrayLayers >> level) : texture.depthOrArrayLayers,
+    };
+}
 /**
  * Pending regions past this point stop being tracked exactly: the list is coalesced to one bounding
  * box per `(level, z, depth)` plane. Bounds both memory and per-add merge cost regardless of access
@@ -4557,13 +4569,11 @@ class GpuTexture {
         this.format =
             options.format ??
                 (isStorageTextureDesc(type) ? type.format : isDepthTextureDesc(type) ? 'depth32float' : 'rgba8unorm');
-        // Usage defaults. Storage textures get STORAGE_BINDING and keep TEXTURE_BINDING (so the same
-        // texture can be sampled in a later render pass) plus COPY_SRC for readback.
+        // Usage defaults: either end of a copyTexture, sampled. Storage textures add STORAGE_BINDING and
+        // keep TEXTURE_BINDING, so the same texture can be sampled in a later render pass.
+        const copyAndSample = TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST | TEXTURE_USAGE.COPY_SRC;
         this.usage =
-            options.usage ??
-                (isStorageTextureDesc(type)
-                    ? TEXTURE_USAGE.STORAGE_BINDING | TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST | TEXTURE_USAGE.COPY_SRC
-                    : TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST);
+            options.usage ?? (isStorageTextureDesc(type) ? TEXTURE_USAGE.STORAGE_BINDING | copyAndSample : copyAndSample);
         this.mipmapsAutoUpdate = options.mipmapsAutoUpdate ?? true;
         this.label = options.label;
         // Mip levels
@@ -10096,13 +10106,14 @@ function setupDispose(cache, buffer) {
  * Derive GPUBufferUsage flags from a GpuBuffer's usage set.
  */
 function deriveGPUUsage(buffer) {
-    let flags = GPUBufferUsage.COPY_DST;
+    // every buffer can be either end of a copyBuffer
+    let flags = GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
     if (buffer.usage.has('vertex'))
         flags |= GPUBufferUsage.VERTEX;
     if (buffer.usage.has('index'))
         flags |= GPUBufferUsage.INDEX;
     if (buffer.usage.has('storage'))
-        flags |= GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC;
+        flags |= GPUBufferUsage.STORAGE;
     if (buffer.usage.has('indirect'))
         flags |= GPUBufferUsage.INDIRECT | GPUBufferUsage.STORAGE;
     if (buffer.usage.has('uniform'))
@@ -10182,6 +10193,14 @@ function writeBufferBytes$1(cache, device, buffer, byteOffset, data, dataByteOff
     const buf = ensureUploaded$1(cache, device, buffer, label);
     device.queue.writeBuffer(buf, byteOffset, data.buffer, data.byteOffset + dataByteOffset, byteSize);
     recordBufferWrite(cache.info, byteSize, primaryBufferUsage(buffer), false, label);
+}
+/** `copyBuffer` for WebGPU: its own submission, so it lands after earlier queue writes and before later frames. */
+function copyBufferBytes$1(cache, device, source, sourceByteOffset, destination, destinationByteOffset, byteSize) {
+    const sourceBuffer = ensureUploaded$1(cache, device, source, source.label ?? 'copy-source');
+    const destinationBuffer = ensureUploaded$1(cache, device, destination, destination.label ?? 'copy-destination');
+    const encoder = device.createCommandEncoder({ label: 'copyBuffer' });
+    encoder.copyBufferToBuffer(sourceBuffer, sourceByteOffset, destinationBuffer, destinationByteOffset, byteSize);
+    device.queue.submit([encoder.finish()]);
 }
 /**
  * Return the GPUBuffer for an already-uploaded GpuBuffer, or undefined
@@ -11587,7 +11606,10 @@ function ensureRenderTargetTexturesAllocated(cache, device, renderTarget) {
         const resolveTexture = device.createTexture({
             size: [width, height],
             format: tex.format,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT |
+                GPUTextureUsage.TEXTURE_BINDING |
+                GPUTextureUsage.COPY_SRC |
+                GPUTextureUsage.COPY_DST,
             sampleCount: 1,
         });
         // RENDER_ATTACHMENT-only multisampled texture; it is rendered into and resolved
@@ -11629,7 +11651,10 @@ function ensureCubeRenderTargetTexturesAllocated(cache, device, renderTarget) {
         dimension: '2d',
         size: [renderTarget.size, renderTarget.size, 6],
         format: renderTarget.texture.format,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT |
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_SRC |
+            GPUTextureUsage.COPY_DST,
         mipLevelCount: cubeMipCount,
         sampleCount: 1,
     });
@@ -35445,6 +35470,146 @@ function compileCompute(renderer, nodes) {
 }
 
 /**
+ * copies `byteSize` bytes of `source` from `sourceByteOffset` into a `cpu: false` `destination` at
+ * `destinationByteOffset`, on the GPU. Queued at once, like `writeBuffer`: after the writes before it,
+ * ahead of any frame not yet submitted. Omitted offsets start at 0; an omitted size copies the rest of
+ * `source`.
+ */
+function copyBuffer(renderer, source, destination, sourceByteOffset = 0, destinationByteOffset = 0, byteSize = source.byteLength - sourceByteOffset) {
+    renderer._assertInitialized('copyBuffer');
+    const what = `[copyBuffer] '${source.label ?? 'unlabelled'}' into '${destination.label ?? 'unlabelled'}'`;
+    if (destination.cpu) {
+        throw new Error(`${what}: the destination keeps a CPU array, which the copy would leave stale; make it \`cpu: false\`.`);
+    }
+    if (source.disposed)
+        throw new Error(`${what}: the source is disposed.`);
+    if (destination.disposed)
+        throw new Error(`${what}: the destination is disposed.`);
+    if (sourceByteOffset % 4 !== 0 || destinationByteOffset % 4 !== 0 || byteSize % 4 !== 0) {
+        throw new Error(`${what}: offsets (${sourceByteOffset}, ${destinationByteOffset}) and size (${byteSize}) must be multiples of 4.`);
+    }
+    if (sourceByteOffset < 0 || byteSize < 0 || sourceByteOffset + byteSize > source.byteLength) {
+        throw new Error(`${what}: bytes ${sourceByteOffset}..${sourceByteOffset + byteSize} overrun the source's ${source.byteLength} bytes.`);
+    }
+    if (destinationByteOffset < 0 || destinationByteOffset + byteSize > destination.byteLength) {
+        throw new Error(`${what}: bytes ${destinationByteOffset}..${destinationByteOffset + byteSize} overrun the destination's ` +
+            `${destination.byteLength} bytes.`);
+    }
+    if (source === destination &&
+        sourceByteOffset < destinationByteOffset + byteSize &&
+        destinationByteOffset < sourceByteOffset + byteSize) {
+        throw new Error(`${what}: the ranges overlap within one buffer.`);
+    }
+    if (byteSize === 0)
+        return;
+    renderer.backend.copyBuffer(source, sourceByteOffset, destination, destinationByteOffset, byteSize);
+}
+
+function gpuTextureOf(texture) {
+    return texture instanceof GpuTexture ? texture : texture._gpuTexture;
+}
+/**
+ * copies one box of `source` into `destination` at `destinationOrigin`, on the GPU. Queued at once,
+ * like `writeTexture`: after the writes before it, ahead of any frame not yet submitted. Omitted region
+ * fields cover the rest of the source level; omitted origin fields are 0. `z` addresses array layers,
+ * cube faces and 3D slices alike.
+ *
+ * Both textures hold the same uncompressed colour format, or the same one but for `-srgb`, single
+ * sampled. The destination is one the GPU owns: `cpu: false`, a render target's, or a storage texture.
+ */
+function copyTexture(renderer, sourceTexture, destinationTexture, sourceRegion = {}, destinationOrigin = {}) {
+    renderer._assertInitialized('copyTexture');
+    const source = gpuTextureOf(sourceTexture);
+    const destination = gpuTextureOf(destinationTexture);
+    const what = `[copyTexture] '${source.label ?? 'unlabelled'}' into '${destination.label ?? 'unlabelled'}'`;
+    if (source.disposed)
+        throw new Error(`${what}: the source is disposed.`);
+    if (destination.disposed)
+        throw new Error(`${what}: the destination is disposed.`);
+    if (!gpuOwned(destination)) {
+        throw new Error(`${what}: the destination keeps a CPU source, which would upload over the copy; make it \`cpu: false\`.`);
+    }
+    if (copyFormat(source.format) !== copyFormat(destination.format)) {
+        throw new Error(`${what}: '${source.format}' and '${destination.format}' are not the same format.`);
+    }
+    if (!isUncompressedColorFormat(source.format)) {
+        throw new Error(`${what}: '${source.format}' is not an uncompressed colour format, which is all a copy takes.`);
+    }
+    if (source.sampleCount > 1 || destination.sampleCount > 1) {
+        throw new Error(`${what}: multisampled textures copy only through a resolve.`);
+    }
+    if (!source.isRenderTargetTexture && (source.usage & TEXTURE_USAGE.COPY_SRC) === 0) {
+        throw new Error(`${what}: the source's usage lacks COPY_SRC.`);
+    }
+    if (!destination.isRenderTargetTexture && (destination.usage & TEXTURE_USAGE.COPY_DST) === 0) {
+        throw new Error(`${what}: the destination's usage lacks COPY_DST.`);
+    }
+    const sourceLevel = sourceRegion.level ?? 0;
+    const destinationLevel = destinationOrigin.level ?? 0;
+    if (sourceLevel < 0 || sourceLevel >= source.mipLevelCount) {
+        throw new Error(`${what}: source level ${sourceLevel} is outside its ${source.mipLevelCount} mip levels.`);
+    }
+    if (destinationLevel < 0 || destinationLevel >= destination.mipLevelCount) {
+        throw new Error(`${what}: destination level ${destinationLevel} is outside its ${destination.mipLevelCount} mip levels.`);
+    }
+    const sourceExtent = levelExtent(source, sourceLevel);
+    const x = sourceRegion.x ?? 0;
+    const y = sourceRegion.y ?? 0;
+    const z = sourceRegion.z ?? 0;
+    const box = {
+        x,
+        y,
+        z,
+        width: sourceRegion.width ?? sourceExtent.width - x,
+        height: sourceRegion.height ?? sourceExtent.height - y,
+        depth: sourceRegion.depth ?? sourceExtent.depth - z,
+        level: sourceLevel,
+    };
+    const origin = {
+        x: destinationOrigin.x ?? 0,
+        y: destinationOrigin.y ?? 0,
+        z: destinationOrigin.z ?? 0,
+        level: destinationLevel,
+    };
+    if (box.width <= 0 || box.height <= 0 || box.depth <= 0 || !fits(box, box, sourceExtent)) {
+        throw new Error(`${what}: box at (${x}, ${y}, ${z}) of ${box.width}x${box.height}x${box.depth} is not inside source level ` +
+            `${sourceLevel}, ${sourceExtent.width}x${sourceExtent.height}x${sourceExtent.depth}.`);
+    }
+    const destinationExtent = levelExtent(destination, destinationLevel);
+    if (!fits(origin, box, destinationExtent)) {
+        throw new Error(`${what}: a ${box.width}x${box.height}x${box.depth} box at (${origin.x}, ${origin.y}, ${origin.z}) is not inside ` +
+            `destination level ${destinationLevel}, ${destinationExtent.width}x${destinationExtent.height}x${destinationExtent.depth}.`);
+    }
+    if (source === destination && sourceLevel === destinationLevel && overlaps(box, origin)) {
+        throw new Error(`${what}: the boxes overlap within one level.`);
+    }
+    renderer.backend.copyTexture(source, box, destination, origin);
+}
+function gpuOwned(texture) {
+    return !texture.cpu || texture.isRenderTargetTexture || texture.type.type.startsWith('texture_storage_');
+}
+/** formats that differ only in `-srgb` hold the same bytes, which is all a copy moves. */
+function copyFormat(format) {
+    return format.endsWith('-srgb') ? format.slice(0, -'-srgb'.length) : format;
+}
+function fits(corner, box, extent) {
+    return (corner.x >= 0 &&
+        corner.y >= 0 &&
+        corner.z >= 0 &&
+        corner.x + box.width <= extent.width &&
+        corner.y + box.height <= extent.height &&
+        corner.z + box.depth <= extent.depth);
+}
+function overlaps(box, origin) {
+    return (box.x < origin.x + box.width &&
+        origin.x < box.x + box.width &&
+        box.y < origin.y + box.height &&
+        origin.y < box.y + box.height &&
+        box.z < origin.z + box.depth &&
+        origin.z < box.z + box.depth);
+}
+
+/**
  * What `init` returns: one class over any backend, so the orchestration has a single home and the
  * backends cannot drift apart without failing to satisfy `DeviceBackend`. `B` stays on the type, so
  * `init(webgpu())` reaches `gpu.backend.device` with no cast.
@@ -35578,10 +35743,7 @@ function writeTexture(renderer, texture, data, region = {}) {
     if (level < 0 || level >= texture.mipLevelCount) {
         throw new Error(`${what}: level ${level} is outside its ${texture.mipLevelCount} mip levels.`);
     }
-    const levelWidth = Math.max(1, texture.width >> level);
-    const levelHeight = Math.max(1, texture.height >> level);
-    // slices shrink down a 3D chain; array layers and cube faces do not
-    const levelDepth = texture.dimension === '3d' ? Math.max(1, texture.depthOrArrayLayers >> level) : texture.depthOrArrayLayers;
+    const { width: levelWidth, height: levelHeight, depth: levelDepth } = levelExtent(texture, level);
     const x = region.x ?? 0;
     const y = region.y ?? 0;
     const z = region.z ?? 0;
@@ -35783,6 +35945,16 @@ function writeBufferBytes(gl, cache, buffer, byteOffset, data, dataByteOffset, b
     gl.bufferSubData(gl.COPY_WRITE_BUFFER, byteOffset, bytes);
     gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
     recordBufferWrite(cache.info, byteSize, primaryBufferUsage(buffer), false, label);
+}
+/** `copyBuffer` between two GL buffers through `COPY_READ_BUFFER` and `COPY_WRITE_BUFFER`. */
+function copyBufferBytes(gl, cache, source, sourceByteOffset, destination, destinationByteOffset, byteSize) {
+    const from = ensureUploaded(gl, cache, source, gl.COPY_READ_BUFFER, source.label ?? 'copy-source');
+    const to = ensureUploaded(gl, cache, destination, gl.COPY_WRITE_BUFFER, destination.label ?? 'copy-destination');
+    gl.bindBuffer(gl.COPY_READ_BUFFER, from);
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER, to);
+    gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, sourceByteOffset, destinationByteOffset, byteSize);
+    gl.bindBuffer(gl.COPY_READ_BUFFER, null);
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
 }
 /** The GL buffer already created for a `GpuBuffer`, or undefined. Never uploads. */
 function getUploaded(cache, buffer) {
@@ -36041,6 +36213,1131 @@ function createContext(canvas, attrs) {
     // some drivers) → returns null → inspector leaves gpuMs null (CPU-only timing).
     gl.getExtension('EXT_disjoint_timer_query_webgl2');
     return gl;
+}
+
+/**
+ * textures.ts (webgl) - per-GpuTexture GL texture cache + upload, the GL sibling of
+ * `webgpu/textures.ts`.
+ *
+ * gpucat's neutral `GpuTexture` is the format/size/source source-of-truth (WebGPU-oriented:
+ * `format` is a `GPUTextureFormat` string, `viewDimension` is '2d'/'cube'/'2d-array'/'…'). This
+ * module maps that onto WebGL2: it creates one `WebGLTexture` per `GpuTexture` (cached in a WeakMap,
+ * version-gated exactly like the WebGPU cache tracks `texture.version`), uploads source data through
+ * `texImage2D` / `texSubImage2D` (2D), the 6 cube faces, or the array layers, mapping the
+ * `GPUTextureFormat` string to a GL `{ internalFormat, format, type }` triple, and generates mipmaps
+ * when requested.
+ *
+ * Filtering / wrap are NOT set here — WebGL2 sampler objects (see `samplers.ts`) carry those, bound
+ * per texture unit at draw time, mirroring gpucat's separate texture + sampler model. The one
+ * exception is that we set a safe default min-filter on creation so a texture without an explicit
+ * sampler still samples (a fresh GL texture defaults to a mipmapped min-filter, which reads as
+ * "incomplete" with no mips).
+ *
+ * Render-target textures (`isRenderTargetTexture`) carry no source data: their GL texture is
+ * allocated at the target's size/format by `render-target.ts` (via `ensureAllocated`) and their
+ * contents are produced by an FBO render, so `updateTexture` on them only ensures the allocation.
+ */
+/**
+ * Map a gpucat `GPUTextureFormat` string to a WebGL2 `{ internalFormat, format, type }` triple.
+ * Covers the color formats the examples/tests use plus the depth formats render targets request.
+ * An unrecognized format throws — WebGL2 must never silently coerce to a wrong internal format.
+ */
+function glFormat(gl, format) {
+    switch (format) {
+        // 8-bit unorm color.
+        case 'rgba8unorm':
+        case 'rgba8unorm-srgb':
+            return {
+                internalFormat: format.endsWith('srgb') ? gl.SRGB8_ALPHA8 : gl.RGBA8,
+                format: gl.RGBA,
+                type: gl.UNSIGNED_BYTE,
+                isDepth: false,
+            };
+        case 'bgra8unorm':
+            // WebGL2 core has no BGRA internal format. Uploading as RGBA8 would silently reorder the
+            // B and R channels (wrong colors), so reject rather than corrupt the result.
+            throw new Error('[webgl] bgra8unorm is not supported on the WebGL2 backend (no BGRA internal format); ' +
+                "use 'rgba8unorm' instead.");
+        case 'rg8unorm':
+            return { internalFormat: gl.RG8, format: gl.RG, type: gl.UNSIGNED_BYTE, isDepth: false };
+        case 'r8unorm':
+            return { internalFormat: gl.R8, format: gl.RED, type: gl.UNSIGNED_BYTE, isDepth: false };
+        // 16-bit float color.
+        case 'rgba16float':
+            return { internalFormat: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT, isDepth: false };
+        case 'rg16float':
+            return { internalFormat: gl.RG16F, format: gl.RG, type: gl.HALF_FLOAT, isDepth: false };
+        case 'r16float':
+            return { internalFormat: gl.R16F, format: gl.RED, type: gl.HALF_FLOAT, isDepth: false };
+        // 32-bit float color.
+        case 'rgba32float':
+            return { internalFormat: gl.RGBA32F, format: gl.RGBA, type: gl.FLOAT, isDepth: false };
+        case 'rg32float':
+            return { internalFormat: gl.RG32F, format: gl.RG, type: gl.FLOAT, isDepth: false };
+        case 'r32float':
+            return { internalFormat: gl.R32F, format: gl.RED, type: gl.FLOAT, isDepth: false };
+        // Integer color (never filterable → texelFetch-only; NEAREST enforced at creation). The
+        // client format is the *_INTEGER variant; the type sizes the source typed array's components.
+        case 'r8uint':
+            return { internalFormat: gl.R8UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_BYTE, isDepth: false };
+        case 'rg8uint':
+            return { internalFormat: gl.RG8UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_BYTE, isDepth: false };
+        case 'rgba8uint':
+            return { internalFormat: gl.RGBA8UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_BYTE, isDepth: false };
+        case 'r8sint':
+            return { internalFormat: gl.R8I, format: gl.RED_INTEGER, type: gl.BYTE, isDepth: false };
+        case 'rg8sint':
+            return { internalFormat: gl.RG8I, format: gl.RG_INTEGER, type: gl.BYTE, isDepth: false };
+        case 'rgba8sint':
+            return { internalFormat: gl.RGBA8I, format: gl.RGBA_INTEGER, type: gl.BYTE, isDepth: false };
+        case 'r16uint':
+            return { internalFormat: gl.R16UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_SHORT, isDepth: false };
+        case 'rg16uint':
+            return { internalFormat: gl.RG16UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_SHORT, isDepth: false };
+        case 'rgba16uint':
+            return { internalFormat: gl.RGBA16UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_SHORT, isDepth: false };
+        case 'r16sint':
+            return { internalFormat: gl.R16I, format: gl.RED_INTEGER, type: gl.SHORT, isDepth: false };
+        case 'rg16sint':
+            return { internalFormat: gl.RG16I, format: gl.RG_INTEGER, type: gl.SHORT, isDepth: false };
+        case 'rgba16sint':
+            return { internalFormat: gl.RGBA16I, format: gl.RGBA_INTEGER, type: gl.SHORT, isDepth: false };
+        case 'r32uint':
+            return { internalFormat: gl.R32UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_INT, isDepth: false };
+        case 'rg32uint':
+            return { internalFormat: gl.RG32UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_INT, isDepth: false };
+        case 'rgba32uint':
+            return { internalFormat: gl.RGBA32UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_INT, isDepth: false };
+        case 'r32sint':
+            return { internalFormat: gl.R32I, format: gl.RED_INTEGER, type: gl.INT, isDepth: false };
+        case 'rg32sint':
+            return { internalFormat: gl.RG32I, format: gl.RG_INTEGER, type: gl.INT, isDepth: false };
+        case 'rgba32sint':
+            return { internalFormat: gl.RGBA32I, format: gl.RGBA_INTEGER, type: gl.INT, isDepth: false };
+        // Depth / depth-stencil.
+        case 'depth16unorm':
+            return { internalFormat: gl.DEPTH_COMPONENT16, format: gl.DEPTH_COMPONENT, type: gl.UNSIGNED_SHORT, isDepth: true };
+        case 'depth24plus':
+            return { internalFormat: gl.DEPTH_COMPONENT24, format: gl.DEPTH_COMPONENT, type: gl.UNSIGNED_INT, isDepth: true };
+        case 'depth32float':
+            return { internalFormat: gl.DEPTH_COMPONENT32F, format: gl.DEPTH_COMPONENT, type: gl.FLOAT, isDepth: true };
+        case 'depth24plus-stencil8':
+            return { internalFormat: gl.DEPTH24_STENCIL8, format: gl.DEPTH_STENCIL, type: gl.UNSIGNED_INT_24_8, isDepth: true };
+        case 'depth32float-stencil8':
+            return {
+                internalFormat: gl.DEPTH32F_STENCIL8,
+                format: gl.DEPTH_STENCIL,
+                type: gl.FLOAT_32_UNSIGNED_INT_24_8_REV,
+                isDepth: true,
+            };
+        default:
+            throw new Error(`[webgl] texture format '${format}' is not supported on the WebGL2 backend.`);
+    }
+}
+/**
+ * Whether a texture format is integer (`…uint`/`…sint`). Integer textures are never
+ * texture-filterable in WebGL2 — they must be read with `texelFetch` (nearest); a LINEAR filter makes
+ * the sample read as incomplete (black). Used to force NEAREST on upload and to reject a linear
+ * sampler paired with one.
+ */
+function isIntegerTextureFormat(format) {
+    return format.endsWith('uint') || format.endsWith('sint');
+}
+/**
+ * Whether a texture format is a depth (/stencil) format. Like integer formats, depth textures are NOT
+ * texture-filterable in WebGL2, so their default filter must be NEAREST or a non-comparison read returns 0.
+ */
+function isDepthTextureFormat(format) {
+    return format.startsWith('depth');
+}
+/**
+ * Whether a format is NOT texture-filterable on this device — its default (sampler-object-less) filter
+ * must be NEAREST, or a non-comparison `texture()`/`texelFetch()` read renders the texture INCOMPLETE and
+ * returns 0. Encodes WebGL2's filterability rule (the analog of three.js's DepthTexture/float-RT defaulting
+ * to NearestFilter): integer + depth are never filterable; 32-bit float needs `OES_texture_float_linear`
+ * (half-float linear is core). A comparison (shadow) sampler is unaffected — it binds its own sampler object.
+ */
+function isNonFilterableFormat(gl, format) {
+    if (isDepthTextureFormat(format))
+        return true;
+    const cls = mipmapClassOf(format);
+    if (cls === 'integer')
+        return true;
+    if (cls === 'float32')
+        return !gl.getExtension('OES_texture_float_linear');
+    return false;
+}
+function mipmapClassOf(format) {
+    if (isIntegerTextureFormat(format))
+        return 'integer';
+    if (format.includes('32float'))
+        return 'float32';
+    if (format.includes('16float'))
+        return 'float16';
+    return 'unorm';
+}
+/** One-time warn guard so a repeated non-mippable format doesn't spam the console. */
+const mipmapWarned = new Set();
+/**
+ * Whether `gl.generateMipmap` is safe for this texture's format. Integer formats are never
+ * filterable; 32-bit float needs OES_texture_float_linear; half-float linear is core in WebGL2. Warns
+ * once per format when skipping.
+ */
+function canGenerateMipmap(gl, format) {
+    const cls = mipmapClassOf(format);
+    if (cls === 'unorm' || cls === 'float16')
+        return true;
+    if (cls === 'float32') {
+        if (gl.getExtension('OES_texture_float_linear'))
+            return true;
+        if (!mipmapWarned.has(format)) {
+            mipmapWarned.add(format);
+            console.warn(`[webgl] skipping generateMipmap for '${format}': 32-bit float linear filtering ` +
+                `(OES_texture_float_linear) is unavailable, so mip generation would error.`);
+        }
+        return false;
+    }
+    // integer
+    if (!mipmapWarned.has(format)) {
+        mipmapWarned.add(format);
+        console.warn(`[webgl] skipping generateMipmap for integer format '${format}': not texture-filterable.`);
+    }
+    return false;
+}
+/** The GL bind target for a GpuTexture's view dimension. */
+function glTarget(gl, texture) {
+    switch (texture.viewDimension) {
+        case 'cube':
+            return gl.TEXTURE_CUBE_MAP;
+        case 'cube-array':
+            // WebGL2 core has no cube-array texture target (no GL_TEXTURE_CUBE_MAP_ARRAY).
+            throw new Error('[webgl] cube-array textures are not supported on the WebGL2 backend.');
+        case '2d-array':
+            return gl.TEXTURE_2D_ARRAY;
+        case '3d':
+            return gl.TEXTURE_3D;
+        default:
+            return gl.TEXTURE_2D;
+    }
+}
+/** Create an empty textures state. */
+function createTextureCache() {
+    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set(), tally: createTextureTally() };
+}
+/**
+ * Upload texels `[texelStart, texelStart + texelCount)` of a storage buffer reinterpreted as a
+ * `width`-wide grid of `bytesPerTexel`-byte texels (`glFormat` = RED/RG/RGBA_INTEGER to match),
+ * sourcing ZERO-COPY `Uint32Array` views over `source`, whose bytes for texel `texelStart` begin at
+ * `sourceByteOffset`.
+ *
+ * A linear span is not a rectangle, so it decomposes into at most three uploads: the partial head row,
+ * the block of whole rows, and the partial tail row. Head and tail are one row tall, so their row
+ * stride is never read; the block's rows are exactly `width` texels and contiguous, which is the unpack
+ * default. That keeps every piece expressible as a plain `texSubImage2D` over a subarray view, with no
+ * `UNPACK_ROW_LENGTH`/`SKIP_*` window to set and restore (three.js `WebGLTextures` needs that window
+ * only because it hands GL the whole source array rather than a view of the span).
+ *
+ * The caller clamps the span to the texels the buffer actually backs, so the grid's padded tail (the
+ * last row when `width` doesn't divide the texel count) is never addressed — those texels stay zeroed,
+ * and valid shader indices only reach `totalTexels - 1`.
+ */
+function uploadStorageSpan(gl, source, sourceByteOffset, width, texelStart, texelCount, bytesPerTexel, glFormat) {
+    const comps = bytesPerTexel / 4; // u32 lanes per texel (r32uint = 1, rg32uint = 2, rgba32uint = 4)
+    // the source byte offset of texel 0, which the views below index from
+    const base = sourceByteOffset - texelStart * bytesPerTexel;
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    let texel = texelStart;
+    let remaining = texelCount;
+    // Head: the partial row the span starts in (skipped when it starts row-aligned).
+    const headX = texel % width;
+    if (headX !== 0 && remaining > 0) {
+        const count = Math.min(width - headX, remaining);
+        const view = new Uint32Array(source, base + texel * bytesPerTexel, count * comps);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, headX, (texel - headX) / width, count, 1, glFormat, gl.UNSIGNED_INT, view);
+        texel += count;
+        remaining -= count;
+    }
+    // Block: every whole row the span covers, in one call.
+    const rows = Math.floor(remaining / width);
+    if (rows > 0) {
+        const view = new Uint32Array(source, base + texel * bytesPerTexel, rows * width * comps);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, texel / width, width, rows, glFormat, gl.UNSIGNED_INT, view);
+        texel += rows * width;
+        remaining -= rows * width;
+    }
+    // Tail: the partial row the span ends in.
+    if (remaining > 0) {
+        const view = new Uint32Array(source, base + texel * bytesPerTexel, remaining * comps);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, texel / width, remaining, 1, glFormat, gl.UNSIGNED_INT, view);
+    }
+}
+/** GL internal + pixel format for a storage mirror texel of `bytesPerTexel` bytes (u32 lanes). */
+function storageTexelFormat(gl, bytesPerTexel) {
+    if (bytesPerTexel === 4)
+        return { internalFormat: gl.R32UI, glFormat: gl.RED_INTEGER };
+    if (bytesPerTexel === 8)
+        return { internalFormat: gl.RG32UI, glFormat: gl.RG_INTEGER };
+    return { internalFormat: gl.RGBA32UI, glFormat: gl.RGBA_INTEGER };
+}
+/** The u32 texture format a storage() read-lowering allocates, by texel width. */
+function storageTexelFormatName(bytesPerTexel) {
+    if (bytesPerTexel === 4)
+        return 'r32uint';
+    if (bytesPerTexel === 8)
+        return 'rg32uint';
+    return 'rgba32uint';
+}
+/**
+ * Release a storage() read-lowering texture when its `GpuBuffer` is disposed.
+ *
+ * Chained rather than assigned: `transform-feedback.ts` also hangs a callback on a buffer's dispose,
+ * and whichever registers second must not drop the first.
+ */
+function setupStorageTextureDispose(gl, state, buffer) {
+    const previous = buffer._onDispose;
+    buffer._onDispose = () => {
+        previous?.();
+        const data = state.bufferData.get(buffer);
+        if (!data)
+            return;
+        gl.deleteTexture(data.texture);
+        state.all.delete(data.texture);
+        tallyClearTexture(state.tally, data.tally);
+        state.bufferData.delete(buffer);
+    };
+}
+/**
+ * Release a texture's GL object when its `GpuTexture` is disposed.
+ *
+ * The WebGPU backend has always done this (`webgpu/textures.ts` setupDispose); this backend did not,
+ * so every disposed atlas, render target and baked icon target kept its GL texture alive until the
+ * whole renderer went away. `RenderTarget.dispose()` calls straight through to `GpuTexture.dispose()`,
+ * so a repeated bake-and-discard (prefab icons) leaked one texture per bake.
+ *
+ * A resize does NOT come through here: `updateTexture` deletes and re-mints the GL object in place.
+ */
+function setupTextureDispose(gl, state, texture) {
+    if (texture._onDispose)
+        return;
+    texture._onDispose = () => {
+        const data = state.data.get(texture);
+        if (!data)
+            return;
+        gl.deleteTexture(data.texture);
+        state.all.delete(data.texture);
+        tallyClearTexture(state.tally, data.tally);
+        state.data.delete(texture);
+    };
+}
+/**
+ * Resolve (create/upload/re-sync) the GL texture for a read-only storage `GpuBuffer` bound AS an
+ * rgba32uint texture, and return it bound-ready. The pixel data is a ZERO-COPY `Uint32Array` view over
+ * the buffer's own `ArrayBuffer` — the same bytes seen as `width × height` u32 texels — so nothing is
+ * duplicated on the CPU. The grid width is `min(totalTexels, MAX_TEXTURE_SIZE)` (chosen at compile) so
+ * `width` need not divide the texel count: the last row is padded and never addressed (see
+ * {@link uploadStorageSpan}). Cached per `GpuBuffer`; re-synced when `buffer.version` moves or ranges are
+ * queued — one upload run per merged dirty span for `packAtIndex`/`addUpdateRange` writes, a full upload
+ * for a bare version bump, or a full re-allocation if the texel grid grew. The caller binds it.
+ */
+function updateStorageBufferTexture(gl, state, source) {
+    const { buffer, width, height, bytesPerTexel } = source;
+    if (!buffer.cpu)
+        return ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel).texture;
+    const arr = buffer.array;
+    if (arr == null) {
+        throw new Error('[webgl] storage() read-lowering: the storage buffer has no CPU `array` to reinterpret ' +
+            '(its data was released after upload); keep it resident to sample it on WebGL2.');
+    }
+    const { internalFormat, glFormat } = storageTexelFormat(gl, bytesPerTexel);
+    const comps = bytesPerTexel / 4; // u32 lanes per texel — the unit for `updateRanges` row math below
+    // Validate the texel grid against the real device cap (read once). The compile-time width pick uses
+    // this same cap, so `width ≤ MAX`; `height = ceil(totalTexels / width)` can still exceed it for a
+    // buffer larger than `MAX²` texels → reject clearly rather than let GL fail opaquely.
+    if (state.maxTextureSize == null)
+        state.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    const max = state.maxTextureSize;
+    if (width > max || height > max) {
+        throw new Error(`[webgl] storage() read-lowering: the buffer needs a ${width}×${height} texel grid, which ` +
+            `exceeds this device's MAX_TEXTURE_SIZE=${max}; split or reshape the buffer.`);
+    }
+    // The buffer is a whole number of texels (guarded at compile). `width` may not divide it, so the
+    // grid's last row is partly padding; uploads clamp to `totalTexels` and never touch it.
+    const totalTexels = arr.byteLength / bytesPerTexel;
+    let data = state.bufferData.get(buffer);
+    if (!data) {
+        const texture = gl.createTexture();
+        if (!texture)
+            throw new Error('[webgl] gl.createTexture returned null (storage buffer texture).');
+        state.all.add(texture);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        // Allocate the full (possibly padded) grid, then fill from the buffer's bytes.
+        gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
+        // Integer textures are never filterable — NEAREST, clamp; sampled only via texelFetch.
+        setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
+        uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
+        data = { texture, tally: createTextureTallyEntry(), version: buffer.version, width, height, bytesPerTexel };
+        // A storage() read-lowering IS a resident texture, so it counts like any other. Bucketed under
+        // the u32 format it actually is; WebGPU reads the buffer directly and has no counterpart row.
+        tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
+        setupStorageTextureDispose(gl, state, buffer);
+        state.bufferData.set(buffer, data);
+        return texture;
+    }
+    const sizeChanged = data.width !== width || data.height !== height;
+    // Clean (version matched, no queued ranges, same size) → the cached texture is already current.
+    if (!sizeChanged && data.version === buffer.version && buffer.updateRangeCount === 0) {
+        return data.texture;
+    }
+    gl.bindTexture(gl.TEXTURE_2D, data.texture);
+    if (sizeChanged) {
+        // Grow/shrink → re-specify the whole mutable texture at the new size (queued ranges are moot).
+        gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
+        uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
+        data.width = width;
+        data.height = height;
+        // Same entry, new size: move the bytes without moving the count.
+        tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
+    }
+    else {
+        // Same size: upload each merged dirty span when `packAtIndex`/`addUpdateRange` queued ranges.
+        // `updateRanges` are flat COMPONENT indices, so each widens to the texels it touches (u32 lanes
+        // per texel: r32uint 1, rg32uint 2, rgba32uint 4), clamped to the texels the buffer backs. The
+        // spans are kept SEPARATE rather than hulled together: a streaming arena dirties a handful of
+        // small, far-apart regions per frame, and one covering span over those is the whole buffer.
+        // A bare version bump, or more dirty texels than half the buffer, takes one full upload instead.
+        const ranges = buffer.updateRanges;
+        const rangeCount = mergeUpdateRanges(ranges, buffer.updateRangeCount);
+        let dirtyTexels = 0;
+        for (let i = 0; i < rangeCount; i++) {
+            const r = ranges[i];
+            dirtyTexels += Math.ceil((r.start + r.count) / comps) - Math.floor(r.start / comps);
+        }
+        if (dirtyTexels > 0 && dirtyTexels <= totalTexels / 2) {
+            for (let i = 0; i < rangeCount; i++) {
+                const r = ranges[i];
+                const from = Math.floor(r.start / comps);
+                const to = Math.min(totalTexels, Math.ceil((r.start + r.count) / comps));
+                if (to > from) {
+                    const sourceByteOffset = arr.byteOffset + from * bytesPerTexel;
+                    uploadStorageSpan(gl, arr.buffer, sourceByteOffset, width, from, to - from, bytesPerTexel, glFormat);
+                }
+            }
+        }
+        else {
+            uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
+        }
+    }
+    buffer.clearUpdateRanges();
+    data.version = buffer.version;
+    return data.texture;
+}
+/** the mirror texture of a `cpu: false` storage buffer, zeroed on first use and never re-specified, since only writes fill it. */
+function ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel) {
+    const existing = state.bufferData.get(buffer);
+    if (existing) {
+        if (existing.bytesPerTexel !== bytesPerTexel) {
+            throw new Error(`[webgl] storage() read-lowering: buffer '${buffer.label ?? 'unlabelled'}' is read with ${bytesPerTexel}-byte ` +
+                `texels but was written with ${existing.bytesPerTexel}-byte ones; read it with its own element type.`);
+        }
+        return existing;
+    }
+    if (state.maxTextureSize == null)
+        state.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    const { width, height } = storageMirrorGrid(buffer.byteLength, bytesPerTexel, state.maxTextureSize, '[webgl] storage() read-lowering');
+    if (height > state.maxTextureSize) {
+        throw new Error(`[webgl] storage() read-lowering: the buffer needs a ${width}x${height} texel grid, which ` +
+            `exceeds this device's MAX_TEXTURE_SIZE=${state.maxTextureSize}; split or reshape the buffer.`);
+    }
+    const { internalFormat, glFormat } = storageTexelFormat(gl, bytesPerTexel);
+    const texture = gl.createTexture();
+    if (!texture)
+        throw new Error('[webgl] gl.createTexture returned null (storage buffer texture).');
+    state.all.add(texture);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
+    setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
+    const data = {
+        texture,
+        tally: createTextureTallyEntry(),
+        version: buffer.version,
+        width,
+        height,
+        bytesPerTexel,
+    };
+    tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
+    setupStorageTextureDispose(gl, state, buffer);
+    state.bufferData.set(buffer, data);
+    return data;
+}
+/** `writeBuffer` into a `cpu: false` storage buffer's mirror texture; the span must cover whole texels of the element. */
+function writeStorageTexture(gl, state, buffer, byteOffset, data, dataByteOffset, byteSize) {
+    const bytesPerTexel = storageMirrorBytesPerTexel(storageElement(buffer));
+    assertTexelSpan('writeBuffer', buffer, bytesPerTexel, byteOffset, byteSize);
+    const mirror = ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel);
+    gl.bindTexture(gl.TEXTURE_2D, mirror.texture);
+    const { glFormat } = storageTexelFormat(gl, bytesPerTexel);
+    const texelStart = byteOffset / bytesPerTexel;
+    const texelCount = byteSize / bytesPerTexel;
+    const sourceByteOffset = data.byteOffset + dataByteOffset;
+    uploadStorageSpan(gl, data.buffer, sourceByteOffset, mirror.width, texelStart, texelCount, bytesPerTexel, glFormat);
+}
+/** Get the cached GlTextureData for a GpuTexture (or null if never seen). */
+function getTextureData(state, texture) {
+    return state.data.get(texture) ?? null;
+}
+/** Set a texture's min-filter so a texture without an explicit sampler object still samples. */
+function setDefaultMinFilter(gl, target, generateMipmaps, nonFilterable) {
+    // A freshly-created GL texture defaults to a mipmapped min-filter, which reads as "incomplete"
+    // when no mips exist. Sampler objects override this at bind time, but set a safe baseline here.
+    // Integer AND depth textures are NOT texture-filterable in WebGL2 — a LINEAR filter makes them
+    // texture-INCOMPLETE, so a non-comparison `texture()`/`texelFetch()` read returns 0 (this is why a
+    // depth render target sampled via `.load()`/`.sample()` came back black). They must be NEAREST here.
+    // A comparison (shadow) sampler still works: it binds its own sampler object, overriding this.
+    const min = nonFilterable ? gl.NEAREST : generateMipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR;
+    gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, min);
+    gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, nonFilterable ? gl.NEAREST : gl.LINEAR);
+    gl.texParameteri(target, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(target, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+}
+/** Create (and cache) the GL texture object for a GpuTexture, without uploading. */
+function ensureGlTexture(gl, state, texture) {
+    let data = state.data.get(texture);
+    if (!data) {
+        const glTexture = gl.createTexture();
+        if (!glTexture)
+            throw new Error('[webgl] gl.createTexture returned null.');
+        state.all.add(glTexture);
+        setupTextureDispose(gl, state, texture);
+        data = {
+            texture: glTexture,
+            target: glTarget(gl, texture),
+            fmt: glFormat(gl, texture.format),
+            version: -1,
+            generation: 0,
+            tally: createTextureTallyEntry(),
+            allocated: false,
+            allocW: 0,
+            allocD: 0,
+            allocH: 0,
+        };
+        state.data.set(texture, data);
+    }
+    return data;
+}
+/** Extract a raw typed-array view from a DataTexture-style source, or null. */
+function typedArrayOf(sourceData) {
+    if (sourceData && typeof sourceData === 'object' && 'data' in sourceData) {
+        const d = sourceData.data;
+        if (ArrayBuffer.isView(d))
+            return d;
+    }
+    return null;
+}
+/** True if the source data is a browser image that copyExternalImage/texImage2D accepts directly. */
+function isExternalImage(data) {
+    if (!data || typeof data !== 'object')
+        return false;
+    return ((typeof ImageBitmap !== 'undefined' && data instanceof ImageBitmap) ||
+        (typeof HTMLImageElement !== 'undefined' && data instanceof HTMLImageElement) ||
+        (typeof HTMLCanvasElement !== 'undefined' && data instanceof HTMLCanvasElement) ||
+        (typeof OffscreenCanvas !== 'undefined' && data instanceof OffscreenCanvas) ||
+        (typeof HTMLVideoElement !== 'undefined' && data instanceof HTMLVideoElement) ||
+        (typeof ImageData !== 'undefined' && data instanceof ImageData));
+}
+/** Upload the primary 2D source (typed-array DataTexture data or an external image) at level 0. */
+function upload2D(gl, texture, data) {
+    const source = texture.source;
+    if (!source || !source.data)
+        return;
+    const { internalFormat, format, type } = data.fmt;
+    const w = texture.width;
+    const h = texture.height;
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, texture.flipY);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, texture.premultiplyAlpha);
+    const typed = typedArrayOf(source.data);
+    if (typed) {
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+        gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, w, h, 0, format, type, typed);
+    }
+    else if (isExternalImage(source.data)) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, format, type, source.data);
+    }
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+}
+/**
+ * Point the unpack window at a sub-rect of a full-width packed buffer.
+ *
+ * `UNPACK_ROW_LENGTH` / `SKIP_PIXELS` / `SKIP_ROWS` (and the 3D pair `IMAGE_HEIGHT` / `SKIP_IMAGES`) let
+ * GL read a box out of the middle of a packed array with no staging copy. They are WebGL2-only, which is
+ * why WebGL1-era engines stage a tight copy instead. Row length is in PIXELS, so this stays correct
+ * whatever the component count.
+ */
+function setUnpackWindow(gl, rowLength, imageHeight, skipPixels, skipRows, skipImages) {
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, rowLength);
+    gl.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, imageHeight);
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, skipPixels);
+    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, skipRows);
+    gl.pixelStorei(gl.UNPACK_SKIP_IMAGES, skipImages);
+}
+/**
+ * Restore the unpack window to the GL defaults. These are global state, so leaving a skip set silently
+ * corrupts every later upload in the frame. Reset rather than save/restore: `getParameter` is a
+ * round-trip, and nothing here depends on a non-default window.
+ */
+function resetUnpackWindow(gl) {
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+    gl.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_IMAGES, 0);
+}
+/**
+ * Upload one dirty region into the existing GL texture, honouring `x`/`width`, `z` and `level` exactly.
+ *
+ * This never re-enters `texStorage3D`: array storage is immutable, so the partial path writes into the
+ * allocation the full upload already established.
+ */
+function uploadPartialRegion(gl, texture, data, r) {
+    const { format, type } = data.fmt;
+    const dim = texture.viewDimension;
+    // Level 0 reads `source` / `sources`; a higher level reads its explicit mip, which is always packed
+    // across layers.
+    const packed = r.level === 0 ? texture.source : texture.mipmaps[r.level - 1];
+    const levelWidth = r.level === 0 ? texture.width : Math.max(1, packed?.width ?? 1);
+    const levelHeight = r.level === 0 ? texture.height : Math.max(1, packed?.height ?? 1);
+    if (dim === 'cube' || dim === 'cube-array') {
+        if (r.level !== 0)
+            return; // explicit cube mips take the full path
+        setUnpackWindow(gl, levelWidth, 0, r.x, r.y, 0);
+        for (let i = 0; i < r.depth; i++) {
+            const face = r.z + i;
+            const typed = typedArrayOf(texture.sources[face]?.data);
+            if (!typed)
+                continue;
+            // A face is a distinct GL bind target here rather than a z offset, but `z` still means the
+            // same face index the WebGPU backend passes as `origin.z`. Same meaning, different spelling.
+            const target = gl.TEXTURE_CUBE_MAP_POSITIVE_X + face;
+            gl.texSubImage2D(target, r.level, r.x, r.y, r.width, r.height, format, type, typed);
+        }
+        return;
+    }
+    if (dim === '2d-array') {
+        // Per-layer sources: one call per layer, each reading from its own buffer.
+        if (r.level === 0 && texture.sources.length > 0) {
+            setUnpackWindow(gl, levelWidth, 0, r.x, r.y, 0);
+            for (let i = 0; i < r.depth; i++) {
+                const layer = r.z + i;
+                const typed = typedArrayOf(texture.sources[layer]?.data);
+                if (!typed)
+                    continue;
+                gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, r.level, r.x, r.y, layer, r.width, r.height, 1, format, type, typed);
+            }
+            return;
+        }
+        // Packed across layers: SKIP_IMAGES + IMAGE_HEIGHT carry the layer stride, so the whole region
+        // goes in one call whatever rows it covers.
+        const typed = typedArrayOf(packed?.data);
+        if (!typed)
+            return;
+        setUnpackWindow(gl, levelWidth, levelHeight, r.x, r.y, r.z);
+        gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, r.level, r.x, r.y, r.z, r.width, r.height, r.depth, format, type, typed);
+        return;
+    }
+    const typed = typedArrayOf(packed?.data);
+    if (!typed)
+        return;
+    setUnpackWindow(gl, levelWidth, 0, r.x, r.y, 0);
+    gl.texSubImage2D(gl.TEXTURE_2D, r.level, r.x, r.y, r.width, r.height, format, type, typed);
+}
+/** Upload the 6 cube faces (face order +X,-X,+Y,-Y,+Z,-Z) at level 0. */
+function uploadCube(gl, texture, data) {
+    if (texture.sources.length < 6)
+        return;
+    const { internalFormat, format, type } = data.fmt;
+    const w = texture.width;
+    const h = texture.height;
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, texture.flipY);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, texture.premultiplyAlpha);
+    for (let face = 0; face < 6; face++) {
+        const source = texture.sources[face];
+        if (!source?.data)
+            continue;
+        const target = gl.TEXTURE_CUBE_MAP_POSITIVE_X + face;
+        const typed = typedArrayOf(source.data);
+        if (typed) {
+            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+            gl.texImage2D(target, 0, internalFormat, w, h, 0, format, type, typed);
+        }
+        else if (isExternalImage(source.data)) {
+            gl.texImage2D(target, 0, internalFormat, format, type, source.data);
+        }
+    }
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+}
+/** Upload a 2D array texture — allocate storage, then fill each layer. */
+function uploadArray(gl, texture, data) {
+    const { internalFormat, format, type } = data.fmt;
+    const w = texture.width;
+    const h = texture.height;
+    const layers = texture.depthOrArrayLayers;
+    const levels = mipLevelCountFor(texture);
+    // 2D-array must be allocated via texStorage3D then filled per-layer with texSubImage3D.
+    gl.texStorage3D(gl.TEXTURE_2D_ARRAY, levels, internalFormat, w, h, layers);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, texture.flipY);
+    if (texture.sources.length > 0) {
+        for (let layer = 0; layer < texture.sources.length && layer < layers; layer++) {
+            const typed = typedArrayOf(texture.sources[layer]?.data);
+            if (typed) {
+                gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, w, h, 1, format, type, typed);
+            }
+            else if (isExternalImage(texture.sources[layer]?.data)) {
+                gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, w, h, 1, format, type, texture.sources[layer].data);
+            }
+        }
+    }
+    else if (texture.source) {
+        // Packed source: all layers contiguous in one typed array.
+        const typed = typedArrayOf(texture.source.data);
+        if (typed) {
+            gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, w, h, layers, format, type, typed);
+        }
+    }
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+}
+/** Upload a 3D texture — allocate immutable storage, then fill the volume at level 0. */
+function upload3D(gl, texture, data) {
+    const { internalFormat, format, type } = data.fmt;
+    const w = texture.width;
+    const h = texture.height;
+    const depth = texture.depthOrArrayLayers;
+    const levels = mipLevelCountFor(texture);
+    if (texture.mipmaps.length > 0) {
+        // Per-level 3D mip upload isn't wired here; texStorage3D + a single level-0 fill is the
+        // supported path. (No current caller supplies explicit 3D mips.)
+        throw new Error('[webgl] explicit mipmaps for 3D textures are not supported on the WebGL2 backend.');
+    }
+    // 3D storage is immutable; allocate then fill with texSubImage3D. Filterable formats only for
+    // auto-mip generation (handled by the caller via canGenerateMipmap).
+    gl.texStorage3D(gl.TEXTURE_3D, levels, internalFormat, w, h, depth);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, texture.flipY);
+    const typed = typedArrayOf(texture.source?.data);
+    if (typed) {
+        gl.texSubImage3D(gl.TEXTURE_3D, 0, 0, 0, 0, w, h, depth, format, type, typed);
+    }
+    else if (isExternalImage(texture.source?.data)) {
+        // A single external image only covers one depth slice; upload it at slice 0.
+        gl.texSubImage3D(gl.TEXTURE_3D, 0, 0, 0, 0, w, h, 1, format, type, texture.source.data);
+    }
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+}
+/**
+ * Upload user-supplied explicit mip levels (`texture.mipmaps`), one per level starting at level 1
+ * (level 0 is the primary source, already uploaded). Mirrors the WebGPU `uploadExplicitMips`. Each mip
+ * Source carries its own dimensions. For 2D-array/cube the data is packed across layers; for 2D it's a
+ * single image. Sources with no/not-ready data are skipped (their level keeps whatever was there).
+ */
+function uploadExplicitMips(gl, texture, data) {
+    const { format, type } = data.fmt;
+    const dim = texture.viewDimension;
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, texture.flipY);
+    for (let i = 0; i < texture.mipmaps.length; i++) {
+        const source = texture.mipmaps[i];
+        if (!source?.data)
+            continue;
+        const level = i + 1;
+        const w = source.width;
+        const h = source.height;
+        const typed = typedArrayOf(source.data);
+        const external = isExternalImage(source.data);
+        if (!typed && !external)
+            continue;
+        if (dim === '2d-array') {
+            const layers = Math.max(source.depth, 1);
+            if (typed) {
+                gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, level, 0, 0, 0, w, h, layers, format, type, typed);
+            }
+            // texStorage3D (immutable) allocated the levels; external-image per-level array upload is
+            // not expressible in a single call and has no current caller.
+        }
+        else if (dim === 'cube') {
+            // One face image per Source is ambiguous for cube mips; not supported.
+            throw new Error('[webgl] explicit mipmaps for cube textures are not supported on the WebGL2 backend.');
+        }
+        else {
+            const { internalFormat } = data.fmt;
+            if (typed) {
+                gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, w, h, 0, format, type, typed);
+            }
+            else if (external) {
+                gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, format, type, source.data);
+            }
+        }
+    }
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+}
+/**
+ * Ensure a GpuTexture's GL texture exists, is allocated at its current size/format, and (for
+ * source-backed textures) has its data uploaded. Version-gated: a no-op once `data.version` matches
+ * `texture.version`. Returns the cache entry.
+ *
+ * Render-target textures (`isRenderTargetTexture`) carry no source; their storage is (re)established
+ * here at the current size and their pixels are filled by an FBO render — so this only creates +
+ * allocates them (via `texImage2D`/`texStorage` with a null/absent source), never uploads.
+ */
+function updateTexture(gl, state, texture) {
+    const data = ensureGlTexture(gl, state, texture);
+    if (data.allocated && data.version === texture.version)
+        return data;
+    // Partial upload: an in-place `packAtIndex`/`addUpdateRegion` queued dirty boxes (no full re-upload
+    // and no resize) → re-specify only those via `texSubImage2D` on the existing GL texture, skipping the
+    // delete + full `texImage2D` below. A full flag (`needsUpdate`/grow) or a size change takes priority.
+    // `> ½` the texture dirty → fall through to a full upload (fewer, simpler calls).
+    //
+    // Regions are honoured exactly, sub-rect and mip level included, via the WebGL2 unpack window
+    // (UNPACK_ROW_LENGTH / SKIP_PIXELS / SKIP_ROWS) reading the box out of the packed source in place.
+    if (data.allocated &&
+        !texture.needsFullUpload &&
+        texture.updateRegions.length > 0 &&
+        supportsPartialUpload(texture) &&
+        hasTypedPartialSource(texture) &&
+        !texture.isRenderTargetTexture &&
+        data.allocW === texture.width &&
+        data.allocH === texture.height &&
+        data.allocD === texture.depthOrArrayLayers) {
+        if (withinPartialBudget(texture, texture.updateRegions)) {
+            gl.bindTexture(data.target, data.texture);
+            for (const r of texture.updateRegions)
+                uploadPartialRegion(gl, texture, data, r);
+            resetUnpackWindow(gl);
+            // Auto-generated mips go stale the moment level 0 moves. (An explicit chain instead gets
+            // per-level regions derived at `addUpdateRegion` time, so it is already covered above.)
+            if (texture.mipmaps.length === 0 &&
+                texture.generateMipmaps &&
+                !data.fmt.isDepth &&
+                canGenerateMipmap(gl, texture.format)) {
+                gl.generateMipmap(data.target);
+            }
+            texture.updateRegions.length = 0;
+            data.version = texture.version;
+            return data;
+        }
+    }
+    // Re-allocation (a resize or format change bumped `texture.version` on an already-allocated
+    // texture): render-target storage is immutable (`texStorage2D`), so it can't be re-specified on the
+    // same GL object — a second `texStorage2D` errors with INVALID_OPERATION and leaves the OLD size in
+    // place, giving a size-mismatched FBO attachment (FRAMEBUFFER_INCOMPLETE_ATTACHMENT on strict
+    // drivers). Delete the stale GL texture and mint a fresh one so the new storage is specified cleanly.
+    // (This is the path a resized RenderTextureNode render target — e.g. a 4× rgba16float MRT pass — takes.)
+    if (data.allocated) {
+        gl.deleteTexture(data.texture);
+        state.all.delete(data.texture);
+        const fresh = gl.createTexture();
+        if (!fresh)
+            throw new Error('[webgl] gl.createTexture returned null.');
+        state.all.add(fresh);
+        data.texture = fresh;
+        data.allocated = false;
+    }
+    // A format change (rare) would need a new GL format triple; refresh it defensively.
+    data.fmt = glFormat(gl, texture.format);
+    data.target = glTarget(gl, texture);
+    gl.bindTexture(data.target, data.texture);
+    setDefaultMinFilter(gl, data.target, texture.generateMipmaps, isNonFilterableFormat(gl, texture.format));
+    const dim = texture.viewDimension;
+    if (texture.isRenderTargetTexture) {
+        // Render-target color/depth: allocate storage only (no source). The FBO render fills it.
+        allocateRenderTargetStorage(gl, texture, data);
+    }
+    else if (!texture.cpu) {
+        allocateCpuLessStorage(gl, texture, data);
+    }
+    else if (dim === 'cube' || dim === 'cube-array') {
+        uploadCube(gl, texture, data);
+    }
+    else if (dim === '2d-array') {
+        uploadArray(gl, texture, data);
+    }
+    else if (dim === '3d') {
+        upload3D(gl, texture, data);
+    }
+    else {
+        upload2D(gl, texture, data);
+    }
+    // Mip levels: user-supplied explicit mips take precedence over auto-generation (mirrors WebGPU).
+    if (!texture.isRenderTargetTexture && !data.fmt.isDepth && texture.mipmaps.length > 0) {
+        uploadExplicitMips(gl, texture, data);
+    }
+    else if (texture.generateMipmaps &&
+        !texture.isRenderTargetTexture &&
+        !data.fmt.isDepth &&
+        canGenerateMipmap(gl, texture.format)) {
+        gl.generateMipmap(data.target);
+    }
+    // A full (re)upload supersedes any queued partial regions and clears the full flag. Record the
+    // allocated size so later in-place stores can take the partial `texSubImage2D` path above.
+    texture.updateRegions.length = 0;
+    texture.needsFullUpload = false;
+    data.allocW = texture.width;
+    data.allocH = texture.height;
+    data.allocD = texture.depthOrArrayLayers;
+    data.version = texture.version;
+    data.generation++;
+    data.allocated = true;
+    // After allocation, so a resize re-tallies the new size against the same entry.
+    tallySetTexture(state.tally, data.tally, texture.format, gpuTextureBytes(texture));
+    return data;
+}
+/**
+ * Allocate GL storage for a render-target color/depth texture at the target's size, with no upload.
+ * Uses `texStorage2D` (immutable storage — attachable to an FBO and sampleable) for 2D targets, and
+ * `texStorage2D(TEXTURE_CUBE_MAP, …)` for a cube render target (all 6 faces allocated at once — a
+ * CubeRenderTarget renders each face and samples the result as an environment map).
+ */
+function allocateRenderTargetStorage(gl, texture, data) {
+    const w = texture.width;
+    const h = texture.height;
+    const levels = mipLevelCountFor(texture);
+    if (data.target === gl.TEXTURE_CUBE_MAP) {
+        // Immutable storage allocates all 6 faces at once; each face is then attachable to an FBO
+        // via framebufferTexture2D(TEXTURE_CUBE_MAP_POSITIVE_X + face, ...) (see render-target.ts).
+        gl.texStorage2D(gl.TEXTURE_CUBE_MAP, levels, data.fmt.internalFormat, w, h);
+    }
+    else if (levels > 1) {
+        // Mipmapped 2D target: immutable storage for the whole chain.
+        gl.texStorage2D(gl.TEXTURE_2D, levels, data.fmt.internalFormat, w, h);
+    }
+    else {
+        // Single-level 2D target: MUTABLE `texImage2D`, matching three.js's render-target allocation.
+        // Some drivers (notably Chrome/ANGLE-on-Metal) return FRAMEBUFFER_UNSUPPORTED for an immutable
+        // `texStorage2D` color attachment; `texImage2D` is the broadly-compatible path.
+        gl.texImage2D(gl.TEXTURE_2D, 0, data.fmt.internalFormat, w, h, 0, data.fmt.format, data.fmt.type, null);
+    }
+    data.allocW = w;
+    data.allocH = h;
+}
+/** Immutable storage for a `cpu: false` texture, every level, zeroed as WebGL allocates it; writeTexture fills it. */
+function allocateCpuLessStorage(gl, texture, data) {
+    const levels = mipLevelCountFor(texture);
+    const { internalFormat } = data.fmt;
+    if (data.target === gl.TEXTURE_2D_ARRAY || data.target === gl.TEXTURE_3D) {
+        gl.texStorage3D(data.target, levels, internalFormat, texture.width, texture.height, texture.depthOrArrayLayers);
+    }
+    else {
+        gl.texStorage2D(data.target, levels, internalFormat, texture.width, texture.height);
+    }
+}
+/** `writeTexture` for WebGL2: `texSubImage` of one box from packed `data`, one call per cube face. */
+function writeTextureRegion(gl, state, texture, region, data) {
+    const target = updateTexture(gl, state, texture);
+    const { format, type } = target.fmt;
+    const { x, y, z, width, height, depth, level } = region;
+    gl.bindTexture(target.target, target.texture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    if (target.target === gl.TEXTURE_2D_ARRAY || target.target === gl.TEXTURE_3D) {
+        gl.texSubImage3D(target.target, level, x, y, z, width, height, depth, format, type, data);
+    }
+    else if (target.target === gl.TEXTURE_CUBE_MAP) {
+        const faceElements = (width * height * bytesPerTexel(texture.format)) / data.BYTES_PER_ELEMENT;
+        for (let face = 0; face < depth; face++) {
+            const faceTarget = gl.TEXTURE_CUBE_MAP_POSITIVE_X + z + face;
+            gl.texSubImage2D(faceTarget, level, x, y, width, height, format, type, data, face * faceElements);
+        }
+    }
+    else {
+        gl.texSubImage2D(gl.TEXTURE_2D, level, x, y, width, height, format, type, data);
+    }
+}
+/**
+ * A `copyBuffer` between the mirror textures of two `cpu: false` storage buffers: the source's mirror
+ * attaches to a read framebuffer and `copyTexSubImage2D` moves each run of texels that stays within one
+ * row of both grids. Grids of one width, with the span starting in the same column of each, move every
+ * whole row in one call.
+ */
+function copyStorageTextureSpan(gl, state, source, sourceByteOffset, destination, destinationByteOffset, byteSize) {
+    const bytesPerTexel = storageMirrorBytesPerTexel(storageElement(destination));
+    const from = ensureCpuLessStorageTexture(gl, state, source, storageMirrorBytesPerTexel(storageElement(source)));
+    const to = ensureCpuLessStorageTexture(gl, state, destination, bytesPerTexel);
+    assertTexelSpan('copyBuffer', destination, bytesPerTexel, destinationByteOffset, byteSize);
+    if (from.bytesPerTexel !== bytesPerTexel || sourceByteOffset % bytesPerTexel !== 0) {
+        throw new Error(`[webgl] copyBuffer: '${source.label ?? 'unlabelled'}' is mirrored as ${from.bytesPerTexel}-byte texels and ` +
+            `'${destination.label ?? 'unlabelled'}' as ${bytesPerTexel}-byte ones, from offset ${sourceByteOffset}; ` +
+            'a copy between mirrors moves whole texels of one size.');
+    }
+    withCopyFramebuffer(gl, state, () => {
+        gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, from.texture, 0);
+        gl.bindTexture(gl.TEXTURE_2D, to.texture);
+        forEachTexelRun(sourceByteOffset / bytesPerTexel, destinationByteOffset / bytesPerTexel, byteSize / bytesPerTexel, from.width, to.width, (fromTexel, toX, toY, width, rows) => {
+            const fromX = fromTexel % from.width;
+            const fromY = Math.floor(fromTexel / from.width);
+            gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, toX, toY, fromX, fromY, width, rows);
+        });
+    });
+}
+/**
+ * A `copyBuffer` from a GL buffer into the mirror texture of a `cpu: false` storage buffer: the source
+ * binds as the pixel unpack buffer and each run of texels unpacks from its offset. The source is linear,
+ * so every whole row of the destination unpacks in one call.
+ */
+function unpackStorageTextureSpan(gl, state, source, sourceByteOffset, destination, destinationByteOffset, byteSize) {
+    const bytesPerTexel = storageMirrorBytesPerTexel(storageElement(destination));
+    assertTexelSpan('copyBuffer', destination, bytesPerTexel, destinationByteOffset, byteSize);
+    const to = ensureCpuLessStorageTexture(gl, state, destination, bytesPerTexel);
+    const { glFormat } = storageTexelFormat(gl, bytesPerTexel);
+    gl.bindTexture(gl.TEXTURE_2D, to.texture);
+    gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, source);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    const firstTexel = destinationByteOffset / bytesPerTexel;
+    forEachTexelRun(firstTexel, firstTexel, byteSize / bytesPerTexel, null, to.width, (texel, toX, toY, width, rows) => {
+        const offset = sourceByteOffset + (texel - firstTexel) * bytesPerTexel;
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, toX, toY, width, rows, glFormat, gl.UNSIGNED_INT, offset);
+    });
+    gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
+}
+/** whether a storage buffer has a mirror texture yet. */
+function hasStorageTexture(state, buffer) {
+    return state.bufferData.has(buffer);
+}
+function storageElement(buffer) {
+    return buffer.schema.element ?? buffer.schema;
+}
+function assertTexelSpan(what, buffer, bytesPerTexel, byteOffset, byteSize) {
+    if (byteOffset % bytesPerTexel !== 0 || byteSize % bytesPerTexel !== 0) {
+        throw new Error(`[webgl] ${what}: buffer '${buffer.label ?? 'unlabelled'}' is mirrored as ${bytesPerTexel}-byte texels, ` +
+            `so the offset (${byteOffset}) and size (${byteSize}) must be multiples of ${bytesPerTexel}.`);
+    }
+}
+/**
+ * Splits a run of `count` texels into rectangles that stay within the rows of both grids, calling
+ * `copy` with the source texel each starts at, its destination corner, and its size. A `null`
+ * `fromWidth` is a linear source, which any whole destination rows can come from at once.
+ */
+function forEachTexelRun(fromTexel, toTexel, count, fromWidth, toWidth, copy) {
+    let remaining = count;
+    while (remaining > 0) {
+        const toX = toTexel % toWidth;
+        const toY = Math.floor(toTexel / toWidth);
+        const fromX = fromWidth === null ? 0 : fromTexel % fromWidth;
+        const sameRows = fromWidth === null || (fromWidth === toWidth && fromX === 0);
+        if (toX === 0 && sameRows && remaining >= toWidth) {
+            const rows = Math.floor(remaining / toWidth);
+            copy(fromTexel, 0, toY, toWidth, rows);
+            fromTexel += rows * toWidth;
+            toTexel += rows * toWidth;
+            remaining -= rows * toWidth;
+            continue;
+        }
+        const width = Math.min(toWidth - toX, fromWidth === null ? remaining : fromWidth - fromX, remaining);
+        copy(fromTexel, toX, toY, width, 1);
+        fromTexel += width;
+        toTexel += width;
+        remaining -= width;
+    }
+}
+/** runs `body` with the copy framebuffer bound for reading, then restores the read binding. */
+function withCopyFramebuffer(gl, state, body) {
+    if (!state.copyFramebuffer) {
+        const framebuffer = gl.createFramebuffer();
+        if (!framebuffer)
+            throw new Error('[webgl] gl.createFramebuffer returned null (copy framebuffer).');
+        state.copyFramebuffer = framebuffer;
+    }
+    const previous = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, state.copyFramebuffer);
+    try {
+        body();
+    }
+    finally {
+        gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, null, 0);
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, previous);
+    }
+}
+/**
+ * Generate mipmaps for an already-allocated render-target color texture once the render pass that
+ * writes it has finished. Binds the texture at its view-dimension target (2D, cube, or 2D-array — the
+ * storage was allocated with a full mip chain when `generateMipmaps` is set, see
+ * `allocateRenderTargetStorage`) and calls `gl.generateMipmap`, filling the lower levels. Called from
+ * the renderer's render-finish step for any render-target color texture whose `generateMipmaps` is
+ * true. Guards: only when the texture wants mips, its format is mip-generatable, and it has an
+ * allocated GL texture.
+ */
+function generateTextureMipmaps(gl, state, texture) {
+    if (!texture.generateMipmaps)
+        return;
+    if (!canGenerateMipmap(gl, texture.format))
+        return;
+    const data = state.data.get(texture);
+    if (!data || !data.allocated)
+        return;
+    gl.bindTexture(data.target, data.texture);
+    gl.generateMipmap(data.target);
+}
+/** Delete all GL textures (called on renderer dispose). */
+function disposeTextureCache(gl, state) {
+    for (const tex of state.all)
+        gl.deleteTexture(tex);
+    state.all.clear();
+    if (state.copyFramebuffer)
+        gl.deleteFramebuffer(state.copyFramebuffer);
+    state.copyFramebuffer = undefined;
+    resetTextureTally(state.tally);
+}
+
+/**
+ * `copyTexture` for WebGL2: the source level and layer attach to a read framebuffer, and
+ * `copyTexSubImage` reads the box out of it into the destination. A 2D render-target texture is
+ * rendered bottom-up while every other texture holds row 0 at the top, so between one of each the
+ * rows go across one at a time, reversed.
+ */
+function copyTextureRegion$1(gl, state, source, region, destination, origin) {
+    const from = updateTexture(gl, state, source);
+    const to = updateTexture(gl, state, destination);
+    const fromHeight = Math.max(1, source.height >> region.level);
+    const toHeight = Math.max(1, destination.height >> origin.level);
+    const fromBottomUp = source.isRenderTargetTexture && from.target === gl.TEXTURE_2D;
+    const toBottomUp = destination.isRenderTargetTexture && to.target === gl.TEXTURE_2D;
+    /** the GL row a top-down row of `height` rows is stored at. */
+    const glRow = (row, rows, height, bottomUp) => (bottomUp ? height - row - rows : row);
+    withCopyFramebuffer(gl, state, () => {
+        for (let layer = 0; layer < region.depth; layer++) {
+            const fromZ = region.z + layer;
+            if (from.target === gl.TEXTURE_2D_ARRAY || from.target === gl.TEXTURE_3D) {
+                gl.framebufferTextureLayer(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, from.texture, region.level, fromZ);
+            }
+            else {
+                const face = from.target === gl.TEXTURE_CUBE_MAP ? gl.TEXTURE_CUBE_MAP_POSITIVE_X + fromZ : gl.TEXTURE_2D;
+                gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, face, from.texture, region.level);
+            }
+            if (gl.checkFramebufferStatus(gl.READ_FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+                throw new Error(`[webgl] copyTexture: '${source.label ?? 'unlabelled'}' (${source.format}) can't be read as a ` +
+                    'framebuffer on this device, which a copy reads it through.');
+            }
+            const toZ = origin.z + layer;
+            gl.bindTexture(to.target, to.texture);
+            const copyRows = (fromRow, toRow, rows) => {
+                if (to.target === gl.TEXTURE_2D_ARRAY || to.target === gl.TEXTURE_3D) {
+                    gl.copyTexSubImage3D(to.target, origin.level, origin.x, toRow, toZ, region.x, fromRow, region.width, rows);
+                }
+                else {
+                    const face = to.target === gl.TEXTURE_CUBE_MAP ? gl.TEXTURE_CUBE_MAP_POSITIVE_X + toZ : gl.TEXTURE_2D;
+                    gl.copyTexSubImage2D(face, origin.level, origin.x, toRow, region.x, fromRow, region.width, rows);
+                }
+            };
+            if (fromBottomUp === toBottomUp) {
+                copyRows(glRow(region.y, region.height, fromHeight, fromBottomUp), glRow(origin.y, region.height, toHeight, toBottomUp), region.height);
+            }
+            else {
+                for (let row = 0; row < region.height; row++) {
+                    copyRows(glRow(region.y + row, 1, fromHeight, fromBottomUp), glRow(origin.y + row, 1, toHeight, toBottomUp), 1);
+                }
+            }
+        }
+    });
 }
 
 /**
@@ -36541,976 +37838,6 @@ function disposeGeometry$1(gl, state, geometry) {
         gl.deleteVertexArray(vao);
     state.memory.geometries--;
     state.data.delete(geometry);
-}
-
-/**
- * textures.ts (webgl) - per-GpuTexture GL texture cache + upload, the GL sibling of
- * `webgpu/textures.ts`.
- *
- * gpucat's neutral `GpuTexture` is the format/size/source source-of-truth (WebGPU-oriented:
- * `format` is a `GPUTextureFormat` string, `viewDimension` is '2d'/'cube'/'2d-array'/'…'). This
- * module maps that onto WebGL2: it creates one `WebGLTexture` per `GpuTexture` (cached in a WeakMap,
- * version-gated exactly like the WebGPU cache tracks `texture.version`), uploads source data through
- * `texImage2D` / `texSubImage2D` (2D), the 6 cube faces, or the array layers, mapping the
- * `GPUTextureFormat` string to a GL `{ internalFormat, format, type }` triple, and generates mipmaps
- * when requested.
- *
- * Filtering / wrap are NOT set here — WebGL2 sampler objects (see `samplers.ts`) carry those, bound
- * per texture unit at draw time, mirroring gpucat's separate texture + sampler model. The one
- * exception is that we set a safe default min-filter on creation so a texture without an explicit
- * sampler still samples (a fresh GL texture defaults to a mipmapped min-filter, which reads as
- * "incomplete" with no mips).
- *
- * Render-target textures (`isRenderTargetTexture`) carry no source data: their GL texture is
- * allocated at the target's size/format by `render-target.ts` (via `ensureAllocated`) and their
- * contents are produced by an FBO render, so `updateTexture` on them only ensures the allocation.
- */
-/**
- * Map a gpucat `GPUTextureFormat` string to a WebGL2 `{ internalFormat, format, type }` triple.
- * Covers the color formats the examples/tests use plus the depth formats render targets request.
- * An unrecognized format throws — WebGL2 must never silently coerce to a wrong internal format.
- */
-function glFormat(gl, format) {
-    switch (format) {
-        // 8-bit unorm color.
-        case 'rgba8unorm':
-        case 'rgba8unorm-srgb':
-            return {
-                internalFormat: format.endsWith('srgb') ? gl.SRGB8_ALPHA8 : gl.RGBA8,
-                format: gl.RGBA,
-                type: gl.UNSIGNED_BYTE,
-                isDepth: false,
-            };
-        case 'bgra8unorm':
-            // WebGL2 core has no BGRA internal format. Uploading as RGBA8 would silently reorder the
-            // B and R channels (wrong colors), so reject rather than corrupt the result.
-            throw new Error('[webgl] bgra8unorm is not supported on the WebGL2 backend (no BGRA internal format); ' +
-                "use 'rgba8unorm' instead.");
-        case 'rg8unorm':
-            return { internalFormat: gl.RG8, format: gl.RG, type: gl.UNSIGNED_BYTE, isDepth: false };
-        case 'r8unorm':
-            return { internalFormat: gl.R8, format: gl.RED, type: gl.UNSIGNED_BYTE, isDepth: false };
-        // 16-bit float color.
-        case 'rgba16float':
-            return { internalFormat: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT, isDepth: false };
-        case 'rg16float':
-            return { internalFormat: gl.RG16F, format: gl.RG, type: gl.HALF_FLOAT, isDepth: false };
-        case 'r16float':
-            return { internalFormat: gl.R16F, format: gl.RED, type: gl.HALF_FLOAT, isDepth: false };
-        // 32-bit float color.
-        case 'rgba32float':
-            return { internalFormat: gl.RGBA32F, format: gl.RGBA, type: gl.FLOAT, isDepth: false };
-        case 'rg32float':
-            return { internalFormat: gl.RG32F, format: gl.RG, type: gl.FLOAT, isDepth: false };
-        case 'r32float':
-            return { internalFormat: gl.R32F, format: gl.RED, type: gl.FLOAT, isDepth: false };
-        // Integer color (never filterable → texelFetch-only; NEAREST enforced at creation). The
-        // client format is the *_INTEGER variant; the type sizes the source typed array's components.
-        case 'r8uint':
-            return { internalFormat: gl.R8UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_BYTE, isDepth: false };
-        case 'rg8uint':
-            return { internalFormat: gl.RG8UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_BYTE, isDepth: false };
-        case 'rgba8uint':
-            return { internalFormat: gl.RGBA8UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_BYTE, isDepth: false };
-        case 'r8sint':
-            return { internalFormat: gl.R8I, format: gl.RED_INTEGER, type: gl.BYTE, isDepth: false };
-        case 'rg8sint':
-            return { internalFormat: gl.RG8I, format: gl.RG_INTEGER, type: gl.BYTE, isDepth: false };
-        case 'rgba8sint':
-            return { internalFormat: gl.RGBA8I, format: gl.RGBA_INTEGER, type: gl.BYTE, isDepth: false };
-        case 'r16uint':
-            return { internalFormat: gl.R16UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_SHORT, isDepth: false };
-        case 'rg16uint':
-            return { internalFormat: gl.RG16UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_SHORT, isDepth: false };
-        case 'rgba16uint':
-            return { internalFormat: gl.RGBA16UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_SHORT, isDepth: false };
-        case 'r16sint':
-            return { internalFormat: gl.R16I, format: gl.RED_INTEGER, type: gl.SHORT, isDepth: false };
-        case 'rg16sint':
-            return { internalFormat: gl.RG16I, format: gl.RG_INTEGER, type: gl.SHORT, isDepth: false };
-        case 'rgba16sint':
-            return { internalFormat: gl.RGBA16I, format: gl.RGBA_INTEGER, type: gl.SHORT, isDepth: false };
-        case 'r32uint':
-            return { internalFormat: gl.R32UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_INT, isDepth: false };
-        case 'rg32uint':
-            return { internalFormat: gl.RG32UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_INT, isDepth: false };
-        case 'rgba32uint':
-            return { internalFormat: gl.RGBA32UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_INT, isDepth: false };
-        case 'r32sint':
-            return { internalFormat: gl.R32I, format: gl.RED_INTEGER, type: gl.INT, isDepth: false };
-        case 'rg32sint':
-            return { internalFormat: gl.RG32I, format: gl.RG_INTEGER, type: gl.INT, isDepth: false };
-        case 'rgba32sint':
-            return { internalFormat: gl.RGBA32I, format: gl.RGBA_INTEGER, type: gl.INT, isDepth: false };
-        // Depth / depth-stencil.
-        case 'depth16unorm':
-            return { internalFormat: gl.DEPTH_COMPONENT16, format: gl.DEPTH_COMPONENT, type: gl.UNSIGNED_SHORT, isDepth: true };
-        case 'depth24plus':
-            return { internalFormat: gl.DEPTH_COMPONENT24, format: gl.DEPTH_COMPONENT, type: gl.UNSIGNED_INT, isDepth: true };
-        case 'depth32float':
-            return { internalFormat: gl.DEPTH_COMPONENT32F, format: gl.DEPTH_COMPONENT, type: gl.FLOAT, isDepth: true };
-        case 'depth24plus-stencil8':
-            return { internalFormat: gl.DEPTH24_STENCIL8, format: gl.DEPTH_STENCIL, type: gl.UNSIGNED_INT_24_8, isDepth: true };
-        case 'depth32float-stencil8':
-            return {
-                internalFormat: gl.DEPTH32F_STENCIL8,
-                format: gl.DEPTH_STENCIL,
-                type: gl.FLOAT_32_UNSIGNED_INT_24_8_REV,
-                isDepth: true,
-            };
-        default:
-            throw new Error(`[webgl] texture format '${format}' is not supported on the WebGL2 backend.`);
-    }
-}
-/**
- * Whether a texture format is integer (`…uint`/`…sint`). Integer textures are never
- * texture-filterable in WebGL2 — they must be read with `texelFetch` (nearest); a LINEAR filter makes
- * the sample read as incomplete (black). Used to force NEAREST on upload and to reject a linear
- * sampler paired with one.
- */
-function isIntegerTextureFormat(format) {
-    return format.endsWith('uint') || format.endsWith('sint');
-}
-/**
- * Whether a texture format is a depth (/stencil) format. Like integer formats, depth textures are NOT
- * texture-filterable in WebGL2, so their default filter must be NEAREST or a non-comparison read returns 0.
- */
-function isDepthTextureFormat(format) {
-    return format.startsWith('depth');
-}
-/**
- * Whether a format is NOT texture-filterable on this device — its default (sampler-object-less) filter
- * must be NEAREST, or a non-comparison `texture()`/`texelFetch()` read renders the texture INCOMPLETE and
- * returns 0. Encodes WebGL2's filterability rule (the analog of three.js's DepthTexture/float-RT defaulting
- * to NearestFilter): integer + depth are never filterable; 32-bit float needs `OES_texture_float_linear`
- * (half-float linear is core). A comparison (shadow) sampler is unaffected — it binds its own sampler object.
- */
-function isNonFilterableFormat(gl, format) {
-    if (isDepthTextureFormat(format))
-        return true;
-    const cls = mipmapClassOf(format);
-    if (cls === 'integer')
-        return true;
-    if (cls === 'float32')
-        return !gl.getExtension('OES_texture_float_linear');
-    return false;
-}
-function mipmapClassOf(format) {
-    if (isIntegerTextureFormat(format))
-        return 'integer';
-    if (format.includes('32float'))
-        return 'float32';
-    if (format.includes('16float'))
-        return 'float16';
-    return 'unorm';
-}
-/** One-time warn guard so a repeated non-mippable format doesn't spam the console. */
-const mipmapWarned = new Set();
-/**
- * Whether `gl.generateMipmap` is safe for this texture's format. Integer formats are never
- * filterable; 32-bit float needs OES_texture_float_linear; half-float linear is core in WebGL2. Warns
- * once per format when skipping.
- */
-function canGenerateMipmap(gl, format) {
-    const cls = mipmapClassOf(format);
-    if (cls === 'unorm' || cls === 'float16')
-        return true;
-    if (cls === 'float32') {
-        if (gl.getExtension('OES_texture_float_linear'))
-            return true;
-        if (!mipmapWarned.has(format)) {
-            mipmapWarned.add(format);
-            console.warn(`[webgl] skipping generateMipmap for '${format}': 32-bit float linear filtering ` +
-                `(OES_texture_float_linear) is unavailable, so mip generation would error.`);
-        }
-        return false;
-    }
-    // integer
-    if (!mipmapWarned.has(format)) {
-        mipmapWarned.add(format);
-        console.warn(`[webgl] skipping generateMipmap for integer format '${format}': not texture-filterable.`);
-    }
-    return false;
-}
-/** The GL bind target for a GpuTexture's view dimension. */
-function glTarget(gl, texture) {
-    switch (texture.viewDimension) {
-        case 'cube':
-            return gl.TEXTURE_CUBE_MAP;
-        case 'cube-array':
-            // WebGL2 core has no cube-array texture target (no GL_TEXTURE_CUBE_MAP_ARRAY).
-            throw new Error('[webgl] cube-array textures are not supported on the WebGL2 backend.');
-        case '2d-array':
-            return gl.TEXTURE_2D_ARRAY;
-        case '3d':
-            return gl.TEXTURE_3D;
-        default:
-            return gl.TEXTURE_2D;
-    }
-}
-/** Create an empty textures state. */
-function createTextureCache() {
-    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set(), tally: createTextureTally() };
-}
-/**
- * Upload texels `[texelStart, texelStart + texelCount)` of a storage buffer reinterpreted as a
- * `width`-wide grid of `bytesPerTexel`-byte texels (`glFormat` = RED/RG/RGBA_INTEGER to match),
- * sourcing ZERO-COPY `Uint32Array` views over `source`, whose bytes for texel `texelStart` begin at
- * `sourceByteOffset`.
- *
- * A linear span is not a rectangle, so it decomposes into at most three uploads: the partial head row,
- * the block of whole rows, and the partial tail row. Head and tail are one row tall, so their row
- * stride is never read; the block's rows are exactly `width` texels and contiguous, which is the unpack
- * default. That keeps every piece expressible as a plain `texSubImage2D` over a subarray view, with no
- * `UNPACK_ROW_LENGTH`/`SKIP_*` window to set and restore (three.js `WebGLTextures` needs that window
- * only because it hands GL the whole source array rather than a view of the span).
- *
- * The caller clamps the span to the texels the buffer actually backs, so the grid's padded tail (the
- * last row when `width` doesn't divide the texel count) is never addressed — those texels stay zeroed,
- * and valid shader indices only reach `totalTexels - 1`.
- */
-function uploadStorageSpan(gl, source, sourceByteOffset, width, texelStart, texelCount, bytesPerTexel, glFormat) {
-    const comps = bytesPerTexel / 4; // u32 lanes per texel (r32uint = 1, rg32uint = 2, rgba32uint = 4)
-    // the source byte offset of texel 0, which the views below index from
-    const base = sourceByteOffset - texelStart * bytesPerTexel;
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    let texel = texelStart;
-    let remaining = texelCount;
-    // Head: the partial row the span starts in (skipped when it starts row-aligned).
-    const headX = texel % width;
-    if (headX !== 0 && remaining > 0) {
-        const count = Math.min(width - headX, remaining);
-        const view = new Uint32Array(source, base + texel * bytesPerTexel, count * comps);
-        gl.texSubImage2D(gl.TEXTURE_2D, 0, headX, (texel - headX) / width, count, 1, glFormat, gl.UNSIGNED_INT, view);
-        texel += count;
-        remaining -= count;
-    }
-    // Block: every whole row the span covers, in one call.
-    const rows = Math.floor(remaining / width);
-    if (rows > 0) {
-        const view = new Uint32Array(source, base + texel * bytesPerTexel, rows * width * comps);
-        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, texel / width, width, rows, glFormat, gl.UNSIGNED_INT, view);
-        texel += rows * width;
-        remaining -= rows * width;
-    }
-    // Tail: the partial row the span ends in.
-    if (remaining > 0) {
-        const view = new Uint32Array(source, base + texel * bytesPerTexel, remaining * comps);
-        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, texel / width, remaining, 1, glFormat, gl.UNSIGNED_INT, view);
-    }
-}
-/** GL internal + pixel format for a storage mirror texel of `bytesPerTexel` bytes (u32 lanes). */
-function storageTexelFormat(gl, bytesPerTexel) {
-    if (bytesPerTexel === 4)
-        return { internalFormat: gl.R32UI, glFormat: gl.RED_INTEGER };
-    if (bytesPerTexel === 8)
-        return { internalFormat: gl.RG32UI, glFormat: gl.RG_INTEGER };
-    return { internalFormat: gl.RGBA32UI, glFormat: gl.RGBA_INTEGER };
-}
-/** The u32 texture format a storage() read-lowering allocates, by texel width. */
-function storageTexelFormatName(bytesPerTexel) {
-    if (bytesPerTexel === 4)
-        return 'r32uint';
-    if (bytesPerTexel === 8)
-        return 'rg32uint';
-    return 'rgba32uint';
-}
-/**
- * Release a storage() read-lowering texture when its `GpuBuffer` is disposed.
- *
- * Chained rather than assigned: `transform-feedback.ts` also hangs a callback on a buffer's dispose,
- * and whichever registers second must not drop the first.
- */
-function setupStorageTextureDispose(gl, state, buffer) {
-    const previous = buffer._onDispose;
-    buffer._onDispose = () => {
-        previous?.();
-        const data = state.bufferData.get(buffer);
-        if (!data)
-            return;
-        gl.deleteTexture(data.texture);
-        state.all.delete(data.texture);
-        tallyClearTexture(state.tally, data.tally);
-        state.bufferData.delete(buffer);
-    };
-}
-/**
- * Release a texture's GL object when its `GpuTexture` is disposed.
- *
- * The WebGPU backend has always done this (`webgpu/textures.ts` setupDispose); this backend did not,
- * so every disposed atlas, render target and baked icon target kept its GL texture alive until the
- * whole renderer went away. `RenderTarget.dispose()` calls straight through to `GpuTexture.dispose()`,
- * so a repeated bake-and-discard (prefab icons) leaked one texture per bake.
- *
- * A resize does NOT come through here: `updateTexture` deletes and re-mints the GL object in place.
- */
-function setupTextureDispose(gl, state, texture) {
-    if (texture._onDispose)
-        return;
-    texture._onDispose = () => {
-        const data = state.data.get(texture);
-        if (!data)
-            return;
-        gl.deleteTexture(data.texture);
-        state.all.delete(data.texture);
-        tallyClearTexture(state.tally, data.tally);
-        state.data.delete(texture);
-    };
-}
-/**
- * Resolve (create/upload/re-sync) the GL texture for a read-only storage `GpuBuffer` bound AS an
- * rgba32uint texture, and return it bound-ready. The pixel data is a ZERO-COPY `Uint32Array` view over
- * the buffer's own `ArrayBuffer` — the same bytes seen as `width × height` u32 texels — so nothing is
- * duplicated on the CPU. The grid width is `min(totalTexels, MAX_TEXTURE_SIZE)` (chosen at compile) so
- * `width` need not divide the texel count: the last row is padded and never addressed (see
- * {@link uploadStorageSpan}). Cached per `GpuBuffer`; re-synced when `buffer.version` moves or ranges are
- * queued — one upload run per merged dirty span for `packAtIndex`/`addUpdateRange` writes, a full upload
- * for a bare version bump, or a full re-allocation if the texel grid grew. The caller binds it.
- */
-function updateStorageBufferTexture(gl, state, source) {
-    const { buffer, width, height, bytesPerTexel } = source;
-    if (!buffer.cpu)
-        return ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel).texture;
-    const arr = buffer.array;
-    if (arr == null) {
-        throw new Error('[webgl] storage() read-lowering: the storage buffer has no CPU `array` to reinterpret ' +
-            '(its data was released after upload); keep it resident to sample it on WebGL2.');
-    }
-    const { internalFormat, glFormat } = storageTexelFormat(gl, bytesPerTexel);
-    const comps = bytesPerTexel / 4; // u32 lanes per texel — the unit for `updateRanges` row math below
-    // Validate the texel grid against the real device cap (read once). The compile-time width pick uses
-    // this same cap, so `width ≤ MAX`; `height = ceil(totalTexels / width)` can still exceed it for a
-    // buffer larger than `MAX²` texels → reject clearly rather than let GL fail opaquely.
-    if (state.maxTextureSize == null)
-        state.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
-    const max = state.maxTextureSize;
-    if (width > max || height > max) {
-        throw new Error(`[webgl] storage() read-lowering: the buffer needs a ${width}×${height} texel grid, which ` +
-            `exceeds this device's MAX_TEXTURE_SIZE=${max}; split or reshape the buffer.`);
-    }
-    // The buffer is a whole number of texels (guarded at compile). `width` may not divide it, so the
-    // grid's last row is partly padding; uploads clamp to `totalTexels` and never touch it.
-    const totalTexels = arr.byteLength / bytesPerTexel;
-    let data = state.bufferData.get(buffer);
-    if (!data) {
-        const texture = gl.createTexture();
-        if (!texture)
-            throw new Error('[webgl] gl.createTexture returned null (storage buffer texture).');
-        state.all.add(texture);
-        gl.bindTexture(gl.TEXTURE_2D, texture);
-        // Allocate the full (possibly padded) grid, then fill from the buffer's bytes.
-        gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
-        // Integer textures are never filterable — NEAREST, clamp; sampled only via texelFetch.
-        setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
-        uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
-        data = { texture, tally: createTextureTallyEntry(), version: buffer.version, width, height, bytesPerTexel };
-        // A storage() read-lowering IS a resident texture, so it counts like any other. Bucketed under
-        // the u32 format it actually is; WebGPU reads the buffer directly and has no counterpart row.
-        tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
-        setupStorageTextureDispose(gl, state, buffer);
-        state.bufferData.set(buffer, data);
-        return texture;
-    }
-    const sizeChanged = data.width !== width || data.height !== height;
-    // Clean (version matched, no queued ranges, same size) → the cached texture is already current.
-    if (!sizeChanged && data.version === buffer.version && buffer.updateRangeCount === 0) {
-        return data.texture;
-    }
-    gl.bindTexture(gl.TEXTURE_2D, data.texture);
-    if (sizeChanged) {
-        // Grow/shrink → re-specify the whole mutable texture at the new size (queued ranges are moot).
-        gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
-        uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
-        data.width = width;
-        data.height = height;
-        // Same entry, new size: move the bytes without moving the count.
-        tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
-    }
-    else {
-        // Same size: upload each merged dirty span when `packAtIndex`/`addUpdateRange` queued ranges.
-        // `updateRanges` are flat COMPONENT indices, so each widens to the texels it touches (u32 lanes
-        // per texel: r32uint 1, rg32uint 2, rgba32uint 4), clamped to the texels the buffer backs. The
-        // spans are kept SEPARATE rather than hulled together: a streaming arena dirties a handful of
-        // small, far-apart regions per frame, and one covering span over those is the whole buffer.
-        // A bare version bump, or more dirty texels than half the buffer, takes one full upload instead.
-        const ranges = buffer.updateRanges;
-        const rangeCount = mergeUpdateRanges(ranges, buffer.updateRangeCount);
-        let dirtyTexels = 0;
-        for (let i = 0; i < rangeCount; i++) {
-            const r = ranges[i];
-            dirtyTexels += Math.ceil((r.start + r.count) / comps) - Math.floor(r.start / comps);
-        }
-        if (dirtyTexels > 0 && dirtyTexels <= totalTexels / 2) {
-            for (let i = 0; i < rangeCount; i++) {
-                const r = ranges[i];
-                const from = Math.floor(r.start / comps);
-                const to = Math.min(totalTexels, Math.ceil((r.start + r.count) / comps));
-                if (to > from) {
-                    const sourceByteOffset = arr.byteOffset + from * bytesPerTexel;
-                    uploadStorageSpan(gl, arr.buffer, sourceByteOffset, width, from, to - from, bytesPerTexel, glFormat);
-                }
-            }
-        }
-        else {
-            uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
-        }
-    }
-    buffer.clearUpdateRanges();
-    data.version = buffer.version;
-    return data.texture;
-}
-/** the mirror texture of a `cpu: false` storage buffer, zeroed on first use and never re-specified, since only writes fill it. */
-function ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel) {
-    const existing = state.bufferData.get(buffer);
-    if (existing) {
-        if (existing.bytesPerTexel !== bytesPerTexel) {
-            throw new Error(`[webgl] storage() read-lowering: buffer '${buffer.label ?? 'unlabelled'}' is read with ${bytesPerTexel}-byte ` +
-                `texels but was written with ${existing.bytesPerTexel}-byte ones; read it with its own element type.`);
-        }
-        return existing;
-    }
-    if (state.maxTextureSize == null)
-        state.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
-    const { width, height } = storageMirrorGrid(buffer.byteLength, bytesPerTexel, state.maxTextureSize, '[webgl] storage() read-lowering');
-    if (height > state.maxTextureSize) {
-        throw new Error(`[webgl] storage() read-lowering: the buffer needs a ${width}x${height} texel grid, which ` +
-            `exceeds this device's MAX_TEXTURE_SIZE=${state.maxTextureSize}; split or reshape the buffer.`);
-    }
-    const { internalFormat, glFormat } = storageTexelFormat(gl, bytesPerTexel);
-    const texture = gl.createTexture();
-    if (!texture)
-        throw new Error('[webgl] gl.createTexture returned null (storage buffer texture).');
-    state.all.add(texture);
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
-    setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
-    const data = {
-        texture,
-        tally: createTextureTallyEntry(),
-        version: buffer.version,
-        width,
-        height,
-        bytesPerTexel,
-    };
-    tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
-    setupStorageTextureDispose(gl, state, buffer);
-    state.bufferData.set(buffer, data);
-    return data;
-}
-/** `writeBuffer` into a `cpu: false` storage buffer's mirror texture; the span must cover whole texels of the element. */
-function writeStorageTexture(gl, state, buffer, byteOffset, data, dataByteOffset, byteSize) {
-    const element = buffer.schema.element ?? buffer.schema;
-    const bytesPerTexel = storageMirrorBytesPerTexel(element);
-    if (byteOffset % bytesPerTexel !== 0 || byteSize % bytesPerTexel !== 0) {
-        throw new Error(`[webgl] writeBuffer: buffer '${buffer.label ?? 'unlabelled'}' is mirrored as ${bytesPerTexel}-byte texels, ` +
-            `so the write's offset (${byteOffset}) and size (${byteSize}) must be multiples of ${bytesPerTexel}.`);
-    }
-    const mirror = ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel);
-    gl.bindTexture(gl.TEXTURE_2D, mirror.texture);
-    const { glFormat } = storageTexelFormat(gl, bytesPerTexel);
-    const texelStart = byteOffset / bytesPerTexel;
-    const texelCount = byteSize / bytesPerTexel;
-    const sourceByteOffset = data.byteOffset + dataByteOffset;
-    uploadStorageSpan(gl, data.buffer, sourceByteOffset, mirror.width, texelStart, texelCount, bytesPerTexel, glFormat);
-}
-/** Get the cached GlTextureData for a GpuTexture (or null if never seen). */
-function getTextureData(state, texture) {
-    return state.data.get(texture) ?? null;
-}
-/** Set a texture's min-filter so a texture without an explicit sampler object still samples. */
-function setDefaultMinFilter(gl, target, generateMipmaps, nonFilterable) {
-    // A freshly-created GL texture defaults to a mipmapped min-filter, which reads as "incomplete"
-    // when no mips exist. Sampler objects override this at bind time, but set a safe baseline here.
-    // Integer AND depth textures are NOT texture-filterable in WebGL2 — a LINEAR filter makes them
-    // texture-INCOMPLETE, so a non-comparison `texture()`/`texelFetch()` read returns 0 (this is why a
-    // depth render target sampled via `.load()`/`.sample()` came back black). They must be NEAREST here.
-    // A comparison (shadow) sampler still works: it binds its own sampler object, overriding this.
-    const min = nonFilterable ? gl.NEAREST : generateMipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR;
-    gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, min);
-    gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, nonFilterable ? gl.NEAREST : gl.LINEAR);
-    gl.texParameteri(target, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(target, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-}
-/** Create (and cache) the GL texture object for a GpuTexture, without uploading. */
-function ensureGlTexture(gl, state, texture) {
-    let data = state.data.get(texture);
-    if (!data) {
-        const glTexture = gl.createTexture();
-        if (!glTexture)
-            throw new Error('[webgl] gl.createTexture returned null.');
-        state.all.add(glTexture);
-        setupTextureDispose(gl, state, texture);
-        data = {
-            texture: glTexture,
-            target: glTarget(gl, texture),
-            fmt: glFormat(gl, texture.format),
-            version: -1,
-            generation: 0,
-            tally: createTextureTallyEntry(),
-            allocated: false,
-            allocW: 0,
-            allocD: 0,
-            allocH: 0,
-        };
-        state.data.set(texture, data);
-    }
-    return data;
-}
-/** Extract a raw typed-array view from a DataTexture-style source, or null. */
-function typedArrayOf(sourceData) {
-    if (sourceData && typeof sourceData === 'object' && 'data' in sourceData) {
-        const d = sourceData.data;
-        if (ArrayBuffer.isView(d))
-            return d;
-    }
-    return null;
-}
-/** True if the source data is a browser image that copyExternalImage/texImage2D accepts directly. */
-function isExternalImage(data) {
-    if (!data || typeof data !== 'object')
-        return false;
-    return ((typeof ImageBitmap !== 'undefined' && data instanceof ImageBitmap) ||
-        (typeof HTMLImageElement !== 'undefined' && data instanceof HTMLImageElement) ||
-        (typeof HTMLCanvasElement !== 'undefined' && data instanceof HTMLCanvasElement) ||
-        (typeof OffscreenCanvas !== 'undefined' && data instanceof OffscreenCanvas) ||
-        (typeof HTMLVideoElement !== 'undefined' && data instanceof HTMLVideoElement) ||
-        (typeof ImageData !== 'undefined' && data instanceof ImageData));
-}
-/** Upload the primary 2D source (typed-array DataTexture data or an external image) at level 0. */
-function upload2D(gl, texture, data) {
-    const source = texture.source;
-    if (!source || !source.data)
-        return;
-    const { internalFormat, format, type } = data.fmt;
-    const w = texture.width;
-    const h = texture.height;
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, texture.flipY);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, texture.premultiplyAlpha);
-    const typed = typedArrayOf(source.data);
-    if (typed) {
-        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-        gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, w, h, 0, format, type, typed);
-    }
-    else if (isExternalImage(source.data)) {
-        gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, format, type, source.data);
-    }
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-}
-/**
- * Point the unpack window at a sub-rect of a full-width packed buffer.
- *
- * `UNPACK_ROW_LENGTH` / `SKIP_PIXELS` / `SKIP_ROWS` (and the 3D pair `IMAGE_HEIGHT` / `SKIP_IMAGES`) let
- * GL read a box out of the middle of a packed array with no staging copy. They are WebGL2-only, which is
- * why WebGL1-era engines stage a tight copy instead. Row length is in PIXELS, so this stays correct
- * whatever the component count.
- */
-function setUnpackWindow(gl, rowLength, imageHeight, skipPixels, skipRows, skipImages) {
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, rowLength);
-    gl.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, imageHeight);
-    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, skipPixels);
-    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, skipRows);
-    gl.pixelStorei(gl.UNPACK_SKIP_IMAGES, skipImages);
-}
-/**
- * Restore the unpack window to the GL defaults. These are global state, so leaving a skip set silently
- * corrupts every later upload in the frame. Reset rather than save/restore: `getParameter` is a
- * round-trip, and nothing here depends on a non-default window.
- */
-function resetUnpackWindow(gl) {
-    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
-    gl.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, 0);
-    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
-    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
-    gl.pixelStorei(gl.UNPACK_SKIP_IMAGES, 0);
-}
-/**
- * Upload one dirty region into the existing GL texture, honouring `x`/`width`, `z` and `level` exactly.
- *
- * This never re-enters `texStorage3D`: array storage is immutable, so the partial path writes into the
- * allocation the full upload already established.
- */
-function uploadPartialRegion(gl, texture, data, r) {
-    const { format, type } = data.fmt;
-    const dim = texture.viewDimension;
-    // Level 0 reads `source` / `sources`; a higher level reads its explicit mip, which is always packed
-    // across layers.
-    const packed = r.level === 0 ? texture.source : texture.mipmaps[r.level - 1];
-    const levelWidth = r.level === 0 ? texture.width : Math.max(1, packed?.width ?? 1);
-    const levelHeight = r.level === 0 ? texture.height : Math.max(1, packed?.height ?? 1);
-    if (dim === 'cube' || dim === 'cube-array') {
-        if (r.level !== 0)
-            return; // explicit cube mips take the full path
-        setUnpackWindow(gl, levelWidth, 0, r.x, r.y, 0);
-        for (let i = 0; i < r.depth; i++) {
-            const face = r.z + i;
-            const typed = typedArrayOf(texture.sources[face]?.data);
-            if (!typed)
-                continue;
-            // A face is a distinct GL bind target here rather than a z offset, but `z` still means the
-            // same face index the WebGPU backend passes as `origin.z`. Same meaning, different spelling.
-            const target = gl.TEXTURE_CUBE_MAP_POSITIVE_X + face;
-            gl.texSubImage2D(target, r.level, r.x, r.y, r.width, r.height, format, type, typed);
-        }
-        return;
-    }
-    if (dim === '2d-array') {
-        // Per-layer sources: one call per layer, each reading from its own buffer.
-        if (r.level === 0 && texture.sources.length > 0) {
-            setUnpackWindow(gl, levelWidth, 0, r.x, r.y, 0);
-            for (let i = 0; i < r.depth; i++) {
-                const layer = r.z + i;
-                const typed = typedArrayOf(texture.sources[layer]?.data);
-                if (!typed)
-                    continue;
-                gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, r.level, r.x, r.y, layer, r.width, r.height, 1, format, type, typed);
-            }
-            return;
-        }
-        // Packed across layers: SKIP_IMAGES + IMAGE_HEIGHT carry the layer stride, so the whole region
-        // goes in one call whatever rows it covers.
-        const typed = typedArrayOf(packed?.data);
-        if (!typed)
-            return;
-        setUnpackWindow(gl, levelWidth, levelHeight, r.x, r.y, r.z);
-        gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, r.level, r.x, r.y, r.z, r.width, r.height, r.depth, format, type, typed);
-        return;
-    }
-    const typed = typedArrayOf(packed?.data);
-    if (!typed)
-        return;
-    setUnpackWindow(gl, levelWidth, 0, r.x, r.y, 0);
-    gl.texSubImage2D(gl.TEXTURE_2D, r.level, r.x, r.y, r.width, r.height, format, type, typed);
-}
-/** Upload the 6 cube faces (face order +X,-X,+Y,-Y,+Z,-Z) at level 0. */
-function uploadCube(gl, texture, data) {
-    if (texture.sources.length < 6)
-        return;
-    const { internalFormat, format, type } = data.fmt;
-    const w = texture.width;
-    const h = texture.height;
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, texture.flipY);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, texture.premultiplyAlpha);
-    for (let face = 0; face < 6; face++) {
-        const source = texture.sources[face];
-        if (!source?.data)
-            continue;
-        const target = gl.TEXTURE_CUBE_MAP_POSITIVE_X + face;
-        const typed = typedArrayOf(source.data);
-        if (typed) {
-            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-            gl.texImage2D(target, 0, internalFormat, w, h, 0, format, type, typed);
-        }
-        else if (isExternalImage(source.data)) {
-            gl.texImage2D(target, 0, internalFormat, format, type, source.data);
-        }
-    }
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-}
-/** Upload a 2D array texture — allocate storage, then fill each layer. */
-function uploadArray(gl, texture, data) {
-    const { internalFormat, format, type } = data.fmt;
-    const w = texture.width;
-    const h = texture.height;
-    const layers = texture.depthOrArrayLayers;
-    const levels = mipLevelCountFor(texture);
-    // 2D-array must be allocated via texStorage3D then filled per-layer with texSubImage3D.
-    gl.texStorage3D(gl.TEXTURE_2D_ARRAY, levels, internalFormat, w, h, layers);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, texture.flipY);
-    if (texture.sources.length > 0) {
-        for (let layer = 0; layer < texture.sources.length && layer < layers; layer++) {
-            const typed = typedArrayOf(texture.sources[layer]?.data);
-            if (typed) {
-                gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, w, h, 1, format, type, typed);
-            }
-            else if (isExternalImage(texture.sources[layer]?.data)) {
-                gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, w, h, 1, format, type, texture.sources[layer].data);
-            }
-        }
-    }
-    else if (texture.source) {
-        // Packed source: all layers contiguous in one typed array.
-        const typed = typedArrayOf(texture.source.data);
-        if (typed) {
-            gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, w, h, layers, format, type, typed);
-        }
-    }
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-}
-/** Upload a 3D texture — allocate immutable storage, then fill the volume at level 0. */
-function upload3D(gl, texture, data) {
-    const { internalFormat, format, type } = data.fmt;
-    const w = texture.width;
-    const h = texture.height;
-    const depth = texture.depthOrArrayLayers;
-    const levels = mipLevelCountFor(texture);
-    if (texture.mipmaps.length > 0) {
-        // Per-level 3D mip upload isn't wired here; texStorage3D + a single level-0 fill is the
-        // supported path. (No current caller supplies explicit 3D mips.)
-        throw new Error('[webgl] explicit mipmaps for 3D textures are not supported on the WebGL2 backend.');
-    }
-    // 3D storage is immutable; allocate then fill with texSubImage3D. Filterable formats only for
-    // auto-mip generation (handled by the caller via canGenerateMipmap).
-    gl.texStorage3D(gl.TEXTURE_3D, levels, internalFormat, w, h, depth);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, texture.flipY);
-    const typed = typedArrayOf(texture.source?.data);
-    if (typed) {
-        gl.texSubImage3D(gl.TEXTURE_3D, 0, 0, 0, 0, w, h, depth, format, type, typed);
-    }
-    else if (isExternalImage(texture.source?.data)) {
-        // A single external image only covers one depth slice; upload it at slice 0.
-        gl.texSubImage3D(gl.TEXTURE_3D, 0, 0, 0, 0, w, h, 1, format, type, texture.source.data);
-    }
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-}
-/**
- * Upload user-supplied explicit mip levels (`texture.mipmaps`), one per level starting at level 1
- * (level 0 is the primary source, already uploaded). Mirrors the WebGPU `uploadExplicitMips`. Each mip
- * Source carries its own dimensions. For 2D-array/cube the data is packed across layers; for 2D it's a
- * single image. Sources with no/not-ready data are skipped (their level keeps whatever was there).
- */
-function uploadExplicitMips(gl, texture, data) {
-    const { format, type } = data.fmt;
-    const dim = texture.viewDimension;
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, texture.flipY);
-    for (let i = 0; i < texture.mipmaps.length; i++) {
-        const source = texture.mipmaps[i];
-        if (!source?.data)
-            continue;
-        const level = i + 1;
-        const w = source.width;
-        const h = source.height;
-        const typed = typedArrayOf(source.data);
-        const external = isExternalImage(source.data);
-        if (!typed && !external)
-            continue;
-        if (dim === '2d-array') {
-            const layers = Math.max(source.depth, 1);
-            if (typed) {
-                gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, level, 0, 0, 0, w, h, layers, format, type, typed);
-            }
-            // texStorage3D (immutable) allocated the levels; external-image per-level array upload is
-            // not expressible in a single call and has no current caller.
-        }
-        else if (dim === 'cube') {
-            // One face image per Source is ambiguous for cube mips; not supported.
-            throw new Error('[webgl] explicit mipmaps for cube textures are not supported on the WebGL2 backend.');
-        }
-        else {
-            const { internalFormat } = data.fmt;
-            if (typed) {
-                gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, w, h, 0, format, type, typed);
-            }
-            else if (external) {
-                gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, format, type, source.data);
-            }
-        }
-    }
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-}
-/**
- * Ensure a GpuTexture's GL texture exists, is allocated at its current size/format, and (for
- * source-backed textures) has its data uploaded. Version-gated: a no-op once `data.version` matches
- * `texture.version`. Returns the cache entry.
- *
- * Render-target textures (`isRenderTargetTexture`) carry no source; their storage is (re)established
- * here at the current size and their pixels are filled by an FBO render — so this only creates +
- * allocates them (via `texImage2D`/`texStorage` with a null/absent source), never uploads.
- */
-function updateTexture(gl, state, texture) {
-    const data = ensureGlTexture(gl, state, texture);
-    if (data.allocated && data.version === texture.version)
-        return data;
-    // Partial upload: an in-place `packAtIndex`/`addUpdateRegion` queued dirty boxes (no full re-upload
-    // and no resize) → re-specify only those via `texSubImage2D` on the existing GL texture, skipping the
-    // delete + full `texImage2D` below. A full flag (`needsUpdate`/grow) or a size change takes priority.
-    // `> ½` the texture dirty → fall through to a full upload (fewer, simpler calls).
-    //
-    // Regions are honoured exactly, sub-rect and mip level included, via the WebGL2 unpack window
-    // (UNPACK_ROW_LENGTH / SKIP_PIXELS / SKIP_ROWS) reading the box out of the packed source in place.
-    if (data.allocated &&
-        !texture.needsFullUpload &&
-        texture.updateRegions.length > 0 &&
-        supportsPartialUpload(texture) &&
-        hasTypedPartialSource(texture) &&
-        !texture.isRenderTargetTexture &&
-        data.allocW === texture.width &&
-        data.allocH === texture.height &&
-        data.allocD === texture.depthOrArrayLayers) {
-        if (withinPartialBudget(texture, texture.updateRegions)) {
-            gl.bindTexture(data.target, data.texture);
-            for (const r of texture.updateRegions)
-                uploadPartialRegion(gl, texture, data, r);
-            resetUnpackWindow(gl);
-            // Auto-generated mips go stale the moment level 0 moves. (An explicit chain instead gets
-            // per-level regions derived at `addUpdateRegion` time, so it is already covered above.)
-            if (texture.mipmaps.length === 0 &&
-                texture.generateMipmaps &&
-                !data.fmt.isDepth &&
-                canGenerateMipmap(gl, texture.format)) {
-                gl.generateMipmap(data.target);
-            }
-            texture.updateRegions.length = 0;
-            data.version = texture.version;
-            return data;
-        }
-    }
-    // Re-allocation (a resize or format change bumped `texture.version` on an already-allocated
-    // texture): render-target storage is immutable (`texStorage2D`), so it can't be re-specified on the
-    // same GL object — a second `texStorage2D` errors with INVALID_OPERATION and leaves the OLD size in
-    // place, giving a size-mismatched FBO attachment (FRAMEBUFFER_INCOMPLETE_ATTACHMENT on strict
-    // drivers). Delete the stale GL texture and mint a fresh one so the new storage is specified cleanly.
-    // (This is the path a resized RenderTextureNode render target — e.g. a 4× rgba16float MRT pass — takes.)
-    if (data.allocated) {
-        gl.deleteTexture(data.texture);
-        state.all.delete(data.texture);
-        const fresh = gl.createTexture();
-        if (!fresh)
-            throw new Error('[webgl] gl.createTexture returned null.');
-        state.all.add(fresh);
-        data.texture = fresh;
-        data.allocated = false;
-    }
-    // A format change (rare) would need a new GL format triple; refresh it defensively.
-    data.fmt = glFormat(gl, texture.format);
-    data.target = glTarget(gl, texture);
-    gl.bindTexture(data.target, data.texture);
-    setDefaultMinFilter(gl, data.target, texture.generateMipmaps, isNonFilterableFormat(gl, texture.format));
-    const dim = texture.viewDimension;
-    if (texture.isRenderTargetTexture) {
-        // Render-target color/depth: allocate storage only (no source). The FBO render fills it.
-        allocateRenderTargetStorage(gl, texture, data);
-    }
-    else if (!texture.cpu) {
-        allocateCpuLessStorage(gl, texture, data);
-    }
-    else if (dim === 'cube' || dim === 'cube-array') {
-        uploadCube(gl, texture, data);
-    }
-    else if (dim === '2d-array') {
-        uploadArray(gl, texture, data);
-    }
-    else if (dim === '3d') {
-        upload3D(gl, texture, data);
-    }
-    else {
-        upload2D(gl, texture, data);
-    }
-    // Mip levels: user-supplied explicit mips take precedence over auto-generation (mirrors WebGPU).
-    if (!texture.isRenderTargetTexture && !data.fmt.isDepth && texture.mipmaps.length > 0) {
-        uploadExplicitMips(gl, texture, data);
-    }
-    else if (texture.generateMipmaps &&
-        !texture.isRenderTargetTexture &&
-        !data.fmt.isDepth &&
-        canGenerateMipmap(gl, texture.format)) {
-        gl.generateMipmap(data.target);
-    }
-    // A full (re)upload supersedes any queued partial regions and clears the full flag. Record the
-    // allocated size so later in-place stores can take the partial `texSubImage2D` path above.
-    texture.updateRegions.length = 0;
-    texture.needsFullUpload = false;
-    data.allocW = texture.width;
-    data.allocH = texture.height;
-    data.allocD = texture.depthOrArrayLayers;
-    data.version = texture.version;
-    data.generation++;
-    data.allocated = true;
-    // After allocation, so a resize re-tallies the new size against the same entry.
-    tallySetTexture(state.tally, data.tally, texture.format, gpuTextureBytes(texture));
-    return data;
-}
-/**
- * Allocate GL storage for a render-target color/depth texture at the target's size, with no upload.
- * Uses `texStorage2D` (immutable storage — attachable to an FBO and sampleable) for 2D targets, and
- * `texStorage2D(TEXTURE_CUBE_MAP, …)` for a cube render target (all 6 faces allocated at once — a
- * CubeRenderTarget renders each face and samples the result as an environment map).
- */
-function allocateRenderTargetStorage(gl, texture, data) {
-    const w = texture.width;
-    const h = texture.height;
-    const levels = mipLevelCountFor(texture);
-    if (data.target === gl.TEXTURE_CUBE_MAP) {
-        // Immutable storage allocates all 6 faces at once; each face is then attachable to an FBO
-        // via framebufferTexture2D(TEXTURE_CUBE_MAP_POSITIVE_X + face, ...) (see render-target.ts).
-        gl.texStorage2D(gl.TEXTURE_CUBE_MAP, levels, data.fmt.internalFormat, w, h);
-    }
-    else if (levels > 1) {
-        // Mipmapped 2D target: immutable storage for the whole chain.
-        gl.texStorage2D(gl.TEXTURE_2D, levels, data.fmt.internalFormat, w, h);
-    }
-    else {
-        // Single-level 2D target: MUTABLE `texImage2D`, matching three.js's render-target allocation.
-        // Some drivers (notably Chrome/ANGLE-on-Metal) return FRAMEBUFFER_UNSUPPORTED for an immutable
-        // `texStorage2D` color attachment; `texImage2D` is the broadly-compatible path.
-        gl.texImage2D(gl.TEXTURE_2D, 0, data.fmt.internalFormat, w, h, 0, data.fmt.format, data.fmt.type, null);
-    }
-    data.allocW = w;
-    data.allocH = h;
-}
-/** Immutable storage for a `cpu: false` texture, every level, zeroed as WebGL allocates it; writeTexture fills it. */
-function allocateCpuLessStorage(gl, texture, data) {
-    const levels = mipLevelCountFor(texture);
-    const { internalFormat } = data.fmt;
-    if (data.target === gl.TEXTURE_2D_ARRAY || data.target === gl.TEXTURE_3D) {
-        gl.texStorage3D(data.target, levels, internalFormat, texture.width, texture.height, texture.depthOrArrayLayers);
-    }
-    else {
-        gl.texStorage2D(data.target, levels, internalFormat, texture.width, texture.height);
-    }
-}
-/** `writeTexture` for WebGL2: `texSubImage` of one box from packed `data`, one call per cube face. */
-function writeTextureRegion(gl, state, texture, region, data) {
-    const target = updateTexture(gl, state, texture);
-    const { format, type } = target.fmt;
-    const { x, y, z, width, height, depth, level } = region;
-    gl.bindTexture(target.target, target.texture);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    if (target.target === gl.TEXTURE_2D_ARRAY || target.target === gl.TEXTURE_3D) {
-        gl.texSubImage3D(target.target, level, x, y, z, width, height, depth, format, type, data);
-    }
-    else if (target.target === gl.TEXTURE_CUBE_MAP) {
-        const faceElements = (width * height * bytesPerTexel(texture.format)) / data.BYTES_PER_ELEMENT;
-        for (let face = 0; face < depth; face++) {
-            const faceTarget = gl.TEXTURE_CUBE_MAP_POSITIVE_X + z + face;
-            gl.texSubImage2D(faceTarget, level, x, y, width, height, format, type, data, face * faceElements);
-        }
-    }
-    else {
-        gl.texSubImage2D(gl.TEXTURE_2D, level, x, y, width, height, format, type, data);
-    }
-}
-/**
- * Generate mipmaps for an already-allocated render-target color texture once the render pass that
- * writes it has finished. Binds the texture at its view-dimension target (2D, cube, or 2D-array — the
- * storage was allocated with a full mip chain when `generateMipmaps` is set, see
- * `allocateRenderTargetStorage`) and calls `gl.generateMipmap`, filling the lower levels. Called from
- * the renderer's render-finish step for any render-target color texture whose `generateMipmaps` is
- * true. Guards: only when the texture wants mips, its format is mip-generatable, and it has an
- * allocated GL texture.
- */
-function generateTextureMipmaps(gl, state, texture) {
-    if (!texture.generateMipmaps)
-        return;
-    if (!canGenerateMipmap(gl, texture.format))
-        return;
-    const data = state.data.get(texture);
-    if (!data || !data.allocated)
-        return;
-    gl.bindTexture(data.target, data.texture);
-    gl.generateMipmap(data.target);
-}
-/** Delete all GL textures (called on renderer dispose). */
-function disposeTextureCache(gl, state) {
-    for (const tex of state.all)
-        gl.deleteTexture(tex);
-    state.all.clear();
-    resetTextureTally(state.tally);
 }
 
 /**
@@ -40207,6 +40534,49 @@ class WebGLBackend {
     writeTexture(texture, region, data) {
         writeTextureRegion(this.gl, this.textures, texture, region, data);
     }
+    /**
+     * fills each form the destination keeps, as `writeBuffer` would: a storage buffer's mirror texture,
+     * and its GL buffer when it has one or another usage needs one. A `cpu: true` source copies from its
+     * array, which is what its GPU forms are uploaded from; any other from its mirror when it has one,
+     * else from its GL buffer.
+     */
+    copyBuffer(source, sourceByteOffset, destination, destinationByteOffset, byteSize) {
+        const gl = this.gl;
+        if (!source.cpu && source.usage.has('index') !== destination.usage.has('index')) {
+            throw new Error(`[webgl] copyBuffer: '${source.label ?? 'unlabelled'}' into '${destination.label ?? 'unlabelled'}' crosses ` +
+                'between an index buffer and another kind, which WebGL2 keeps apart on the GPU.');
+        }
+        if (source.cpu) {
+            const array = source.array;
+            if (!array) {
+                throw new Error(`[webgl] copyBuffer: '${source.label ?? 'unlabelled'}' has released the CPU array it copies from.`);
+            }
+            this.writeBuffer(destination, destinationByteOffset, array, sourceByteOffset, byteSize);
+            return;
+        }
+        if (destination.usage.has('storage')) {
+            const sourceBuffer = getUploaded(this.buffers, source);
+            if (hasStorageTexture(this.textures, source) ||
+                (sourceBuffer === undefined && source.usage.has('storage'))) {
+                copyStorageTextureSpan(gl, this.textures, source, sourceByteOffset, destination, destinationByteOffset, byteSize);
+            }
+            else {
+                const from = sourceBuffer ??
+                    ensureUploaded(gl, this.buffers, source, gl.COPY_READ_BUFFER, source.label ?? 'copy-source');
+                unpackStorageTextureSpan(gl, this.textures, from, sourceByteOffset, destination, destinationByteOffset, byteSize);
+            }
+        }
+        const storageOnly = destination.usage.size === 1 && destination.usage.has('storage');
+        if (!storageOnly || getUploaded(this.buffers, destination) !== undefined) {
+            copyBufferBytes(gl, this.buffers, source, sourceByteOffset, destination, destinationByteOffset, byteSize);
+        }
+        else {
+            this.buffers.textureOnly.add(destination);
+        }
+    }
+    copyTexture(source, region, destination, origin) {
+        copyTextureRegion$1(this.gl, this.textures, source, region, destination, origin);
+    }
     readPixels(renderTarget, attachmentIndex = 0, layer = 0, mipLevel = 0) {
         return readPixels$1(this.gl, this, renderTarget, attachmentIndex, layer, mipLevel);
     }
@@ -40430,6 +40800,32 @@ function computeDispatchWorkgroupsIndirect(pass, inspector, indirectBuffer, offs
     pass.dispatchWorkgroupsIndirect(indirectBuffer, offset);
     if (inspector)
         inspector.dispatchWorkgroupsIndirect(indirectBuffer, offset);
+}
+
+/** `copyTexture` for WebGPU: its own submission, so it lands after earlier queue writes and before later frames. */
+function copyTextureRegion(cache, device, source, region, destination, origin) {
+    const encoder = device.createCommandEncoder({ label: 'copyTexture' });
+    encoder.copyTextureToTexture({
+        texture: copyEndpoint(cache, device, source),
+        mipLevel: region.level,
+        origin: { x: region.x, y: region.y, z: region.z },
+    }, {
+        texture: copyEndpoint(cache, device, destination),
+        mipLevel: origin.level,
+        origin: { x: origin.x, y: origin.y, z: origin.z },
+    }, [region.width, region.height, region.depth]);
+    device.queue.submit([encoder.finish()]);
+}
+/** the GPU texture behind either end of a copy: a render target's is allocated by its target, any other by its upload. */
+function copyEndpoint(cache, device, texture) {
+    if (!texture.isRenderTargetTexture)
+        return updateTexture$1(cache, device, texture).texture;
+    if (texture.renderTarget)
+        ensureRenderTargetTexturesAllocated(cache, device, texture.renderTarget);
+    const data = getTextureData$1(cache, texture);
+    if (!data)
+        throw new Error(`[webgpu] copyTexture: render target texture '${texture.label ?? 'unlabelled'}' has no GPU texture yet.`);
+    return data.texture;
 }
 
 /**
@@ -41993,6 +42389,12 @@ class WebGPUBackend {
     writeTexture(texture, region, data) {
         writeTextureRegion$1(this.textures, this.device, texture, region, data);
     }
+    copyBuffer(source, sourceByteOffset, destination, destinationByteOffset, byteSize) {
+        copyBufferBytes$1(this.buffers, this.device, source, sourceByteOffset, destination, destinationByteOffset, byteSize);
+    }
+    copyTexture(source, region, destination, origin) {
+        copyTextureRegion(this.textures, this.device, source, region, destination, origin);
+    }
     /** Off the `DeviceBackend` contract on purpose: a neutral signature would widen this to `string`. */
     awaitCompletion() {
         return this.device.queue.onSubmittedWorkDone();
@@ -42872,5 +43274,5 @@ function createData3DTexture(data = null, width = 1, height = 1, depth = 1, opti
     return new Data3DTexture(data, width, height, depth, options);
 }
 
-export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, Scene, Source, TOUCH, Texture, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId, writeBuffer, writeTexture };
+export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, Scene, Source, TOUCH, Texture, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, copyBuffer, copyTexture, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId, writeBuffer, writeTexture };
 //# sourceMappingURL=index.js.map

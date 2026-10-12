@@ -43,6 +43,12 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
   </tr>
   <tr>
     <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-copy-buffer">
+        <img src="./examples/public/screenshots/example-webgpu-copy-buffer.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Copy Buffer
+      </a>
+    </td>
+    <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-interleaved">
         <img src="./examples/public/screenshots/example-webgpu-interleaved.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Interleaved Vertex Buffers
@@ -54,14 +60,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Line
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-raging-sea">
         <img src="./examples/public/screenshots/example-webgpu-raging-sea.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Raging Sea
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-point-lights">
         <img src="./examples/public/screenshots/example-webgpu-point-lights.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -74,14 +80,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Shadow Map
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-discard">
         <img src="./examples/public/screenshots/example-webgpu-discard.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Discard
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-instanced-mesh">
         <img src="./examples/public/screenshots/example-webgpu-instanced-mesh.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -94,14 +100,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Instancing with Storage Buffer
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-texture">
         <img src="./examples/public/screenshots/example-webgpu-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Texture
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-mipmaps">
         <img src="./examples/public/screenshots/example-webgpu-mipmaps.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -114,14 +120,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Cube Texture Skybox
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-array-texture">
         <img src="./examples/public/screenshots/example-webgpu-array-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Array Texture Flipbook
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-video-texture">
         <img src="./examples/public/screenshots/example-webgpu-video-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -134,14 +140,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Render to Texture
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-mrt">
         <img src="./examples/public/screenshots/example-webgpu-mrt.png" width="180" height="120" style="object-fit:cover;"/><br/>
         MRT (Multiple Render Targets)
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-fxaa">
         <img src="./examples/public/screenshots/example-webgpu-fxaa.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -154,14 +160,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Cube Camera
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-viewports">
         <img src="./examples/public/screenshots/example-webgpu-viewports.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Viewports + Scissor
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-stencil">
         <img src="./examples/public/screenshots/example-webgpu-stencil.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -174,14 +180,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Compute Particles
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-compute-birds">
         <img src="./examples/public/screenshots/example-webgpu-compute-birds.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Compute Birds
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-compute-texture">
         <img src="./examples/public/screenshots/example-webgpu-compute-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -194,14 +200,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Ball Cluster
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-volume">
         <img src="./examples/public/screenshots/example-webgpu-volume.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Volume
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-voxels">
         <img src="./examples/public/screenshots/example-webgpu-voxels.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -214,14 +220,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Indirect Batched
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-indirect-compute">
         <img src="./examples/public/screenshots/example-webgpu-indirect-compute.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Indirect Compute
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-moving-mesh-stress">
         <img src="./examples/public/screenshots/example-webgpu-moving-mesh-stress.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -234,14 +240,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Static Mesh Stress
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgl-hello">
         <img src="./examples/public/screenshots/example-webgl-hello.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Hello World
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgl-textured">
         <img src="./examples/public/screenshots/example-webgl-textured.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -254,14 +260,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Render Target
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgl-shadow-map">
         <img src="./examples/public/screenshots/example-webgl-shadow-map.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Shadow Map (WebGL)
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgl-instanced-mesh">
         <img src="./examples/public/screenshots/example-webgl-instanced-mesh.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -274,14 +280,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Cube Texture Skybox (WebGL)
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgl-mrt">
         <img src="./examples/public/screenshots/example-webgl-mrt.png" width="180" height="120" style="object-fit:cover;"/><br/>
         MRT (WebGL)
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgl-cube-camera">
         <img src="./examples/public/screenshots/example-webgl-cube-camera.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -294,14 +300,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Stencil Masking (WebGL)
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgl-transform-feedback-particles">
         <img src="./examples/public/screenshots/example-webgl-transform-feedback-particles.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Transform Feedback Particles (WebGL)
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-inspector-toggle">
         <img src="./examples/public/screenshots/example-webgpu-inspector-toggle.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -933,6 +939,31 @@ On WebGL2 a storage buffer's write goes straight into the texture its reads lowe
 
 Textures have the same option, written with `writeTexture`; see [Textures with no CPU copy](#textures-with-no-cpu-copy).
 
+### Copying between buffers
+
+`copyBuffer` copies a span of one buffer into a `cpu: false` buffer on the GPU, so nothing comes back to the CPU. Like `writeBuffer` it is queued at once: after the writes before it, ahead of any frame not yet submitted. Given no placement it copies the whole source to the start of the destination, which is how a buffer grows:
+
+```ts
+const grown = new GpuBuffer(d.array(d.u32), { count: arena.count * 2, usage: 'storage', cpu: false });
+copyBuffer(renderer, arena, grown);                     // all of arena, to the start of grown
+copyBuffer(renderer, arena, grown, 64, 1024, 256);      // 256 bytes from byte 64, to byte 1024
+geometry.setBuffer('arena', grown);
+arena.dispose();
+```
+
+Offsets and size are bytes and multiples of 4, and two ranges of one buffer may not overlap. The source may keep a CPU array: on WebGL2 that array is what gets copied, since it is what the GPU copies are uploaded from. On WebGL2 a storage destination's texture is filled from the source's texture, or from its GL buffer, so a copy between storage buffers moves whole texels of one size; and WebGL2 keeps index buffers apart, so a copy between an index buffer and another kind throws there.
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-copy-buffer">
+        <img src="./examples/public/screenshots/example-webgpu-copy-buffer.png" width="200" height="133" style="object-fit:cover;"/><br/>
+        Copy Buffer
+      </a>
+    </td>
+  </tr>
+</table>
+
 ### Reads run on WebGL2 (as a texture)
 
 WebGL2 has no storage buffers, but a read-only storage buffer is an indexed array, and so is a texture. So `storage(buffer, 'read')` and the `index(_, i)` / `.field` reads over it work on both backends. On WebGPU it stays a native `var<storage>` array. On WebGL2 the renderer reads the buffer's own bytes as an `rgba32uint` texture and lowers each read to a `texelFetch`, using the same path as [Structured data](#structured-data). There is no second copy and no CPU round-trip.
@@ -1399,6 +1430,17 @@ and generates no mips (write each `level` yourself), and `needsUpdate` / `addUpd
 Partial upload reads rows out of your typed array in place, so it needs a typed-array source. A texture
 backed by an image, canvas, or video has no such rows: the region is still honoured, but by a full
 upload rather than a cheaper one.
+
+### Copying between textures
+
+`copyTexture` copies one box of a texture into another on the GPU, queued at once like `writeTexture`. The box reads like `writeTexture`'s region, and the destination takes an origin (`x`, `y`, `z`, `level`); omitted fields cover the rest of the source level and land at the corner. Either end may be a render target's texture, so this is also how a rendered frame is kept:
+
+```ts
+copyTexture(renderer, target.texture, history);                                   // the whole frame
+copyTexture(renderer, atlas, tiles, { x: 64, y: 0, width: 32, height: 32 }, { z: 5 }); // a tile into layer 5
+```
+
+Both ends hold the same uncompressed colour format, or the same one but for `-srgb`, single sampled. The destination is one the GPU owns: `cpu: false`, a render target's, or a storage texture. Depth and compressed formats throw, as does a destination whose `usage` lacks `COPY_DST` or a source lacking `COPY_SRC`; textures have both by default.
 
 ### Storage textures
 

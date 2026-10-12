@@ -1,7 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
-import type { TextureRegion } from '../../core/texture-region';
+import type { TextureOrigin, TextureRegion } from '../../core/texture-region';
 import type { ComputeNode } from '../../nodes/lib/core';
 import type { FrameBackend } from './frame';
 import type { MemoryInfo } from './info';
@@ -29,6 +29,10 @@ export interface DeviceBackend extends FrameBackend {
     /** @internal */ writeBuffer(buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void;
     /** copies packed `data` into one box of a `cpu: false` texture before returning; region and size already checked. */
     /** @internal */ writeTexture(texture: GpuTexture, region: TextureRegion, data: ArrayBufferView): void;
+    /** queues a GPU copy of `byteSize` bytes between two buffers; ranges and ownership already checked. */
+    /** @internal */ copyBuffer(source: GpuBuffer, sourceByteOffset: number, destination: GpuBuffer, destinationByteOffset: number, byteSize: number): void;
+    /** queues a GPU copy of one box between two textures of one format; box, origin and formats already checked. */
+    /** @internal */ copyTexture(source: GpuTexture, region: TextureRegion, destination: GpuTexture, origin: TextureOrigin): void;
     /**
      * Fill the shared counts and this API's own, at the renderer's frame boundary. Read live off the
      * caches rather than mirrored at every create/dispose site, which would only ever approximate what

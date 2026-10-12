@@ -1,7 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
-import type { TextureRegion } from '../../core/texture-region';
+import type { TextureOrigin, TextureRegion } from '../../core/texture-region';
 import type { ComputeNode } from '../../nodes/lib/core';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DeviceBackend } from '../core/device-backend';
@@ -160,6 +160,14 @@ export declare class WebGLBackend implements DeviceBackend {
     /** writes the mirror texture of a storage buffer and the GL buffer of any other usage, or of one transform feedback made. */
     writeBuffer(buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void;
     writeTexture(texture: GpuTexture, region: TextureRegion, data: ArrayBufferView): void;
+    /**
+     * fills each form the destination keeps, as `writeBuffer` would: a storage buffer's mirror texture,
+     * and its GL buffer when it has one or another usage needs one. A `cpu: true` source copies from its
+     * array, which is what its GPU forms are uploaded from; any other from its mirror when it has one,
+     * else from its GL buffer.
+     */
+    copyBuffer(source: GpuBuffer, sourceByteOffset: number, destination: GpuBuffer, destinationByteOffset: number, byteSize: number): void;
+    copyTexture(source: GpuTexture, region: TextureRegion, destination: GpuTexture, origin: TextureOrigin): void;
     readPixels(renderTarget: RenderTarget, attachmentIndex?: number, layer?: number, mipLevel?: number): Promise<Uint8Array>;
     /**
      * Deliberately does not call `WEBGL_lose_context.loseContext()`: a context is per-canvas, so forcing

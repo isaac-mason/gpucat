@@ -14,7 +14,7 @@ export { createSampler, GpuSampler, type GpuSamplerOptions } from './core/gpu-sa
 export { type BaseOptions, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, type DimensionOf, GpuTexture, type GpuTextureOptions, type Options1D, type Options2D, type Options2DArray, type Options3D, type OptionsCube, type OptionsCubeArray, type ViewDimensionOf, } from './core/gpu-texture';
 export * from './core/object3d';
 export * from './core/render-target';
-export { REGION_CAP, type RegionExtent, regionsFromLinearRun, type TextureRectInit, type TextureRegion, type TextureRegionInit, } from './core/texture-region';
+export { REGION_CAP, type RegionExtent, regionsFromLinearRun, type TextureOrigin, type TextureOriginInit, type TextureRectInit, type TextureRegion, type TextureRegionInit, } from './core/texture-region';
 export * from './core/uniform';
 export * from './geometry/geometry';
 export * from './geometry/geometry-helpers';
@@ -35,6 +35,8 @@ export { createMesh, type IndexedMeshDraw, Mesh, type MeshDraw, type NonIndexedM
 export { type BundleEncoder, bundle } from './renderer/core/bundle';
 export { type CanvasAlphaMode, type CanvasResizeEvent, CanvasTarget, type CanvasTargetOptions, createCanvasTarget, } from './renderer/core/canvas-target';
 export { compile, compileCompute } from './renderer/core/compile';
+export { copyBuffer } from './renderer/core/copy-buffer';
+export { type CopyTextureEnd, copyTexture } from './renderer/core/copy-texture';
 export type { DeviceBackend } from './renderer/core/device-backend';
 export { type AnyPass, type BackendName, type BundleRecord, type CallRecord, type ComputePass, type ComputePassDesc, type DispatchIndirectOptions, type DispatchOptions, type DispatchRecord, type DrawOptions, type DrawRecord, type Frame, type FrameBackend, frame, type Pass, type PassDesc, type PassEntry, type Rect, type RenderBundle, type TransformFeedbackDispatch, type TransformFeedbackPass, type TransformFeedbackPassDesc, type TransformFeedbackRecord, } from './renderer/core/frame';
 export { type BufferInfo, type BufferWrite, type ComputeInfo, type MemoryInfo, type RendererInfo, type RenderInfo, resetRendererInfo, } from './renderer/core/info';

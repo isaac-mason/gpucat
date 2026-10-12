@@ -343,161 +343,161 @@ The full node DSL, grouped by category. Learn it with examples in the [guide](./
 </tr><tr>
 <td><a href="#options3d"><code>Options3D</code></a></td><td><a href="#optionscube"><code>OptionsCube</code></a></td><td><a href="#optionscubearray"><code>OptionsCubeArray</code></a></td><td><a href="#viewdimensionof"><code>ViewDimensionOf</code></a></td>
 </tr><tr>
-<td><a href="#region_cap"><code>REGION_CAP</code></a></td><td><a href="#regionextent"><code>RegionExtent</code></a></td><td><a href="#regionsfromlinearrun"><code>regionsFromLinearRun</code></a></td><td><a href="#texturerectinit"><code>TextureRectInit</code></a></td>
+<td><a href="#region_cap"><code>REGION_CAP</code></a></td><td><a href="#regionextent"><code>RegionExtent</code></a></td><td><a href="#regionsfromlinearrun"><code>regionsFromLinearRun</code></a></td><td><a href="#textureorigin"><code>TextureOrigin</code></a></td>
 </tr><tr>
-<td><a href="#textureregion"><code>TextureRegion</code></a></td><td><a href="#textureregioninit"><code>TextureRegionInit</code></a></td><td><a href="#attributeentry"><code>AttributeEntry</code></a></td><td><a href="#compileglsloptions"><code>CompileGlslOptions</code></a></td>
+<td><a href="#textureorigininit"><code>TextureOriginInit</code></a></td><td><a href="#texturerectinit"><code>TextureRectInit</code></a></td><td><a href="#textureregion"><code>TextureRegion</code></a></td><td><a href="#textureregioninit"><code>TextureRegionInit</code></a></td>
 </tr><tr>
-<td><a href="#compileresult"><code>CompileResult</code></a></td><td><a href="#compileslots"><code>CompileSlots</code></a></td><td><a href="#computecompileresult"><code>ComputeCompileResult</code></a></td><td><a href="#computestorageentry"><code>ComputeStorageEntry</code></a></td>
+<td><a href="#attributeentry"><code>AttributeEntry</code></a></td><td><a href="#compileglsloptions"><code>CompileGlslOptions</code></a></td><td><a href="#compileresult"><code>CompileResult</code></a></td><td><a href="#compileslots"><code>CompileSlots</code></a></td>
 </tr><tr>
-<td><a href="#compilecomputewgsl"><code>compileComputeWgsl</code></a></td><td><a href="#compileglsl"><code>compileGlsl</code></a></td><td><a href="#compiletransformfeedback"><code>compileTransformFeedback</code></a></td><td><a href="#compilewgsl"><code>compileWgsl</code></a></td>
+<td><a href="#computecompileresult"><code>ComputeCompileResult</code></a></td><td><a href="#computestorageentry"><code>ComputeStorageEntry</code></a></td><td><a href="#compilecomputewgsl"><code>compileComputeWgsl</code></a></td><td><a href="#compileglsl"><code>compileGlsl</code></a></td>
 </tr><tr>
-<td><a href="#nodegraphinfo"><code>NodeGraphInfo</code></a></td><td><a href="#nodeupdatetype"><code>NodeUpdateType</code></a></td><td><a href="#samplerentry"><code>SamplerEntry</code></a></td><td><a href="#storageentry"><code>StorageEntry</code></a></td>
+<td><a href="#compiletransformfeedback"><code>compileTransformFeedback</code></a></td><td><a href="#compilewgsl"><code>compileWgsl</code></a></td><td><a href="#nodegraphinfo"><code>NodeGraphInfo</code></a></td><td><a href="#nodeupdatetype"><code>NodeUpdateType</code></a></td>
 </tr><tr>
-<td><a href="#storagetextureentry"><code>StorageTextureEntry</code></a></td><td><a href="#textureentry"><code>TextureEntry</code></a></td><td><a href="#transformfeedbackglslresult"><code>TransformFeedbackGlslResult</code></a></td><td><a href="#transformfeedbackinputattribute"><code>TransformFeedbackInputAttribute</code></a></td>
+<td><a href="#samplerentry"><code>SamplerEntry</code></a></td><td><a href="#storageentry"><code>StorageEntry</code></a></td><td><a href="#storagetextureentry"><code>StorageTextureEntry</code></a></td><td><a href="#textureentry"><code>TextureEntry</code></a></td>
 </tr><tr>
-<td><a href="#uniformgroupblock"><code>UniformGroupBlock</code></a></td><td><a href="#uniformmember"><code>UniformMember</code></a></td><td><a href="#varyingentry"><code>VaryingEntry</code></a></td><td><a href="#vertexbuffergroup"><code>VertexBufferGroup</code></a></td>
+<td><a href="#transformfeedbackglslresult"><code>TransformFeedbackGlslResult</code></a></td><td><a href="#transformfeedbackinputattribute"><code>TransformFeedbackInputAttribute</code></a></td><td><a href="#uniformgroupblock"><code>UniformGroupBlock</code></a></td><td><a href="#uniformmember"><code>UniformMember</code></a></td>
 </tr><tr>
-<td><a href="#arraysamplingmode"><code>ArraySamplingMode</code></a></td><td><a href="#atomicptrdesc"><code>AtomicPtrDesc</code></a></td><td><a href="#attributeoptions"><code>AttributeOptions</code></a></td><td><a href="#abs"><code>abs</code></a></td>
+<td><a href="#varyingentry"><code>VaryingEntry</code></a></td><td><a href="#vertexbuffergroup"><code>VertexBufferGroup</code></a></td><td><a href="#arraysamplingmode"><code>ArraySamplingMode</code></a></td><td><a href="#atomicptrdesc"><code>AtomicPtrDesc</code></a></td>
 </tr><tr>
-<td><a href="#acestonemapping"><code>acesToneMapping</code></a></td><td><a href="#acos"><code>acos</code></a></td><td><a href="#add"><code>add</code></a></td><td><a href="#and"><code>and</code></a></td>
+<td><a href="#attributeoptions"><code>AttributeOptions</code></a></td><td><a href="#abs"><code>abs</code></a></td><td><a href="#acestonemapping"><code>acesToneMapping</code></a></td><td><a href="#acos"><code>acos</code></a></td>
 </tr><tr>
-<td><a href="#array"><code>array</code></a></td><td><a href="#arraytexture"><code>arrayTexture</code></a></td><td><a href="#asin"><code>asin</code></a></td><td><a href="#atan"><code>atan</code></a></td>
+<td><a href="#add"><code>add</code></a></td><td><a href="#and"><code>and</code></a></td><td><a href="#array"><code>array</code></a></td><td><a href="#arraytexture"><code>arrayTexture</code></a></td>
 </tr><tr>
-<td><a href="#atan2"><code>atan2</code></a></td><td><a href="#atomicadd"><code>atomicAdd</code></a></td><td><a href="#atomicand"><code>atomicAnd</code></a></td><td><a href="#atomiccompareexchangeweak"><code>atomicCompareExchangeWeak</code></a></td>
+<td><a href="#asin"><code>asin</code></a></td><td><a href="#atan"><code>atan</code></a></td><td><a href="#atan2"><code>atan2</code></a></td><td><a href="#atomicadd"><code>atomicAdd</code></a></td>
 </tr><tr>
-<td><a href="#atomicexchange"><code>atomicExchange</code></a></td><td><a href="#atomicload"><code>atomicLoad</code></a></td><td><a href="#atomicmax"><code>atomicMax</code></a></td><td><a href="#atomicmin"><code>atomicMin</code></a></td>
+<td><a href="#atomicand"><code>atomicAnd</code></a></td><td><a href="#atomiccompareexchangeweak"><code>atomicCompareExchangeWeak</code></a></td><td><a href="#atomicexchange"><code>atomicExchange</code></a></td><td><a href="#atomicload"><code>atomicLoad</code></a></td>
 </tr><tr>
-<td><a href="#atomicor"><code>atomicOr</code></a></td><td><a href="#atomicstore"><code>atomicStore</code></a></td><td><a href="#atomicsub"><code>atomicSub</code></a></td><td><a href="#atomicxor"><code>atomicXor</code></a></td>
+<td><a href="#atomicmax"><code>atomicMax</code></a></td><td><a href="#atomicmin"><code>atomicMin</code></a></td><td><a href="#atomicor"><code>atomicOr</code></a></td><td><a href="#atomicstore"><code>atomicStore</code></a></td>
 </tr><tr>
-<td><a href="#attribute"><code>attribute</code></a></td><td><a href="#binaryop"><code>BinaryOp</code></a></td><td><a href="#break"><code>Break</code></a></td><td><a href="#builtinkind"><code>BuiltinKind</code></a></td>
+<td><a href="#atomicsub"><code>atomicSub</code></a></td><td><a href="#atomicxor"><code>atomicXor</code></a></td><td><a href="#attribute"><code>attribute</code></a></td><td><a href="#binaryop"><code>BinaryOp</code></a></td>
 </tr><tr>
-<td><a href="#bitcastf32"><code>bitcastF32</code></a></td><td><a href="#bitcasti32"><code>bitcastI32</code></a></td><td><a href="#bitcastu32"><code>bitcastU32</code></a></td><td><a href="#bitwiseand"><code>bitwiseAnd</code></a></td>
+<td><a href="#break"><code>Break</code></a></td><td><a href="#builtinkind"><code>BuiltinKind</code></a></td><td><a href="#bitcastf32"><code>bitcastF32</code></a></td><td><a href="#bitcasti32"><code>bitcastI32</code></a></td>
 </tr><tr>
-<td><a href="#bitwiseor"><code>bitwiseOr</code></a></td><td><a href="#bitwisexor"><code>bitwiseXor</code></a></td><td><a href="#bool"><code>bool</code></a></td><td><a href="#builtin"><code>builtin</code></a></td>
+<td><a href="#bitcastu32"><code>bitcastU32</code></a></td><td><a href="#bitwiseand"><code>bitwiseAnd</code></a></td><td><a href="#bitwiseor"><code>bitwiseOr</code></a></td><td><a href="#bitwisexor"><code>bitwiseXor</code></a></td>
 </tr><tr>
-<td><a href="#computenodeoptions"><code>ComputeNodeOptions</code></a></td><td><a href="#computeoptions"><code>ComputeOptions</code></a></td><td><a href="#const"><code>Const</code></a></td><td><a href="#continue"><code>Continue</code></a></td>
+<td><a href="#bool"><code>bool</code></a></td><td><a href="#builtin"><code>builtin</code></a></td><td><a href="#computenodeoptions"><code>ComputeNodeOptions</code></a></td><td><a href="#computeoptions"><code>ComputeOptions</code></a></td>
 </tr><tr>
-<td><a href="#cubesamplingmode"><code>CubeSamplingMode</code></a></td><td><a href="#camerafar"><code>cameraFar</code></a></td><td><a href="#cameranear"><code>cameraNear</code></a></td><td><a href="#cameraposition"><code>cameraPosition</code></a></td>
+<td><a href="#const"><code>Const</code></a></td><td><a href="#continue"><code>Continue</code></a></td><td><a href="#cubesamplingmode"><code>CubeSamplingMode</code></a></td><td><a href="#camerafar"><code>cameraFar</code></a></td>
 </tr><tr>
-<td><a href="#cameraprojectionmatrix"><code>cameraProjectionMatrix</code></a></td><td><a href="#cameraviewmatrix"><code>cameraViewMatrix</code></a></td><td><a href="#ceil"><code>ceil</code></a></td><td><a href="#clamp"><code>clamp</code></a></td>
+<td><a href="#cameranear"><code>cameraNear</code></a></td><td><a href="#cameraposition"><code>cameraPosition</code></a></td><td><a href="#cameraprojectionmatrix"><code>cameraProjectionMatrix</code></a></td><td><a href="#cameraviewmatrix"><code>cameraViewMatrix</code></a></td>
 </tr><tr>
-<td><a href="#comparisonsampler"><code>comparisonSampler</code></a></td><td><a href="#compute"><code>compute</code></a></td><td><a href="#computeindex"><code>computeIndex</code></a></td><td><a href="#cond"><code>cond</code></a></td>
+<td><a href="#ceil"><code>ceil</code></a></td><td><a href="#clamp"><code>clamp</code></a></td><td><a href="#comparisonsampler"><code>comparisonSampler</code></a></td><td><a href="#compute"><code>compute</code></a></td>
 </tr><tr>
-<td><a href="#cos"><code>cos</code></a></td><td><a href="#countleadingzeros"><code>countLeadingZeros</code></a></td><td><a href="#countonebits"><code>countOneBits</code></a></td><td><a href="#counttrailingzeros"><code>countTrailingZeros</code></a></td>
+<td><a href="#computeindex"><code>computeIndex</code></a></td><td><a href="#cond"><code>cond</code></a></td><td><a href="#cos"><code>cos</code></a></td><td><a href="#countleadingzeros"><code>countLeadingZeros</code></a></td>
 </tr><tr>
-<td><a href="#cross"><code>cross</code></a></td><td><a href="#cubetexture"><code>cubeTexture</code></a></td><td><a href="#depthsamplingmode"><code>DepthSamplingMode</code></a></td><td><a href="#discard"><code>Discard</code></a></td>
+<td><a href="#countonebits"><code>countOneBits</code></a></td><td><a href="#counttrailingzeros"><code>countTrailingZeros</code></a></td><td><a href="#cross"><code>cross</code></a></td><td><a href="#cubetexture"><code>cubeTexture</code></a></td>
 </tr><tr>
-<td><a href="#drawindexedindirect"><code>DrawIndexedIndirect</code></a></td><td><a href="#drawindirect"><code>DrawIndirect</code></a></td><td><a href="#depthtexture"><code>depthTexture</code></a></td><td><a href="#div"><code>div</code></a></td>
+<td><a href="#depthsamplingmode"><code>DepthSamplingMode</code></a></td><td><a href="#discard"><code>Discard</code></a></td><td><a href="#drawindexedindirect"><code>DrawIndexedIndirect</code></a></td><td><a href="#drawindirect"><code>DrawIndirect</code></a></td>
 </tr><tr>
-<td><a href="#dot"><code>dot</code></a></td><td><a href="#dpdx"><code>dpdx</code></a></td><td><a href="#dpdxcoarse"><code>dpdxCoarse</code></a></td><td><a href="#dpdxfine"><code>dpdxFine</code></a></td>
+<td><a href="#depthtexture"><code>depthTexture</code></a></td><td><a href="#div"><code>div</code></a></td><td><a href="#dot"><code>dot</code></a></td><td><a href="#dpdx"><code>dpdx</code></a></td>
 </tr><tr>
-<td><a href="#dpdy"><code>dpdy</code></a></td><td><a href="#dpdycoarse"><code>dpdyCoarse</code></a></td><td><a href="#dpdyfine"><code>dpdyFine</code></a></td><td><a href="#equal"><code>equal</code></a></td>
+<td><a href="#dpdxcoarse"><code>dpdxCoarse</code></a></td><td><a href="#dpdxfine"><code>dpdxFine</code></a></td><td><a href="#dpdy"><code>dpdy</code></a></td><td><a href="#dpdycoarse"><code>dpdyCoarse</code></a></td>
 </tr><tr>
-<td><a href="#exp"><code>exp</code></a></td><td><a href="#exp2"><code>exp2</code></a></td><td><a href="#fieldaccessor"><code>FieldAccessor</code></a></td><td><a href="#fields"><code>Fields</code></a></td>
+<td><a href="#dpdyfine"><code>dpdyFine</code></a></td><td><a href="#equal"><code>equal</code></a></td><td><a href="#exp"><code>exp</code></a></td><td><a href="#exp2"><code>exp2</code></a></td>
 </tr><tr>
-<td><a href="#fn"><code>Fn</code></a></td><td><a href="#fnlayout"><code>FnLayout</code></a></td><td><a href="#for"><code>For</code></a></td><td><a href="#f16"><code>f16</code></a></td>
+<td><a href="#fieldaccessor"><code>FieldAccessor</code></a></td><td><a href="#fields"><code>Fields</code></a></td><td><a href="#fn"><code>Fn</code></a></td><td><a href="#fnlayout"><code>FnLayout</code></a></td>
 </tr><tr>
-<td><a href="#f32"><code>f32</code></a></td><td><a href="#field"><code>field</code></a></td><td><a href="#fields-2"><code>fields</code></a></td><td><a href="#firstleadingbit"><code>firstLeadingBit</code></a></td>
+<td><a href="#for"><code>For</code></a></td><td><a href="#f16"><code>f16</code></a></td><td><a href="#f32"><code>f32</code></a></td><td><a href="#field"><code>field</code></a></td>
 </tr><tr>
-<td><a href="#firsttrailingbit"><code>firstTrailingBit</code></a></td><td><a href="#floor"><code>floor</code></a></td><td><a href="#fract"><code>fract</code></a></td><td><a href="#fragcoord"><code>fragCoord</code></a></td>
+<td><a href="#fields-2"><code>fields</code></a></td><td><a href="#firstleadingbit"><code>firstLeadingBit</code></a></td><td><a href="#firsttrailingbit"><code>firstTrailingBit</code></a></td><td><a href="#floor"><code>floor</code></a></td>
 </tr><tr>
-<td><a href="#fwidth"><code>fwidth</code></a></td><td><a href="#fwidthcoarse"><code>fwidthCoarse</code></a></td><td><a href="#fwidthfine"><code>fwidthFine</code></a></td><td><a href="#fxaa"><code>fxaa</code></a></td>
+<td><a href="#fract"><code>fract</code></a></td><td><a href="#fragcoord"><code>fragCoord</code></a></td><td><a href="#fwidth"><code>fwidth</code></a></td><td><a href="#fwidthcoarse"><code>fwidthCoarse</code></a></td>
 </tr><tr>
-<td><a href="#glslfnlayout"><code>GlslFnLayout</code></a></td><td><a href="#gputypedarray"><code>GpuTypedArray</code></a></td><td><a href="#globalid"><code>globalId</code></a></td><td><a href="#glsl"><code>glsl</code></a></td>
+<td><a href="#fwidthfine"><code>fwidthFine</code></a></td><td><a href="#fxaa"><code>fxaa</code></a></td><td><a href="#glslfnlayout"><code>GlslFnLayout</code></a></td><td><a href="#gputypedarray"><code>GpuTypedArray</code></a></td>
 </tr><tr>
-<td><a href="#glslfn"><code>glslFn</code></a></td><td><a href="#greaterthan"><code>greaterThan</code></a></td><td><a href="#greaterthanequal"><code>greaterThanEqual</code></a></td><td><a href="#highleveltexture"><code>HighLevelTexture</code></a></td>
+<td><a href="#globalid"><code>globalId</code></a></td><td><a href="#glsl"><code>glsl</code></a></td><td><a href="#glslfn"><code>glslFn</code></a></td><td><a href="#greaterthan"><code>greaterThan</code></a></td>
 </tr><tr>
-<td><a href="#if"><code>If</code></a></td><td><a href="#ifchain"><code>IfChain</code></a></td><td><a href="#interpolationsampling"><code>InterpolationSampling</code></a></td><td><a href="#interpolationtype"><code>InterpolationType</code></a></td>
+<td><a href="#greaterthanequal"><code>greaterThanEqual</code></a></td><td><a href="#highleveltexture"><code>HighLevelTexture</code></a></td><td><a href="#if"><code>If</code></a></td><td><a href="#ifchain"><code>IfChain</code></a></td>
 </tr><tr>
-<td><a href="#i32"><code>i32</code></a></td><td><a href="#index"><code>index</code></a></td><td><a href="#instanceindex"><code>instanceIndex</code></a></td><td><a href="#inversesqrt"><code>inverseSqrt</code></a></td>
+<td><a href="#interpolationsampling"><code>InterpolationSampling</code></a></td><td><a href="#interpolationtype"><code>InterpolationType</code></a></td><td><a href="#i32"><code>i32</code></a></td><td><a href="#index"><code>index</code></a></td>
 </tr><tr>
-<td><a href="#let"><code>Let</code></a></td><td><a href="#loop"><code>Loop</code></a></td><td><a href="#loopparam"><code>LoopParam</code></a></td><td><a href="#loopvars"><code>LoopVars</code></a></td>
+<td><a href="#instanceindex"><code>instanceIndex</code></a></td><td><a href="#inversesqrt"><code>inverseSqrt</code></a></td><td><a href="#let"><code>Let</code></a></td><td><a href="#loop"><code>Loop</code></a></td>
 </tr><tr>
-<td><a href="#length"><code>length</code></a></td><td><a href="#lessthan"><code>lessThan</code></a></td><td><a href="#lessthanequal"><code>lessThanEqual</code></a></td><td><a href="#localid"><code>localId</code></a></td>
+<td><a href="#loopparam"><code>LoopParam</code></a></td><td><a href="#loopvars"><code>LoopVars</code></a></td><td><a href="#length"><code>length</code></a></td><td><a href="#lessthan"><code>lessThan</code></a></td>
 </tr><tr>
-<td><a href="#localindex"><code>localIndex</code></a></td><td><a href="#log"><code>log</code></a></td><td><a href="#log2"><code>log2</code></a></td><td><a href="#mattype"><code>MatType</code></a></td>
+<td><a href="#lessthanequal"><code>lessThanEqual</code></a></td><td><a href="#localid"><code>localId</code></a></td><td><a href="#localindex"><code>localIndex</code></a></td><td><a href="#log"><code>log</code></a></td>
 </tr><tr>
-<td><a href="#mat2x2f"><code>mat2x2f</code></a></td><td><a href="#mat2x2h"><code>mat2x2h</code></a></td><td><a href="#mat2x3f"><code>mat2x3f</code></a></td><td><a href="#mat2x3h"><code>mat2x3h</code></a></td>
+<td><a href="#log2"><code>log2</code></a></td><td><a href="#mattype"><code>MatType</code></a></td><td><a href="#mat2x2f"><code>mat2x2f</code></a></td><td><a href="#mat2x2h"><code>mat2x2h</code></a></td>
 </tr><tr>
-<td><a href="#mat2x4f"><code>mat2x4f</code></a></td><td><a href="#mat2x4h"><code>mat2x4h</code></a></td><td><a href="#mat3"><code>mat3</code></a></td><td><a href="#mat3x2f"><code>mat3x2f</code></a></td>
+<td><a href="#mat2x3f"><code>mat2x3f</code></a></td><td><a href="#mat2x3h"><code>mat2x3h</code></a></td><td><a href="#mat2x4f"><code>mat2x4f</code></a></td><td><a href="#mat2x4h"><code>mat2x4h</code></a></td>
 </tr><tr>
-<td><a href="#mat3x2h"><code>mat3x2h</code></a></td><td><a href="#mat3x3f"><code>mat3x3f</code></a></td><td><a href="#mat3x3h"><code>mat3x3h</code></a></td><td><a href="#mat3x4f"><code>mat3x4f</code></a></td>
+<td><a href="#mat3"><code>mat3</code></a></td><td><a href="#mat3x2f"><code>mat3x2f</code></a></td><td><a href="#mat3x2h"><code>mat3x2h</code></a></td><td><a href="#mat3x3f"><code>mat3x3f</code></a></td>
 </tr><tr>
-<td><a href="#mat3x4h"><code>mat3x4h</code></a></td><td><a href="#mat4"><code>mat4</code></a></td><td><a href="#mat4x2f"><code>mat4x2f</code></a></td><td><a href="#mat4x2h"><code>mat4x2h</code></a></td>
+<td><a href="#mat3x3h"><code>mat3x3h</code></a></td><td><a href="#mat3x4f"><code>mat3x4f</code></a></td><td><a href="#mat3x4h"><code>mat3x4h</code></a></td><td><a href="#mat4"><code>mat4</code></a></td>
 </tr><tr>
-<td><a href="#mat4x3f"><code>mat4x3f</code></a></td><td><a href="#mat4x3h"><code>mat4x3h</code></a></td><td><a href="#mat4x4f"><code>mat4x4f</code></a></td><td><a href="#mat4x4h"><code>mat4x4h</code></a></td>
+<td><a href="#mat4x2f"><code>mat4x2f</code></a></td><td><a href="#mat4x2h"><code>mat4x2h</code></a></td><td><a href="#mat4x3f"><code>mat4x3f</code></a></td><td><a href="#mat4x3h"><code>mat4x3h</code></a></td>
 </tr><tr>
-<td><a href="#max"><code>max</code></a></td><td><a href="#min"><code>min</code></a></td><td><a href="#mix"><code>mix</code></a></td><td><a href="#mod"><code>mod</code></a></td>
+<td><a href="#mat4x4f"><code>mat4x4f</code></a></td><td><a href="#mat4x4h"><code>mat4x4h</code></a></td><td><a href="#max"><code>max</code></a></td><td><a href="#min"><code>min</code></a></td>
 </tr><tr>
-<td><a href="#modelnormalmatrix"><code>modelNormalMatrix</code></a></td><td><a href="#modelworldmatrix"><code>modelWorldMatrix</code></a></td><td><a href="#mrt"><code>mrt</code></a></td><td><a href="#mul"><code>mul</code></a></td>
+<td><a href="#mix"><code>mix</code></a></td><td><a href="#mod"><code>mod</code></a></td><td><a href="#modelnormalmatrix"><code>modelNormalMatrix</code></a></td><td><a href="#modelworldmatrix"><code>modelWorldMatrix</code></a></td>
 </tr><tr>
-<td><a href="#nodekind"><code>NodeKind</code></a></td><td><a href="#numerictype"><code>NumericType</code></a></td><td><a href="#ndcdepthtostorage"><code>ndcDepthToStorage</code></a></td><td><a href="#normalize"><code>normalize</code></a></td>
+<td><a href="#mrt"><code>mrt</code></a></td><td><a href="#mul"><code>mul</code></a></td><td><a href="#nodekind"><code>NodeKind</code></a></td><td><a href="#numerictype"><code>NumericType</code></a></td>
 </tr><tr>
-<td><a href="#notequal"><code>notEqual</code></a></td><td><a href="#numworkgroups"><code>numWorkgroups</code></a></td><td><a href="#outputcolorspace"><code>OutputColorSpace</code></a></td><td><a href="#or"><code>or</code></a></td>
+<td><a href="#ndcdepthtostorage"><code>ndcDepthToStorage</code></a></td><td><a href="#normalize"><code>normalize</code></a></td><td><a href="#notequal"><code>notEqual</code></a></td><td><a href="#numworkgroups"><code>numWorkgroups</code></a></td>
 </tr><tr>
-<td><a href="#paramdesc"><code>ParamDesc</code></a></td><td><a href="#paramdescstonodes"><code>ParamDescsToNodes</code></a></td><td><a href="#privatevar"><code>PrivateVar</code></a></td><td><a href="#pack2x16float"><code>pack2x16float</code></a></td>
+<td><a href="#outputcolorspace"><code>OutputColorSpace</code></a></td><td><a href="#or"><code>or</code></a></td><td><a href="#paramdesc"><code>ParamDesc</code></a></td><td><a href="#paramdescstonodes"><code>ParamDescsToNodes</code></a></td>
 </tr><tr>
-<td><a href="#pack2x16snorm"><code>pack2x16snorm</code></a></td><td><a href="#pack2x16unorm"><code>pack2x16unorm</code></a></td><td><a href="#pack4x8snorm"><code>pack4x8snorm</code></a></td><td><a href="#pack4x8unorm"><code>pack4x8unorm</code></a></td>
+<td><a href="#privatevar"><code>PrivateVar</code></a></td><td><a href="#pack2x16float"><code>pack2x16float</code></a></td><td><a href="#pack2x16snorm"><code>pack2x16snorm</code></a></td><td><a href="#pack2x16unorm"><code>pack2x16unorm</code></a></td>
 </tr><tr>
-<td><a href="#positionclip"><code>positionClip</code></a></td><td><a href="#pow"><code>pow</code></a></td><td><a href="#recordaccessor"><code>RecordAccessor</code></a></td><td><a href="#renderoutputoptions"><code>RenderOutputOptions</code></a></td>
+<td><a href="#pack4x8snorm"><code>pack4x8snorm</code></a></td><td><a href="#pack4x8unorm"><code>pack4x8unorm</code></a></td><td><a href="#positionclip"><code>positionClip</code></a></td><td><a href="#pow"><code>pow</code></a></td>
 </tr><tr>
-<td><a href="#rendertexturecontents"><code>RenderTextureContents</code></a></td><td><a href="#rendertextureoptions"><code>RenderTextureOptions</code></a></td><td><a href="#resolvedstoragebuffertexture"><code>ResolvedStorageBufferTexture</code></a></td><td><a href="#return"><code>Return</code></a></td>
+<td><a href="#recordaccessor"><code>RecordAccessor</code></a></td><td><a href="#renderoutputoptions"><code>RenderOutputOptions</code></a></td><td><a href="#rendertexturecontents"><code>RenderTextureContents</code></a></td><td><a href="#rendertextureoptions"><code>RenderTextureOptions</code></a></td>
 </tr><tr>
-<td><a href="#reinhardtonemapping"><code>reinhardToneMapping</code></a></td><td><a href="#renderoutput"><code>renderOutput</code></a></td><td><a href="#rendertexture"><code>renderTexture</code></a></td><td><a href="#reversebits"><code>reverseBits</code></a></td>
+<td><a href="#resolvedstoragebuffertexture"><code>ResolvedStorageBufferTexture</code></a></td><td><a href="#return"><code>Return</code></a></td><td><a href="#reinhardtonemapping"><code>reinhardToneMapping</code></a></td><td><a href="#renderoutput"><code>renderOutput</code></a></td>
 </tr><tr>
-<td><a href="#rgb"><code>rgb</code></a></td><td><a href="#samplertype"><code>SamplerType</code></a></td><td><a href="#samplingmode"><code>SamplingMode</code></a></td><td><a href="#scalarresultdesc"><code>ScalarResultDesc</code></a></td>
+<td><a href="#rendertexture"><code>renderTexture</code></a></td><td><a href="#reversebits"><code>reverseBits</code></a></td><td><a href="#rgb"><code>rgb</code></a></td><td><a href="#samplertype"><code>SamplerType</code></a></td>
 </tr><tr>
-<td><a href="#scalartype"><code>ScalarType</code></a></td><td><a href="#shiftamount"><code>ShiftAmount</code></a></td><td><a href="#storagebuffertexturesource"><code>StorageBufferTextureSource</code></a></td><td><a href="#storagecoord"><code>StorageCoord</code></a></td>
+<td><a href="#samplingmode"><code>SamplingMode</code></a></td><td><a href="#scalarresultdesc"><code>ScalarResultDesc</code></a></td><td><a href="#scalartype"><code>ScalarType</code></a></td><td><a href="#shiftamount"><code>ShiftAmount</code></a></td>
 </tr><tr>
-<td><a href="#storagesampledof"><code>StorageSampledOf</code></a></td><td><a href="#storagevalue"><code>StorageValue</code></a></td><td><a href="#structdef"><code>StructDef</code></a></td><td><a href="#structinstance"><code>StructInstance</code></a></td>
+<td><a href="#storagebuffertexturesource"><code>StorageBufferTextureSource</code></a></td><td><a href="#storagecoord"><code>StorageCoord</code></a></td><td><a href="#storagesampledof"><code>StorageSampledOf</code></a></td><td><a href="#storagevalue"><code>StorageValue</code></a></td>
 </tr><tr>
-<td><a href="#structmember"><code>StructMember</code></a></td><td><a href="#sampler"><code>sampler</code></a></td><td><a href="#screencoordinate"><code>screenCoordinate</code></a></td><td><a href="#screensize"><code>screenSize</code></a></td>
+<td><a href="#structdef"><code>StructDef</code></a></td><td><a href="#structinstance"><code>StructInstance</code></a></td><td><a href="#structmember"><code>StructMember</code></a></td><td><a href="#sampler"><code>sampler</code></a></td>
 </tr><tr>
-<td><a href="#screenuv"><code>screenUV</code></a></td><td><a href="#select"><code>select</code></a></td><td><a href="#shiftleft"><code>shiftLeft</code></a></td><td><a href="#shiftright"><code>shiftRight</code></a></td>
+<td><a href="#screencoordinate"><code>screenCoordinate</code></a></td><td><a href="#screensize"><code>screenSize</code></a></td><td><a href="#screenuv"><code>screenUV</code></a></td><td><a href="#select"><code>select</code></a></td>
 </tr><tr>
-<td><a href="#sign"><code>sign</code></a></td><td><a href="#sin"><code>sin</code></a></td><td><a href="#smoothstep"><code>smoothstep</code></a></td><td><a href="#sqrt"><code>sqrt</code></a></td>
+<td><a href="#shiftleft"><code>shiftLeft</code></a></td><td><a href="#shiftright"><code>shiftRight</code></a></td><td><a href="#sign"><code>sign</code></a></td><td><a href="#sin"><code>sin</code></a></td>
 </tr><tr>
-<td><a href="#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td><td><a href="#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td><td><a href="#step"><code>step</code></a></td><td><a href="#storage"><code>storage</code></a></td>
+<td><a href="#smoothstep"><code>smoothstep</code></a></td><td><a href="#sqrt"><code>sqrt</code></a></td><td><a href="#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td><td><a href="#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td>
 </tr><tr>
-<td><a href="#storagebarrier"><code>storageBarrier</code></a></td><td><a href="#storagetexture"><code>storageTexture</code></a></td><td><a href="#struct"><code>struct</code></a></td><td><a href="#sub"><code>sub</code></a></td>
+<td><a href="#step"><code>step</code></a></td><td><a href="#storage"><code>storage</code></a></td><td><a href="#storagebarrier"><code>storageBarrier</code></a></td><td><a href="#storagetexture"><code>storageTexture</code></a></td>
 </tr><tr>
-<td><a href="#texturetype"><code>TextureType</code></a></td><td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td><td><a href="#transformfeedbackcallback"><code>TransformFeedbackCallback</code></a></td><td><a href="#transformfeedbacklayout"><code>TransformFeedbackLayout</code></a></td>
+<td><a href="#struct"><code>struct</code></a></td><td><a href="#sub"><code>sub</code></a></td><td><a href="#texturetype"><code>TextureType</code></a></td><td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td>
 </tr><tr>
-<td><a href="#tan"><code>tan</code></a></td><td><a href="#targetcolor"><code>targetColor</code></a></td><td><a href="#targetdepth"><code>targetDepth</code></a></td><td><a href="#texture"><code>texture</code></a></td>
+<td><a href="#transformfeedbackcallback"><code>TransformFeedbackCallback</code></a></td><td><a href="#transformfeedbacklayout"><code>TransformFeedbackLayout</code></a></td><td><a href="#tan"><code>tan</code></a></td><td><a href="#targetcolor"><code>targetColor</code></a></td>
 </tr><tr>
-<td><a href="#texturebarrier"><code>textureBarrier</code></a></td><td><a href="#texturebinding"><code>textureBinding</code></a></td><td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td>
+<td><a href="#targetdepth"><code>targetDepth</code></a></td><td><a href="#texture"><code>texture</code></a></td><td><a href="#texturebarrier"><code>textureBarrier</code></a></td><td><a href="#texturebinding"><code>textureBinding</code></a></td>
 </tr><tr>
-<td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td><td><a href="#textureload"><code>textureLoad</code></a></td><td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td>
+<td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td><td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td><td><a href="#textureload"><code>textureLoad</code></a></td>
 </tr><tr>
-<td><a href="#texturesample"><code>textureSample</code></a></td><td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td>
+<td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td><td><a href="#texturesample"><code>textureSample</code></a></td><td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td>
 </tr><tr>
-<td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transformfeedback"><code>transformFeedback</code></a></td>
+<td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td><td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td>
 </tr><tr>
-<td><a href="#transpose"><code>transpose</code></a></td><td><a href="#u32"><code>u32</code></a></td><td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td>
+<td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transformfeedback"><code>transformFeedback</code></a></td><td><a href="#transpose"><code>transpose</code></a></td><td><a href="#u32"><code>u32</code></a></td>
 </tr><tr>
-<td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td><td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td><td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td>
+<td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td><td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td><td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td>
 </tr><tr>
-<td><a href="#var"><code>Var</code></a></td><td><a href="#vec2type"><code>Vec2Type</code></a></td><td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td>
+<td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td><td><a href="#var"><code>Var</code></a></td><td><a href="#vec2type"><code>Vec2Type</code></a></td>
 </tr><tr>
-<td><a href="#vectype"><code>VecType</code></a></td><td><a href="#varying"><code>varying</code></a></td><td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td>
+<td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td><td><a href="#vectype"><code>VecType</code></a></td><td><a href="#varying"><code>varying</code></a></td>
 </tr><tr>
-<td><a href="#vec2f"><code>vec2f</code></a></td><td><a href="#vec2h"><code>vec2h</code></a></td><td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td>
+<td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td><td><a href="#vec2f"><code>vec2f</code></a></td><td><a href="#vec2h"><code>vec2h</code></a></td>
 </tr><tr>
-<td><a href="#vec3"><code>vec3</code></a></td><td><a href="#vec3b"><code>vec3b</code></a></td><td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td>
+<td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td><td><a href="#vec3"><code>vec3</code></a></td><td><a href="#vec3b"><code>vec3b</code></a></td>
 </tr><tr>
-<td><a href="#vec3i"><code>vec3i</code></a></td><td><a href="#vec3u"><code>vec3u</code></a></td><td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td>
+<td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td><td><a href="#vec3i"><code>vec3i</code></a></td><td><a href="#vec3u"><code>vec3u</code></a></td>
 </tr><tr>
-<td><a href="#vec4f"><code>vec4f</code></a></td><td><a href="#vec4h"><code>vec4h</code></a></td><td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td>
+<td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td><td><a href="#vec4f"><code>vec4f</code></a></td><td><a href="#vec4h"><code>vec4h</code></a></td>
 </tr><tr>
-<td><a href="#vertexindex"><code>vertexIndex</code></a></td><td><a href="#wgslfncallable"><code>WgslFnCallable</code></a></td><td><a href="#wgslfncallabletyped"><code>WgslFnCallableTyped</code></a></td><td><a href="#wgslfncallableuntyped"><code>WgslFnCallableUntyped</code></a></td>
+<td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td><td><a href="#vertexindex"><code>vertexIndex</code></a></td><td><a href="#wgslfncallable"><code>WgslFnCallable</code></a></td>
 </tr><tr>
-<td><a href="#wgslfnlayout"><code>WgslFnLayout</code></a></td><td><a href="#wgslfunctionnoderef"><code>WgslFunctionNodeRef</code></a></td><td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunction-2"><code>WgslNodeFunction</code></a></td>
+<td><a href="#wgslfncallabletyped"><code>WgslFnCallableTyped</code></a></td><td><a href="#wgslfncallableuntyped"><code>WgslFnCallableUntyped</code></a></td><td><a href="#wgslfnlayout"><code>WgslFnLayout</code></a></td><td><a href="#wgslfunctionnoderef"><code>WgslFunctionNodeRef</code></a></td>
 </tr><tr>
-<td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgslnodefunctioninput-2"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgsltype"><code>WgslType</code></a></td><td><a href="#while"><code>While</code></a></td>
+<td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunction-2"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgslnodefunctioninput-2"><code>WgslNodeFunctionInput</code></a></td>
 </tr><tr>
-<td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td><td><a href="#wgsl"><code>wgsl</code></a></td><td><a href="#wgslfn"><code>wgslFn</code></a></td><td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td>
+<td><a href="#wgsltype"><code>WgslType</code></a></td><td><a href="#while"><code>While</code></a></td><td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td><td><a href="#wgsl"><code>wgsl</code></a></td>
 </tr><tr>
-<td><a href="#workgroupid"><code>workgroupId</code></a></td><td></td><td></td><td></td>
+<td><a href="#wgslfn"><code>wgslFn</code></a></td><td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td><td><a href="#workgroupid"><code>workgroupId</code></a></td><td></td>
 </tr></table>
 
 ### Renderer
@@ -1012,6 +1012,25 @@ export type RegionExtent = {
  * dirtying the whole row.
  */
 export function regionsFromLinearRun(start: number, count: number, width: number): TextureRegion[];
+```
+
+#### `TextureOrigin`
+
+```ts
+/** Where a box lands in a texture: its corner and mip level. */
+export type TextureOrigin = {
+    x: number;
+    y: number;
+    z: number;
+    level: number;
+};
+```
+
+#### `TextureOriginInit`
+
+```ts
+/** Partial origin as accepted from user code; omitted fields are 0. */
+export type TextureOriginInit = Partial<TextureOrigin>;
 ```
 
 #### `TextureRectInit`

@@ -101,6 +101,8 @@ export type TextureCache = {
     maxTextureSize?: number;
     /** Cached `gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS`, read once (guards the flat texture-unit assignment). */
     maxTextureUnits?: number;
+    /** The read framebuffer copies attach their source to, made on the first copy. */
+    copyFramebuffer?: WebGLFramebuffer;
 };
 /** Create an empty textures state. */
 export declare function createTextureCache(): TextureCache;
@@ -131,6 +133,23 @@ export declare function getTextureData(state: TextureCache, texture: GpuTexture)
 export declare function updateTexture(gl: WebGL2RenderingContext, state: TextureCache, texture: GpuTexture): GlTextureData;
 /** `writeTexture` for WebGL2: `texSubImage` of one box from packed `data`, one call per cube face. */
 export declare function writeTextureRegion(gl: WebGL2RenderingContext, state: TextureCache, texture: GpuTexture, region: TextureRegion, data: ArrayBufferView): void;
+/**
+ * A `copyBuffer` between the mirror textures of two `cpu: false` storage buffers: the source's mirror
+ * attaches to a read framebuffer and `copyTexSubImage2D` moves each run of texels that stays within one
+ * row of both grids. Grids of one width, with the span starting in the same column of each, move every
+ * whole row in one call.
+ */
+export declare function copyStorageTextureSpan(gl: WebGL2RenderingContext, state: TextureCache, source: GpuBuffer, sourceByteOffset: number, destination: GpuBuffer, destinationByteOffset: number, byteSize: number): void;
+/**
+ * A `copyBuffer` from a GL buffer into the mirror texture of a `cpu: false` storage buffer: the source
+ * binds as the pixel unpack buffer and each run of texels unpacks from its offset. The source is linear,
+ * so every whole row of the destination unpacks in one call.
+ */
+export declare function unpackStorageTextureSpan(gl: WebGL2RenderingContext, state: TextureCache, source: WebGLBuffer, sourceByteOffset: number, destination: GpuBuffer, destinationByteOffset: number, byteSize: number): void;
+/** whether a storage buffer has a mirror texture yet. */
+export declare function hasStorageTexture(state: TextureCache, buffer: GpuBuffer): boolean;
+/** runs `body` with the copy framebuffer bound for reading, then restores the read binding. */
+export declare function withCopyFramebuffer(gl: WebGL2RenderingContext, state: TextureCache, body: () => void): void;
 /**
  * Generate mipmaps for an already-allocated render-target color texture once the render pass that
  * writes it has finished. Binds the texture at its view-dimension target (2D, cube, or 2D-array — the
