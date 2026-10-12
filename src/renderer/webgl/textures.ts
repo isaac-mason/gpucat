@@ -306,6 +306,8 @@ export type TextureCache = {
     maxTextureSize?: number;
     /** Cached `gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS`, read once (guards the flat texture-unit assignment). */
     maxTextureUnits?: number;
+    /** The read framebuffer copies attach their source to, made on the first copy. */
+    copyFramebuffer?: WebGLFramebuffer;
 };
 
 /** Create an empty textures state. */
@@ -601,14 +603,8 @@ export function writeStorageTexture(
     dataByteOffset: number,
     byteSize: number,
 ): void {
-    const element = (buffer.schema as { element?: Any }).element ?? buffer.schema;
-    const bytesPerTexel = storageMirrorBytesPerTexel(element);
-    if (byteOffset % bytesPerTexel !== 0 || byteSize % bytesPerTexel !== 0) {
-        throw new Error(
-            `[webgl] writeBuffer: buffer '${buffer.label ?? 'unlabelled'}' is mirrored as ${bytesPerTexel}-byte texels, ` +
-                `so the write's offset (${byteOffset}) and size (${byteSize}) must be multiples of ${bytesPerTexel}.`,
-        );
-    }
+    const bytesPerTexel = storageMirrorBytesPerTexel(storageElement(buffer));
+    assertTexelSpan('writeBuffer', buffer, bytesPerTexel, byteOffset, byteSize);
     const mirror = ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel);
     gl.bindTexture(gl.TEXTURE_2D, mirror.texture);
     const { glFormat } = storageTexelFormat(gl, bytesPerTexel);
@@ -1154,6 +1150,149 @@ export function writeTextureRegion(
 }
 
 /**
+ * A `copyBuffer` between the mirror textures of two `cpu: false` storage buffers: the source's mirror
+ * attaches to a read framebuffer and `copyTexSubImage2D` moves each run of texels that stays within one
+ * row of both grids. Grids of one width, with the span starting in the same column of each, move every
+ * whole row in one call.
+ */
+export function copyStorageTextureSpan(
+    gl: WebGL2RenderingContext,
+    state: TextureCache,
+    source: GpuBuffer,
+    sourceByteOffset: number,
+    destination: GpuBuffer,
+    destinationByteOffset: number,
+    byteSize: number,
+): void {
+    const bytesPerTexel = storageMirrorBytesPerTexel(storageElement(destination));
+    const from = ensureCpuLessStorageTexture(gl, state, source, storageMirrorBytesPerTexel(storageElement(source)));
+    const to = ensureCpuLessStorageTexture(gl, state, destination, bytesPerTexel);
+    assertTexelSpan('copyBuffer', destination, bytesPerTexel, destinationByteOffset, byteSize);
+    if (from.bytesPerTexel !== bytesPerTexel || sourceByteOffset % bytesPerTexel !== 0) {
+        throw new Error(
+            `[webgl] copyBuffer: '${source.label ?? 'unlabelled'}' is mirrored as ${from.bytesPerTexel}-byte texels and ` +
+                `'${destination.label ?? 'unlabelled'}' as ${bytesPerTexel}-byte ones, from offset ${sourceByteOffset}; ` +
+                'a copy between mirrors moves whole texels of one size.',
+        );
+    }
+    withCopyFramebuffer(gl, state, () => {
+        gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, from.texture, 0);
+        gl.bindTexture(gl.TEXTURE_2D, to.texture);
+        forEachTexelRun(
+            sourceByteOffset / bytesPerTexel,
+            destinationByteOffset / bytesPerTexel,
+            byteSize / bytesPerTexel,
+            from.width,
+            to.width,
+            (fromTexel, toX, toY, width, rows) => {
+                const fromX = fromTexel % from.width;
+                const fromY = Math.floor(fromTexel / from.width);
+                gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, toX, toY, fromX, fromY, width, rows);
+            },
+        );
+    });
+}
+
+/**
+ * A `copyBuffer` from a GL buffer into the mirror texture of a `cpu: false` storage buffer: the source
+ * binds as the pixel unpack buffer and each run of texels unpacks from its offset. The source is linear,
+ * so every whole row of the destination unpacks in one call.
+ */
+export function unpackStorageTextureSpan(
+    gl: WebGL2RenderingContext,
+    state: TextureCache,
+    source: WebGLBuffer,
+    sourceByteOffset: number,
+    destination: GpuBuffer,
+    destinationByteOffset: number,
+    byteSize: number,
+): void {
+    const bytesPerTexel = storageMirrorBytesPerTexel(storageElement(destination));
+    assertTexelSpan('copyBuffer', destination, bytesPerTexel, destinationByteOffset, byteSize);
+    const to = ensureCpuLessStorageTexture(gl, state, destination, bytesPerTexel);
+    const { glFormat } = storageTexelFormat(gl, bytesPerTexel);
+    gl.bindTexture(gl.TEXTURE_2D, to.texture);
+    gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, source);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    const firstTexel = destinationByteOffset / bytesPerTexel;
+    forEachTexelRun(firstTexel, firstTexel, byteSize / bytesPerTexel, null, to.width, (texel, toX, toY, width, rows) => {
+        const offset = sourceByteOffset + (texel - firstTexel) * bytesPerTexel;
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, toX, toY, width, rows, glFormat, gl.UNSIGNED_INT, offset);
+    });
+    gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
+}
+
+/** whether a storage buffer has a mirror texture yet. */
+export function hasStorageTexture(state: TextureCache, buffer: GpuBuffer): boolean {
+    return state.bufferData.has(buffer);
+}
+
+function storageElement(buffer: GpuBuffer): Any {
+    return (buffer.schema as { element?: Any }).element ?? buffer.schema;
+}
+
+function assertTexelSpan(what: string, buffer: GpuBuffer, bytesPerTexel: number, byteOffset: number, byteSize: number): void {
+    if (byteOffset % bytesPerTexel !== 0 || byteSize % bytesPerTexel !== 0) {
+        throw new Error(
+            `[webgl] ${what}: buffer '${buffer.label ?? 'unlabelled'}' is mirrored as ${bytesPerTexel}-byte texels, ` +
+                `so the offset (${byteOffset}) and size (${byteSize}) must be multiples of ${bytesPerTexel}.`,
+        );
+    }
+}
+
+/**
+ * Splits a run of `count` texels into rectangles that stay within the rows of both grids, calling
+ * `copy` with the source texel each starts at, its destination corner, and its size. A `null`
+ * `fromWidth` is a linear source, which any whole destination rows can come from at once.
+ */
+function forEachTexelRun(
+    fromTexel: number,
+    toTexel: number,
+    count: number,
+    fromWidth: number | null,
+    toWidth: number,
+    copy: (fromTexel: number, toX: number, toY: number, width: number, rows: number) => void,
+): void {
+    let remaining = count;
+    while (remaining > 0) {
+        const toX = toTexel % toWidth;
+        const toY = Math.floor(toTexel / toWidth);
+        const fromX = fromWidth === null ? 0 : fromTexel % fromWidth;
+        const sameRows = fromWidth === null || (fromWidth === toWidth && fromX === 0);
+        if (toX === 0 && sameRows && remaining >= toWidth) {
+            const rows = Math.floor(remaining / toWidth);
+            copy(fromTexel, 0, toY, toWidth, rows);
+            fromTexel += rows * toWidth;
+            toTexel += rows * toWidth;
+            remaining -= rows * toWidth;
+            continue;
+        }
+        const width = Math.min(toWidth - toX, fromWidth === null ? remaining : fromWidth - fromX, remaining);
+        copy(fromTexel, toX, toY, width, 1);
+        fromTexel += width;
+        toTexel += width;
+        remaining -= width;
+    }
+}
+
+/** runs `body` with the copy framebuffer bound for reading, then restores the read binding. */
+export function withCopyFramebuffer(gl: WebGL2RenderingContext, state: TextureCache, body: () => void): void {
+    if (!state.copyFramebuffer) {
+        const framebuffer = gl.createFramebuffer();
+        if (!framebuffer) throw new Error('[webgl] gl.createFramebuffer returned null (copy framebuffer).');
+        state.copyFramebuffer = framebuffer;
+    }
+    const previous = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, state.copyFramebuffer);
+    try {
+        body();
+    } finally {
+        gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, null, 0);
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, previous);
+    }
+}
+
+/**
  * Generate mipmaps for an already-allocated render-target color texture once the render pass that
  * writes it has finished. Binds the texture at its view-dimension target (2D, cube, or 2D-array — the
  * storage was allocated with a full mip chain when `generateMipmaps` is set, see
@@ -1175,5 +1314,7 @@ export function generateTextureMipmaps(gl: WebGL2RenderingContext, state: Textur
 export function disposeTextureCache(gl: WebGL2RenderingContext, state: TextureCache): void {
     for (const tex of state.all) gl.deleteTexture(tex);
     state.all.clear();
+    if (state.copyFramebuffer) gl.deleteFramebuffer(state.copyFramebuffer);
+    state.copyFramebuffer = undefined;
     resetTextureTally(state.tally);
 }

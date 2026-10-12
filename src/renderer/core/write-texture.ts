@@ -1,5 +1,5 @@
 import type { GpuTexture } from '../../core/gpu-texture';
-import type { TextureRegion, TextureRegionInit } from '../../core/texture-region';
+import { levelExtent, type TextureRegion, type TextureRegionInit } from '../../core/texture-region';
 import type { Renderer } from './renderer';
 import { bytesPerTexel } from './texture-size';
 
@@ -21,10 +21,7 @@ export function writeTexture(
     if (level < 0 || level >= texture.mipLevelCount) {
         throw new Error(`${what}: level ${level} is outside its ${texture.mipLevelCount} mip levels.`);
     }
-    const levelWidth = Math.max(1, texture.width >> level);
-    const levelHeight = Math.max(1, texture.height >> level);
-    // slices shrink down a 3D chain; array layers and cube faces do not
-    const levelDepth = texture.dimension === '3d' ? Math.max(1, texture.depthOrArrayLayers >> level) : texture.depthOrArrayLayers;
+    const { width: levelWidth, height: levelHeight, depth: levelDepth } = levelExtent(texture, level);
     const x = region.x ?? 0;
     const y = region.y ?? 0;
     const z = region.z ?? 0;

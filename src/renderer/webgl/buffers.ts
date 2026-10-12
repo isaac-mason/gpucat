@@ -223,6 +223,25 @@ export function writeBufferBytes(
     recordBufferWrite(cache.info, byteSize, primaryBufferUsage(buffer), false, label);
 }
 
+/** `copyBuffer` between two GL buffers through `COPY_READ_BUFFER` and `COPY_WRITE_BUFFER`. */
+export function copyBufferBytes(
+    gl: WebGL2RenderingContext,
+    cache: BufferCache,
+    source: GpuBuffer,
+    sourceByteOffset: number,
+    destination: GpuBuffer,
+    destinationByteOffset: number,
+    byteSize: number,
+): void {
+    const from = ensureUploaded(gl, cache, source, gl.COPY_READ_BUFFER, source.label ?? 'copy-source');
+    const to = ensureUploaded(gl, cache, destination, gl.COPY_WRITE_BUFFER, destination.label ?? 'copy-destination');
+    gl.bindBuffer(gl.COPY_READ_BUFFER, from);
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER, to);
+    gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, sourceByteOffset, destinationByteOffset, byteSize);
+    gl.bindBuffer(gl.COPY_READ_BUFFER, null);
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
+}
+
 /** The GL buffer already created for a `GpuBuffer`, or undefined. Never uploads. */
 export function getUploaded(cache: BufferCache, buffer: GpuBuffer): WebGLBuffer | undefined {
     return cache.bufferMap.get(buffer)?.glBuffer;

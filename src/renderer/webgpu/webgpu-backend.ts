@@ -1,7 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
-import type { TextureRegion } from '../../core/texture-region';
+import type { TextureOrigin, TextureRegion } from '../../core/texture-region';
 import type { ComputeNode } from '../../nodes/nodes';
 import { yieldToMain } from '../../utils/yield-to-main';
 import type { CanvasTarget } from '../core/canvas-target';
@@ -31,6 +31,7 @@ import {
 import * as Bindings from './bindings';
 import * as Buffers from './buffers';
 import * as Compute from './compute';
+import * as CopyTexture from './copy-texture';
 import * as FrameBackend from './frame-backend';
 import * as Geometries from './geometries';
 import * as Pipelines from './pipelines';
@@ -254,6 +255,28 @@ export class WebGPUBackend implements DeviceBackend {
 
     writeTexture(texture: GpuTexture, region: TextureRegion, data: ArrayBufferView): void {
         Textures.writeTextureRegion(this.textures, this.device, texture, region, data);
+    }
+
+    copyBuffer(
+        source: GpuBuffer,
+        sourceByteOffset: number,
+        destination: GpuBuffer,
+        destinationByteOffset: number,
+        byteSize: number,
+    ): void {
+        Buffers.copyBufferBytes(
+            this.buffers,
+            this.device,
+            source,
+            sourceByteOffset,
+            destination,
+            destinationByteOffset,
+            byteSize,
+        );
+    }
+
+    copyTexture(source: GpuTexture, region: TextureRegion, destination: GpuTexture, origin: TextureOrigin): void {
+        CopyTexture.copyTextureRegion(this.textures, this.device, source, region, destination, origin);
     }
 
     /** Off the `DeviceBackend` contract on purpose: a neutral signature would widen this to `string`. */

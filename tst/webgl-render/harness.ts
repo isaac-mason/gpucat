@@ -9,6 +9,8 @@ import {
     cameraProjectionMatrix,
     cameraViewMatrix,
     compile,
+    copyBuffer,
+    copyTexture,
     createBoxGeometry,
     createCanvasTarget,
     createCubeRenderTarget,
@@ -3590,6 +3592,170 @@ async function caseWriteBufferTexelAlign(): Promise<CaseResult> {
     return { name: 'write-buffer-texel-align', pixel: threw ? [0, 255, 0, 255] : [255, 0, 0, 255], expected: [0, 255, 0, 255] };
 }
 
+/** copy-buffer: the whole of one `cpu: false` buffer into another with every default, then a middle span at an offset. */
+async function caseCopyBuffer(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const source = new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage', cpu: false });
+    const grown = new GpuBuffer(d.array(d.u32), { count: 8, usage: 'storage', cpu: false });
+    writeBuffer(renderer, source, 0, new Uint32Array([10, 64, 128, 255]));
+    copyBuffer(renderer, source, grown);
+    copyBuffer(renderer, source, grown, 4, 16, 8);
+    const store = storage(grown);
+    const slot = (i: number) => store.element(u32(i)).toF32().div(f32(255));
+    const pixel = drawFullscreen(renderer, vec4(slot(4), slot(5), slot(0), slot(3)));
+    renderer.dispose();
+    return { name: 'copy-buffer', pixel, expected: [64, 128, 10, 255] };
+}
+
+/** copy-buffer-cpu-source: a `cpu: true` source copies what its array holds, uploaded or not. */
+async function caseCopyBufferCpuSource(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const source = new GpuBuffer(d.array(d.u32), { data: new Uint32Array([255, 32, 192, 255]), usage: 'storage' });
+    const destination = new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage', cpu: false });
+    copyBuffer(renderer, source, destination);
+    const store = storage(destination);
+    const slot = (i: number) => store.element(u32(i)).toF32().div(f32(255));
+    const pixel = drawFullscreen(renderer, vec4(slot(0), slot(1), slot(2), slot(3)));
+    renderer.dispose();
+    return { name: 'copy-buffer-cpu-source', pixel, expected: [255, 32, 192, 255] };
+}
+
+/**
+ * copy-buffer-rows: a copy between mirrors more than a row long, once landing two texels short of a row
+ * (every run splits at both grids' row ends) and once row-aligned (whole rows in one call).
+ */
+async function caseCopyBufferRows(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const MAX = renderer.backend.gl!.getParameter(renderer.backend.gl!.MAX_TEXTURE_SIZE) as number;
+    const source = new GpuBuffer(d.array(d.u32), { count: 2 * MAX + 8, usage: 'storage', cpu: false });
+    const shifted = new GpuBuffer(d.array(d.u32), { count: 3 * MAX + 8, usage: 'storage', cpu: false });
+    const aligned = new GpuBuffer(d.array(d.u32), { count: 3 * MAX + 8, usage: 'storage', cpu: false });
+    const values = new Uint32Array(2 * MAX + 8);
+    values[0] = 230;
+    values[MAX + 5] = 153;
+    values[2 * MAX + 7] = 77;
+    writeBuffer(renderer, source, 0, values);
+    copyBuffer(renderer, source, shifted, 0, (MAX - 2) * 4);
+    copyBuffer(renderer, source, aligned, 0, MAX * 4);
+    const slot = (buffer: GpuBuffer, i: number) => storage(buffer).element(u32(i)).toF32().div(f32(255));
+    const first = drawFullscreen(
+        renderer,
+        vec4(slot(shifted, MAX - 2), slot(shifted, 2 * MAX + 3), slot(shifted, 3 * MAX + 5), f32(1)),
+    );
+    const second = drawFullscreen(
+        renderer,
+        vec4(slot(aligned, MAX), slot(aligned, 2 * MAX + 5), slot(aligned, 3 * MAX + 7), f32(1)),
+    );
+    renderer.dispose();
+    const firstOk = first[0] === 230 && first[1] === 153 && first[2] === 77;
+    return {
+        name: 'copy-buffer-rows',
+        pixel: firstOk ? second : first,
+        expected: [230, 153, 77, 255],
+        note: firstOk ? 'the row-aligned copy' : 'the copy two texels short of a row',
+    };
+}
+
+/** copy-buffer-unpack: a source with only a GL buffer (a vertex buffer) fills a storage mirror through a pixel unpack. */
+async function caseCopyBufferUnpack(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const source = new GpuBuffer(d.array(d.u32), { count: 4, usage: 'vertex', cpu: false });
+    const destination = new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage', cpu: false });
+    writeBuffer(renderer, source, 0, new Uint32Array([96, 200, 16, 255]));
+    copyBuffer(renderer, source, destination);
+    const store = storage(destination);
+    const slot = (i: number) => store.element(u32(i)).toF32().div(f32(255));
+    const pixel = drawFullscreen(renderer, vec4(slot(0), slot(1), slot(2), slot(3)));
+    renderer.dispose();
+    return { name: 'copy-buffer-unpack', pixel, expected: [96, 200, 16, 255] };
+}
+
+/** copy-texture: a 2x2 box of one `cpu: false` texture into the corner of another; the rest stays zero. */
+async function caseCopyTexture(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const source = new GpuTexture(d.texture2d(), { width: 4, height: 4, cpu: false });
+    const destination = new GpuTexture(d.texture2d(), { width: 4, height: 4, cpu: false });
+    writeTexture(renderer, source, texels(16, [255, 0, 0, 255]));
+    writeTexture(renderer, source, texels(4, [0, 255, 0, 255]), { x: 2, y: 2, width: 2, height: 2 });
+    copyTexture(renderer, source, destination, { x: 2, y: 2, width: 2, height: 2 });
+    const node = texture(destination, new GpuSampler({ minFilter: 'nearest', magFilter: 'nearest' }));
+    const at = (x: number, y: number) => node.load(vec2i(i32(x), i32(y)));
+    const pixel = drawFullscreen(renderer, vec4(at(3, 3).y, at(0, 0).y, at(1, 1).y, f32(1)));
+    renderer.dispose();
+    return { name: 'copy-texture', pixel, expected: [0, 255, 255, 255] };
+}
+
+/** a render target drawn red over its top half and green over its bottom. */
+function twoToneTarget(renderer: Renderer<WebGLBackend>, size: number): RenderTarget {
+    const target = createRenderTarget(size, size, { colorFormat: 'rgba8unorm' });
+    const position = attribute('position', d.vec3f);
+    const clipY = varying(position.y, 'vyCopyTwoTone');
+    const scene = new Scene();
+    scene.add(
+        new Mesh(
+            createFullscreenTriangleGeometry(),
+            new Material({
+                vertex: vec4(position, f32(1)),
+                fragment: select(vec4(0, 1, 0, 1), vec4(1, 0, 0, 1), clipY.greaterThan(f32(0))),
+                depthTest: false,
+            }),
+        ),
+    );
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+    activeClear = [0, 0, 0, 1];
+    activeTarget = target;
+    renderScene(renderer, scene, camera);
+    activeTarget = null;
+    return target;
+}
+
+/** copy-texture-from-target: a row from the top and a row from the bottom of a render target keep their places. */
+async function caseCopyTextureFromTarget(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const target = twoToneTarget(renderer, SIZE);
+    const rows = new GpuTexture(d.texture2d(), { width: SIZE, height: 2, cpu: false });
+    copyTexture(renderer, target.texture!, rows, { y: 3, height: 1 });
+    copyTexture(renderer, target.texture!, rows, { y: SIZE - 4, height: 1 }, { y: 1 });
+    const node = texture(rows, new GpuSampler({ minFilter: 'nearest', magFilter: 'nearest' }));
+    const top = node.load(vec2i(i32(CENTER), i32(0)));
+    const bottom = node.load(vec2i(i32(CENTER), i32(1)));
+    const pixel = drawFullscreen(renderer, vec4(top.x, bottom.y, top.y, f32(1)));
+    renderer.dispose();
+    return {
+        name: 'copy-texture-from-target',
+        pixel,
+        expected: [255, 255, 0, 255],
+        note: 'red and green swapped means the rows came across flipped',
+    };
+}
+
+/** copy-texture-into-target: a texture's top and bottom rows land at the top and bottom of a render target. */
+async function caseCopyTextureIntoTarget(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const target = twoToneTarget(renderer, 4);
+    const source = new GpuTexture(d.texture2d(), { width: 4, height: 2, cpu: false });
+    const data = new Uint8Array(4 * 2 * 4);
+    data.set(texels(4, [0, 0, 255, 255]), 0);
+    data.set(texels(4, [255, 255, 255, 255]), 16);
+    writeTexture(renderer, source, data);
+    copyTexture(renderer, source, target.texture!, { y: 0, height: 1 });
+    copyTexture(renderer, source, target.texture!, { y: 1, height: 1 }, { y: 3 });
+    const node = texture(target.texture as Texture);
+    const top = node.load(vec2i(i32(1), i32(0)));
+    const belowTop = node.load(vec2i(i32(1), i32(1)));
+    const bottom = node.load(vec2i(i32(1), i32(3)));
+    const pixel = drawFullscreen(renderer, vec4(bottom.x, belowTop.x, top.z, f32(1)));
+    renderer.dispose();
+    return {
+        name: 'copy-texture-into-target',
+        pixel,
+        expected: [255, 255, 255, 255],
+        note: 'the rows copied in, and the red row under the top one left as drawn',
+    };
+}
+
 /** `count` texels of one rgba8 colour, packed. */
 function texels(count: number, rgba: [number, number, number, number]): Uint8Array {
     const out = new Uint8Array(count * 4);
@@ -4681,6 +4847,13 @@ export async function run(): Promise<RunResult> {
             caseWriteBuffer,
             caseWriteBufferRows,
             caseWriteBufferTexelAlign,
+            caseCopyBuffer,
+            caseCopyBufferCpuSource,
+            caseCopyBufferRows,
+            caseCopyBufferUnpack,
+            caseCopyTexture,
+            caseCopyTextureFromTarget,
+            caseCopyTextureIntoTarget,
             caseWriteTexture,
             caseWriteTextureLayers,
             caseWriteTextureCube,

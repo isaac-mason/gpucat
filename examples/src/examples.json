@@ -29,6 +29,17 @@
         "backend": "webgpu",
         "category": "basics"
     },
+    "example-webgpu-copy-buffer": {
+        "title": "Copy Buffer",
+        "description": "A storage buffer that doubles when full, its contents moved on the GPU by copyBuffer.",
+        "tags": [
+            "storage-buffer",
+            "copy-buffer",
+            "instancing"
+        ],
+        "backend": "webgpu",
+        "category": "basics"
+    },
     "example-webgpu-interleaved": {
         "title": "Interleaved Vertex Buffers",
         "description": "Interleaved vertex attributes packed into one buffer.",

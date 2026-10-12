@@ -1,7 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
-import type { TextureRegion } from '../../core/texture-region';
+import type { TextureOrigin, TextureRegion } from '../../core/texture-region';
 import type { ComputeNode } from '../../nodes/lib/core';
 import { yieldToMain } from '../../utils/yield-to-main';
 import type { CanvasTarget } from '../core/canvas-target';
@@ -21,6 +21,7 @@ import type { Renderer } from '../core/renderer';
 import * as Bindings from './bindings';
 import * as Buffers from './buffers';
 import { createContext } from './context';
+import * as CopyTexture from './copy-texture';
 import * as FrameBackend from './frame-backend';
 import * as Geometries from './geometries';
 import * as Prepare from './prepare';
@@ -362,6 +363,78 @@ export class WebGLBackend implements DeviceBackend {
 
     writeTexture(texture: GpuTexture, region: TextureRegion, data: ArrayBufferView): void {
         Textures.writeTextureRegion(this.gl!, this.textures, texture, region, data);
+    }
+
+    /**
+     * fills each form the destination keeps, as `writeBuffer` would: a storage buffer's mirror texture,
+     * and its GL buffer when it has one or another usage needs one. A `cpu: true` source copies from its
+     * array, which is what its GPU forms are uploaded from; any other from its mirror when it has one,
+     * else from its GL buffer.
+     */
+    copyBuffer(
+        source: GpuBuffer,
+        sourceByteOffset: number,
+        destination: GpuBuffer,
+        destinationByteOffset: number,
+        byteSize: number,
+    ): void {
+        const gl = this.gl!;
+        if (!source.cpu && source.usage.has('index') !== destination.usage.has('index')) {
+            throw new Error(
+                `[webgl] copyBuffer: '${source.label ?? 'unlabelled'}' into '${destination.label ?? 'unlabelled'}' crosses ` +
+                    'between an index buffer and another kind, which WebGL2 keeps apart on the GPU.',
+            );
+        }
+        if (source.cpu) {
+            const array = source.array;
+            if (!array) {
+                throw new Error(
+                    `[webgl] copyBuffer: '${source.label ?? 'unlabelled'}' has released the CPU array it copies from.`,
+                );
+            }
+            this.writeBuffer(destination, destinationByteOffset, array, sourceByteOffset, byteSize);
+            return;
+        }
+        if (destination.usage.has('storage')) {
+            const sourceBuffer = Buffers.getUploaded(this.buffers, source);
+            if (
+                Textures.hasStorageTexture(this.textures, source) ||
+                (sourceBuffer === undefined && source.usage.has('storage'))
+            ) {
+                Textures.copyStorageTextureSpan(
+                    gl,
+                    this.textures,
+                    source,
+                    sourceByteOffset,
+                    destination,
+                    destinationByteOffset,
+                    byteSize,
+                );
+            } else {
+                const from =
+                    sourceBuffer ??
+                    Buffers.ensureUploaded(gl, this.buffers, source, gl.COPY_READ_BUFFER, source.label ?? 'copy-source');
+                Textures.unpackStorageTextureSpan(
+                    gl,
+                    this.textures,
+                    from,
+                    sourceByteOffset,
+                    destination,
+                    destinationByteOffset,
+                    byteSize,
+                );
+            }
+        }
+        const storageOnly = destination.usage.size === 1 && destination.usage.has('storage');
+        if (!storageOnly || Buffers.getUploaded(this.buffers, destination) !== undefined) {
+            Buffers.copyBufferBytes(gl, this.buffers, source, sourceByteOffset, destination, destinationByteOffset, byteSize);
+        } else {
+            this.buffers.textureOnly.add(destination);
+        }
+    }
+
+    copyTexture(source: GpuTexture, region: TextureRegion, destination: GpuTexture, origin: TextureOrigin): void {
+        CopyTexture.copyTextureRegion(this.gl!, this.textures, source, region, destination, origin);
     }
 
     readPixels(renderTarget: RenderTarget, attachmentIndex = 0, layer = 0, mipLevel = 0): Promise<Uint8Array> {

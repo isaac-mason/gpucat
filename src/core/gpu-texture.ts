@@ -310,13 +310,11 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
             options.format ??
             (d.isStorageTextureDesc(type) ? type.format : d.isDepthTextureDesc(type) ? 'depth32float' : 'rgba8unorm');
 
-        // Usage defaults. Storage textures get STORAGE_BINDING and keep TEXTURE_BINDING (so the same
-        // texture can be sampled in a later render pass) plus COPY_SRC for readback.
+        // Usage defaults: either end of a copyTexture, sampled. Storage textures add STORAGE_BINDING and
+        // keep TEXTURE_BINDING, so the same texture can be sampled in a later render pass.
+        const copyAndSample = TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST | TEXTURE_USAGE.COPY_SRC;
         this.usage =
-            options.usage ??
-            (d.isStorageTextureDesc(type)
-                ? TEXTURE_USAGE.STORAGE_BINDING | TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST | TEXTURE_USAGE.COPY_SRC
-                : TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST);
+            options.usage ?? (d.isStorageTextureDesc(type) ? TEXTURE_USAGE.STORAGE_BINDING | copyAndSample : copyAndSample);
         this.mipmapsAutoUpdate = options.mipmapsAutoUpdate ?? true;
         this.label = options.label;
 

@@ -9,6 +9,8 @@ import {
     cameraProjectionMatrix,
     cameraViewMatrix,
     compile,
+    copyBuffer,
+    copyTexture,
     createBoxGeometry,
     createCubeRenderTarget,
     createRenderTarget,
@@ -2703,6 +2705,113 @@ async function caseCubeCameraFaces(gpu: Renderer<WebGPUBackend>): Promise<CaseRe
     };
 }
 
+/** copy-buffer: the whole of one `cpu: false` buffer into another with every default, then a middle span at an offset. */
+async function caseCopyBuffer(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const source = new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage', cpu: false });
+    const grown = new GpuBuffer(d.array(d.u32), { count: 8, usage: 'storage', cpu: false });
+    writeBuffer(gpu, source, 0, new Uint32Array([10, 64, 128, 255]));
+    copyBuffer(gpu, source, grown);
+    copyBuffer(gpu, source, grown, 4, 16, 8);
+    const slot = (i: number) => index(storage(grown, 'read'), u32(i)).toF32().div(f32(255));
+    return {
+        name: 'copy-buffer',
+        pixel: await drawFullscreen(gpu, vec4(slot(4), slot(5), slot(0), slot(3))),
+        expected: [64, 128, 10, 255],
+        note: 'slots 4 and 5 from the span, 0 and 3 from the whole copy',
+    };
+}
+
+/** copy-buffer-cpu-source: a `cpu: true` source copies what its array holds, uploaded or not. */
+async function caseCopyBufferCpuSource(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const source = new GpuBuffer(d.array(d.u32), { data: new Uint32Array([255, 32, 192, 255]), usage: 'storage' });
+    const destination = new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage', cpu: false });
+    copyBuffer(gpu, source, destination);
+    const slot = (i: number) => index(storage(destination, 'read'), u32(i)).toF32().div(f32(255));
+    return {
+        name: 'copy-buffer-cpu-source',
+        pixel: await drawFullscreen(gpu, vec4(slot(0), slot(1), slot(2), slot(3))),
+        expected: [255, 32, 192, 255],
+    };
+}
+
+/** copy-texture: a 2x2 box of one `cpu: false` texture into the corner of another; the rest stays zero. */
+async function caseCopyTexture(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const source = new GpuTexture(d.texture2d(), { width: 4, height: 4, cpu: false });
+    const destination = new GpuTexture(d.texture2d(), { width: 4, height: 4, cpu: false });
+    writeTexture(gpu, source, texels(16, [255, 0, 0, 255]));
+    writeTexture(gpu, source, texels(4, [0, 255, 0, 255]), { x: 2, y: 2, width: 2, height: 2 });
+    copyTexture(gpu, source, destination, { x: 2, y: 2, width: 2, height: 2 });
+    const node = texture(destination, new GpuSampler({ minFilter: 'nearest', magFilter: 'nearest' }));
+    const at = (x: number, y: number) => node.load(vec2i(i32(x), i32(y)));
+    return {
+        name: 'copy-texture',
+        pixel: await drawFullscreen(gpu, vec4(at(3, 3).y, at(0, 0).y, at(1, 1).y, f32(1))),
+        expected: [0, 255, 255, 255],
+        note: 'red means the untouched corner was written',
+    };
+}
+
+/** a render target drawn red over its top half and green over its bottom. */
+function twoToneTarget(gpu: Renderer<WebGPUBackend>, size: number): RenderTarget {
+    const target = createRenderTarget(size, size, { colorFormat: 'rgba8unorm' });
+    const position = attribute('position', d.vec3f);
+    const clipY = varying(position.y, 'vyCopyTwoTone');
+    const twoTone = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(position, f32(1)),
+            fragment: select(vec4(0, 1, 0, 1), vec4(1, 0, 0, 1), clipY.greaterThan(f32(0))),
+            depthTest: false,
+        }),
+    );
+    twoTone.updateWorldMatrix();
+    const f = frame(gpu);
+    const pass = f.pass({ target, clear: [0, 0, 0, 1] });
+    pass.draw(twoTone);
+    pass.end();
+    f.submit();
+    return target;
+}
+
+/** copy-texture-from-target: a row from the top and a row from the bottom of a render target keep their places. */
+async function caseCopyTextureFromTarget(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = twoToneTarget(gpu, SIZE);
+    const rows = new GpuTexture(d.texture2d(), { width: SIZE, height: 2, cpu: false });
+    copyTexture(gpu, target.texture!, rows, { y: 3, height: 1 });
+    copyTexture(gpu, target.texture!, rows, { y: SIZE - 4, height: 1 }, { y: 1 });
+    const node = texture(rows, new GpuSampler({ minFilter: 'nearest', magFilter: 'nearest' }));
+    const top = node.load(vec2i(i32(CENTER), i32(0)));
+    const bottom = node.load(vec2i(i32(CENTER), i32(1)));
+    return {
+        name: 'copy-texture-from-target',
+        pixel: await drawFullscreen(gpu, vec4(top.x, bottom.y, top.y, f32(1))),
+        expected: [255, 255, 0, 255],
+        note: 'red and green swapped means the rows came across flipped',
+    };
+}
+
+/** copy-texture-into-target: a texture's top and bottom rows land at the top and bottom of a render target. */
+async function caseCopyTextureIntoTarget(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = twoToneTarget(gpu, 4);
+    const source = new GpuTexture(d.texture2d(), { width: 4, height: 2, cpu: false });
+    const data = new Uint8Array(4 * 2 * 4);
+    data.set(texels(4, [0, 0, 255, 255]), 0);
+    data.set(texels(4, [255, 255, 255, 255]), 16);
+    writeTexture(gpu, source, data);
+    copyTexture(gpu, source, target.texture!, { y: 0, height: 1 });
+    copyTexture(gpu, source, target.texture!, { y: 1, height: 1 }, { y: 3 });
+    const node = texture(target.texture as Texture);
+    const top = node.load(vec2i(i32(1), i32(0)));
+    const belowTop = node.load(vec2i(i32(1), i32(1)));
+    const bottom = node.load(vec2i(i32(1), i32(3)));
+    return {
+        name: 'copy-texture-into-target',
+        pixel: await drawFullscreen(gpu, vec4(bottom.x, belowTop.x, top.z, f32(1))),
+        expected: [255, 255, 255, 255],
+        note: 'the rows copied in, and the red row under the top one left as drawn',
+    };
+}
+
 const CASES: Record<string, Case> = {
     clear: caseClear,
     solid: caseSolid,
@@ -2739,6 +2848,11 @@ const CASES: Record<string, Case> = {
     'wgsl-operand-grammar': caseWgslOperandGrammar,
     'signed-shift': caseSignedShift,
     'write-buffer': caseWriteBuffer,
+    'copy-buffer': caseCopyBuffer,
+    'copy-buffer-cpu-source': caseCopyBufferCpuSource,
+    'copy-texture': caseCopyTexture,
+    'copy-texture-from-target': caseCopyTextureFromTarget,
+    'copy-texture-into-target': caseCopyTextureIntoTarget,
     'write-texture': caseWriteTexture,
     'write-texture-layers': caseWriteTextureLayers,
     'write-texture-cube': caseWriteTextureCube,

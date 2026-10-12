@@ -478,6 +478,22 @@ On WebGL2 a storage buffer's write goes straight into the texture its reads lowe
 
 Textures have the same option, written with `writeTexture`; see [Textures with no CPU copy](#textures-with-no-cpu-copy).
 
+### Copying between buffers
+
+`copyBuffer` copies a span of one buffer into a `cpu: false` buffer on the GPU, so nothing comes back to the CPU. Like `writeBuffer` it is queued at once: after the writes before it, ahead of any frame not yet submitted. Given no placement it copies the whole source to the start of the destination, which is how a buffer grows:
+
+```ts
+const grown = new GpuBuffer(d.array(d.u32), { count: arena.count * 2, usage: 'storage', cpu: false });
+copyBuffer(renderer, arena, grown);                     // all of arena, to the start of grown
+copyBuffer(renderer, arena, grown, 64, 1024, 256);      // 256 bytes from byte 64, to byte 1024
+geometry.setBuffer('arena', grown);
+arena.dispose();
+```
+
+Offsets and size are bytes and multiples of 4, and two ranges of one buffer may not overlap. The source may keep a CPU array: on WebGL2 that array is what gets copied, since it is what the GPU copies are uploaded from. On WebGL2 a storage destination's texture is filled from the source's texture, or from its GL buffer, so a copy between storage buffers moves whole texels of one size; and WebGL2 keeps index buffers apart, so a copy between an index buffer and another kind throws there.
+
+<ExamplesTable ids="example-webgpu-copy-buffer" />
+
 ### Reads run on WebGL2 (as a texture)
 
 WebGL2 has no storage buffers, but a read-only storage buffer is an indexed array, and so is a texture. So `storage(buffer, 'read')` and the `index(_, i)` / `.field` reads over it work on both backends. On WebGPU it stays a native `var<storage>` array. On WebGL2 the renderer reads the buffer's own bytes as an `rgba32uint` texture and lowers each read to a `texelFetch`, using the same path as [Structured data](#structured-data). There is no second copy and no CPU round-trip.
@@ -842,6 +858,17 @@ and generates no mips (write each `level` yourself), and `needsUpdate` / `addUpd
 Partial upload reads rows out of your typed array in place, so it needs a typed-array source. A texture
 backed by an image, canvas, or video has no such rows: the region is still honoured, but by a full
 upload rather than a cheaper one.
+
+### Copying between textures
+
+`copyTexture` copies one box of a texture into another on the GPU, queued at once like `writeTexture`. The box reads like `writeTexture`'s region, and the destination takes an origin (`x`, `y`, `z`, `level`); omitted fields cover the rest of the source level and land at the corner. Either end may be a render target's texture, so this is also how a rendered frame is kept:
+
+```ts
+copyTexture(renderer, target.texture, history);                                   // the whole frame
+copyTexture(renderer, atlas, tiles, { x: 64, y: 0, width: 32, height: 32 }, { z: 5 }); // a tile into layer 5
+```
+
+Both ends hold the same uncompressed colour format, or the same one but for `-srgb`, single sampled. The destination is one the GPU owns: `cpu: false`, a render target's, or a storage texture. Depth and compressed formats throw, as does a destination whose `usage` lacks `COPY_DST` or a source lacking `COPY_SRC`; textures have both by default.
 
 ### Storage textures
 

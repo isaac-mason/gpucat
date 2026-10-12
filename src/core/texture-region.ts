@@ -24,8 +24,31 @@ export type TextureRegion = {
 /** Partial region as accepted from user code; omitted fields default to the full extent at origin. */
 export type TextureRegionInit = Partial<TextureRegion>;
 
+/** Where a box lands in a texture: its corner and mip level. */
+export type TextureOrigin = {
+    x: number;
+    y: number;
+    z: number;
+    level: number;
+};
+
+/** Partial origin as accepted from user code; omitted fields are 0. */
+export type TextureOriginInit = Partial<TextureOrigin>;
+
 /** Extent used to fill in omitted fields of a {@link TextureRegionInit}. */
 export type RegionExtent = { width: number; height: number; depth: number };
+
+/** The extent of one mip level: slices shrink down a 3D chain, array layers and cube faces do not. */
+export function levelExtent(
+    texture: { width: number; height: number; depthOrArrayLayers: number; dimension: string },
+    level: number,
+): RegionExtent {
+    return {
+        width: Math.max(1, texture.width >> level),
+        height: Math.max(1, texture.height >> level),
+        depth: texture.dimension === '3d' ? Math.max(1, texture.depthOrArrayLayers >> level) : texture.depthOrArrayLayers,
+    };
+}
 
 /**
  * Pending regions past this point stop being tracked exactly: the list is coalesced to one bounding

@@ -189,7 +189,11 @@ export function ensureRenderTargetTexturesAllocated(cache: TextureCache, device:
         const resolveTexture = device.createTexture({
             size: [width, height],
             format: tex.format,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+            usage:
+                GPUTextureUsage.RENDER_ATTACHMENT |
+                GPUTextureUsage.TEXTURE_BINDING |
+                GPUTextureUsage.COPY_SRC |
+                GPUTextureUsage.COPY_DST,
             sampleCount: 1,
         });
 
@@ -256,7 +260,11 @@ function ensureCubeRenderTargetTexturesAllocated(cache: TextureCache, device: GP
         dimension: '2d',
         size: [renderTarget.size, renderTarget.size, 6],
         format: renderTarget.texture.format,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+        usage:
+            GPUTextureUsage.RENDER_ATTACHMENT |
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_SRC |
+            GPUTextureUsage.COPY_DST,
         mipLevelCount: cubeMipCount,
         sampleCount: 1,
     });

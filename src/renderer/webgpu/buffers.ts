@@ -124,11 +124,12 @@ function setupDispose(cache: BufferCache, buffer: GpuBuffer): void {
  * Derive GPUBufferUsage flags from a GpuBuffer's usage set.
  */
 function deriveGPUUsage(buffer: GpuBuffer): GPUBufferUsageFlags {
-    let flags = GPUBufferUsage.COPY_DST;
+    // every buffer can be either end of a copyBuffer
+    let flags = GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
 
     if (buffer.usage.has('vertex')) flags |= GPUBufferUsage.VERTEX;
     if (buffer.usage.has('index')) flags |= GPUBufferUsage.INDEX;
-    if (buffer.usage.has('storage')) flags |= GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC;
+    if (buffer.usage.has('storage')) flags |= GPUBufferUsage.STORAGE;
     if (buffer.usage.has('indirect')) flags |= GPUBufferUsage.INDIRECT | GPUBufferUsage.STORAGE;
     if (buffer.usage.has('uniform')) flags |= GPUBufferUsage.UNIFORM;
 
@@ -222,6 +223,23 @@ export function writeBufferBytes(
     const buf = ensureUploaded(cache, device, buffer, label);
     device.queue.writeBuffer(buf, byteOffset, data.buffer as ArrayBuffer, data.byteOffset + dataByteOffset, byteSize);
     recordBufferWrite(cache.info, byteSize, primaryBufferUsage(buffer), false, label);
+}
+
+/** `copyBuffer` for WebGPU: its own submission, so it lands after earlier queue writes and before later frames. */
+export function copyBufferBytes(
+    cache: BufferCache,
+    device: GPUDevice,
+    source: GpuBuffer,
+    sourceByteOffset: number,
+    destination: GpuBuffer,
+    destinationByteOffset: number,
+    byteSize: number,
+): void {
+    const sourceBuffer = ensureUploaded(cache, device, source, source.label ?? 'copy-source');
+    const destinationBuffer = ensureUploaded(cache, device, destination, destination.label ?? 'copy-destination');
+    const encoder = device.createCommandEncoder({ label: 'copyBuffer' });
+    encoder.copyBufferToBuffer(sourceBuffer, sourceByteOffset, destinationBuffer, destinationByteOffset, byteSize);
+    device.queue.submit([encoder.finish()]);
 }
 
 /**

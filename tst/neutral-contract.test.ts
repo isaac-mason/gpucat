@@ -70,6 +70,8 @@ const EXPECTED: Record<string, string[]> = {
         'readPixels',
         'writeBuffer',
         'writeTexture',
+        'copyBuffer',
+        'copyTexture',
         'readMemoryStats',
     ],
     Renderer: [

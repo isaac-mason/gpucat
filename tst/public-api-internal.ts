@@ -31,6 +31,7 @@ export const DELIBERATELY_INTERNAL: ReadonlySet<string> = new Set([
     './core/gpu-texture#TEXTURE_USAGE',
     './core/texture-region#addRegion',
     './core/texture-region#deriveMipRegion',
+    './core/texture-region#levelExtent',
     './core/texture-region#normalizeRegion',
     './core/texture-region#regionTexelCount',
     './core/texture-region#tryMergeRegions',

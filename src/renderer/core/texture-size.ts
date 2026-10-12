@@ -69,6 +69,11 @@ export function bytesPerTexel(format: GPUTextureFormat): number {
     return bytes;
 }
 
+/** Whether the format is one of the uncompressed colour formats gpucat knows the stride of. */
+export function isUncompressedColorFormat(format: GPUTextureFormat): boolean {
+    return knownBytesPerTexel(format) !== undefined;
+}
+
 /** The debug panel's figure, which wants a number more than it wants to be right. */
 export function estimatedBytesPerTexel(format: GPUTextureFormat): number {
     return knownBytesPerTexel(format) ?? 4;

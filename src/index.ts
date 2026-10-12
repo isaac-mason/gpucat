@@ -40,6 +40,8 @@ export {
     REGION_CAP,
     type RegionExtent,
     regionsFromLinearRun,
+    type TextureOrigin,
+    type TextureOriginInit,
     type TextureRectInit,
     type TextureRegion,
     type TextureRegionInit,
@@ -424,6 +426,8 @@ export {
     createCanvasTarget,
 } from './renderer/core/canvas-target';
 export { compile, compileCompute } from './renderer/core/compile';
+export { copyBuffer } from './renderer/core/copy-buffer';
+export { type CopyTextureEnd, copyTexture } from './renderer/core/copy-texture';
 export type { DeviceBackend } from './renderer/core/device-backend';
 export {
     type AnyPass,
