@@ -1,7 +1,9 @@
 import { expect, test } from 'vitest';
 import { createRenderTarget } from '../src/index';
+import { CanvasTarget } from '../src/renderer/core/canvas-target';
 import { createMemoryTally } from '../src/renderer/core/info';
 import { estimatedBytesPerTexel } from '../src/renderer/core/texture-size';
+import { attachmentsFor, createSwapchainState } from '../src/renderer/webgpu/render-pass';
 import { ensureRenderTargetTexturesAllocated, getRenderTargetMsaaView } from '../src/renderer/webgpu/render-target';
 import { createTextureCache, getTextureData } from '../src/renderer/webgpu/textures';
 import { installWebGPUPolyfills } from './stub-gpu';
@@ -169,4 +171,12 @@ test('a labelled target files its attachments under its label without renaming t
     // `mrt()` and shader bindings read the attachment names, which stay as they were
     expect(rt.textures[0]!.name).toBe('output');
     expect(rt.getTextureIndex('output')).toBe(0);
+});
+
+test("a canvas's own attachments are filed under its label, else as canvas", () => {
+    const sc = createSwapchainState(createMemoryTally());
+    const labelled = new CanvasTarget({ width: 8, height: 8 } as OffscreenCanvas, { label: 'stage/inventory' });
+    const plain = new CanvasTarget({ width: 8, height: 8 } as OffscreenCanvas);
+    expect(attachmentsFor(sc, labelled).depthAllocation.label).toBe('stage/inventory');
+    expect(attachmentsFor(sc, plain).msaaAllocation.label).toBe('canvas');
 });
