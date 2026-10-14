@@ -42,12 +42,9 @@ export type GeometriesState = {
     /** Cached wireframe index buffers per geometry. */
     wireframes: WeakMap<Geometry, GpuBuffer<Any>>;
 
-    /** Memory statistics. */
+    /** Geometries holding uploaded buffers. */
     memory: {
         geometries: number;
-        buffers: number;
-        indexBuffers: number;
-        indirectBuffers: number;
     };
 };
 
@@ -62,9 +59,6 @@ export function createGeometriesState(): GeometriesState {
         wireframes: new WeakMap(),
         memory: {
             geometries: 0,
-            buffers: 0,
-            indexBuffers: 0,
-            indirectBuffers: 0,
         },
     };
 }
@@ -165,20 +159,17 @@ function initGeometry(state: GeometriesState, bufferCache: BufferCache, device: 
     for (const [name, buffer] of geometry.buffers) {
         if (buffer.usage.has('vertex')) {
             updateBuffer(state, bufferCache, device, buffer, 'vertex', name);
-            state.memory.buffers++;
         }
     }
 
     // upload index buffer if present
     if (geometry.index) {
         updateIndex(state, bufferCache, device, geometry.index);
-        state.memory.indexBuffers++;
     }
 
     // upload indirect buffer if present
     if (geometry.indirect) {
         updateBuffer(state, bufferCache, device, geometry.indirect, 'indirect', 'indirect');
-        state.memory.indirectBuffers++;
     }
 
     data.initialized = true;
@@ -259,9 +250,6 @@ export function disposeGeometry(state: GeometriesState, geometry: Geometry): voi
 /** Get geometry and buffer memory statistics */
 export function getGeometriesStats(state: GeometriesState): {
     geometries: number;
-    buffers: number;
-    indexBuffers: number;
-    indirectBuffers: number;
 } {
-    return { ...state.memory };
+    return { geometries: state.memory.geometries };
 }

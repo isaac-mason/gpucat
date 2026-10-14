@@ -73,6 +73,8 @@ const EXPECTED: Record<string, string[]> = {
         'copyBuffer',
         'copyTexture',
         'readMemoryStats',
+        'releaseUniformBlock',
+        'memoryTally',
     ],
     Renderer: [
         'backend',

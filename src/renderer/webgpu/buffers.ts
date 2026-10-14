@@ -5,21 +5,33 @@ import type { Any } from '../../schema/schema';
 /** the one usage worth reporting, most specific first. A buffer often carries several
  *  flags (`storage` + `vertex`), and the specific one is what identifies it. */
 import { BufferUpload, planBufferUpload } from '../core/buffer-upload';
-import type { RendererInfo } from '../core/info';
-import { primaryBufferUsage, recordBufferWrite } from '../core/info';
+import {
+    type Allocation,
+    clearAllocation,
+    createAllocation,
+    type MemoryTally,
+    primaryBufferUsage,
+    type RendererInfo,
+    recordBufferWrite,
+    setAllocation,
+} from '../core/info';
 
-type CacheEntry = { buf: GPUBuffer; version: number };
+type CacheEntry = { buf: GPUBuffer; version: number; allocation: Allocation };
+type RawEntry = { buf: GPUBuffer; allocation: Allocation };
 
 export type BufferCache = {
     /** All GpuBuffer -> GPUBuffer mappings, regardless of usage. */
     bufferMap: WeakMap<GpuBuffer, CacheEntry>;
 
-    /** Plain-object-keyed buffers (instance matrices, material UBOs, camera, time). */
-    rawMap: WeakMap<object, GPUBuffer>;
+    /** Uniform blocks keyed by their binding, released by whoever owns the binding (`releaseUniformBlock`). */
+    rawMap: WeakMap<object, RawEntry>;
 
-    /** Mutable stats counters (approximate, tracks allocations, not deallocations) */
+    /** Live counts. */
     bufferCount: number;
     rawCount: number;
+
+    /** The backend's memory tally, shared with its textures. */
+    tally: MemoryTally;
 
     /** Where upload volume is tallied. Held by reference rather than counted locally so the
      *  frame boundary that zeroes it stays in ONE place (the renderer), and so every reader
@@ -58,9 +70,9 @@ export type DynamicUniformBuffers = {
 };
 
 /** `id` is what a binding records, so neutral code never holds a GPU type. */
-type DynamicGpuBuffer = { buffer: GPUBuffer; id: number };
+type DynamicGpuBuffer = { buffer: GPUBuffer; id: number; allocation: Allocation };
 /** `buffer` is null for a CPU copy, which the submit uploads with a queue write instead of a copy. */
-type StagingBuffer = { buffer: GPUBuffer | null; view: DataView<ArrayBuffer> };
+type StagingBuffer = { buffer: GPUBuffer | null; view: DataView<ArrayBuffer>; allocation: Allocation | null };
 type UsedBuffer = { gpuBuffer: DynamicGpuBuffer; staging: StagingBuffer; size: number };
 
 /** PlayCanvas's WebGPU device size for these buffers. */
@@ -93,12 +105,13 @@ export type BufferCacheStats = {
     rawCount: number;
 };
 
-export function createBufferCache(info: RendererInfo): BufferCache {
+export function createBufferCache(info: RendererInfo, tally: MemoryTally): BufferCache {
     return {
         bufferMap: new WeakMap(),
         rawMap: new WeakMap(),
         bufferCount: 0,
         rawCount: 0,
+        tally,
         info,
         dynamicUniforms: createDynamicUniformBuffers(),
     };
@@ -115,6 +128,7 @@ function setupDispose(cache: BufferCache, buffer: GpuBuffer): void {
         const entry = cache.bufferMap.get(buffer);
         if (!entry) return;
         entry.buf.destroy();
+        clearAllocation(cache.tally, entry.allocation);
         cache.bufferCount--;
         cache.bufferMap.delete(buffer);
     };
@@ -164,20 +178,22 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
     if (plan === BufferUpload.Allocate) {
         entry?.buf.destroy();
         // 4-byte alignment is a device requirement, so the size is decided here, not in the plan.
-        const byteLength = arr?.byteLength ?? buffer.byteLength;
-        const buf = device.createBuffer({ size: alignTo4(byteLength), usage: deriveGPUUsage(buffer) });
+        const byteLength = alignTo4(arr?.byteLength ?? buffer.byteLength);
+        const buf = device.createBuffer({ size: byteLength, usage: deriveGPUUsage(buffer) });
         // Both under the same guard: a reallocation must not count twice, nor hook dispose twice.
         if (!entry) {
             cache.bufferCount++;
             setupDispose(cache, buffer);
         }
+        const allocation = entry?.allocation ?? createAllocation('buffer', usage, label);
+        setAllocation(cache.tally, allocation, byteLength);
 
         // a `cpu: false` buffer has no array, and starts as the zeroes WebGPU allocates
         if (arr !== null) {
             device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
             recordBufferWrite(cache.info, arr.byteLength, usage, true, label);
         }
-        cache.bufferMap.set(buffer, { buf, version: buffer.version });
+        cache.bufferMap.set(buffer, { buf, version: buffer.version, allocation });
 
         // the allocate path wrote everything, so pending ranges are already covered; dropping them
         // stops the next frame replaying them as a redundant partial write.
@@ -323,20 +339,22 @@ export function uploadUniformBlock(
     data: ArrayBuffer,
     detail?: RawWriteDetail,
 ): UploadRawResult {
-    let buf = cache.rawMap.get(key);
+    let entry = cache.rawMap.get(key);
     const byteLength = alignTo4(data.byteLength);
-    const isNew = !buf;
     let created = false;
 
-    if (!buf || buf.size < byteLength) {
-        buf?.destroy();
-        buf = device.createBuffer({ size: byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-        cache.rawMap.set(key, buf);
-        created = true;
-        if (isNew) {
+    if (!entry || entry.buf.size < byteLength) {
+        entry?.buf.destroy();
+        const buf = device.createBuffer({ size: byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        if (!entry) {
+            entry = { buf, allocation: createAllocation('buffer', 'uniform', detail?.material ?? 'uniform') };
+            cache.rawMap.set(key, entry);
             cache.rawCount++;
-        }
+        } else entry.buf = buf;
+        setAllocation(cache.tally, entry.allocation, byteLength);
+        created = true;
     }
+    const buf = entry.buf;
 
     // raw path: no GpuBuffer, so no label. `full` is FALSE on purpose - this path has
     // no concept of ranges, so it always writes everything, and flagging it would make
@@ -361,7 +379,17 @@ export function uploadUniformBlock(
  * Does NOT upload, use uploadRaw for that.
  */
 export function getRaw(cache: BufferCache, key: object): GPUBuffer | undefined {
-    return cache.rawMap.get(key);
+    return cache.rawMap.get(key)?.buf;
+}
+
+/** Destroy the uniform block `key` names; its owner calls this when it dies. A key with no block is a no-op. */
+export function releaseUniformBlock(cache: BufferCache, key: object): void {
+    const entry = cache.rawMap.get(key);
+    if (!entry) return;
+    entry.buf.destroy();
+    clearAllocation(cache.tally, entry.allocation);
+    cache.rawMap.delete(key);
+    cache.rawCount--;
 }
 
 /**
@@ -399,15 +427,8 @@ export function allocDynamicUniform(cache: BufferCache, device: GPUDevice, size:
     }
 
     if (buffers.active === null) {
-        const gpuBuffer = buffers.gpuBuffers.pop() ?? {
-            buffer: device.createBuffer({
-                label: 'dynamic-uniforms',
-                size: DYNAMIC_BUFFER_BYTES,
-                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-            }),
-            id: buffers.nextBufferId++,
-        };
-        buffers.active = { gpuBuffer, staging: takeStagingBuffer(buffers, device), size: 0 };
+        const gpuBuffer = buffers.gpuBuffers.pop() ?? createDynamicGpuBuffer(cache, device);
+        buffers.active = { gpuBuffer, staging: takeStagingBuffer(cache, device), size: 0 };
     }
 
     const active = buffers.active;
@@ -418,18 +439,30 @@ export function allocDynamicUniform(cache: BufferCache, device: GPUDevice, size:
     return offset;
 }
 
+function createDynamicGpuBuffer(cache: BufferCache, device: GPUDevice): DynamicGpuBuffer {
+    const buffer = device.createBuffer({
+        label: 'dynamic-uniforms',
+        size: DYNAMIC_BUFFER_BYTES,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    const allocation = createAllocation('buffer', 'uniform-ring', 'dynamic-uniforms');
+    setAllocation(cache.tally, allocation, DYNAMIC_BUFFER_BYTES);
+    return { buffer, id: cache.dynamicUniforms.nextBufferId++, allocation };
+}
+
 /** A remapped staging buffer when one is back, a new one under the cap, else a CPU copy. */
-function takeStagingBuffer(buffers: DynamicUniformBuffers, device: GPUDevice): StagingBuffer {
+function takeStagingBuffer(cache: BufferCache, device: GPUDevice): StagingBuffer {
+    const buffers = cache.dynamicUniforms;
     const mapped = buffers.stagingBuffers.pop();
     if (mapped !== undefined) return mapped;
     if (buffers.mappedStagingCount < MAX_MAPPED_STAGING_BUFFERS) {
         buffers.mappedStagingCount++;
-        return createStagingBuffer(device);
+        return createStagingBuffer(cache, device);
     }
     const cpuCopy = buffers.cpuStagingBuffers.pop();
     if (cpuCopy !== undefined) return cpuCopy;
     buffers.cpuStagingCount++;
-    return { buffer: null, view: new DataView(new ArrayBuffer(DYNAMIC_BUFFER_BYTES)) };
+    return { buffer: null, view: new DataView(new ArrayBuffer(DYNAMIC_BUFFER_BYTES)), allocation: null };
 }
 
 /**
@@ -441,14 +474,16 @@ export function getDynamicUniformStats(cache: BufferCache): { gpuBuffers: number
     return { gpuBuffers: buffers.nextBufferId, stagingBuffers: buffers.mappedStagingCount + buffers.cpuStagingCount };
 }
 
-function createStagingBuffer(device: GPUDevice): StagingBuffer {
+function createStagingBuffer(cache: BufferCache, device: GPUDevice): StagingBuffer {
     const buffer = device.createBuffer({
         label: 'dynamic-uniforms-staging',
         size: DYNAMIC_BUFFER_BYTES,
         usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
         mappedAtCreation: true,
     });
-    return { buffer, view: new DataView(buffer.getMappedRange()) };
+    const allocation = createAllocation('buffer', 'uniform-ring', 'dynamic-uniforms-staging');
+    setAllocation(cache.tally, allocation, DYNAMIC_BUFFER_BYTES);
+    return { buffer, view: new DataView(buffer.getMappedRange()), allocation };
 }
 
 /** The GPU buffer a binding recorded by id, for building the bind group that addresses it. */
@@ -508,6 +543,7 @@ export function onDynamicUniformsSubmitted(cache: BufferCache): void {
             // The map fails when the device is lost; the buffer cannot be reused.
             () => {
                 buffer.destroy();
+                if (staging.allocation !== null) clearAllocation(cache.tally, staging.allocation);
                 buffers.mappedStagingCount--;
             },
         );

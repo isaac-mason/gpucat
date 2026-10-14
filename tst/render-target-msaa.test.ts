@@ -1,5 +1,7 @@
 import { expect, test } from 'vitest';
 import { createRenderTarget } from '../src/index';
+import { createMemoryTally } from '../src/renderer/core/info';
+import { estimatedBytesPerTexel } from '../src/renderer/core/texture-size';
 import { ensureRenderTargetTexturesAllocated, getRenderTargetMsaaView } from '../src/renderer/webgpu/render-target';
 import { createTextureCache, getTextureData } from '../src/renderer/webgpu/textures';
 import { installWebGPUPolyfills } from './stub-gpu';
@@ -35,7 +37,7 @@ function recordingDevice() {
 
 test('non-MSAA render target allocates a single single-sample color texture, no MSAA sibling', () => {
     const { device, created } = recordingDevice();
-    const cache = createTextureCache();
+    const cache = createTextureCache(createMemoryTally());
     const rt = createRenderTarget(64, 32); // samples defaults to 1
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);
@@ -51,7 +53,7 @@ test('non-MSAA render target allocates a single single-sample color texture, no 
 
 test('MSAA render target allocates a single-sample resolve texture plus a multisampled sibling', () => {
     const { device, created } = recordingDevice();
-    const cache = createTextureCache();
+    const cache = createTextureCache(createMemoryTally());
     const rt = createRenderTarget(64, 32, { samples: 4 });
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);
@@ -76,9 +78,30 @@ test('MSAA render target allocates a single-sample resolve texture plus a multis
     expect(created).toHaveLength(3);
 });
 
+test('a render target tallies its resolve texture, MSAA sibling and multisampled depth, and a resize moves the bytes', () => {
+    const { device } = recordingDevice();
+    const tally = createMemoryTally();
+    const cache = createTextureCache(tally);
+    const rt = createRenderTarget(64, 32, { samples: 4 });
+
+    ensureRenderTargetTexturesAllocated(cache, device, rt);
+    const texels = 64 * 32;
+    const color = estimatedBytesPerTexel(rt.textures[0]!.format);
+    const depth = estimatedBytesPerTexel(rt._depthAttachment!.format);
+    expect(tally.byCategory.get('texture/render-target')).toBe(texels * color);
+    expect(tally.byCategory.get('texture/msaa')).toBe(texels * color * 4);
+    expect(tally.byCategory.get('texture/depth')).toBe(texels * depth * 4);
+    expect(tally.textures).toBe(3);
+
+    rt.setSize(128, 64);
+    ensureRenderTargetTexturesAllocated(cache, device, rt);
+    expect(tally.textures).toBe(3);
+    expect(tally.texturesSize).toBe(4 * (texels * color + texels * color * 4 + texels * depth * 4));
+});
+
 test('depth-only render target (count: 0) is allocated once and is idempotent', () => {
     const { device, created } = recordingDevice();
-    const cache = createTextureCache();
+    const cache = createTextureCache(createMemoryTally());
     const rt = createRenderTarget(1024, 1024, { count: 0, depthFormat: 'depth32float' });
 
     expect(rt.textures).toHaveLength(0);
@@ -102,7 +125,7 @@ test('depth-only render target (count: 0) is allocated once and is idempotent', 
 
 test('allocation is idempotent: a second ensure call creates no new textures', () => {
     const { device, created } = recordingDevice();
-    const cache = createTextureCache();
+    const cache = createTextureCache(createMemoryTally());
     const rt = createRenderTarget(64, 32, { samples: 4 });
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);
@@ -114,7 +137,7 @@ test('allocation is idempotent: a second ensure call creates no new textures', (
 
 test('resizing reallocates and bumps generation so sampling bind groups rebuild', () => {
     const { device, created } = recordingDevice();
-    const cache = createTextureCache();
+    const cache = createTextureCache(createMemoryTally());
     const rt = createRenderTarget(64, 32, { samples: 4 });
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);

@@ -1,7 +1,7 @@
 import type { InspectableRenderer, InspectorBase } from '../../inspector/inspector-base';
 import type { DeviceBackend } from './device-backend';
 import type { Frame } from './frame';
-import { beginInfoFrame, createRendererInfo, type RendererInfo } from './info';
+import { type AllocationReport, beginInfoFrame, createRendererInfo, type RendererInfo, reportAllocations } from './info';
 import * as NodeManager from './node-manager';
 import * as RenderContext from './pass-context';
 import * as RenderLists from './render-list';
@@ -28,7 +28,7 @@ export class Renderer<B extends DeviceBackend = DeviceBackend> implements Render
     /** @internal */ _renderContexts = RenderContext.createRenderContextsState();
     /** @internal */ _computeContext = RenderContext.createComputeContext();
     /** @internal */ _nodes = NodeManager.createNodeManagerState();
-    /** @internal */ _renderObjects = RenderObjects.createRenderObjectsState();
+    /** @internal */ _renderObjects: RenderObjects.RenderObjectsState;
     /** @internal */ _renderLists = RenderLists.createRenderListsState();
 
     /** Per-frame draw and upload stats. Reset at this renderer's own frame boundary, never from outside,
@@ -39,6 +39,7 @@ export class Renderer<B extends DeviceBackend = DeviceBackend> implements Render
 
     constructor(backend: B) {
         this.backend = backend;
+        this._renderObjects = RenderObjects.createRenderObjectsState(backend);
     }
 
     /** `B['name']`, not `RendererBackend`, so a union of concrete renderers discriminates on it. */
@@ -93,3 +94,12 @@ export class Renderer<B extends DeviceBackend = DeviceBackend> implements Render
 }
 
 export type { DeviceLostInfo };
+
+/**
+ * Every GPU allocation the renderer holds, largest first: kind, category, format, label and bytes, as copies
+ * the caller keeps. Walks every live allocation and allocates a row each, so it is for a debug panel
+ * refreshing a few times a second, not a frame loop. `info.memory` has the running totals for free.
+ */
+export function memoryReport(renderer: Renderer): AllocationReport[] {
+    return reportAllocations(renderer.backend.memoryTally);
+}

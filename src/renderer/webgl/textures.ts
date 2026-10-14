@@ -26,15 +26,7 @@ import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
 import { type ResolvedStorageBufferTexture, storageMirrorBytesPerTexel, storageMirrorGrid } from '../../nodes/lib/texture';
 import type { Any } from '../../schema/schema';
-import {
-    createTextureTally,
-    createTextureTallyEntry,
-    resetTextureTally,
-    type TextureTally,
-    type TextureTallyEntry,
-    tallyClearTexture,
-    tallySetTexture,
-} from '../core/info';
+import { type Allocation, clearAllocation, createAllocation, type MemoryTally, setAllocation } from '../core/info';
 import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
 import { bytesPerTexel, gpuTextureBytes, mipLevelCountFor } from '../core/texture-size';
 import { mergeUpdateRanges } from '../core/update-ranges';
@@ -272,7 +264,7 @@ export type GlTextureData = {
     /** GL-allocated layer/face count. Guards the partial path against a layer-count change. */
     allocD: number;
     /** What this entry currently contributes to `TextureCache.tally`. */
-    tally: TextureTallyEntry;
+    allocation: Allocation;
 };
 
 /**
@@ -282,8 +274,8 @@ export type GlTextureData = {
  */
 export type GlBufferTextureData = {
     texture: WebGLTexture;
-    /** What this entry currently contributes to `TextureCache.tally`. */
-    tally: TextureTallyEntry;
+    /** What this entry contributes to `TextureCache.tally`: a texture, filed under the buffer's label. */
+    allocation: Allocation;
     /** `buffer.version` at last upload — the re-upload gate. */
     version: number;
     /** GL-allocated texel dimensions (a grow re-allocates rather than sub-uploading). */
@@ -298,10 +290,8 @@ export type TextureCache = {
     /** Storage-buffer-backed GL textures, keyed by the `GpuBuffer` (WebGL storage() read-lowering). */
     bufferData: WeakMap<GpuBuffer, GlBufferTextureData>;
     all: Set<WebGLTexture>;
-    /** Texture count + estimated bytes, kept here because `data` is a WeakMap and cannot be walked.
-     *  Entries are added and re-sized but never removed: this backend frees GL textures only in
-     *  `disposeTextureCache`, so the tally tracks the cache exactly as `all.size` always has. */
-    tally: TextureTally;
+    /** The backend's memory tally, shared with its buffers and renderbuffers. */
+    tally: MemoryTally;
     /** Cached `gl.MAX_TEXTURE_SIZE`, read once on first storage-buffer upload (validates the texel grid). */
     maxTextureSize?: number;
     /** Cached `gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS`, read once (guards the flat texture-unit assignment). */
@@ -311,8 +301,19 @@ export type TextureCache = {
 };
 
 /** Create an empty textures state. */
-export function createTextureCache(): TextureCache {
-    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set(), tally: createTextureTally() };
+export function createTextureCache(tally: MemoryTally): TextureCache {
+    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set(), tally };
+}
+
+/** The storage-backing texture a storage buffer's reads go through, sized as the grid it is allocated as. */
+function setStorageBacking(state: TextureCache, data: GlBufferTextureData): void {
+    setAllocation(
+        state.tally,
+        data.allocation,
+        data.width * data.height * data.bytesPerTexel,
+        'storage-backing',
+        storageTexelFormatName(data.bytesPerTexel),
+    );
 }
 
 /**
@@ -404,7 +405,7 @@ function setupStorageTextureDispose(gl: WebGL2RenderingContext, state: TextureCa
         if (!data) return;
         gl.deleteTexture(data.texture);
         state.all.delete(data.texture);
-        tallyClearTexture(state.tally, data.tally);
+        clearAllocation(state.tally, data.allocation);
         state.bufferData.delete(buffer);
     };
 }
@@ -426,7 +427,7 @@ function setupTextureDispose(gl: WebGL2RenderingContext, state: TextureCache, te
         if (!data) return;
         gl.deleteTexture(data.texture);
         state.all.delete(data.texture);
-        tallyClearTexture(state.tally, data.tally);
+        clearAllocation(state.tally, data.allocation);
         state.data.delete(texture);
     };
 }
@@ -484,10 +485,17 @@ export function updateStorageBufferTexture(
         // Integer textures are never filterable — NEAREST, clamp; sampled only via texelFetch.
         setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
         uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
-        data = { texture, tally: createTextureTallyEntry(), version: buffer.version, width, height, bytesPerTexel };
-        // A storage() read-lowering IS a resident texture, so it counts like any other. Bucketed under
-        // the u32 format it actually is; WebGPU reads the buffer directly and has no counterpart row.
-        tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
+        data = {
+            texture,
+            allocation: createAllocation('texture', 'storage-backing', buffer.label ?? 'unlabelled'),
+            version: buffer.version,
+            width,
+            height,
+            bytesPerTexel,
+        };
+        // A storage() read-lowering IS a resident texture, so it counts like any other, under the u32 format
+        // it actually is and the buffer's label; WebGPU reads the buffer directly and has no counterpart.
+        setStorageBacking(state, data);
         setupStorageTextureDispose(gl, state, buffer);
         state.bufferData.set(buffer, data);
         return texture;
@@ -507,7 +515,7 @@ export function updateStorageBufferTexture(
         data.width = width;
         data.height = height;
         // Same entry, new size: move the bytes without moving the count.
-        tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
+        setStorageBacking(state, data);
     } else {
         // Same size: upload each merged dirty span when `packAtIndex`/`addUpdateRange` queued ranges.
         // `updateRanges` are flat COMPONENT indices, so each widens to the texels it touches (u32 lanes
@@ -581,13 +589,13 @@ function ensureCpuLessStorageTexture(
     setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
     const data: GlBufferTextureData = {
         texture,
-        tally: createTextureTallyEntry(),
+        allocation: createAllocation('texture', 'storage-backing', buffer.label ?? 'unlabelled'),
         version: buffer.version,
         width,
         height,
         bytesPerTexel,
     };
-    tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
+    setStorageBacking(state, data);
     setupStorageTextureDispose(gl, state, buffer);
     state.bufferData.set(buffer, data);
     return data;
@@ -648,7 +656,7 @@ function ensureGlTexture(gl: WebGL2RenderingContext, state: TextureCache, textur
             fmt: glFormat(gl, texture.format),
             version: -1,
             generation: 0,
-            tally: createTextureTallyEntry(),
+            allocation: createAllocation('texture', 'sampled', texture.label ?? 'unlabelled'),
             allocated: false,
             allocW: 0,
             allocD: 0,
@@ -1081,7 +1089,8 @@ export function updateTexture(gl: WebGL2RenderingContext, state: TextureCache, t
     data.generation++;
     data.allocated = true;
     // After allocation, so a resize re-tallies the new size against the same entry.
-    tallySetTexture(state.tally, data.tally, texture.format, gpuTextureBytes(texture));
+    const category = !texture.isRenderTargetTexture ? 'sampled' : data.fmt.isDepth ? 'depth' : 'render-target';
+    setAllocation(state.tally, data.allocation, gpuTextureBytes(texture), category, texture.format);
     return data;
 }
 
@@ -1316,5 +1325,5 @@ export function disposeTextureCache(gl: WebGL2RenderingContext, state: TextureCa
     state.all.clear();
     if (state.copyFramebuffer) gl.deleteFramebuffer(state.copyFramebuffer);
     state.copyFramebuffer = undefined;
-    resetTextureTally(state.tally);
+    // the tally is the backend's, shared with buffers, and reset by the backend's own dispose
 }

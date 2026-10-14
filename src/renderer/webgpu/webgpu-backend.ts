@@ -87,7 +87,9 @@ export class WebGPUBackend implements DeviceBackend {
 
     /** Value-keyed, shared by pipelines and bindings so one entry shape yields one layout. @internal */
     bindGroupLayoutCache: BindGroupLayoutCache = createBindGroupLayoutCache();
-    /** @internal */ textures: Textures.TextureCache = Textures.createTextureCache();
+    /** Every GPU allocation this backend holds, shared by its buffer, texture and swapchain caches. @internal */
+    readonly memoryTally: Info.MemoryTally = Info.createMemoryTally();
+    /** @internal */ textures: Textures.TextureCache = Textures.createTextureCache(this.memoryTally);
     /** @internal */ samplers: Samplers.SamplerCache = Samplers.createSamplerCache();
     /** @internal */ pipelines: Pipelines.PipelinesState = Pipelines.createPipelinesState(this.bindGroupLayoutCache);
     /** @internal */ bindings: Bindings.BindingsState = Bindings.createBindingsState(this.bindGroupLayoutCache);
@@ -98,7 +100,7 @@ export class WebGPUBackend implements DeviceBackend {
     readonly renderBundles = new WeakMap<RenderBundle, WeakMap<object, Map<number, RenderPass.BundleRecordings>>>();
 
     /** @internal */ readonly canvasContexts = new WeakMap<CanvasTarget, GPUCanvasContext>();
-    /** @internal */ readonly swapchain: RenderPass.SwapchainState = RenderPass.createSwapchainState();
+    /** @internal */ readonly swapchain: RenderPass.SwapchainState = RenderPass.createSwapchainState(this.memoryTally);
 
     /** A frame is one command buffer; `beginFrame` opens the encoder. @internal */
     _currentEncoder: GPUCommandEncoder | null = null;
@@ -131,7 +133,7 @@ export class WebGPUBackend implements DeviceBackend {
     async init(renderer: Renderer<DeviceBackend>): Promise<void> {
         this.renderer = renderer;
 
-        this.buffers = Buffers.createBufferCache(renderer.info);
+        this.buffers = Buffers.createBufferCache(renderer.info, this.memoryTally);
 
         const opts = this._opts;
         if (opts.device) {
@@ -291,10 +293,8 @@ export class WebGPUBackend implements DeviceBackend {
     readMemoryStats(memory: Info.MemoryInfo): void {
         const buffers = Buffers.getBufferCacheStats(this.buffers);
         const pipelines = Pipelines.getPipelineCacheStats(this.pipelines);
-        memory.buffers = buffers.bufferCount + buffers.rawCount;
         memory.geometries = Geometries.getGeometriesStats(this.geometries).geometries;
-        // count + bytes + per-format breakdown, straight from the cache's running tally.
-        Info.readTextureTally(this.textures.tally, memory);
+        Info.readMemoryTally(this.memoryTally, memory);
         memory.samplers = Samplers.getSamplerCacheStats(this.samplers).samplerCount;
         memory.backend.rawBuffers = buffers.rawCount;
         memory.backend.renderPipelines = pipelines.renderCount;
@@ -303,6 +303,11 @@ export class WebGPUBackend implements DeviceBackend {
         const dynamicUniforms = Buffers.getDynamicUniformStats(this.buffers);
         memory.backend.dynamicUniformBuffers = dynamicUniforms.gpuBuffers;
         memory.backend.dynamicUniformStaging = dynamicUniforms.stagingBuffers;
+    }
+
+    /** @internal */
+    releaseUniformBlock(key: object): void {
+        Buffers.releaseUniformBlock(this.buffers, key);
     }
 
     /** Map `buffer` for reading, held in `_readbacks` until the map settles. @internal */
@@ -325,6 +330,7 @@ export class WebGPUBackend implements DeviceBackend {
         Buffers.disposeBufferCache(this.buffers);
         Pipelines.disposePipelines(this.pipelines);
         disposeBindGroupLayoutCache(this.bindGroupLayoutCache);
+        Info.resetMemoryTally(this.memoryTally);
 
         // A handed-in device is the caller's to destroy; the caches above are ours either way.
         if (!this._deviceProvided && this.device) this.device.destroy();

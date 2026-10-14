@@ -10,6 +10,7 @@
 
 import type { Material } from '../../material/material';
 import type { Mesh } from '../../objects/mesh';
+import type { DeviceBackend } from './device-backend';
 import type { RenderContext } from './pass-context';
 import type { RenderObject } from './render-object';
 import { createRenderObject, disposeRenderObject } from './render-object';
@@ -28,13 +29,31 @@ export type RenderObjectsState = {
 
     /** All active RenderObjects (for iteration/disposal). */
     renderObjects: Set<RenderObject>;
+
+    /** Releases a disposed RenderObject's own uniform blocks. */
+    backend: Pick<DeviceBackend, 'releaseUniformBlock'>;
 };
 
-export function createRenderObjectsState(): RenderObjectsState {
+export function createRenderObjectsState(backend: Pick<DeviceBackend, 'releaseUniformBlock'>): RenderObjectsState {
     return {
         cache: new WeakMap(),
         renderObjects: new Set(),
+        backend,
     };
+}
+
+/**
+ * A RenderObject's non-shared groups are clones it alone uses, so their uniform blocks die with it. Shared
+ * groups belong to the compiled program and live as long as the renderer.
+ */
+function releaseOwnUniformBlocks(state: RenderObjectsState, renderObject: RenderObject): void {
+    if (renderObject._bindings === null) return;
+    for (const group of renderObject._bindings) {
+        if (group.shared) continue;
+        for (const binding of group.bindings) {
+            if (binding.kind === 'uniform' && binding.bufferKey !== null) state.backend.releaseUniformBlock(binding.bufferKey);
+        }
+    }
 }
 
 export function getRenderObject(
@@ -57,6 +76,7 @@ export function getRenderObject(
 
         // Set up disposal callback: walk the nested chain and delete the leaf.
         renderObject.onDispose = () => {
+            releaseOwnUniformBlocks(state, renderObject!);
             cache.get(mesh)?.get(material)?.delete(renderContext);
             state.renderObjects.delete(renderObject!);
         };

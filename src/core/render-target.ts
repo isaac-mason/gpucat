@@ -80,6 +80,9 @@ export class RenderTarget {
      */
     _depthAttachment: DepthTexture | null = null;
 
+    /** What a backend set up for this target beyond its textures (WebGL's framebuffers and renderbuffers), released by `dispose`. @internal */
+    _onDispose: (() => void) | null = null;
+
     /**
      * The depth attachment exposed for SAMPLING, or null when the depth isn't declared sampled.
      * three.js-aligned: a render target's depth is readable as a texture only when you opt in
@@ -196,6 +199,8 @@ export class RenderTarget {
         if (this._depthAttachment) {
             this._depthAttachment._gpuTexture.dispose();
         }
+        this._onDispose?.();
+        this._onDispose = null;
     }
 
     /** Returns the texture index for the given name, or -1 if not found. */

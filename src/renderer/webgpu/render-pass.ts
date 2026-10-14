@@ -5,7 +5,14 @@ import type { IndexedMeshDraw, NonIndexedMeshDraw } from '../../objects/mesh';
 import type { CanvasTarget } from '../core/canvas-target';
 import { resolveIndexedDrawRange, resolveVertexDrawRange } from '../core/draw-range';
 import type { DrawOptions, RenderBundle } from '../core/frame';
-import type { RendererInfo } from '../core/info';
+import {
+    type Allocation,
+    clearAllocation,
+    createAllocation,
+    type MemoryTally,
+    type RendererInfo,
+    setAllocation,
+} from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import * as NodeManager from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
@@ -100,9 +107,13 @@ export type CanvasAttachments = {
     /** MSAA color texture (null when samples <= 1). */
     msaaTexture: GPUTexture | null;
     msaaTextureView: GPUTextureView | null;
+    depthAllocation: Allocation;
+    msaaAllocation: Allocation;
 };
 
 export type SwapchainState = {
+    /** The backend's memory tally: the attachments are gpucat's, even though the canvas texture is not. */
+    tally: MemoryTally;
     /** Every canvas this renderer has allocated attachments for, so `dispose` can reach all of them. */
     targets: Set<CanvasTarget>;
     /** Per-target attachments, because a frame may draw to several canvases of differing size. */
@@ -143,8 +154,9 @@ export function createSwapchainMsaaTexture(
     });
 }
 
-export function createSwapchainState(): SwapchainState {
+export function createSwapchainState(tally: MemoryTally): SwapchainState {
     return {
+        tally,
         targets: new Set(),
         byTarget: new WeakMap(),
     };
@@ -161,6 +173,8 @@ export function attachmentsFor(sc: SwapchainState, target: CanvasTarget): Canvas
             depthTextureView: null,
             msaaTexture: null,
             msaaTextureView: null,
+            depthAllocation: createAllocation('texture', 'depth', 'canvas'),
+            msaaAllocation: createAllocation('texture', 'msaa', 'canvas'),
         };
         sc.byTarget.set(target, entry);
     }
@@ -195,11 +209,23 @@ export function recreateSwapchainTextures(
     entry.depthTexture?.destroy();
     entry.depthTexture = createSwapchainDepthTexture(device, width, height, sampleCount, depthFormatFor(target));
     entry.depthTextureView = entry.depthTexture.createView();
+    setAllocation(
+        sc.tally,
+        entry.depthAllocation,
+        RenderTargets.allocatedBytes(entry.depthTexture),
+        'depth',
+        entry.depthTexture.format,
+    );
 
+    entry.msaaTexture?.destroy();
     if (samples > 1) {
-        entry.msaaTexture?.destroy();
         entry.msaaTexture = createSwapchainMsaaTexture(device, width, height, format, samples);
         entry.msaaTextureView = entry.msaaTexture.createView();
+        setAllocation(sc.tally, entry.msaaAllocation, RenderTargets.allocatedBytes(entry.msaaTexture), 'msaa', format);
+    } else {
+        entry.msaaTexture = null;
+        entry.msaaTextureView = null;
+        clearAllocation(sc.tally, entry.msaaAllocation);
     }
 }
 
@@ -762,6 +788,8 @@ function releaseCanvasTarget(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, 
     if (entry) {
         entry.depthTexture?.destroy();
         entry.msaaTexture?.destroy();
+        clearAllocation(sc.tally, entry.depthAllocation);
+        clearAllocation(sc.tally, entry.msaaAllocation);
         sc.byTarget.delete(target);
     }
     sc.targets.delete(target);

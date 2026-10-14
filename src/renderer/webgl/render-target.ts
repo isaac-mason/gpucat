@@ -29,7 +29,16 @@
 
 import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { RenderTarget } from '../../core/render-target';
+import {
+    type Allocation,
+    type AllocationCategory,
+    clearAllocation,
+    createAllocation,
+    type MemoryTally,
+    setAllocation,
+} from '../core/info';
 import { formatHasStencil } from '../core/render-types';
+import { estimatedBytesPerTexel } from '../core/texture-size';
 import { getTextureData, type TextureCache, updateTexture } from './textures';
 import type { WebGLBackend } from './webgl-backend';
 
@@ -71,7 +80,10 @@ type MsaaData = {
 export type GlRenderTargetsState = {
     data: WeakMap<RenderTarget, FboData>;
     fbos: Set<WebGLFramebuffer>;
-    renderbuffers: Set<WebGLRenderbuffer>;
+    /** Every live renderbuffer and what it contributes to `tally`. */
+    renderbuffers: Map<WebGLRenderbuffer, Allocation>;
+    /** The backend's memory tally, shared with its buffers and textures. */
+    tally: MemoryTally;
     /** Whether the MSAA-unsupported warning has been logged (log once). */
     msaaWarned: boolean;
     /**
@@ -82,8 +94,46 @@ export type GlRenderTargetsState = {
 };
 
 /** Create an empty render-targets state. */
-export function createGlRenderTargetsState(): GlRenderTargetsState {
-    return { data: new WeakMap(), fbos: new Set(), renderbuffers: new Set(), msaaWarned: false, pendingResolve: null };
+export function createGlRenderTargetsState(tally: MemoryTally): GlRenderTargetsState {
+    return { data: new WeakMap(), fbos: new Set(), renderbuffers: new Map(), tally, msaaWarned: false, pendingResolve: null };
+}
+
+/** A new renderbuffer, counted once `tallyRenderbuffer` gives it storage; null when GL returns none. */
+function createRenderbuffer(
+    gl: WebGL2RenderingContext,
+    state: GlRenderTargetsState,
+    category: AllocationCategory,
+    label: string,
+): WebGLRenderbuffer | null {
+    const renderbuffer = gl.createRenderbuffer();
+    if (renderbuffer) state.renderbuffers.set(renderbuffer, createAllocation('texture', category, label));
+    return renderbuffer;
+}
+
+/** What `renderbuffer`'s storage holds, after a `renderbufferStorage(Multisample)`: the attachment's format, `samples` deep. */
+function tallyRenderbuffer(
+    state: GlRenderTargetsState,
+    renderbuffer: WebGLRenderbuffer,
+    format: GPUTextureFormat,
+    width: number,
+    height: number,
+    samples: number,
+): void {
+    const allocation = state.renderbuffers.get(renderbuffer)!;
+    setAllocation(
+        state.tally,
+        allocation,
+        estimatedBytesPerTexel(format) * width * height * Math.max(1, samples),
+        allocation.category,
+        format,
+    );
+}
+
+function deleteRenderbuffer(gl: WebGL2RenderingContext, state: GlRenderTargetsState, renderbuffer: WebGLRenderbuffer): void {
+    gl.deleteRenderbuffer(renderbuffer);
+    const allocation = state.renderbuffers.get(renderbuffer);
+    if (allocation) clearAllocation(state.tally, allocation);
+    state.renderbuffers.delete(renderbuffer);
 }
 
 /** Whether the target's depth format carries a stencil aspect. */
@@ -273,8 +323,7 @@ function rebuildFbo(
     let depthRenderbuffer = existing?.depthRenderbuffer ?? null;
     const freeDepthRenderbuffer = () => {
         if (depthRenderbuffer) {
-            gl.deleteRenderbuffer(depthRenderbuffer);
-            state.renderbuffers.delete(depthRenderbuffer);
+            deleteRenderbuffer(gl, state, depthRenderbuffer);
             depthRenderbuffer = null;
         }
     };
@@ -292,13 +341,21 @@ function rebuildFbo(
         const stencil = formatHasStencil(renderTarget._depthAttachment.format);
         const internalFormat = depthRenderbufferInternalFormat(gl, renderTarget._depthAttachment.format);
         if (!depthRenderbuffer) {
-            const created = gl.createRenderbuffer();
+            const label = renderTarget._depthAttachment._gpuTexture.label ?? 'unlabelled';
+            const created = createRenderbuffer(gl, state, 'depth', label);
             if (!created) throw new Error('[webgl] gl.createRenderbuffer returned null (depth).');
             depthRenderbuffer = created;
-            state.renderbuffers.add(depthRenderbuffer);
         }
         gl.bindRenderbuffer(gl.RENDERBUFFER, depthRenderbuffer);
         gl.renderbufferStorage(gl.RENDERBUFFER, internalFormat, renderTarget.width, renderTarget.height);
+        tallyRenderbuffer(
+            state,
+            depthRenderbuffer,
+            renderTarget._depthAttachment.format,
+            renderTarget.width,
+            renderTarget.height,
+            1,
+        );
         const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
         gl.framebufferRenderbuffer(gl.FRAMEBUFFER, attachment, gl.RENDERBUFFER, depthRenderbuffer);
     } else {
@@ -383,8 +440,24 @@ function rebuildFbo(
         attachedMip: -1,
         msaa,
     };
+    if (!existing) {
+        renderTarget._onDispose = () => {
+            const data = state.data.get(renderTarget);
+            if (!data) return;
+            deleteFbo(gl, state, data);
+            state.data.delete(renderTarget);
+        };
+    }
     state.data.set(renderTarget, fboData);
     return fboData;
+}
+
+/** A target's framebuffer, its depth renderbuffer and its MSAA set. */
+function deleteFbo(gl: WebGL2RenderingContext, state: GlRenderTargetsState, data: FboData): void {
+    gl.deleteFramebuffer(data.fbo);
+    state.fbos.delete(data.fbo);
+    if (data.depthRenderbuffer) deleteRenderbuffer(gl, state, data.depthRenderbuffer);
+    if (data.msaa) deleteMsaa(gl, state, data.msaa);
 }
 
 /**
@@ -422,22 +495,22 @@ function buildMsaaFbo(
         if (!supported || supported < 2) {
             // This format can't be multisampled here — degrade the whole target.
             gl.deleteFramebuffer(fbo);
-            for (const rb of colorRenderbuffers) gl.deleteRenderbuffer(rb);
+            for (const rb of colorRenderbuffers) deleteRenderbuffer(gl, state, rb);
             warnMsaaFallback(state);
             return null;
         }
         samples = Math.min(samples, supported);
 
-        const rb = gl.createRenderbuffer();
+        const rb = createRenderbuffer(gl, state, 'msaa', tex._gpuTexture.label ?? 'unlabelled');
         if (!rb) {
             gl.deleteFramebuffer(fbo);
-            for (const r of colorRenderbuffers) gl.deleteRenderbuffer(r);
+            for (const r of colorRenderbuffers) deleteRenderbuffer(gl, state, r);
             warnMsaaFallback(state);
             return null;
         }
-        state.renderbuffers.add(rb);
         gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
         gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, internalFormat, w, h);
+        tallyRenderbuffer(state, rb, tex.format, w, h, samples);
         const attachment = gl.COLOR_ATTACHMENT0 + i;
         gl.framebufferRenderbuffer(gl.FRAMEBUFFER, attachment, gl.RENDERBUFFER, rb);
         colorRenderbuffers.push(rb);
@@ -450,11 +523,11 @@ function buildMsaaFbo(
     if (renderTarget._depthAttachment) {
         const depthData = getTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (depthData) {
-            const rb = gl.createRenderbuffer();
+            const rb = createRenderbuffer(gl, state, 'msaa', renderTarget._depthAttachment._gpuTexture.label ?? 'unlabelled');
             if (rb) {
-                state.renderbuffers.add(rb);
                 gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
                 gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, depthData.fmt.internalFormat, w, h);
+                tallyRenderbuffer(state, rb, renderTarget._depthAttachment.format, w, h, samples);
                 const stencil = formatHasStencil(renderTarget._depthAttachment.format);
                 const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
                 gl.framebufferRenderbuffer(gl.FRAMEBUFFER, attachment, gl.RENDERBUFFER, rb);
@@ -468,14 +541,8 @@ function buildMsaaFbo(
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
         // Multisample FBO incomplete — degrade to single-sampled.
         gl.deleteFramebuffer(fbo);
-        for (const rb of colorRenderbuffers) {
-            gl.deleteRenderbuffer(rb);
-            state.renderbuffers.delete(rb);
-        }
-        if (depthRenderbuffer) {
-            gl.deleteRenderbuffer(depthRenderbuffer);
-            state.renderbuffers.delete(depthRenderbuffer);
-        }
+        for (const rb of colorRenderbuffers) deleteRenderbuffer(gl, state, rb);
+        if (depthRenderbuffer) deleteRenderbuffer(gl, state, depthRenderbuffer);
         warnMsaaFallback(state);
         return null;
     }
@@ -495,14 +562,8 @@ function warnMsaaFallback(state: GlRenderTargetsState): void {
 function deleteMsaa(gl: WebGL2RenderingContext, state: GlRenderTargetsState, msaa: MsaaData): void {
     gl.deleteFramebuffer(msaa.fbo);
     state.fbos.delete(msaa.fbo);
-    for (const rb of msaa.colorRenderbuffers) {
-        gl.deleteRenderbuffer(rb);
-        state.renderbuffers.delete(rb);
-    }
-    if (msaa.depthRenderbuffer) {
-        gl.deleteRenderbuffer(msaa.depthRenderbuffer);
-        state.renderbuffers.delete(msaa.depthRenderbuffer);
-    }
+    for (const rb of msaa.colorRenderbuffers) deleteRenderbuffer(gl, state, rb);
+    if (msaa.depthRenderbuffer) deleteRenderbuffer(gl, state, msaa.depthRenderbuffer);
 }
 
 /**
@@ -550,7 +611,9 @@ export function resolveActiveRenderTarget(gl: WebGL2RenderingContext, state: GlR
 /** Delete all FBOs + depth renderbuffers (called on renderer dispose). */
 export function disposeGlRenderTargets(gl: WebGL2RenderingContext, state: GlRenderTargetsState): void {
     for (const fbo of state.fbos) gl.deleteFramebuffer(fbo);
-    for (const rb of state.renderbuffers) gl.deleteRenderbuffer(rb);
+    for (const rb of state.renderbuffers.keys()) gl.deleteRenderbuffer(rb);
+    // replaced, so a target disposed after its renderer finds nothing to delete twice
+    state.data = new WeakMap();
     state.fbos.clear();
     state.renderbuffers.clear();
 }

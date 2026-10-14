@@ -99,12 +99,14 @@ export class WebGLBackend implements DeviceBackend {
     uniforms: Bindings.BindingsState = Bindings.createBindingsState();
     /** Per-RenderObject GL device payload (linked program). @internal */
     renderObjectGl: RenderObjectGlCache = createRenderObjectGlCache();
+    /** Every GPU allocation this backend holds, shared by its buffer, texture and render-target caches. @internal */
+    readonly memoryTally: Info.MemoryTally = Info.createMemoryTally();
     /** Per-GpuTexture GL texture cache (upload + allocation). @internal */
-    textures: Textures.TextureCache = Textures.createTextureCache();
+    textures: Textures.TextureCache = Textures.createTextureCache(this.memoryTally);
     /** Per-GpuSampler GL sampler-object cache. @internal */
     samplers: Samplers.SamplerCache = Samplers.createSamplerCache();
     /** Per-RenderTarget GL framebuffer (FBO) cache. @internal */
-    renderTargets: RenderTargets.GlRenderTargetsState = RenderTargets.createGlRenderTargetsState();
+    renderTargets: RenderTargets.GlRenderTargetsState = RenderTargets.createGlRenderTargetsState(this.memoryTally);
 
     /** Transform-feedback runtime state (per-node program/VAO + I/O buffer cache). @internal */
     /** @internal */ _transformFeedback: TransformFeedback.TransformFeedbackState =
@@ -140,7 +142,7 @@ export class WebGLBackend implements DeviceBackend {
     async init(renderer: Renderer<DeviceBackend>): Promise<void> {
         this.renderer = renderer;
 
-        this.buffers = Buffers.createBufferCache(renderer.info);
+        this.buffers = Buffers.createBufferCache(renderer.info, this.memoryTally);
 
         const { width, height } = this.target.getDrawingBufferSize();
         this._width = width || 1;
@@ -255,6 +257,11 @@ export class WebGLBackend implements DeviceBackend {
         }
     }
 
+    /** @internal */
+    releaseUniformBlock(key: object): void {
+        if (this.gl) Buffers.releaseUniformBlock(this.gl, this.buffers, key);
+    }
+
     /**
      * GL-only counts go under `memory.backend` in GL's own vocabulary rather than a WebGPU-shaped field.
      * VAOs and per-RenderObject payloads are absent because WeakMaps cannot be counted.
@@ -262,10 +269,9 @@ export class WebGLBackend implements DeviceBackend {
     readMemoryStats(memory: Info.MemoryInfo): void {
         const buffers = Buffers.getBufferCacheStats(this.buffers);
         const renderTargets = RenderTargets.getGlRenderTargetsStats(this.renderTargets);
-        memory.buffers = buffers.bufferCount + buffers.rawCount;
         memory.geometries = Geometries.getGeometriesStats(this.geometries).geometries;
-        // count + bytes + per-format breakdown, straight from the cache's running tally.
-        Info.readTextureTally(this.textures.tally, memory);
+        Info.readMemoryTally(this.memoryTally, memory);
+        memory.backend.rawBuffers = buffers.rawCount;
         memory.samplers = Samplers.getSamplerCacheStats(this.samplers).samplerCount;
         // Keyed on source, so it does not compare with WebGPU's pipeline count, which adds fixed-function state.
         memory.backend.programs = Programs.getProgramCacheStats(this.programs).programCount;
@@ -467,6 +473,7 @@ export class WebGLBackend implements DeviceBackend {
             Buffers.disposeBufferCache(this.gl, this.buffers);
             // Per-geometry VAOs are freed by disposeGeometry when the Geometry goes away.
         }
+        Info.resetMemoryTally(this.memoryTally);
 
         this.target.dispose();
     }

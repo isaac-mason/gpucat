@@ -22,7 +22,16 @@
 
 import type { GpuBuffer, GpuTypedArray } from '../../core/gpu-buffer';
 import { BufferUpload, planBufferUpload } from '../core/buffer-upload';
-import { primaryBufferUsage, type RendererInfo, recordBufferWrite } from '../core/info';
+import {
+    type Allocation,
+    clearAllocation,
+    createAllocation,
+    type MemoryTally,
+    primaryBufferUsage,
+    type RendererInfo,
+    recordBufferWrite,
+    setAllocation,
+} from '../core/info';
 import { mergeUpdateRanges } from '../core/update-ranges';
 
 type CacheEntry = {
@@ -31,22 +40,26 @@ type CacheEntry = {
     version: number;
     /** last allocated byte size, the resize guard. */
     byteLength: number;
+    allocation: Allocation;
 };
 
 type RawEntry = {
     glBuffer: WebGLBuffer;
     byteLength: number;
+    allocation: Allocation;
 };
 
 export type BufferCache = {
     /** GL buffer per `GpuBuffer`, shared across every geometry and pass that reaches it. */
     bufferMap: WeakMap<GpuBuffer, CacheEntry>;
-    /** GL buffer per opaque key, for uniform blocks (no backing `GpuBuffer`). */
+    /** GL buffer per opaque key, for uniform blocks (no backing `GpuBuffer`), released by the key's owner. */
     rawMap: WeakMap<object, RawEntry>;
     /** Every live GL buffer, for teardown. The maps are weak and cannot be walked. */
     all: Set<WebGLBuffer>;
     bufferCount: number;
     rawCount: number;
+    /** The backend's memory tally, shared with its textures and renderbuffers. */
+    tally: MemoryTally;
     /** `cpu: false` storage buffers written with no GL buffer: one made for them later would hold zeroes. */
     textureOnly: WeakSet<GpuBuffer>;
     /** Where upload volume is tallied. Held by reference so the frame boundary that zeroes it stays
@@ -59,13 +72,14 @@ export type BufferCacheStats = {
     rawCount: number;
 };
 
-export function createBufferCache(info: RendererInfo): BufferCache {
+export function createBufferCache(info: RendererInfo, tally: MemoryTally): BufferCache {
     return {
         bufferMap: new WeakMap(),
         rawMap: new WeakMap(),
         all: new Set(),
         bufferCount: 0,
         rawCount: 0,
+        tally,
         textureOnly: new WeakSet(),
         info,
     };
@@ -99,6 +113,7 @@ function setupBufferDispose(gl: WebGL2RenderingContext, cache: BufferCache, buff
         if (!entry) return;
         gl.deleteBuffer(entry.glBuffer);
         cache.all.delete(entry.glBuffer);
+        clearAllocation(cache.tally, entry.allocation);
         cache.bufferCount--;
         cache.bufferMap.delete(buffer);
     };
@@ -163,7 +178,12 @@ export function ensureUploaded(
         if (!entry) {
             const created = gl.createBuffer();
             if (!created) throw new Error('[webgl] gl.createBuffer returned null.');
-            entry = { glBuffer: created, version: -1, byteLength: -1 };
+            entry = {
+                glBuffer: created,
+                version: -1,
+                byteLength: -1,
+                allocation: createAllocation('buffer', primaryBufferUsage(buffer), label),
+            };
             cache.bufferMap.set(buffer, entry);
             cache.all.add(created);
             cache.bufferCount++;
@@ -177,8 +197,10 @@ export function ensureUploaded(
             // a `cpu: false` buffer starts as the zeroes GL allocates
             gl.bufferData(target, buffer.byteLength, usageHint ?? glUsageHint(gl, buffer));
         }
-        entry.byteLength = buffer.byteLength;
+        // what bufferData just allocated: the array's size, which a grown buffer has moved past `buffer.byteLength`
+        entry.byteLength = array?.byteLength ?? buffer.byteLength;
         entry.version = buffer.version;
+        setAllocation(cache.tally, entry.allocation, entry.byteLength);
         // the allocate path wrote everything, so pending ranges are already covered.
         buffer.clearUpdateRanges();
         return entry.glBuffer;
@@ -281,12 +303,17 @@ export function uploadUniformBlock(
         if (!entry) {
             const glBuffer = gl.createBuffer();
             if (!glBuffer) throw new Error('[webgl] gl.createBuffer returned null (uniform block).');
-            entry = { glBuffer, byteLength: data.byteLength };
+            entry = {
+                glBuffer,
+                byteLength: data.byteLength,
+                allocation: createAllocation('buffer', 'uniform', detail?.material ?? 'uniform'),
+            };
             cache.rawMap.set(key, entry);
             cache.all.add(glBuffer);
             cache.rawCount++;
         }
         entry.byteLength = data.byteLength;
+        setAllocation(cache.tally, entry.allocation, data.byteLength);
         gl.bindBuffer(gl.UNIFORM_BUFFER, entry.glBuffer);
         gl.bufferData(gl.UNIFORM_BUFFER, data, gl.DYNAMIC_DRAW);
         created = true;
@@ -311,6 +338,17 @@ export function uploadUniformBlock(
 /** The GL buffer for a raw key, or undefined. Never uploads. */
 export function getRaw(cache: BufferCache, key: object): WebGLBuffer | undefined {
     return cache.rawMap.get(key)?.glBuffer;
+}
+
+/** Delete the uniform block `key` names; its owner calls this when it dies. A key with no block is a no-op. */
+export function releaseUniformBlock(gl: WebGL2RenderingContext, cache: BufferCache, key: object): void {
+    const entry = cache.rawMap.get(key);
+    if (!entry) return;
+    gl.deleteBuffer(entry.glBuffer);
+    cache.all.delete(entry.glBuffer);
+    clearAllocation(cache.tally, entry.allocation);
+    cache.rawMap.delete(key);
+    cache.rawCount--;
 }
 
 /**

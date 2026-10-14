@@ -455,6 +455,9 @@ export {
     type TransformFeedbackRecord,
 } from './renderer/core/frame';
 export {
+    type AllocationCategory,
+    type AllocationKind,
+    type AllocationReport,
     type BufferInfo,
     type BufferWrite,
     type ComputeInfo,
@@ -466,7 +469,7 @@ export {
 export { init } from './renderer/core/init';
 export type { NodeFrame } from './renderer/core/node-frame';
 export { type ReadOptions, read } from './renderer/core/read';
-export { type DeviceLostInfo, Renderer } from './renderer/core/renderer';
+export { type DeviceLostInfo, memoryReport, Renderer } from './renderer/core/renderer';
 export type { RendererBackend } from './renderer/core/renderer-interface';
 export { isRenderTarget, renderTargetOf, type Target } from './renderer/core/target';
 export type { View } from './renderer/core/view';

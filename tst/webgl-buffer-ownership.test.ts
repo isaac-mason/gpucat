@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import { GpuBuffer } from '../src/core/gpu-buffer';
 import { d } from '../src/index';
-import { createRendererInfo } from '../src/renderer/core/info';
+import { createMemoryTally, createRendererInfo } from '../src/renderer/core/info';
 import { createBufferCache, ensureUploaded, getUploaded } from '../src/renderer/webgl/buffers';
 
 const ARRAY_BUFFER = 0x8892;
@@ -21,7 +21,7 @@ function fakeGl() {
 }
 
 function cacheAndBuffer() {
-    const cache = createBufferCache(createRendererInfo());
+    const cache = createBufferCache(createRendererInfo(), createMemoryTally());
     const buffer = new GpuBuffer(d.vec3f, { data: new Float32Array(9), usage: 'vertex' });
     return { cache, buffer };
 }

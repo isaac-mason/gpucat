@@ -13,9 +13,37 @@
 import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
-import { createTextureTallyEntry, tallySetTexture } from '../core/info';
-import { gpuTextureBytes, mipLevelCountFor } from '../core/texture-size';
-import { setupTextureDispose, type TextureCache, type TextureData } from './textures';
+import { clearAllocation, setAllocation } from '../core/info';
+import { estimatedBytesPerTexel, mipLevelCountFor } from '../core/texture-size';
+import { setupTextureDispose, type TextureCache, type TextureData, textureAllocations } from './textures';
+
+/** What the device was asked for: every layer and mip level, times the sample count. */
+export function allocatedBytes(gpu: GPUTexture): number {
+    const perTexel = estimatedBytesPerTexel(gpu.format);
+    let bytes = 0;
+    for (let level = 0; level < gpu.mipLevelCount; level++) {
+        bytes += Math.max(1, gpu.width >> level) * Math.max(1, gpu.height >> level) * perTexel;
+    }
+    return bytes * gpu.depthOrArrayLayers * gpu.sampleCount;
+}
+
+function isDepthFormat(format: GPUTextureFormat): boolean {
+    return format.startsWith('depth') || format.startsWith('stencil');
+}
+
+/** A target's attachments, filed as `depth` or `render-target`, and its MSAA sibling as `msaa`. */
+function tallyAttachments(cache: TextureCache, data: TextureData): void {
+    const gpu = data.texture;
+    setAllocation(
+        cache.tally,
+        data.allocation,
+        allocatedBytes(gpu),
+        isDepthFormat(gpu.format) ? 'depth' : 'render-target',
+        gpu.format,
+    );
+    if (data.msaaTexture) setAllocation(cache.tally, data.msaaAllocation, allocatedBytes(data.msaaTexture), 'msaa', gpu.format);
+    else clearAllocation(cache.tally, data.msaaAllocation);
+}
 
 /**
  * Default render-attachment view for a render-target color/depth texture.
@@ -74,20 +102,19 @@ export function setRenderTargetTexture(
         existing.initialized = true;
         existing.isDefaultTexture = false;
         // Resize swaps the GPU texture under the same entry: same count, different bytes.
-        tallySetTexture(cache.tally, existing.tally, texture.format, gpuTextureBytes(texture));
+        tallyAttachments(cache, existing);
     } else {
-        // First time - create new entry
-        cache.textureMap.set(texture, {
+        const entry: TextureData = {
             texture: gpuTextureResource,
             msaaTexture,
             version: texture.version,
             generation: 1,
             initialized: true,
             isDefaultTexture: false,
-            tally: createTextureTallyEntry(),
-        });
-        const entry = cache.textureMap.get(texture)!;
-        tallySetTexture(cache.tally, entry.tally, texture.format, gpuTextureBytes(texture));
+            ...textureAllocations(texture),
+        };
+        cache.textureMap.set(texture, entry);
+        tallyAttachments(cache, entry);
     }
 
     texture.disposed = false;

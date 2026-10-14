@@ -22,7 +22,7 @@ const camera = {
 function state() {
     return {
         inspector: null,
-        _renderObjects: RenderObjects.createRenderObjectsState(),
+        _renderObjects: RenderObjects.createRenderObjectsState({ releaseUniformBlock: () => {} }),
         _nodes: NodeManager.createNodeManagerState(),
     } as unknown as RendererState;
 }

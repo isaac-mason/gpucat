@@ -16,15 +16,7 @@
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
 import type { Source } from '../../texture/source';
-import {
-    createTextureTally,
-    createTextureTallyEntry,
-    resetTextureTally,
-    type TextureTally,
-    type TextureTallyEntry,
-    tallyClearTexture,
-    tallySetTexture,
-} from '../core/info';
+import { type Allocation, clearAllocation, createAllocation, type MemoryTally, setAllocation } from '../core/info';
 import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
 import { bytesPerTexel, gpuTextureBytes, mipLevelCountFor } from '../core/texture-size';
 import { createMipmapState, disposeMipmapState, generateMipmaps, type MipmapState } from './mipmap-utils';
@@ -42,7 +34,9 @@ export type TextureData = {
     /** Whether this is a default placeholder texture */
     isDefaultTexture: boolean;
     /** What this entry currently contributes to `TextureCache.tally`. */
-    tally: TextureTallyEntry;
+    allocation: Allocation;
+    /** `msaaTexture`'s contribution, live while there is one. */
+    msaaAllocation: Allocation;
     /**
      * Cached default render-attachment view (render target color/depth).
      * Lazily created by the renderer and cleared whenever `texture` is swapped
@@ -70,16 +64,25 @@ export type TextureCache = {
     /** Mipmap generation state (created lazily on first use) */
     mipmapState: MipmapState | null;
 
-    /** Stats counters */
-    tally: TextureTally;
+    /** The backend's memory tally, shared with its buffers. */
+    tally: MemoryTally;
 };
 
-export function createTextureCache(): TextureCache {
+export function createTextureCache(tally: MemoryTally): TextureCache {
     return {
         textureMap: new WeakMap(),
         defaultTextures: new Map(),
         mipmapState: null,
-        tally: createTextureTally(),
+        tally,
+    };
+}
+
+/** A fresh entry's allocations: counted as `sampled` until a render target files it as an attachment. */
+export function textureAllocations(texture: GpuTexture): Pick<TextureData, 'allocation' | 'msaaAllocation'> {
+    const label = texture.label ?? 'unlabelled';
+    return {
+        allocation: createAllocation('texture', 'sampled', label),
+        msaaAllocation: createAllocation('texture', 'msaa', label),
     };
 }
 
@@ -98,7 +101,10 @@ export function setupTextureDispose(cache: TextureCache, texture: GpuTexture): v
         }
         // Stop counting it whether or not it owned its GPU texture; a default-texture entry
         // contributes nothing, so clearing is a no-op there.
-        if (data) tallyClearTexture(cache.tally, data.tally);
+        if (data) {
+            clearAllocation(cache.tally, data.allocation);
+            clearAllocation(cache.tally, data.msaaAllocation);
+        }
     };
 }
 
@@ -259,10 +265,9 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
                 generation: texture.version,
                 initialized: true,
                 isDefaultTexture: false,
-                tally: createTextureTallyEntry(),
+                ...textureAllocations(texture),
             };
             cache.textureMap.set(texture, data);
-            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
             setupTextureDispose(cache, texture);
         } else {
             // Recreate at the new size: destroy the old GPU texture, swap in the new one,
@@ -272,6 +277,7 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
             data.version = texture.version;
             data.generation = texture.version;
         }
+        setAllocation(cache.tally, data.allocation, gpuTextureBytes(texture), data.allocation.category, texture.format);
         return data;
     }
 
@@ -296,7 +302,7 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
                 initialized: true,
                 isDefaultTexture: true,
                 // Never tallied: the placeholder is one shared 1x1 texture, not this texture's storage.
-                tally: createTextureTallyEntry(),
+                ...textureAllocations(texture),
             };
             cache.textureMap.set(texture, data);
         }
@@ -317,23 +323,23 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
                 generation: texture.version,
                 initialized: true,
                 isDefaultTexture: false,
-                tally: createTextureTallyEntry(),
+                ...textureAllocations(texture),
             };
             cache.textureMap.set(texture, data);
-            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
+            setAllocation(cache.tally, data.allocation, gpuTextureBytes(texture), data.allocation.category, texture.format);
         } else if (data.isDefaultTexture) {
             // Was default, now real, update generation
             data.texture = gpuTextureResource;
             data.generation = texture.version;
             data.isDefaultTexture = false;
-            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
+            setAllocation(cache.tally, data.allocation, gpuTextureBytes(texture), data.allocation.category, texture.format);
         } else {
             // Resize (grow): destroy the old GPU texture and swap in the new (larger) one.
             data.texture.destroy();
             data.texture = gpuTextureResource;
             data.generation = texture.version;
             // Re-tally rather than re-count: the entry already counts as one texture, but its bytes moved.
-            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
+            setAllocation(cache.tally, data.allocation, gpuTextureBytes(texture), data.allocation.category, texture.format);
         }
 
         // Set up disposal callback to destroy the GPU texture
@@ -715,8 +721,8 @@ export function disposeTextureCache(cache: TextureCache): void {
         disposeMipmapState(cache.mipmapState);
         cache.mipmapState = null;
     }
+    // the tally is the backend's, shared with buffers, and reset by the backend's own dispose
     cache.textureMap = new WeakMap();
-    resetTextureTally(cache.tally);
 }
 
 /**
