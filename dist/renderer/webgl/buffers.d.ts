@@ -20,27 +20,31 @@
  * so callers must upload with VAO 0 bound (see `prepareGeometry`).
  */
 import type { GpuBuffer } from '../../core/gpu-buffer';
-import { type RendererInfo } from '../core/info';
+import { type Allocation, type MemoryTally, type RendererInfo } from '../core/info';
 type CacheEntry = {
     glBuffer: WebGLBuffer;
     /** `buffer.version` at last upload, the re-upload gate. */
     version: number;
     /** last allocated byte size, the resize guard. */
     byteLength: number;
+    allocation: Allocation;
 };
 type RawEntry = {
     glBuffer: WebGLBuffer;
     byteLength: number;
+    allocation: Allocation;
 };
 export type BufferCache = {
     /** GL buffer per `GpuBuffer`, shared across every geometry and pass that reaches it. */
     bufferMap: WeakMap<GpuBuffer, CacheEntry>;
-    /** GL buffer per opaque key, for uniform blocks (no backing `GpuBuffer`). */
+    /** GL buffer per opaque key, for uniform blocks (no backing `GpuBuffer`), released by the key's owner. */
     rawMap: WeakMap<object, RawEntry>;
     /** Every live GL buffer, for teardown. The maps are weak and cannot be walked. */
     all: Set<WebGLBuffer>;
     bufferCount: number;
     rawCount: number;
+    /** The backend's memory tally, shared with its textures and renderbuffers. */
+    tally: MemoryTally;
     /** `cpu: false` storage buffers written with no GL buffer: one made for them later would hold zeroes. */
     textureOnly: WeakSet<GpuBuffer>;
     /** Where upload volume is tallied. Held by reference so the frame boundary that zeroes it stays
@@ -51,7 +55,7 @@ export type BufferCacheStats = {
     bufferCount: number;
     rawCount: number;
 };
-export declare function createBufferCache(info: RendererInfo): BufferCache;
+export declare function createBufferCache(info: RendererInfo, tally: MemoryTally): BufferCache;
 /**
  * GL usage hint from the buffer's declared usage, the analogue of WebGPU's `deriveGPUUsage`.
  *
@@ -100,6 +104,8 @@ export type RawWriteDetail = {
 export declare function uploadUniformBlock(gl: WebGL2RenderingContext, cache: BufferCache, key: object, data: ArrayBuffer, detail?: RawWriteDetail): UploadRawResult;
 /** The GL buffer for a raw key, or undefined. Never uploads. */
 export declare function getRaw(cache: BufferCache, key: object): WebGLBuffer | undefined;
+/** Delete the uniform block `key` names; its owner calls this when it dies. A key with no block is a no-op. */
+export declare function releaseUniformBlock(gl: WebGL2RenderingContext, cache: BufferCache, key: object): void;
 /**
  * Delete every GL buffer this cache holds (called on renderer dispose).
  *

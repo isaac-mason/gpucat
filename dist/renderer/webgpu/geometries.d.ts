@@ -33,12 +33,9 @@ export type GeometriesState = {
     geometryData: WeakMap<Geometry, GeometryData>;
     /** Cached wireframe index buffers per geometry. */
     wireframes: WeakMap<Geometry, GpuBuffer<Any>>;
-    /** Memory statistics. */
+    /** Geometries holding uploaded buffers. */
     memory: {
         geometries: number;
-        buffers: number;
-        indexBuffers: number;
-        indirectBuffers: number;
     };
 };
 /**
@@ -72,7 +69,4 @@ export declare function disposeGeometry(state: GeometriesState, geometry: Geomet
 /** Get geometry and buffer memory statistics */
 export declare function getGeometriesStats(state: GeometriesState): {
     geometries: number;
-    buffers: number;
-    indexBuffers: number;
-    indirectBuffers: number;
 };

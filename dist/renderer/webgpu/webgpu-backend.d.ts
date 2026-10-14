@@ -51,6 +51,8 @@ export declare class WebGPUBackend implements DeviceBackend {
     buffers: Buffers.BufferCache;
     /** Value-keyed, shared by pipelines and bindings so one entry shape yields one layout. @internal */
     bindGroupLayoutCache: BindGroupLayoutCache;
+    /** Every GPU allocation this backend holds, shared by its buffer, texture and swapchain caches. @internal */
+    readonly memoryTally: Info.MemoryTally;
     /** @internal */ textures: Textures.TextureCache;
     /** @internal */ samplers: Samplers.SamplerCache;
     /** @internal */ pipelines: Pipelines.PipelinesState;
@@ -108,6 +110,8 @@ export declare class WebGPUBackend implements DeviceBackend {
     awaitCompletion(): Promise<void>;
     hasFeature(feature: GPUFeatureName): boolean;
     readMemoryStats(memory: Info.MemoryInfo): void;
+    /** @internal */
+    releaseUniformBlock(key: object): void;
     /** Map `buffer` for reading, held in `_readbacks` until the map settles. @internal */
     mapForRead(buffer: GPUBuffer, offset?: number, size?: number): Promise<void>;
     dispose(): void;

@@ -2,19 +2,26 @@ import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
 import type { StorageNode } from '../../nodes/nodes';
 import type { Any } from '../../schema/schema';
-import type { RendererInfo } from '../core/info';
+import { type Allocation, type MemoryTally, type RendererInfo } from '../core/info';
 type CacheEntry = {
     buf: GPUBuffer;
     version: number;
+    allocation: Allocation;
+};
+type RawEntry = {
+    buf: GPUBuffer;
+    allocation: Allocation;
 };
 export type BufferCache = {
     /** All GpuBuffer -> GPUBuffer mappings, regardless of usage. */
     bufferMap: WeakMap<GpuBuffer, CacheEntry>;
-    /** Plain-object-keyed buffers (instance matrices, material UBOs, camera, time). */
-    rawMap: WeakMap<object, GPUBuffer>;
-    /** Mutable stats counters (approximate, tracks allocations, not deallocations) */
+    /** Uniform blocks keyed by their binding, released by whoever owns the binding (`releaseUniformBlock`). */
+    rawMap: WeakMap<object, RawEntry>;
+    /** Live counts. */
     bufferCount: number;
     rawCount: number;
+    /** The backend's memory tally, shared with its textures. */
+    tally: MemoryTally;
     /** Where upload volume is tallied. Held by reference rather than counted locally so the
      *  frame boundary that zeroes it stays in ONE place (the renderer), and so every reader
      *  sees the same numbers — see `renderer/core/info.ts`. */
@@ -52,11 +59,13 @@ export type DynamicUniformBuffers = {
 type DynamicGpuBuffer = {
     buffer: GPUBuffer;
     id: number;
+    allocation: Allocation;
 };
 /** `buffer` is null for a CPU copy, which the submit uploads with a queue write instead of a copy. */
 type StagingBuffer = {
     buffer: GPUBuffer | null;
     view: DataView<ArrayBuffer>;
+    allocation: Allocation | null;
 };
 type UsedBuffer = {
     gpuBuffer: DynamicGpuBuffer;
@@ -67,7 +76,7 @@ export type BufferCacheStats = {
     bufferCount: number;
     rawCount: number;
 };
-export declare function createBufferCache(info: RendererInfo): BufferCache;
+export declare function createBufferCache(info: RendererInfo, tally: MemoryTally): BufferCache;
 /**
  * Ensure a GpuBuffer is uploaded to the GPU, creating the GPUBuffer on first
  * use and re-uploading when the version advances or updateRanges are pending.
@@ -132,6 +141,8 @@ export declare function uploadUniformBlock(cache: BufferCache, device: GPUDevice
  * Does NOT upload, use uploadRaw for that.
  */
 export declare function getRaw(cache: BufferCache, key: object): GPUBuffer | undefined;
+/** Destroy the uniform block `key` names; its owner calls this when it dies. A key with no block is a no-op. */
+export declare function releaseUniformBlock(cache: BufferCache, key: object): void;
 /**
  * Tear down the cache (called on renderer dispose).
  *

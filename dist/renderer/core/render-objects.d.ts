@@ -9,6 +9,7 @@
  */
 import type { Material } from '../../material/material';
 import type { Mesh } from '../../objects/mesh';
+import type { DeviceBackend } from './device-backend';
 import type { RenderContext } from './pass-context';
 import type { RenderObject } from './render-object';
 import type { View } from './view';
@@ -23,8 +24,10 @@ export type RenderObjectsState = {
     cache: RenderObjectCache;
     /** All active RenderObjects (for iteration/disposal). */
     renderObjects: Set<RenderObject>;
+    /** Releases a disposed RenderObject's own uniform blocks. */
+    backend: Pick<DeviceBackend, 'releaseUniformBlock'>;
 };
-export declare function createRenderObjectsState(): RenderObjectsState;
+export declare function createRenderObjectsState(backend: Pick<DeviceBackend, 'releaseUniformBlock'>): RenderObjectsState;
 export declare function getRenderObject(state: RenderObjectsState, mesh: Mesh, material: Material, camera: View, renderContext: RenderContext): RenderObject;
 /** Dispose all RenderObjects for a specific material. */
 export declare function disposeRenderObjectsForMaterial(state: RenderObjectsState, material: Material): void;

@@ -109,24 +109,33 @@ export type BufferWrite = {
 /**
  * Resident GPU objects — a snapshot, not a rate, refreshed at the frame boundary. These should sit
  * flat once a scene settles; a count that climbs frame over frame is a leak rather than a workload.
+ *
+ * Bytes are what gpucat asked the device for: exact for buffers, an estimate for textures (format x
+ * dimensions x mips x layers x samples, see `core/texture-size.ts`), since neither API reports what a driver
+ * actually allocates. The canvas's own swapchain is the browser's and is not counted.
  */
 export type MemoryInfo = {
-    /** Device buffers resident: vertex, index, uniform and storage. */
+    /** Device buffers resident: vertex, index, uniform, storage, indirect, and the uniform ring. */
     buffers: number;
-    /** Geometries holding at least one uploaded buffer. */
-    geometries: number;
-    /** Textures resident on the device. */
+    buffersSize: number;
+    /** Textures resident on the device, render targets and renderbuffers included. */
     textures: number;
-    /**
-     * Estimated bytes those textures occupy. An estimate on purpose (see `core/texture-size.ts`):
-     * a budget figure for finding the expensive textures, not an allocator's answer.
-     */
     texturesSize: number;
+    /** `buffersSize + texturesSize`. */
+    totalSize: number;
     /**
-     * Estimated texture bytes broken down by `GPUTextureFormat`. The format vocabulary is the same on
-     * both backends, so this row set is comparable across them, unlike `backend` below.
+     * Bytes by `kind/category`: `buffer/vertex`, `buffer/storage`, `texture/sampled`, `texture/msaa`, ... See
+     * `AllocationCategory`. On WebGL a storage buffer that shaders read is lowered to a texture, and shows as
+     * `texture/storage-backing` under the buffer's label.
+     */
+    byCategory: Record<string, number>;
+    /**
+     * Texture bytes by `GPUTextureFormat`. The format vocabulary is the same on both backends, so this row
+     * set is comparable across them, unlike `backend` below.
      */
     texturesByFormat: Record<string, number>;
+    /** Geometries holding at least one uploaded buffer. */
+    geometries: number;
     /** Samplers resident on the device. */
     samplers: number;
     /**
@@ -160,45 +169,76 @@ export declare function beginInfoFrame(info: RendererInfo): void;
  */
 export declare function primaryBufferUsage(buffer: {
     usage: Set<string>;
-}): string;
+}): BufferUsageCategory;
+type BufferUsageCategory = 'storage' | 'index' | 'vertex' | 'uniform' | 'indirect' | 'other';
 /**
  * Attribute one `writeBuffer` to a label, updating both the totals and the
  * breakdown. Every write site goes through here so the two can never disagree.
  */
 export declare function recordBufferWrite(info: RendererInfo, bytes: number, usage: string, full: boolean, label?: string, material?: string, updateType?: string, changedBytes?: number): void;
+export type AllocationKind = 'buffer' | 'texture';
 /**
- * Running texture tally a backend keeps alongside its cache.
+ * What an allocation is for. Buffers take their primary usage, or `uniform-ring` for the dynamic uniform
+ * pool. Textures: `sampled` (a `GpuTexture`), `render-target` and `depth` (a target's attachments), `msaa`
+ * (a multisampled attachment), `storage-backing` (WebGL's texture lowering of a storage buffer).
+ */
+export type AllocationCategory = 'vertex' | 'index' | 'storage' | 'indirect' | 'uniform' | 'uniform-ring' | 'other' | 'sampled' | 'render-target' | 'depth' | 'msaa' | 'storage-backing';
+/**
+ * One GPU allocation's contribution to the tally, held on the cache entry that owns the GPU object so a
+ * resize moves exactly the bytes it added, rather than recomputing a size the object no longer has.
+ */
+export type Allocation = {
+    kind: AllocationKind;
+    category: AllocationCategory;
+    /** `kind/category`, the `byCategory` key, built when the category changes rather than per read. */
+    categoryKey: string;
+    /** textures: the `GPUTextureFormat` (or GL's equivalent name); buffers: ''. */
+    format: string;
+    /** the resource's label, else the name its upload site gave, else 'unlabelled'. */
+    label: string;
+    bytes: number;
+    /** counted in the tally; false until the first `setAllocation` and after `clearAllocation`. */
+    live: boolean;
+};
+/**
+ * Running totals of everything a backend holds on the GPU, the PlayCanvas `device._vram` and Godot
+ * `buffer_memory`/`texture_memory` model: every allocation site adjusts it at create, resize and destroy, so
+ * reading it costs nothing. One per backend, shared by its buffer, texture and render-target caches.
  *
- * Incremented at create/replace/destroy rather than read live at the frame boundary like the other
- * memory counters, because both backends key their texture caches by object in a WeakMap and a WeakMap
- * cannot be enumerated. Shared so the two cannot disagree about what counts or how it is bucketed.
+ * `live` exists for the on-demand report: the caches key by object in WeakMaps, which cannot be walked.
  */
-export type TextureTally = {
-    count: number;
-    bytes: number;
-    /** bytes per `GPUTextureFormat`. */
-    byFormat: Map<string, number>;
+export type MemoryTally = {
+    live: Set<Allocation>;
+    buffers: number;
+    buffersSize: number;
+    textures: number;
+    texturesSize: number;
+    byCategory: Map<string, number>;
+    texturesByFormat: Map<string, number>;
 };
+export declare function createMemoryTally(): MemoryTally;
+export declare function createAllocation(kind: AllocationKind, category: AllocationCategory, label: string): Allocation;
 /**
- * What one cache entry currently contributes to the tally. Held ON the entry so a resize can subtract
- * exactly what it added, rather than recomputing a size the texture no longer has. `format: null`
- * means this entry contributes nothing yet.
+ * Set what an allocation contributes, replacing whatever it contributed before: the first call counts it,
+ * a later one (a resize, a format change) moves its bytes without moving the count.
  */
-export type TextureTallyEntry = {
-    format: string | null;
+export declare function setAllocation(tally: MemoryTally, allocation: Allocation, bytes: number, category?: AllocationCategory, format?: string): void;
+/** Drop an allocation's contribution entirely. Idempotent: clearing one that is not live does nothing. */
+export declare function clearAllocation(tally: MemoryTally, allocation: Allocation): void;
+/** Forget everything, for a cache teardown that releases its GPU objects wholesale. */
+export declare function resetMemoryTally(tally: MemoryTally): void;
+/** Copy the tally into the neutral snapshot. Called from the renderer's frame boundary. */
+export declare function readMemoryTally(tally: MemoryTally, memory: MemoryInfo): void;
+/** One row of `memoryReport`: a copy, the caller's to keep, sort and group. */
+export type AllocationReport = {
+    kind: AllocationKind;
+    category: AllocationCategory;
+    format: string;
+    label: string;
     bytes: number;
 };
-export declare function createTextureTally(): TextureTally;
-export declare function createTextureTallyEntry(): TextureTallyEntry;
-/**
- * Set what an entry contributes, replacing whatever it contributed before. First call for an entry
- * counts a new texture; later calls (a resize or format change) move bytes without moving the count.
- */
-export declare function tallySetTexture(tally: TextureTally, entry: TextureTallyEntry, format: string, bytes: number): void;
-/** Drop an entry's contribution entirely. Idempotent: clearing an uncounted entry does nothing. */
-export declare function tallyClearTexture(tally: TextureTally, entry: TextureTallyEntry): void;
-export declare function resetTextureTally(tally: TextureTally): void;
-/** Copy a backend's tally into the neutral snapshot. Called from the renderer's frame boundary. */
-export declare function readTextureTally(tally: TextureTally, memory: MemoryInfo): void;
+/** Every live allocation, largest first; `memoryReport` is the public entry. */
+export declare function reportAllocations(tally: MemoryTally): AllocationReport[];
 /** Full reset, including the cumulative call counts and the memory snapshot. */
 export declare function resetRendererInfo(info: RendererInfo): void;
+export {};

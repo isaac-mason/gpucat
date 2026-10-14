@@ -62,6 +62,8 @@ export declare class RenderTarget {
      * this when the depth is declared sampled.
      */
     _depthAttachment: DepthTexture | null;
+    /** What a backend set up for this target beyond its textures (WebGL's framebuffers and renderbuffers), released by `dispose`. @internal */
+    _onDispose: (() => void) | null;
     /**
      * The depth attachment exposed for SAMPLING, or null when the depth isn't declared sampled.
      * three.js-aligned: a render target's depth is readable as a texture only when you opt in

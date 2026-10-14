@@ -27,6 +27,7 @@
  * un-antialiased result) with a one-time warning.
  */
 import type { RenderTarget } from '../../core/render-target';
+import { type Allocation, type MemoryTally } from '../core/info';
 import type { WebGLBackend } from './webgl-backend';
 /** Per-RenderTarget GL framebuffer + the color-texture generations it was built against. */
 type FboData = {
@@ -64,7 +65,10 @@ type MsaaData = {
 export type GlRenderTargetsState = {
     data: WeakMap<RenderTarget, FboData>;
     fbos: Set<WebGLFramebuffer>;
-    renderbuffers: Set<WebGLRenderbuffer>;
+    /** Every live renderbuffer and what it contributes to `tally`. */
+    renderbuffers: Map<WebGLRenderbuffer, Allocation>;
+    /** The backend's memory tally, shared with its buffers and textures. */
+    tally: MemoryTally;
     /** Whether the MSAA-unsupported warning has been logged (log once). */
     msaaWarned: boolean;
     /**
@@ -74,7 +78,7 @@ export type GlRenderTargetsState = {
     pendingResolve: RenderTarget | null;
 };
 /** Create an empty render-targets state. */
-export declare function createGlRenderTargetsState(): GlRenderTargetsState;
+export declare function createGlRenderTargetsState(tally: MemoryTally): GlRenderTargetsState;
 /**
  * Get (or create/rebuild) and bind the FBO for a render target, then return whether it carries a
  * stencil aspect (so the pass knows whether to clear stencil). Allocates the color + depth textures,

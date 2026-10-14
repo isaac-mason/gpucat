@@ -507,21 +507,21 @@ Drive the GPU: create a renderer, build pipelines, render to the canvas or a tar
 **Renderer**
 
 <table><tr>
-<td><a href="#renderer"><code>Renderer</code></a></td><td><a href="#init"><code>init</code></a></td><td><a href="#backendname"><code>BackendName</code></a></td><td><a href="#rect"><code>Rect</code></a></td>
+<td><a href="#renderer"><code>Renderer</code></a></td><td><a href="#memoryreport"><code>memoryReport</code></a></td><td><a href="#init"><code>init</code></a></td><td><a href="#backendname"><code>BackendName</code></a></td>
 </tr><tr>
-<td><a href="#passdesc"><code>PassDesc</code></a></td><td><a href="#drawoptions"><code>DrawOptions</code></a></td><td><a href="#drawrecord"><code>DrawRecord</code></a></td><td><a href="#renderbundle"><code>RenderBundle</code></a></td>
+<td><a href="#rect"><code>Rect</code></a></td><td><a href="#passdesc"><code>PassDesc</code></a></td><td><a href="#drawoptions"><code>DrawOptions</code></a></td><td><a href="#drawrecord"><code>DrawRecord</code></a></td>
 </tr><tr>
-<td><a href="#bundlerecord"><code>BundleRecord</code></a></td><td><a href="#passentry"><code>PassEntry</code></a></td><td><a href="#computepassdesc"><code>ComputePassDesc</code></a></td><td><a href="#dispatchoptions"><code>DispatchOptions</code></a></td>
+<td><a href="#renderbundle"><code>RenderBundle</code></a></td><td><a href="#bundlerecord"><code>BundleRecord</code></a></td><td><a href="#passentry"><code>PassEntry</code></a></td><td><a href="#computepassdesc"><code>ComputePassDesc</code></a></td>
 </tr><tr>
-<td><a href="#dispatchindirectoptions"><code>DispatchIndirectOptions</code></a></td><td><a href="#dispatchrecord"><code>DispatchRecord</code></a></td><td><a href="#framebackend"><code>FrameBackend</code></a></td><td><a href="#pass"><code>Pass</code></a></td>
+<td><a href="#dispatchoptions"><code>DispatchOptions</code></a></td><td><a href="#dispatchindirectoptions"><code>DispatchIndirectOptions</code></a></td><td><a href="#dispatchrecord"><code>DispatchRecord</code></a></td><td><a href="#framebackend"><code>FrameBackend</code></a></td>
 </tr><tr>
-<td><a href="#computepass"><code>ComputePass</code></a></td><td><a href="#transformfeedbackpassdesc"><code>TransformFeedbackPassDesc</code></a></td><td><a href="#transformfeedbackdispatch"><code>TransformFeedbackDispatch</code></a></td><td><a href="#transformfeedbackrecord"><code>TransformFeedbackRecord</code></a></td>
+<td><a href="#pass"><code>Pass</code></a></td><td><a href="#computepass"><code>ComputePass</code></a></td><td><a href="#transformfeedbackpassdesc"><code>TransformFeedbackPassDesc</code></a></td><td><a href="#transformfeedbackdispatch"><code>TransformFeedbackDispatch</code></a></td>
 </tr><tr>
-<td><a href="#callrecord"><code>CallRecord</code></a></td><td><a href="#transformfeedbackpass"><code>TransformFeedbackPass</code></a></td><td><a href="#anypass"><code>AnyPass</code></a></td><td><a href="#frame"><code>Frame</code></a></td>
+<td><a href="#transformfeedbackrecord"><code>TransformFeedbackRecord</code></a></td><td><a href="#callrecord"><code>CallRecord</code></a></td><td><a href="#transformfeedbackpass"><code>TransformFeedbackPass</code></a></td><td><a href="#anypass"><code>AnyPass</code></a></td>
 </tr><tr>
-<td><a href="#createframe"><code>createFrame</code></a></td><td><a href="#isframeopen"><code>isFrameOpen</code></a></td><td><a href="#passlabel"><code>passLabel</code></a></td><td><a href="#frame-2"><code>frame</code></a></td>
+<td><a href="#frame"><code>Frame</code></a></td><td><a href="#createframe"><code>createFrame</code></a></td><td><a href="#isframeopen"><code>isFrameOpen</code></a></td><td><a href="#passlabel"><code>passLabel</code></a></td>
 </tr><tr>
-<td><a href="#beginframe"><code>beginFrame</code></a></td><td></td><td></td><td></td>
+<td><a href="#frame-2"><code>frame</code></a></td><td><a href="#beginframe"><code>beginFrame</code></a></td><td></td><td></td>
 </tr></table>
 
 **Pipelines & targets**
@@ -4385,6 +4385,17 @@ export class Renderer<B extends DeviceBackend = DeviceBackend> implements Render
     init(): Promise<this>;
     dispose(): void;
 }
+```
+
+#### `memoryReport`
+
+```ts
+/**
+ * Every GPU allocation the renderer holds, largest first: kind, category, format, label and bytes, as copies
+ * the caller keeps. Walks every live allocation and allocates a row each, so it is for a debug panel
+ * refreshing a few times a second, not a frame loop. `info.memory` has the running totals for free.
+ */
+export function memoryReport(renderer: Renderer): AllocationReport[];
 ```
 
 #### `init`

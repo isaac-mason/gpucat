@@ -14,7 +14,7 @@
  */
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
-import { type TextureTally, type TextureTallyEntry } from '../core/info';
+import { type Allocation, type MemoryTally } from '../core/info';
 import { type MipmapState } from './mipmap-utils';
 /** Data stored per Texture in the cache */
 export type TextureData = {
@@ -29,7 +29,9 @@ export type TextureData = {
     /** Whether this is a default placeholder texture */
     isDefaultTexture: boolean;
     /** What this entry currently contributes to `TextureCache.tally`. */
-    tally: TextureTallyEntry;
+    allocation: Allocation;
+    /** `msaaTexture`'s contribution, live while there is one. */
+    msaaAllocation: Allocation;
     /**
      * Cached default render-attachment view (render target color/depth).
      * Lazily created by the renderer and cleared whenever `texture` is swapped
@@ -53,10 +55,12 @@ export type TextureCache = {
     defaultTextures: Map<GPUTextureFormat, GPUTexture>;
     /** Mipmap generation state (created lazily on first use) */
     mipmapState: MipmapState | null;
-    /** Stats counters */
-    tally: TextureTally;
+    /** The backend's memory tally, shared with its buffers. */
+    tally: MemoryTally;
 };
-export declare function createTextureCache(): TextureCache;
+export declare function createTextureCache(tally: MemoryTally): TextureCache;
+/** A fresh entry's allocations: counted as `sampled` until a render target files it as an attachment. */
+export declare function textureAllocations(texture: GpuTexture): Pick<TextureData, 'allocation' | 'msaaAllocation'>;
 /**
  * Set up the _onDispose callback on a GpuTexture to destroy its GPU texture.
  * Only sets the callback once (idempotent).

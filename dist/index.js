@@ -557,7 +557,7 @@ function add$2(out, a, b) {
  * @param b the second operand
  * @returns out
  */
-function subtract$1(out, a, b) {
+function subtract(out, a, b) {
     out[0] = a[0] - b[0];
     out[1] = a[1] - b[1];
     out[2] = a[2] - b[2];
@@ -2333,7 +2333,7 @@ class OrbitControls {
     update(deltaTime = null) {
         const position = this.object.position;
         // offset = position - target, rotated to Y-up space
-        subtract$1(_v, position, this.target);
+        subtract(_v, position, this.target);
         transformQuat(_v, _v, this._quat);
         setFromVec3(this._spherical, _v);
         if (this.autoRotate && this.state === STATE.NONE) {
@@ -2380,7 +2380,7 @@ class OrbitControls {
             add$2(this.target, this.target, this._panOffset);
         }
         // Clamp target distance from cursor
-        subtract$1(this.target, this.target, this.cursor);
+        subtract(this.target, this.target, this.cursor);
         const tLen = length$1(this.target);
         const tLenClamped = Math.max(this.minTargetRadius, Math.min(this.maxTargetRadius, tLen));
         if (tLen > 0) {
@@ -2518,7 +2518,7 @@ class OrbitControls {
         const cam = this.object;
         if (_isPerspective(this.object) && element) {
             const position = this.object.position;
-            subtract$1(_v, position, this.target);
+            subtract(_v, position, this.target);
             let targetDistance = length$1(_v);
             // fov is in radians
             targetDistance *= Math.tan(cam.fov / 2);
@@ -2549,7 +2549,7 @@ class OrbitControls {
         // Dolly direction: un-project the mouse position through the camera.
         // We approximate by setting dollyDirection to normalized (offset from camera to target)
         // adjusted by mouse NDC.
-        subtract$1(this._dollyDirection, this.target, this.object.position);
+        subtract(this._dollyDirection, this.target, this.object.position);
         normalize$4(this._dollyDirection, this._dollyDirection);
     }
     /** @internal */ _clampDistance(dist) {
@@ -5298,6 +5298,8 @@ class RenderTarget {
      * this when the depth is declared sampled.
      */
     _depthAttachment = null;
+    /** What a backend set up for this target beyond its textures (WebGL's framebuffers and renderbuffers), released by `dispose`. @internal */
+    _onDispose = null;
     /**
      * The depth attachment exposed for SAMPLING, or null when the depth isn't declared sampled.
      * three.js-aligned: a render target's depth is readable as a texture only when you opt in
@@ -5407,6 +5409,8 @@ class RenderTarget {
         if (this._depthAttachment) {
             this._depthAttachment._gpuTexture.dispose();
         }
+        this._onDispose?.();
+        this._onDispose = null;
     }
     /** Returns the texture index for the given name, or -1 if not found. */
     getTextureIndex(name) {
@@ -9918,10 +9922,13 @@ function createRendererInfo() {
         },
         memory: {
             buffers: 0,
-            geometries: 0,
+            buffersSize: 0,
             textures: 0,
             texturesSize: 0,
+            totalSize: 0,
+            byCategory: {},
             texturesByFormat: {},
+            geometries: 0,
             samplers: 0,
             backend: {},
         },
@@ -9949,12 +9956,13 @@ function beginInfoFrame(info) {
  * a vertex buffer is never filed as 'storage' on one and 'vertex' on the other.
  */
 function primaryBufferUsage(buffer) {
-    for (const candidate of ['storage', 'index', 'vertex', 'uniform', 'indirect']) {
+    for (const candidate of BUFFER_USAGE_PRIORITY) {
         if (buffer.usage.has(candidate))
             return candidate;
     }
     return 'other';
 }
+const BUFFER_USAGE_PRIORITY = ['storage', 'index', 'vertex', 'uniform', 'indirect'];
 /**
  * Attribute one `writeBuffer` to a label, updating both the totals and the
  * breakdown. Every write site goes through here so the two can never disagree.
@@ -9987,56 +9995,114 @@ function recordBufferWrite(info, bytes, usage, full, label, material, updateType
     entry.changedBytes = changedBytes;
     buffers.writeCount++;
 }
-function createTextureTally() {
-    return { count: 0, bytes: 0, byFormat: new Map() };
+function createMemoryTally() {
+    return {
+        live: new Set(),
+        buffers: 0,
+        buffersSize: 0,
+        textures: 0,
+        texturesSize: 0,
+        byCategory: new Map(),
+        texturesByFormat: new Map(),
+    };
 }
-function createTextureTallyEntry() {
-    return { format: null, bytes: 0 };
+function createAllocation(kind, category, label) {
+    return { kind, category, categoryKey: `${kind}/${category}`, format: '', label, bytes: 0, live: false };
 }
-function subtract(tally, format, bytes) {
-    tally.bytes -= bytes;
-    const remaining = (tally.byFormat.get(format) ?? 0) - bytes;
-    if (remaining > 0)
-        tally.byFormat.set(format, remaining);
+function addTo(map, key, bytes) {
+    const total = (map.get(key) ?? 0) + bytes;
+    if (total > 0)
+        map.set(key, total);
     else
-        tally.byFormat.delete(format);
+        map.delete(key);
+}
+function contribute(tally, allocation, sign) {
+    const bytes = sign * allocation.bytes;
+    if (allocation.kind === 'buffer') {
+        tally.buffers += sign;
+        tally.buffersSize += bytes;
+    }
+    else {
+        tally.textures += sign;
+        tally.texturesSize += bytes;
+        addTo(tally.texturesByFormat, allocation.format, bytes);
+    }
+    addTo(tally.byCategory, allocation.categoryKey, bytes);
 }
 /**
- * Set what an entry contributes, replacing whatever it contributed before. First call for an entry
- * counts a new texture; later calls (a resize or format change) move bytes without moving the count.
+ * Set what an allocation contributes, replacing whatever it contributed before: the first call counts it,
+ * a later one (a resize, a format change) moves its bytes without moving the count.
  */
-function tallySetTexture(tally, entry, format, bytes) {
-    if (entry.format === null)
-        tally.count++;
-    else
-        subtract(tally, entry.format, entry.bytes);
-    entry.format = format;
-    entry.bytes = bytes;
-    tally.bytes += bytes;
-    tally.byFormat.set(format, (tally.byFormat.get(format) ?? 0) + bytes);
+function setAllocation(tally, allocation, bytes, category = allocation.category, format = allocation.format) {
+    if (allocation.live)
+        contribute(tally, allocation, -1);
+    else {
+        allocation.live = true;
+        tally.live.add(allocation);
+    }
+    if (category !== allocation.category) {
+        allocation.category = category;
+        allocation.categoryKey = `${allocation.kind}/${category}`;
+    }
+    allocation.format = format;
+    allocation.bytes = bytes;
+    contribute(tally, allocation, 1);
 }
-/** Drop an entry's contribution entirely. Idempotent: clearing an uncounted entry does nothing. */
-function tallyClearTexture(tally, entry) {
-    if (entry.format === null)
+/** Drop an allocation's contribution entirely. Idempotent: clearing one that is not live does nothing. */
+function clearAllocation(tally, allocation) {
+    if (!allocation.live)
         return;
-    tally.count--;
-    subtract(tally, entry.format, entry.bytes);
-    entry.format = null;
-    entry.bytes = 0;
+    contribute(tally, allocation, -1);
+    allocation.live = false;
+    allocation.bytes = 0;
+    tally.live.delete(allocation);
 }
-function resetTextureTally(tally) {
-    tally.count = 0;
-    tally.bytes = 0;
-    tally.byFormat.clear();
+/** Forget everything, for a cache teardown that releases its GPU objects wholesale. */
+function resetMemoryTally(tally) {
+    for (const allocation of tally.live) {
+        allocation.live = false;
+        allocation.bytes = 0;
+    }
+    tally.live.clear();
+    tally.buffers = 0;
+    tally.buffersSize = 0;
+    tally.textures = 0;
+    tally.texturesSize = 0;
+    tally.byCategory.clear();
+    tally.texturesByFormat.clear();
 }
-/** Copy a backend's tally into the neutral snapshot. Called from the renderer's frame boundary. */
-function readTextureTally(tally, memory) {
-    memory.textures = tally.count;
-    memory.texturesSize = tally.bytes;
-    const byFormat = {};
-    for (const [format, bytes] of tally.byFormat)
-        byFormat[format] = bytes;
-    memory.texturesByFormat = byFormat;
+/** Copy a map into a record kept across frames, so a settled scene allocates nothing here. */
+function copyInto(record, map) {
+    for (const key in record)
+        if (!map.has(key))
+            delete record[key];
+    for (const [key, bytes] of map)
+        record[key] = bytes;
+}
+/** Copy the tally into the neutral snapshot. Called from the renderer's frame boundary. */
+function readMemoryTally(tally, memory) {
+    memory.buffers = tally.buffers;
+    memory.buffersSize = tally.buffersSize;
+    memory.textures = tally.textures;
+    memory.texturesSize = tally.texturesSize;
+    memory.totalSize = tally.buffersSize + tally.texturesSize;
+    copyInto(memory.byCategory, tally.byCategory);
+    copyInto(memory.texturesByFormat, tally.texturesByFormat);
+}
+/** Every live allocation, largest first; `memoryReport` is the public entry. */
+function reportAllocations(tally) {
+    const rows = [];
+    for (const allocation of tally.live) {
+        rows.push({
+            kind: allocation.kind,
+            category: allocation.category,
+            format: allocation.format,
+            label: allocation.label,
+            bytes: allocation.bytes,
+        });
+    }
+    rows.sort((a, b) => b.bytes - a.bytes);
+    return rows;
 }
 /** Full reset, including the cumulative call counts and the memory snapshot. */
 function resetRendererInfo(info) {
@@ -10044,10 +10110,13 @@ function resetRendererInfo(info) {
     info.render.calls = 0;
     info.compute.calls = 0;
     info.memory.buffers = 0;
-    info.memory.geometries = 0;
+    info.memory.buffersSize = 0;
     info.memory.textures = 0;
     info.memory.texturesSize = 0;
+    info.memory.totalSize = 0;
+    info.memory.byCategory = {};
     info.memory.texturesByFormat = {};
+    info.memory.geometries = 0;
     info.memory.samplers = 0;
     info.memory.backend = {};
 }
@@ -10076,12 +10145,13 @@ function createDynamicUniformBuffers() {
         destroyed: false,
     };
 }
-function createBufferCache$1(info) {
+function createBufferCache$1(info, tally) {
     return {
         bufferMap: new WeakMap(),
         rawMap: new WeakMap(),
         bufferCount: 0,
         rawCount: 0,
+        tally,
         info,
         dynamicUniforms: createDynamicUniformBuffers(),
     };
@@ -10098,6 +10168,7 @@ function setupDispose(cache, buffer) {
         if (!entry)
             return;
         entry.buf.destroy();
+        clearAllocation(cache.tally, entry.allocation);
         cache.bufferCount--;
         cache.bufferMap.delete(buffer);
     };
@@ -10145,19 +10216,21 @@ function ensureUploaded$1(cache, device, buffer, name) {
     if (plan === BufferUpload.Allocate) {
         entry?.buf.destroy();
         // 4-byte alignment is a device requirement, so the size is decided here, not in the plan.
-        const byteLength = arr?.byteLength ?? buffer.byteLength;
-        const buf = device.createBuffer({ size: alignTo4(byteLength), usage: deriveGPUUsage(buffer) });
+        const byteLength = alignTo4(arr?.byteLength ?? buffer.byteLength);
+        const buf = device.createBuffer({ size: byteLength, usage: deriveGPUUsage(buffer) });
         // Both under the same guard: a reallocation must not count twice, nor hook dispose twice.
         if (!entry) {
             cache.bufferCount++;
             setupDispose(cache, buffer);
         }
+        const allocation = entry?.allocation ?? createAllocation('buffer', usage, label);
+        setAllocation(cache.tally, allocation, byteLength);
         // a `cpu: false` buffer has no array, and starts as the zeroes WebGPU allocates
         if (arr !== null) {
             device.queue.writeBuffer(buf, 0, arr.buffer, arr.byteOffset, arr.byteLength);
             recordBufferWrite(cache.info, arr.byteLength, usage, true, label);
         }
-        cache.bufferMap.set(buffer, { buf, version: buffer.version });
+        cache.bufferMap.set(buffer, { buf, version: buffer.version, allocation });
         // the allocate path wrote everything, so pending ranges are already covered; dropping them
         // stops the next frame replaying them as a redundant partial write.
         buffer.clearUpdateRanges();
@@ -10245,19 +10318,23 @@ function resolveStorageBuffer(node, geometry, buffers) {
  * through `ensureUploaded`.
  */
 function uploadUniformBlock$1(cache, device, key, data, detail) {
-    let buf = cache.rawMap.get(key);
+    let entry = cache.rawMap.get(key);
     const byteLength = alignTo4(data.byteLength);
-    const isNew = !buf;
     let created = false;
-    if (!buf || buf.size < byteLength) {
-        buf?.destroy();
-        buf = device.createBuffer({ size: byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-        cache.rawMap.set(key, buf);
-        created = true;
-        if (isNew) {
+    if (!entry || entry.buf.size < byteLength) {
+        entry?.buf.destroy();
+        const buf = device.createBuffer({ size: byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        if (!entry) {
+            entry = { buf, allocation: createAllocation('buffer', 'uniform', detail?.material ?? 'uniform') };
+            cache.rawMap.set(key, entry);
             cache.rawCount++;
         }
+        else
+            entry.buf = buf;
+        setAllocation(cache.tally, entry.allocation, byteLength);
+        created = true;
     }
+    const buf = entry.buf;
     // raw path: no GpuBuffer, so no label. `full` is FALSE on purpose - this path has
     // no concept of ranges, so it always writes everything, and flagging it would make
     // the "full re-upload" signal tautological exactly where it matters most. Identity
@@ -10271,7 +10348,17 @@ function uploadUniformBlock$1(cache, device, key, data, detail) {
  * Does NOT upload, use uploadRaw for that.
  */
 function getRaw$1(cache, key) {
-    return cache.rawMap.get(key);
+    return cache.rawMap.get(key)?.buf;
+}
+/** Destroy the uniform block `key` names; its owner calls this when it dies. A key with no block is a no-op. */
+function releaseUniformBlock$1(cache, key) {
+    const entry = cache.rawMap.get(key);
+    if (!entry)
+        return;
+    entry.buf.destroy();
+    clearAllocation(cache.tally, entry.allocation);
+    cache.rawMap.delete(key);
+    cache.rawCount--;
 }
 /**
  * Tear down the cache (called on renderer dispose).
@@ -10305,15 +10392,8 @@ function allocDynamicUniform(cache, device, size) {
         buffers.active = null;
     }
     if (buffers.active === null) {
-        const gpuBuffer = buffers.gpuBuffers.pop() ?? {
-            buffer: device.createBuffer({
-                label: 'dynamic-uniforms',
-                size: DYNAMIC_BUFFER_BYTES,
-                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-            }),
-            id: buffers.nextBufferId++,
-        };
-        buffers.active = { gpuBuffer, staging: takeStagingBuffer(buffers, device), size: 0 };
+        const gpuBuffer = buffers.gpuBuffers.pop() ?? createDynamicGpuBuffer(cache, device);
+        buffers.active = { gpuBuffer, staging: takeStagingBuffer(cache, device), size: 0 };
     }
     const active = buffers.active;
     const offset = roundUp(active.size, align);
@@ -10322,20 +10402,31 @@ function allocDynamicUniform(cache, device, size) {
     cache.info.buffers.dynamicAllocationBytes += size;
     return offset;
 }
+function createDynamicGpuBuffer(cache, device) {
+    const buffer = device.createBuffer({
+        label: 'dynamic-uniforms',
+        size: DYNAMIC_BUFFER_BYTES,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    const allocation = createAllocation('buffer', 'uniform-ring', 'dynamic-uniforms');
+    setAllocation(cache.tally, allocation, DYNAMIC_BUFFER_BYTES);
+    return { buffer, id: cache.dynamicUniforms.nextBufferId++, allocation };
+}
 /** A remapped staging buffer when one is back, a new one under the cap, else a CPU copy. */
-function takeStagingBuffer(buffers, device) {
+function takeStagingBuffer(cache, device) {
+    const buffers = cache.dynamicUniforms;
     const mapped = buffers.stagingBuffers.pop();
     if (mapped !== undefined)
         return mapped;
     if (buffers.mappedStagingCount < MAX_MAPPED_STAGING_BUFFERS) {
         buffers.mappedStagingCount++;
-        return createStagingBuffer(device);
+        return createStagingBuffer(cache, device);
     }
     const cpuCopy = buffers.cpuStagingBuffers.pop();
     if (cpuCopy !== undefined)
         return cpuCopy;
     buffers.cpuStagingCount++;
-    return { buffer: null, view: new DataView(new ArrayBuffer(DYNAMIC_BUFFER_BYTES)) };
+    return { buffer: null, view: new DataView(new ArrayBuffer(DYNAMIC_BUFFER_BYTES)), allocation: null };
 }
 /**
  * Resident dynamic uniform buffers and staging (mapped or CPU). Pools only grow until dispose, so these
@@ -10345,14 +10436,16 @@ function getDynamicUniformStats(cache) {
     const buffers = cache.dynamicUniforms;
     return { gpuBuffers: buffers.nextBufferId, stagingBuffers: buffers.mappedStagingCount + buffers.cpuStagingCount };
 }
-function createStagingBuffer(device) {
+function createStagingBuffer(cache, device) {
     const buffer = device.createBuffer({
         label: 'dynamic-uniforms-staging',
         size: DYNAMIC_BUFFER_BYTES,
         usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
         mappedAtCreation: true,
     });
-    return { buffer, view: new DataView(buffer.getMappedRange()) };
+    const allocation = createAllocation('buffer', 'uniform-ring', 'dynamic-uniforms-staging');
+    setAllocation(cache.tally, allocation, DYNAMIC_BUFFER_BYTES);
+    return { buffer, view: new DataView(buffer.getMappedRange()), allocation };
 }
 /** The GPU buffer a binding recorded by id, for building the bind group that addresses it. */
 function dynamicUniformBuffer(cache, id) {
@@ -10413,6 +10506,8 @@ function onDynamicUniformsSubmitted(cache) {
         // The map fails when the device is lost; the buffer cannot be reused.
         () => {
             buffer.destroy();
+            if (staging.allocation !== null)
+                clearAllocation(cache.tally, staging.allocation);
             buffers.mappedStagingCount--;
         });
     }
@@ -10918,12 +11013,20 @@ function disposeMipmapState(state) {
  * 4. Uploads image data if source.dataReady
  * 5. Updates version tracking (textureData.version = texture.version)
  */
-function createTextureCache$1() {
+function createTextureCache$1(tally) {
     return {
         textureMap: new WeakMap(),
         defaultTextures: new Map(),
         mipmapState: null,
-        tally: createTextureTally(),
+        tally,
+    };
+}
+/** A fresh entry's allocations: counted as `sampled` until a render target files it as an attachment. */
+function textureAllocations(texture) {
+    const label = texture.label ?? 'unlabelled';
+    return {
+        allocation: createAllocation('texture', 'sampled', label),
+        msaaAllocation: createAllocation('texture', 'msaa', label),
     };
 }
 /**
@@ -10941,8 +11044,10 @@ function setupTextureDispose$1(cache, texture) {
         }
         // Stop counting it whether or not it owned its GPU texture; a default-texture entry
         // contributes nothing, so clearing is a no-op there.
-        if (data)
-            tallyClearTexture(cache.tally, data.tally);
+        if (data) {
+            clearAllocation(cache.tally, data.allocation);
+            clearAllocation(cache.tally, data.msaaAllocation);
+        }
     };
 }
 /**
@@ -11073,10 +11178,9 @@ function updateTexture$1(cache, device, texture) {
                 generation: texture.version,
                 initialized: true,
                 isDefaultTexture: false,
-                tally: createTextureTallyEntry(),
+                ...textureAllocations(texture),
             };
             cache.textureMap.set(texture, data);
-            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
             setupTextureDispose$1(cache, texture);
         }
         else {
@@ -11087,6 +11191,7 @@ function updateTexture$1(cache, device, texture) {
             data.version = texture.version;
             data.generation = texture.version;
         }
+        setAllocation(cache.tally, data.allocation, gpuTextureBytes(texture), data.allocation.category, texture.format);
         return data;
     }
     // Check if source data is ready
@@ -11109,7 +11214,7 @@ function updateTexture$1(cache, device, texture) {
                 initialized: true,
                 isDefaultTexture: true,
                 // Never tallied: the placeholder is one shared 1x1 texture, not this texture's storage.
-                tally: createTextureTallyEntry(),
+                ...textureAllocations(texture),
             };
             cache.textureMap.set(texture, data);
         }
@@ -11127,17 +11232,17 @@ function updateTexture$1(cache, device, texture) {
                 generation: texture.version,
                 initialized: true,
                 isDefaultTexture: false,
-                tally: createTextureTallyEntry(),
+                ...textureAllocations(texture),
             };
             cache.textureMap.set(texture, data);
-            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
+            setAllocation(cache.tally, data.allocation, gpuTextureBytes(texture), data.allocation.category, texture.format);
         }
         else if (data.isDefaultTexture) {
             // Was default, now real, update generation
             data.texture = gpuTextureResource;
             data.generation = texture.version;
             data.isDefaultTexture = false;
-            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
+            setAllocation(cache.tally, data.allocation, gpuTextureBytes(texture), data.allocation.category, texture.format);
         }
         else {
             // Resize (grow): destroy the old GPU texture and swap in the new (larger) one.
@@ -11145,7 +11250,7 @@ function updateTexture$1(cache, device, texture) {
             data.texture = gpuTextureResource;
             data.generation = texture.version;
             // Re-tally rather than re-count: the entry already counts as one texture, but its bytes moved.
-            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
+            setAllocation(cache.tally, data.allocation, gpuTextureBytes(texture), data.allocation.category, texture.format);
         }
         // Set up disposal callback to destroy the GPU texture
         setupTextureDispose$1(cache, texture);
@@ -11452,8 +11557,8 @@ function disposeTextureCache$1(cache) {
         disposeMipmapState(cache.mipmapState);
         cache.mipmapState = null;
     }
+    // the tally is the backend's, shared with buffers, and reset by the backend's own dispose
     cache.textureMap = new WeakMap();
-    resetTextureTally(cache.tally);
 }
 /**
  * Get cached TextureData for a GpuTexture.
@@ -11474,6 +11579,27 @@ function getTextureData$1(cache, texture) {
  * the knowledge of RenderTarget semantics: when an attachment has to be reallocated, how an MSAA
  * sibling is paired with its resolve target, and how a cube target's six faces are allocated.
  */
+/** What the device was asked for: every layer and mip level, times the sample count. */
+function allocatedBytes(gpu) {
+    const perTexel = estimatedBytesPerTexel(gpu.format);
+    let bytes = 0;
+    for (let level = 0; level < gpu.mipLevelCount; level++) {
+        bytes += Math.max(1, gpu.width >> level) * Math.max(1, gpu.height >> level) * perTexel;
+    }
+    return bytes * gpu.depthOrArrayLayers * gpu.sampleCount;
+}
+function isDepthFormat(format) {
+    return format.startsWith('depth') || format.startsWith('stencil');
+}
+/** A target's attachments, filed as `depth` or `render-target`, and its MSAA sibling as `msaa`. */
+function tallyAttachments(cache, data) {
+    const gpu = data.texture;
+    setAllocation(cache.tally, data.allocation, allocatedBytes(gpu), isDepthFormat(gpu.format) ? 'depth' : 'render-target', gpu.format);
+    if (data.msaaTexture)
+        setAllocation(cache.tally, data.msaaAllocation, allocatedBytes(data.msaaTexture), 'msaa', gpu.format);
+    else
+        clearAllocation(cache.tally, data.msaaAllocation);
+}
 /**
  * Default render-attachment view for a render-target color/depth texture.
  * Cached on the TextureData and recreated only when the GPU texture is swapped
@@ -11524,21 +11650,20 @@ function setRenderTargetTexture(cache, texture, gpuTextureResource, msaaTexture 
         existing.initialized = true;
         existing.isDefaultTexture = false;
         // Resize swaps the GPU texture under the same entry: same count, different bytes.
-        tallySetTexture(cache.tally, existing.tally, texture.format, gpuTextureBytes(texture));
+        tallyAttachments(cache, existing);
     }
     else {
-        // First time - create new entry
-        cache.textureMap.set(texture, {
+        const entry = {
             texture: gpuTextureResource,
             msaaTexture,
             version: texture.version,
             generation: 1,
             initialized: true,
             isDefaultTexture: false,
-            tally: createTextureTallyEntry(),
-        });
-        const entry = cache.textureMap.get(texture);
-        tallySetTexture(cache.tally, entry.tally, texture.format, gpuTextureBytes(texture));
+            ...textureAllocations(texture),
+        };
+        cache.textureMap.set(texture, entry);
+        tallyAttachments(cache, entry);
     }
     texture.disposed = false;
     setupTextureDispose$1(cache, texture);
@@ -26996,11 +27121,28 @@ class Console extends Tab {
  *
  * WeakMaps mean a cached RenderObject is released when any of its key objects is collected.
  */
-function createRenderObjectsState() {
+function createRenderObjectsState(backend) {
     return {
         cache: new WeakMap(),
         renderObjects: new Set(),
+        backend,
     };
+}
+/**
+ * A RenderObject's non-shared groups are clones it alone uses, so their uniform blocks die with it. Shared
+ * groups belong to the compiled program and live as long as the renderer.
+ */
+function releaseOwnUniformBlocks(state, renderObject) {
+    if (renderObject._bindings === null)
+        return;
+    for (const group of renderObject._bindings) {
+        if (group.shared)
+            continue;
+        for (const binding of group.bindings) {
+            if (binding.kind === 'uniform' && binding.bufferKey !== null)
+                state.backend.releaseUniformBlock(binding.bufferKey);
+        }
+    }
 }
 function getRenderObject(state, mesh, material, camera, renderContext) {
     const { cache } = state;
@@ -27013,6 +27155,7 @@ function getRenderObject(state, mesh, material, camera, renderContext) {
         renderObject = createRenderObject(mesh, material, camera, renderContext);
         // Set up disposal callback: walk the nested chain and delete the leaf.
         renderObject.onDispose = () => {
+            releaseOwnUniformBlocks(state, renderObject);
             cache.get(mesh)?.get(material)?.delete(renderContext);
             state.renderObjects.delete(renderObject);
         };
@@ -30532,7 +30675,7 @@ class Raycaster {
         else {
             getTranslation(this.ray.origin, camera.matrixWorld);
             unproject(_target, [coords[0], coords[1], 1], camera);
-            subtract$1(_direction, _target, this.ray.origin);
+            subtract(_direction, _target, this.ray.origin);
             normalize$4(this.ray.direction, _direction);
         }
         this.near = camera.near;
@@ -30614,8 +30757,8 @@ function checkTriangleIntersection(object, raycaster, localRay, matrixWorld, a, 
     if (distance$1 < raycaster.near || distance$1 > raycaster.far)
         return;
     // Compute face normal
-    subtract$1(_edge1, _vB, _vA);
-    subtract$1(_edge2, _vC, _vA);
+    subtract(_edge1, _vB, _vA);
+    subtract(_edge2, _vC, _vA);
     cross$1(_faceNormal, _edge1, _edge2);
     normalize$4(_faceNormal, _faceNormal);
     const intersection = {
@@ -30645,9 +30788,9 @@ function computeBarycentricUV(point, vA, vB, vC, ia, ib, ic, uvs) {
     const v0 = [0, 0, 0];
     const v1 = [0, 0, 0];
     const v2 = [0, 0, 0];
-    subtract$1(v0, vC, vA);
-    subtract$1(v1, vB, vA);
-    subtract$1(v2, point, vA);
+    subtract(v0, vC, vA);
+    subtract(v1, vB, vA);
+    subtract(v2, point, vA);
     const dot00 = dot$1(v0, v0);
     const dot01 = dot$1(v0, v1);
     const dot02 = dot$1(v0, v2);
@@ -30713,7 +30856,7 @@ class Mesh extends Object3D {
             const worldRadius = sphere.radius * Math.max(sx, sy, sz);
             // quick sphere-ray distance test
             const rayToCenter = [0, 0, 0];
-            subtract$1(rayToCenter, _worldSphereCenter, raycaster.ray.origin);
+            subtract(rayToCenter, _worldSphereCenter, raycaster.ray.origin);
             const tca = dot$1(rayToCenter, raycaster.ray.direction);
             const d2 = dot$1(rayToCenter, rayToCenter) - tca * tca;
             if (d2 > worldRadius * worldRadius)
@@ -35628,7 +35771,7 @@ class Renderer {
     /** @internal */ _renderContexts = createRenderContextsState();
     /** @internal */ _computeContext = createComputeContext();
     /** @internal */ _nodes = createNodeManagerState();
-    /** @internal */ _renderObjects = createRenderObjectsState();
+    /** @internal */ _renderObjects;
     /** @internal */ _renderLists = createRenderListsState();
     /** Per-frame draw and upload stats. Reset at this renderer's own frame boundary, never from outside,
      *  so any number of readers can share it. */
@@ -35636,6 +35779,7 @@ class Renderer {
     onDeviceLost = null;
     constructor(backend) {
         this.backend = backend;
+        this._renderObjects = createRenderObjectsState(backend);
     }
     /** `B['name']`, not `RendererBackend`, so a union of concrete renderers discriminates on it. */
     get api() {
@@ -35681,6 +35825,14 @@ class Renderer {
             throw new Error(`[Renderer] ${what}() called before init(). Await init(backend) first.`);
         }
     }
+}
+/**
+ * Every GPU allocation the renderer holds, largest first: kind, category, format, label and bytes, as copies
+ * the caller keeps. Walks every live allocation and allocates a row each, so it is for a debug panel
+ * refreshing a few times a second, not a frame loop. `info.memory` has the running totals for free.
+ */
+function memoryReport(renderer) {
+    return reportAllocations(renderer.backend.memoryTally);
 }
 
 /**
@@ -35805,13 +35957,14 @@ function yieldToMain() {
  * upload. It matters because `ELEMENT_ARRAY_BUFFER` bindings are captured into whatever VAO is bound,
  * so callers must upload with VAO 0 bound (see `prepareGeometry`).
  */
-function createBufferCache(info) {
+function createBufferCache(info, tally) {
     return {
         bufferMap: new WeakMap(),
         rawMap: new WeakMap(),
         all: new Set(),
         bufferCount: 0,
         rawCount: 0,
+        tally,
         textureOnly: new WeakSet(),
         info,
     };
@@ -35847,6 +36000,7 @@ function setupBufferDispose(gl, cache, buffer) {
             return;
         gl.deleteBuffer(entry.glBuffer);
         cache.all.delete(entry.glBuffer);
+        clearAllocation(cache.tally, entry.allocation);
         cache.bufferCount--;
         cache.bufferMap.delete(buffer);
     };
@@ -35894,7 +36048,12 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
             const created = gl.createBuffer();
             if (!created)
                 throw new Error('[webgl] gl.createBuffer returned null.');
-            entry = { glBuffer: created, version: -1, byteLength: -1 };
+            entry = {
+                glBuffer: created,
+                version: -1,
+                byteLength: -1,
+                allocation: createAllocation('buffer', primaryBufferUsage(buffer), label),
+            };
             cache.bufferMap.set(buffer, entry);
             cache.all.add(created);
             cache.bufferCount++;
@@ -35909,8 +36068,10 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
             // a `cpu: false` buffer starts as the zeroes GL allocates
             gl.bufferData(target, buffer.byteLength, usageHint ?? glUsageHint(gl, buffer));
         }
-        entry.byteLength = buffer.byteLength;
+        // what bufferData just allocated: the array's size, which a grown buffer has moved past `buffer.byteLength`
+        entry.byteLength = array?.byteLength ?? buffer.byteLength;
         entry.version = buffer.version;
+        setAllocation(cache.tally, entry.allocation, entry.byteLength);
         // the allocate path wrote everything, so pending ranges are already covered.
         buffer.clearUpdateRanges();
         return entry.glBuffer;
@@ -35975,12 +36136,17 @@ function uploadUniformBlock(gl, cache, key, data, detail) {
             const glBuffer = gl.createBuffer();
             if (!glBuffer)
                 throw new Error('[webgl] gl.createBuffer returned null (uniform block).');
-            entry = { glBuffer, byteLength: data.byteLength };
+            entry = {
+                glBuffer,
+                byteLength: data.byteLength,
+                allocation: createAllocation('buffer', 'uniform', detail?.material ?? 'uniform'),
+            };
             cache.rawMap.set(key, entry);
             cache.all.add(glBuffer);
             cache.rawCount++;
         }
         entry.byteLength = data.byteLength;
+        setAllocation(cache.tally, entry.allocation, data.byteLength);
         gl.bindBuffer(gl.UNIFORM_BUFFER, entry.glBuffer);
         gl.bufferData(gl.UNIFORM_BUFFER, data, gl.DYNAMIC_DRAW);
         created = true;
@@ -35995,6 +36161,17 @@ function uploadUniformBlock(gl, cache, key, data, detail) {
 /** The GL buffer for a raw key, or undefined. Never uploads. */
 function getRaw(cache, key) {
     return cache.rawMap.get(key)?.glBuffer;
+}
+/** Delete the uniform block `key` names; its owner calls this when it dies. A key with no block is a no-op. */
+function releaseUniformBlock(gl, cache, key) {
+    const entry = cache.rawMap.get(key);
+    if (!entry)
+        return;
+    gl.deleteBuffer(entry.glBuffer);
+    cache.all.delete(entry.glBuffer);
+    clearAllocation(cache.tally, entry.allocation);
+    cache.rawMap.delete(key);
+    cache.rawCount--;
 }
 /**
  * Delete every GL buffer this cache holds (called on renderer dispose).
@@ -36421,8 +36598,12 @@ function glTarget(gl, texture) {
     }
 }
 /** Create an empty textures state. */
-function createTextureCache() {
-    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set(), tally: createTextureTally() };
+function createTextureCache(tally) {
+    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set(), tally };
+}
+/** The storage-backing texture a storage buffer's reads go through, sized as the grid it is allocated as. */
+function setStorageBacking(state, data) {
+    setAllocation(state.tally, data.allocation, data.width * data.height * data.bytesPerTexel, 'storage-backing', storageTexelFormatName(data.bytesPerTexel));
 }
 /**
  * Upload texels `[texelStart, texelStart + texelCount)` of a storage buffer reinterpreted as a
@@ -36502,7 +36683,7 @@ function setupStorageTextureDispose(gl, state, buffer) {
             return;
         gl.deleteTexture(data.texture);
         state.all.delete(data.texture);
-        tallyClearTexture(state.tally, data.tally);
+        clearAllocation(state.tally, data.allocation);
         state.bufferData.delete(buffer);
     };
 }
@@ -36525,7 +36706,7 @@ function setupTextureDispose(gl, state, texture) {
             return;
         gl.deleteTexture(data.texture);
         state.all.delete(data.texture);
-        tallyClearTexture(state.tally, data.tally);
+        clearAllocation(state.tally, data.allocation);
         state.data.delete(texture);
     };
 }
@@ -36575,10 +36756,17 @@ function updateStorageBufferTexture(gl, state, source) {
         // Integer textures are never filterable — NEAREST, clamp; sampled only via texelFetch.
         setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
         uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
-        data = { texture, tally: createTextureTallyEntry(), version: buffer.version, width, height, bytesPerTexel };
-        // A storage() read-lowering IS a resident texture, so it counts like any other. Bucketed under
-        // the u32 format it actually is; WebGPU reads the buffer directly and has no counterpart row.
-        tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
+        data = {
+            texture,
+            allocation: createAllocation('texture', 'storage-backing', buffer.label ?? 'unlabelled'),
+            version: buffer.version,
+            width,
+            height,
+            bytesPerTexel,
+        };
+        // A storage() read-lowering IS a resident texture, so it counts like any other, under the u32 format
+        // it actually is and the buffer's label; WebGPU reads the buffer directly and has no counterpart.
+        setStorageBacking(state, data);
         setupStorageTextureDispose(gl, state, buffer);
         state.bufferData.set(buffer, data);
         return texture;
@@ -36596,7 +36784,7 @@ function updateStorageBufferTexture(gl, state, source) {
         data.width = width;
         data.height = height;
         // Same entry, new size: move the bytes without moving the count.
-        tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
+        setStorageBacking(state, data);
     }
     else {
         // Same size: upload each merged dirty span when `packAtIndex`/`addUpdateRange` queued ranges.
@@ -36658,13 +36846,13 @@ function ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel) {
     setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
     const data = {
         texture,
-        tally: createTextureTallyEntry(),
+        allocation: createAllocation('texture', 'storage-backing', buffer.label ?? 'unlabelled'),
         version: buffer.version,
         width,
         height,
         bytesPerTexel,
     };
-    tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
+    setStorageBacking(state, data);
     setupStorageTextureDispose(gl, state, buffer);
     state.bufferData.set(buffer, data);
     return data;
@@ -36714,7 +36902,7 @@ function ensureGlTexture(gl, state, texture) {
             fmt: glFormat(gl, texture.format),
             version: -1,
             generation: 0,
-            tally: createTextureTallyEntry(),
+            allocation: createAllocation('texture', 'sampled', texture.label ?? 'unlabelled'),
             allocated: false,
             allocW: 0,
             allocD: 0,
@@ -37090,7 +37278,8 @@ function updateTexture(gl, state, texture) {
     data.generation++;
     data.allocated = true;
     // After allocation, so a resize re-tallies the new size against the same entry.
-    tallySetTexture(state.tally, data.tally, texture.format, gpuTextureBytes(texture));
+    const category = !texture.isRenderTargetTexture ? 'sampled' : data.fmt.isDepth ? 'depth' : 'render-target';
+    setAllocation(state.tally, data.allocation, gpuTextureBytes(texture), category, texture.format);
     return data;
 }
 /**
@@ -37285,7 +37474,7 @@ function disposeTextureCache(gl, state) {
     if (state.copyFramebuffer)
         gl.deleteFramebuffer(state.copyFramebuffer);
     state.copyFramebuffer = undefined;
-    resetTextureTally(state.tally);
+    // the tally is the backend's, shared with buffers, and reset by the backend's own dispose
 }
 
 /**
@@ -37869,8 +38058,27 @@ function disposeGeometry$1(gl, state, geometry) {
  * un-antialiased result) with a one-time warning.
  */
 /** Create an empty render-targets state. */
-function createGlRenderTargetsState() {
-    return { data: new WeakMap(), fbos: new Set(), renderbuffers: new Set(), msaaWarned: false, pendingResolve: null };
+function createGlRenderTargetsState(tally) {
+    return { data: new WeakMap(), fbos: new Set(), renderbuffers: new Map(), tally, msaaWarned: false, pendingResolve: null };
+}
+/** A new renderbuffer, counted once `tallyRenderbuffer` gives it storage; null when GL returns none. */
+function createRenderbuffer(gl, state, category, label) {
+    const renderbuffer = gl.createRenderbuffer();
+    if (renderbuffer)
+        state.renderbuffers.set(renderbuffer, createAllocation('texture', category, label));
+    return renderbuffer;
+}
+/** What `renderbuffer`'s storage holds, after a `renderbufferStorage(Multisample)`: the attachment's format, `samples` deep. */
+function tallyRenderbuffer(state, renderbuffer, format, width, height, samples) {
+    const allocation = state.renderbuffers.get(renderbuffer);
+    setAllocation(state.tally, allocation, estimatedBytesPerTexel(format) * width * height * Math.max(1, samples), allocation.category, format);
+}
+function deleteRenderbuffer(gl, state, renderbuffer) {
+    gl.deleteRenderbuffer(renderbuffer);
+    const allocation = state.renderbuffers.get(renderbuffer);
+    if (allocation)
+        clearAllocation(state.tally, allocation);
+    state.renderbuffers.delete(renderbuffer);
 }
 /** Whether the target's depth format carries a stencil aspect. */
 /** Sized GL internal format for a depth (/stencil) renderbuffer of the given depth-texture format. */
@@ -38023,8 +38231,7 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
     let depthRenderbuffer = existing?.depthRenderbuffer ?? null;
     const freeDepthRenderbuffer = () => {
         if (depthRenderbuffer) {
-            gl.deleteRenderbuffer(depthRenderbuffer);
-            state.renderbuffers.delete(depthRenderbuffer);
+            deleteRenderbuffer(gl, state, depthRenderbuffer);
             depthRenderbuffer = null;
         }
     };
@@ -38043,14 +38250,15 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
         const stencil = formatHasStencil(renderTarget._depthAttachment.format);
         const internalFormat = depthRenderbufferInternalFormat(gl, renderTarget._depthAttachment.format);
         if (!depthRenderbuffer) {
-            const created = gl.createRenderbuffer();
+            const label = renderTarget._depthAttachment._gpuTexture.label ?? 'unlabelled';
+            const created = createRenderbuffer(gl, state, 'depth', label);
             if (!created)
                 throw new Error('[webgl] gl.createRenderbuffer returned null (depth).');
             depthRenderbuffer = created;
-            state.renderbuffers.add(depthRenderbuffer);
         }
         gl.bindRenderbuffer(gl.RENDERBUFFER, depthRenderbuffer);
         gl.renderbufferStorage(gl.RENDERBUFFER, internalFormat, renderTarget.width, renderTarget.height);
+        tallyRenderbuffer(state, depthRenderbuffer, renderTarget._depthAttachment.format, renderTarget.width, renderTarget.height, 1);
         const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
         gl.framebufferRenderbuffer(gl.FRAMEBUFFER, attachment, gl.RENDERBUFFER, depthRenderbuffer);
     }
@@ -38128,8 +38336,26 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
         attachedMip: -1,
         msaa,
     };
+    if (!existing) {
+        renderTarget._onDispose = () => {
+            const data = state.data.get(renderTarget);
+            if (!data)
+                return;
+            deleteFbo(gl, state, data);
+            state.data.delete(renderTarget);
+        };
+    }
     state.data.set(renderTarget, fboData);
     return fboData;
+}
+/** A target's framebuffer, its depth renderbuffer and its MSAA set. */
+function deleteFbo(gl, state, data) {
+    gl.deleteFramebuffer(data.fbo);
+    state.fbos.delete(data.fbo);
+    if (data.depthRenderbuffer)
+        deleteRenderbuffer(gl, state, data.depthRenderbuffer);
+    if (data.msaa)
+        deleteMsaa(gl, state, data.msaa);
 }
 /**
  * Build the multisample render FBO for an MSAA target: one multisample color renderbuffer per color
@@ -38161,22 +38387,22 @@ function buildMsaaFbo(gl, state, textures, renderTarget) {
             // This format can't be multisampled here — degrade the whole target.
             gl.deleteFramebuffer(fbo);
             for (const rb of colorRenderbuffers)
-                gl.deleteRenderbuffer(rb);
+                deleteRenderbuffer(gl, state, rb);
             warnMsaaFallback(state);
             return null;
         }
         samples = Math.min(samples, supported);
-        const rb = gl.createRenderbuffer();
+        const rb = createRenderbuffer(gl, state, 'msaa', tex._gpuTexture.label ?? 'unlabelled');
         if (!rb) {
             gl.deleteFramebuffer(fbo);
             for (const r of colorRenderbuffers)
-                gl.deleteRenderbuffer(r);
+                deleteRenderbuffer(gl, state, r);
             warnMsaaFallback(state);
             return null;
         }
-        state.renderbuffers.add(rb);
         gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
         gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, internalFormat, w, h);
+        tallyRenderbuffer(state, rb, tex.format, w, h, samples);
         const attachment = gl.COLOR_ATTACHMENT0 + i;
         gl.framebufferRenderbuffer(gl.FRAMEBUFFER, attachment, gl.RENDERBUFFER, rb);
         colorRenderbuffers.push(rb);
@@ -38189,11 +38415,11 @@ function buildMsaaFbo(gl, state, textures, renderTarget) {
     if (renderTarget._depthAttachment) {
         const depthData = getTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (depthData) {
-            const rb = gl.createRenderbuffer();
+            const rb = createRenderbuffer(gl, state, 'msaa', renderTarget._depthAttachment._gpuTexture.label ?? 'unlabelled');
             if (rb) {
-                state.renderbuffers.add(rb);
                 gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
                 gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, depthData.fmt.internalFormat, w, h);
+                tallyRenderbuffer(state, rb, renderTarget._depthAttachment.format, w, h, samples);
                 const stencil = formatHasStencil(renderTarget._depthAttachment.format);
                 const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
                 gl.framebufferRenderbuffer(gl.FRAMEBUFFER, attachment, gl.RENDERBUFFER, rb);
@@ -38206,14 +38432,10 @@ function buildMsaaFbo(gl, state, textures, renderTarget) {
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
         // Multisample FBO incomplete — degrade to single-sampled.
         gl.deleteFramebuffer(fbo);
-        for (const rb of colorRenderbuffers) {
-            gl.deleteRenderbuffer(rb);
-            state.renderbuffers.delete(rb);
-        }
-        if (depthRenderbuffer) {
-            gl.deleteRenderbuffer(depthRenderbuffer);
-            state.renderbuffers.delete(depthRenderbuffer);
-        }
+        for (const rb of colorRenderbuffers)
+            deleteRenderbuffer(gl, state, rb);
+        if (depthRenderbuffer)
+            deleteRenderbuffer(gl, state, depthRenderbuffer);
         warnMsaaFallback(state);
         return null;
     }
@@ -38231,14 +38453,10 @@ function warnMsaaFallback(state) {
 function deleteMsaa(gl, state, msaa) {
     gl.deleteFramebuffer(msaa.fbo);
     state.fbos.delete(msaa.fbo);
-    for (const rb of msaa.colorRenderbuffers) {
-        gl.deleteRenderbuffer(rb);
-        state.renderbuffers.delete(rb);
-    }
-    if (msaa.depthRenderbuffer) {
-        gl.deleteRenderbuffer(msaa.depthRenderbuffer);
-        state.renderbuffers.delete(msaa.depthRenderbuffer);
-    }
+    for (const rb of msaa.colorRenderbuffers)
+        deleteRenderbuffer(gl, state, rb);
+    if (msaa.depthRenderbuffer)
+        deleteRenderbuffer(gl, state, msaa.depthRenderbuffer);
 }
 /**
  * Resolve the pending MSAA target (if any) at pass end: blit each color attachment from the
@@ -38282,8 +38500,10 @@ function resolveActiveRenderTarget(gl, state) {
 function disposeGlRenderTargets(gl, state) {
     for (const fbo of state.fbos)
         gl.deleteFramebuffer(fbo);
-    for (const rb of state.renderbuffers)
+    for (const rb of state.renderbuffers.keys())
         gl.deleteRenderbuffer(rb);
+    // replaced, so a target disposed after its renderer finds nothing to delete twice
+    state.data = new WeakMap();
     state.fbos.clear();
     state.renderbuffers.clear();
 }
@@ -40305,12 +40525,14 @@ class WebGLBackend {
     uniforms = createBindingsState();
     /** Per-RenderObject GL device payload (linked program). @internal */
     renderObjectGl = createRenderObjectGlCache();
+    /** Every GPU allocation this backend holds, shared by its buffer, texture and render-target caches. @internal */
+    memoryTally = createMemoryTally();
     /** Per-GpuTexture GL texture cache (upload + allocation). @internal */
-    textures = createTextureCache();
+    textures = createTextureCache(this.memoryTally);
     /** Per-GpuSampler GL sampler-object cache. @internal */
     samplers = createSamplerCache();
     /** Per-RenderTarget GL framebuffer (FBO) cache. @internal */
-    renderTargets = createGlRenderTargetsState();
+    renderTargets = createGlRenderTargetsState(this.memoryTally);
     /** Transform-feedback runtime state (per-node program/VAO + I/O buffer cache). @internal */
     /** @internal */ _transformFeedback = createTransformFeedbackState();
     /** Inspector shader-probe state (one active patched program + 1×1 readback FBO). @internal */
@@ -40335,7 +40557,7 @@ class WebGLBackend {
     // eslint-disable-next-line @typescript-eslint/require-await
     async init(renderer) {
         this.renderer = renderer;
-        this.buffers = createBufferCache(renderer.info);
+        this.buffers = createBufferCache(renderer.info, this.memoryTally);
         const { width, height } = this.target.getDrawingBufferSize();
         this._width = width || 1;
         this._height = height || 1;
@@ -40429,6 +40651,11 @@ class WebGLBackend {
             await yieldToMain();
         }
     }
+    /** @internal */
+    releaseUniformBlock(key) {
+        if (this.gl)
+            releaseUniformBlock(this.gl, this.buffers, key);
+    }
     /**
      * GL-only counts go under `memory.backend` in GL's own vocabulary rather than a WebGPU-shaped field.
      * VAOs and per-RenderObject payloads are absent because WeakMaps cannot be counted.
@@ -40436,10 +40663,9 @@ class WebGLBackend {
     readMemoryStats(memory) {
         const buffers = getBufferCacheStats(this.buffers);
         const renderTargets = getGlRenderTargetsStats(this.renderTargets);
-        memory.buffers = buffers.bufferCount + buffers.rawCount;
         memory.geometries = getGeometriesStats$1(this.geometries).geometries;
-        // count + bytes + per-format breakdown, straight from the cache's running tally.
-        readTextureTally(this.textures.tally, memory);
+        readMemoryTally(this.memoryTally, memory);
+        memory.backend.rawBuffers = buffers.rawCount;
         memory.samplers = getSamplerCacheStats(this.samplers).samplerCount;
         // Keyed on source, so it does not compare with WebGPU's pipeline count, which adds fixed-function state.
         memory.backend.programs = getProgramCacheStats(this.programs).programCount;
@@ -40607,6 +40833,7 @@ class WebGLBackend {
             disposeBufferCache(this.gl, this.buffers);
             // Per-geometry VAOs are freed by disposeGeometry when the Geometry goes away.
         }
+        resetMemoryTally(this.memoryTally);
         this.target.dispose();
     }
 }
@@ -40839,9 +41066,6 @@ function createGeometriesState() {
         wireframes: new WeakMap(),
         memory: {
             geometries: 0,
-            buffers: 0,
-            indexBuffers: 0,
-            indirectBuffers: 0,
         },
     };
 }
@@ -40921,18 +41145,15 @@ function initGeometry(state, bufferCache, device, geometry) {
     for (const [name, buffer] of geometry.buffers) {
         if (buffer.usage.has('vertex')) {
             updateBuffer(state, bufferCache, device, buffer, 'vertex', name);
-            state.memory.buffers++;
         }
     }
     // upload index buffer if present
     if (geometry.index) {
         updateIndex(state, bufferCache, device, geometry.index);
-        state.memory.indexBuffers++;
     }
     // upload indirect buffer if present
     if (geometry.indirect) {
         updateBuffer(state, bufferCache, device, geometry.indirect, 'indirect', 'indirect');
-        state.memory.indirectBuffers++;
     }
     data.initialized = true;
     // set up disposal callback
@@ -41000,7 +41221,7 @@ function disposeGeometry(state, geometry) {
 }
 /** Get geometry and buffer memory statistics */
 function getGeometriesStats(state) {
-    return { ...state.memory };
+    return { geometries: state.memory.geometries };
 }
 
 /**
@@ -41248,8 +41469,9 @@ function createSwapchainMsaaTexture(device, width, height, format, sampleCount) 
         sampleCount,
     });
 }
-function createSwapchainState() {
+function createSwapchainState(tally) {
     return {
+        tally,
         targets: new Set(),
         byTarget: new WeakMap(),
     };
@@ -41265,6 +41487,8 @@ function attachmentsFor(sc, target) {
             depthTextureView: null,
             msaaTexture: null,
             msaaTextureView: null,
+            depthAllocation: createAllocation('texture', 'depth', 'canvas'),
+            msaaAllocation: createAllocation('texture', 'msaa', 'canvas'),
         };
         sc.byTarget.set(target, entry);
     }
@@ -41288,10 +41512,17 @@ function recreateSwapchainTextures(device, sc, format, width, height, target) {
     entry.depthTexture?.destroy();
     entry.depthTexture = createSwapchainDepthTexture(device, width, height, sampleCount, depthFormatFor(target));
     entry.depthTextureView = entry.depthTexture.createView();
+    setAllocation(sc.tally, entry.depthAllocation, allocatedBytes(entry.depthTexture), 'depth', entry.depthTexture.format);
+    entry.msaaTexture?.destroy();
     if (samples > 1) {
-        entry.msaaTexture?.destroy();
         entry.msaaTexture = createSwapchainMsaaTexture(device, width, height, format, samples);
         entry.msaaTextureView = entry.msaaTexture.createView();
+        setAllocation(sc.tally, entry.msaaAllocation, allocatedBytes(entry.msaaTexture), 'msaa', format);
+    }
+    else {
+        entry.msaaTexture = null;
+        entry.msaaTextureView = null;
+        clearAllocation(sc.tally, entry.msaaAllocation);
     }
 }
 /**
@@ -41741,6 +41972,8 @@ function releaseCanvasTarget(contexts, sc, target) {
     if (entry) {
         entry.depthTexture?.destroy();
         entry.msaaTexture?.destroy();
+        clearAllocation(sc.tally, entry.depthAllocation);
+        clearAllocation(sc.tally, entry.msaaAllocation);
         sc.byTarget.delete(target);
     }
     sc.targets.delete(target);
@@ -42253,7 +42486,9 @@ class WebGPUBackend {
     buffers = null;
     /** Value-keyed, shared by pipelines and bindings so one entry shape yields one layout. @internal */
     bindGroupLayoutCache = createBindGroupLayoutCache();
-    /** @internal */ textures = createTextureCache$1();
+    /** Every GPU allocation this backend holds, shared by its buffer, texture and swapchain caches. @internal */
+    memoryTally = createMemoryTally();
+    /** @internal */ textures = createTextureCache$1(this.memoryTally);
     /** @internal */ samplers = createSamplerCache$1();
     /** @internal */ pipelines = createPipelinesState(this.bindGroupLayoutCache);
     /** @internal */ bindings = createBindingsState$1(this.bindGroupLayoutCache);
@@ -42262,7 +42497,7 @@ class WebGPUBackend {
     /** Per (bundle, camera, render context, replay in the frame); here rather than on the neutral bundle, which may name no device object. @internal */
     renderBundles = new WeakMap();
     /** @internal */ canvasContexts = new WeakMap();
-    /** @internal */ swapchain = createSwapchainState();
+    /** @internal */ swapchain = createSwapchainState(this.memoryTally);
     /** A frame is one command buffer; `beginFrame` opens the encoder. @internal */
     _currentEncoder = null;
     /** Error scopes resolve after the pass that opened them, so a caller has to await these to see one. @internal */
@@ -42288,7 +42523,7 @@ class WebGPUBackend {
      */
     async init(renderer) {
         this.renderer = renderer;
-        this.buffers = createBufferCache$1(renderer.info);
+        this.buffers = createBufferCache$1(renderer.info, this.memoryTally);
         const opts = this._opts;
         if (opts.device) {
             this.device = opts.device;
@@ -42405,10 +42640,8 @@ class WebGPUBackend {
     readMemoryStats(memory) {
         const buffers = getBufferCacheStats$1(this.buffers);
         const pipelines = getPipelineCacheStats(this.pipelines);
-        memory.buffers = buffers.bufferCount + buffers.rawCount;
         memory.geometries = getGeometriesStats(this.geometries).geometries;
-        // count + bytes + per-format breakdown, straight from the cache's running tally.
-        readTextureTally(this.textures.tally, memory);
+        readMemoryTally(this.memoryTally, memory);
         memory.samplers = getSamplerCacheStats$1(this.samplers).samplerCount;
         memory.backend.rawBuffers = buffers.rawCount;
         memory.backend.renderPipelines = pipelines.renderCount;
@@ -42417,6 +42650,10 @@ class WebGPUBackend {
         const dynamicUniforms = getDynamicUniformStats(this.buffers);
         memory.backend.dynamicUniformBuffers = dynamicUniforms.gpuBuffers;
         memory.backend.dynamicUniformStaging = dynamicUniforms.stagingBuffers;
+    }
+    /** @internal */
+    releaseUniformBlock(key) {
+        releaseUniformBlock$1(this.buffers, key);
     }
     /** Map `buffer` for reading, held in `_readbacks` until the map settles. @internal */
     async mapForRead(buffer, offset, size) {
@@ -42439,6 +42676,7 @@ class WebGPUBackend {
         disposeBufferCache$1(this.buffers);
         disposePipelines(this.pipelines);
         disposeBindGroupLayoutCache(this.bindGroupLayoutCache);
+        resetMemoryTally(this.memoryTally);
         // A handed-in device is the caller's to destroy; the caches above are ours either way.
         if (!this._deviceProvided && this.device)
             this.device.destroy();
@@ -43274,5 +43512,5 @@ function createData3DTexture(data = null, width = 1, height = 1, depth = 1, opti
     return new Data3DTexture(data, width, height, depth, options);
 }
 
-export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, Scene, Source, TOUCH, Texture, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, copyBuffer, copyTexture, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId, writeBuffer, writeTexture };
+export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, Scene, Source, TOUCH, Texture, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, copyBuffer, copyTexture, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, memoryReport, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId, writeBuffer, writeTexture };
 //# sourceMappingURL=index.js.map

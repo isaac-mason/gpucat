@@ -62,6 +62,8 @@ export declare class WebGLBackend implements DeviceBackend {
     uniforms: Bindings.BindingsState;
     /** Per-RenderObject GL device payload (linked program). @internal */
     renderObjectGl: RenderObjectGlCache;
+    /** Every GPU allocation this backend holds, shared by its buffer, texture and render-target caches. @internal */
+    readonly memoryTally: Info.MemoryTally;
     /** Per-GpuTexture GL texture cache (upload + allocation). @internal */
     textures: Textures.TextureCache;
     /** Per-GpuSampler GL sampler-object cache. @internal */
@@ -104,6 +106,8 @@ export declare class WebGLBackend implements DeviceBackend {
     /** WebGL2 has no async link, so this only moves the stall off the first frame and onto load. */
     /** @internal */
     compileObjects(objects: RenderObject[], _params: RenderPassParams): Promise<void>;
+    /** @internal */
+    releaseUniformBlock(key: object): void;
     /**
      * GL-only counts go under `memory.backend` in GL's own vocabulary rather than a WebGPU-shaped field.
      * VAOs and per-RenderObject payloads are absent because WeakMaps cannot be counted.

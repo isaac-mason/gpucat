@@ -4,7 +4,7 @@ import type { RenderTarget } from '../../core/render-target';
 import type { TextureOrigin, TextureRegion } from '../../core/texture-region';
 import type { ComputeNode } from '../../nodes/lib/core';
 import type { FrameBackend } from './frame';
-import type { MemoryInfo } from './info';
+import type { MemoryInfo, MemoryTally } from './info';
 import type { RenderObject } from './render-object';
 import type { RenderPassParams } from './render-types';
 import type { Renderer } from './renderer';
@@ -34,9 +34,12 @@ export interface DeviceBackend extends FrameBackend {
     /** queues a GPU copy of one box between two textures of one format; box, origin and formats already checked. */
     /** @internal */ copyTexture(source: GpuTexture, region: TextureRegion, destination: GpuTexture, origin: TextureOrigin): void;
     /**
-     * Fill the shared counts and this API's own, at the renderer's frame boundary. Read live off the
-     * caches rather than mirrored at every create/dispose site, which would only ever approximate what
-     * the maps already know exactly.
+     * Fill the shared counts and this API's own, at the renderer's frame boundary: bytes from
+     * `memoryTally`, the rest read live off the caches.
      */
     /** @internal */ readMemoryStats(memory: MemoryInfo): void;
+    /** Destroy the uniform block `key` names. Its owner calls this when it dies; a key with no block is a no-op. */
+    /** @internal */ releaseUniformBlock(key: object): void;
+    /** Every GPU allocation this backend holds, adjusted at each create, resize and destroy. */
+    /** @internal */ readonly memoryTally: MemoryTally;
 }

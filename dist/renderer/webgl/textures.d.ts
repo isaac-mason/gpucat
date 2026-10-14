@@ -24,7 +24,7 @@ import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
 import { type ResolvedStorageBufferTexture } from '../../nodes/lib/texture';
-import { type TextureTally, type TextureTallyEntry } from '../core/info';
+import { type Allocation, type MemoryTally } from '../core/info';
 /** GL format triple for a color/depth texture: the sized internal format + upload format + type. */
 type GlFormat = {
     /** Sized internal format for texStorage/texImage (e.g. gl.RGBA8, gl.RGBA16F, gl.DEPTH_COMPONENT24). */
@@ -69,7 +69,7 @@ export type GlTextureData = {
     /** GL-allocated layer/face count. Guards the partial path against a layer-count change. */
     allocD: number;
     /** What this entry currently contributes to `TextureCache.tally`. */
-    tally: TextureTallyEntry;
+    allocation: Allocation;
 };
 /**
  * GL texture backing a read-only storage `GpuBuffer` reinterpreted as rgba32uint (the WebGL `storage()`
@@ -78,8 +78,8 @@ export type GlTextureData = {
  */
 export type GlBufferTextureData = {
     texture: WebGLTexture;
-    /** What this entry currently contributes to `TextureCache.tally`. */
-    tally: TextureTallyEntry;
+    /** What this entry contributes to `TextureCache.tally`: a texture, filed under the buffer's label. */
+    allocation: Allocation;
     /** `buffer.version` at last upload — the re-upload gate. */
     version: number;
     /** GL-allocated texel dimensions (a grow re-allocates rather than sub-uploading). */
@@ -93,10 +93,8 @@ export type TextureCache = {
     /** Storage-buffer-backed GL textures, keyed by the `GpuBuffer` (WebGL storage() read-lowering). */
     bufferData: WeakMap<GpuBuffer, GlBufferTextureData>;
     all: Set<WebGLTexture>;
-    /** Texture count + estimated bytes, kept here because `data` is a WeakMap and cannot be walked.
-     *  Entries are added and re-sized but never removed: this backend frees GL textures only in
-     *  `disposeTextureCache`, so the tally tracks the cache exactly as `all.size` always has. */
-    tally: TextureTally;
+    /** The backend's memory tally, shared with its buffers and renderbuffers. */
+    tally: MemoryTally;
     /** Cached `gl.MAX_TEXTURE_SIZE`, read once on first storage-buffer upload (validates the texel grid). */
     maxTextureSize?: number;
     /** Cached `gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS`, read once (guards the flat texture-unit assignment). */
@@ -105,7 +103,7 @@ export type TextureCache = {
     copyFramebuffer?: WebGLFramebuffer;
 };
 /** Create an empty textures state. */
-export declare function createTextureCache(): TextureCache;
+export declare function createTextureCache(tally: MemoryTally): TextureCache;
 /**
  * Resolve (create/upload/re-sync) the GL texture for a read-only storage `GpuBuffer` bound AS an
  * rgba32uint texture, and return it bound-ready. The pixel data is a ZERO-COPY `Uint32Array` view over

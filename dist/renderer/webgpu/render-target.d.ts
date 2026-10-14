@@ -12,6 +12,8 @@
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
 import { type TextureCache, type TextureData } from './textures';
+/** What the device was asked for: every layer and mip level, times the sample count. */
+export declare function allocatedBytes(gpu: GPUTexture): number;
 /**
  * Default render-attachment view for a render-target color/depth texture.
  * Cached on the TextureData and recreated only when the GPU texture is swapped

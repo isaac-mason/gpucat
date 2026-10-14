@@ -1,7 +1,7 @@
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { DeviceBackend } from './device-backend';
 import type { Frame } from './frame';
-import { type RendererInfo } from './info';
+import { type AllocationReport, type RendererInfo } from './info';
 import * as NodeManager from './node-manager';
 import * as RenderContext from './pass-context';
 import * as RenderLists from './render-list';
@@ -46,3 +46,9 @@ export declare class Renderer<B extends DeviceBackend = DeviceBackend> implement
     /** @internal */ _assertInitialized(what: string): void;
 }
 export type { DeviceLostInfo };
+/**
+ * Every GPU allocation the renderer holds, largest first: kind, category, format, label and bytes, as copies
+ * the caller keeps. Walks every live allocation and allocates a row each, so it is for a debug panel
+ * refreshing a few times a second, not a frame loop. `info.memory` has the running totals for free.
+ */
+export declare function memoryReport(renderer: Renderer): AllocationReport[];

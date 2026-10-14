@@ -1,7 +1,7 @@
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DrawOptions } from '../core/frame';
-import type { RendererInfo } from '../core/info';
+import { type Allocation, type MemoryTally, type RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
 import { type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
@@ -41,8 +41,12 @@ export type CanvasAttachments = {
     /** MSAA color texture (null when samples <= 1). */
     msaaTexture: GPUTexture | null;
     msaaTextureView: GPUTextureView | null;
+    depthAllocation: Allocation;
+    msaaAllocation: Allocation;
 };
 export type SwapchainState = {
+    /** The backend's memory tally: the attachments are gpucat's, even though the canvas texture is not. */
+    tally: MemoryTally;
     /** Every canvas this renderer has allocated attachments for, so `dispose` can reach all of them. */
     targets: Set<CanvasTarget>;
     /** Per-target attachments, because a frame may draw to several canvases of differing size. */
@@ -54,7 +58,7 @@ export type SwapchainState = {
  */
 export declare function createSwapchainDepthTexture(device: GPUDevice, width: number, height: number, sampleCount: number, format?: GPUTextureFormat): GPUTexture;
 export declare function createSwapchainMsaaTexture(device: GPUDevice, width: number, height: number, format: GPUTextureFormat, sampleCount: number): GPUTexture;
-export declare function createSwapchainState(): SwapchainState;
+export declare function createSwapchainState(tally: MemoryTally): SwapchainState;
 export declare function attachmentsFor(sc: SwapchainState, target: CanvasTarget): CanvasAttachments;
 export declare function samplesFor(target: CanvasTarget): number;
 export declare function depthFormatFor(target: CanvasTarget): GPUTextureFormat;
