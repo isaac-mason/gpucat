@@ -215,6 +215,11 @@ export type MemoryTally = {
     texturesSize: number;
     byCategory: Map<string, number>;
     texturesByFormat: Map<string, number>;
+    /** bumped on every change, so a frame where nothing was allocated skips copying the breakdowns */
+    version: number;
+    /** the version and the records the breakdowns were last copied into */
+    copiedVersion: number;
+    copiedInto: Record<string, number> | null;
 };
 export declare function createMemoryTally(): MemoryTally;
 export declare function createAllocation(kind: AllocationKind, category: AllocationCategory, label: string): Allocation;

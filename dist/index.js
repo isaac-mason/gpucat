@@ -10004,6 +10004,9 @@ function createMemoryTally() {
         texturesSize: 0,
         byCategory: new Map(),
         texturesByFormat: new Map(),
+        version: 0,
+        copiedVersion: -1,
+        copiedInto: null,
     };
 }
 function createAllocation(kind, category, label) {
@@ -10017,6 +10020,7 @@ function addTo(map, key, bytes) {
         map.delete(key);
 }
 function contribute(tally, allocation, sign) {
+    tally.version++;
     const bytes = sign * allocation.bytes;
     if (allocation.kind === 'buffer') {
         tally.buffers += sign;
@@ -10070,6 +10074,7 @@ function resetMemoryTally(tally) {
     tally.texturesSize = 0;
     tally.byCategory.clear();
     tally.texturesByFormat.clear();
+    tally.version++;
 }
 /** Copy a map into a record kept across frames, so a settled scene allocates nothing here. */
 function copyInto(record, map) {
@@ -10086,8 +10091,13 @@ function readMemoryTally(tally, memory) {
     memory.textures = tally.textures;
     memory.texturesSize = tally.texturesSize;
     memory.totalSize = tally.buffersSize + tally.texturesSize;
+    // `resetRendererInfo` swaps in fresh records, which need filling even when nothing changed
+    if (tally.copiedVersion === tally.version && tally.copiedInto === memory.byCategory)
+        return;
     copyInto(memory.byCategory, tally.byCategory);
     copyInto(memory.texturesByFormat, tally.texturesByFormat);
+    tally.copiedVersion = tally.version;
+    tally.copiedInto = memory.byCategory;
 }
 /** Every live allocation, largest first; `memoryReport` is the public entry. */
 function reportAllocations(tally) {
@@ -11023,11 +11033,7 @@ function createTextureCache$1(tally) {
 }
 /** A fresh entry's allocations: counted as `sampled` until a render target files it as an attachment. */
 function textureAllocations(texture) {
-    const label = texture.label ?? 'unlabelled';
-    return {
-        allocation: createAllocation('texture', 'sampled', label),
-        msaaAllocation: createAllocation('texture', 'msaa', label),
-    };
+    return { allocation: createAllocation('texture', 'sampled', texture.label ?? 'unlabelled'), msaaAllocation: null };
 }
 /**
  * Set up the _onDispose callback on a GpuTexture to destroy its GPU texture.
@@ -11046,7 +11052,8 @@ function setupTextureDispose$1(cache, texture) {
         // contributes nothing, so clearing is a no-op there.
         if (data) {
             clearAllocation(cache.tally, data.allocation);
-            clearAllocation(cache.tally, data.msaaAllocation);
+            if (data.msaaAllocation)
+                clearAllocation(cache.tally, data.msaaAllocation);
         }
     };
 }
@@ -11595,9 +11602,11 @@ function isDepthFormat(format) {
 function tallyAttachments(cache, data) {
     const gpu = data.texture;
     setAllocation(cache.tally, data.allocation, allocatedBytes(gpu), isDepthFormat(gpu.format) ? 'depth' : 'render-target', gpu.format);
-    if (data.msaaTexture)
+    if (data.msaaTexture) {
+        data.msaaAllocation ??= createAllocation('texture', 'msaa', data.allocation.label);
         setAllocation(cache.tally, data.msaaAllocation, allocatedBytes(data.msaaTexture), 'msaa', gpu.format);
-    else
+    }
+    else if (data.msaaAllocation)
         clearAllocation(cache.tally, data.msaaAllocation);
 }
 /**

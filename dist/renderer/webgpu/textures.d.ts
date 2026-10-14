@@ -30,8 +30,8 @@ export type TextureData = {
     isDefaultTexture: boolean;
     /** What this entry currently contributes to `TextureCache.tally`. */
     allocation: Allocation;
-    /** `msaaTexture`'s contribution, live while there is one. */
-    msaaAllocation: Allocation;
+    /** `msaaTexture`'s contribution, made with the first one. */
+    msaaAllocation: Allocation | null;
     /**
      * Cached default render-attachment view (render target color/depth).
      * Lazily created by the renderer and cleared whenever `texture` is swapped
