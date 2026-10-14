@@ -6057,11 +6057,12 @@ export class GpuBuffer<T extends Any = Any> {
  * Create a vertex buffer with sensible defaults.
  * - usage: 'vertex'
  * - lifecycle: REF_COUNTED (vertex buffers are typically owned by a Geometry)
+ * - label: names it in memory and upload reports; without one it reads as the attribute it is bound as
  *
  * @example
  * const positions = createVertexBuffer(d.vec3f, new Float32Array([...]));
  */
-export function createVertexBuffer<T extends Any>(schema: T, data: TypedArrayFor<T>): GpuBuffer<T>;
+export function createVertexBuffer<T extends Any>(schema: T, data: TypedArrayFor<T>, label?: string): GpuBuffer<T>;
 ```
 
 #### `createStorageBuffer`
@@ -6113,11 +6114,12 @@ export function createIndirectBuffer<T extends Any>(schema: T, data: TypedArrayF
  * Create an index buffer with sensible defaults.
  * - usage: 'index'
  * - lifecycle: REF_COUNTED (index buffers are typically owned by a Geometry)
+ * - label: names it in memory and upload reports; without one it reads as the attribute it is bound as
  *
  * @example
  * const indices = createIndexBuffer(new Uint16Array([0, 1, 2, 2, 3, 0]));
  */
-export function createIndexBuffer(data: Uint16Array | Uint32Array): GpuBuffer<Any>;
+export function createIndexBuffer(data: Uint16Array | Uint32Array, label?: string): GpuBuffer<Any>;
 ```
 
 #### `UniformValue`

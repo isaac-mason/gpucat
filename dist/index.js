@@ -6837,15 +6837,17 @@ class GpuBuffer {
  * Create a vertex buffer with sensible defaults.
  * - usage: 'vertex'
  * - lifecycle: REF_COUNTED (vertex buffers are typically owned by a Geometry)
+ * - label: names it in memory and upload reports; without one it reads as the attribute it is bound as
  *
  * @example
  * const positions = createVertexBuffer(d.vec3f, new Float32Array([...]));
  */
-function createVertexBuffer(schema, data) {
+function createVertexBuffer(schema, data, label) {
     return new GpuBuffer(schema, {
         data,
         usage: 'vertex',
         lifecycle: BufferLifecycle.REF_COUNTED,
+        label,
     });
 }
 /**
@@ -6898,16 +6900,18 @@ function createIndirectBuffer(schema, data) {
  * Create an index buffer with sensible defaults.
  * - usage: 'index'
  * - lifecycle: REF_COUNTED (index buffers are typically owned by a Geometry)
+ * - label: names it in memory and upload reports; without one it reads as the attribute it is bound as
  *
  * @example
  * const indices = createIndexBuffer(new Uint16Array([0, 1, 2, 2, 3, 0]));
  */
-function createIndexBuffer(data) {
+function createIndexBuffer(data, label) {
     // WGSL has no u16, so the schema is a placeholder: `getIndexFormat` reads the format off the array.
     return new GpuBuffer(u32$1, {
         data: data,
         usage: 'index',
         lifecycle: BufferLifecycle.REF_COUNTED,
+        label,
     });
 }
 
