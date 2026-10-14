@@ -222,6 +222,17 @@ export type MemoryTally = {
     copiedInto: Record<string, number> | null;
 };
 export declare function createMemoryTally(): MemoryTally;
+/**
+ * What a texture's allocation is labelled: its own label, under its render target's when the target has one
+ * (`shadows/depth`). The texture's label alone is its attachment name, which `mrt()` keys on, so the target
+ * adds identity without renaming it.
+ */
+export declare function textureAllocationLabel(texture: {
+    label: string | undefined;
+    renderTarget: {
+        label: string | undefined;
+    } | null;
+}): string;
 export declare function createAllocation(kind: AllocationKind, category: AllocationCategory, label: string): Allocation;
 /**
  * Set what an allocation contributes, replacing whatever it contributed before: the first call counts it,

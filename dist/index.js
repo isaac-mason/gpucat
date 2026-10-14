@@ -5285,6 +5285,8 @@ class RenderTarget {
     height;
     /** The MSAA sample count of the render target */
     samples;
+    /** See `RenderTargetOptions.label`. Read when the attachments are allocated. */
+    label;
     /**
      * Array of color attachment textures.
      * Each has its own mutable `.format` (per-attachment formats supported by mutating `textures[i].format`).
@@ -5325,6 +5327,7 @@ class RenderTarget {
         this.width = width;
         this.height = height;
         this.samples = opts.samples ?? 1;
+        this.label = opts.label;
         this.clearColor = opts.clearColor ?? [0, 0, 0, 1];
         const defaultFormat = opts.colorFormat ?? 'rgba16float';
         const count = opts.count ?? 1;
@@ -8874,6 +8877,8 @@ class CanvasTarget {
     depthFormat;
     /** Swapchain MSAA sample count; 1 = no MSAA. */
     samples;
+    /** See `CanvasTargetOptions.label`. */
+    label;
     /** Whether a pass matches the backing store to the canvas's CSS layout size before drawing. */
     autoResize;
     /** Swapchain colour format, written by the backend when it configures the context. @internal */
@@ -8893,6 +8898,7 @@ class CanvasTarget {
         this.alphaMode = opts.alphaMode ?? 'opaque';
         this.depthFormat = opts.depthFormat ?? 'depth24plus';
         this.samples = opts.samples ?? 1;
+        this.label = opts.label;
         // A canvas laid out by CSS reports clientWidth; an OffscreenCanvas is sized by the app alone.
         this.autoResize = opts.autoResize ?? 'clientWidth' in canvas;
         this.clearColor = opts.clearColor ?? [0, 0, 0, 1];
@@ -10009,6 +10015,16 @@ function createMemoryTally() {
         copiedInto: null,
     };
 }
+/**
+ * What a texture's allocation is labelled: its own label, under its render target's when the target has one
+ * (`shadows/depth`). The texture's label alone is its attachment name, which `mrt()` keys on, so the target
+ * adds identity without renaming it.
+ */
+function textureAllocationLabel(texture) {
+    const own = texture.label ?? 'unlabelled';
+    const target = texture.renderTarget?.label;
+    return target ? `${target}/${own}` : own;
+}
 function createAllocation(kind, category, label) {
     return { kind, category, categoryKey: `${kind}/${category}`, format: '', label, bytes: 0, live: false };
 }
@@ -11033,7 +11049,7 @@ function createTextureCache$1(tally) {
 }
 /** A fresh entry's allocations: counted as `sampled` until a render target files it as an attachment. */
 function textureAllocations(texture) {
-    return { allocation: createAllocation('texture', 'sampled', texture.label ?? 'unlabelled'), msaaAllocation: null };
+    return { allocation: createAllocation('texture', 'sampled', textureAllocationLabel(texture)), msaaAllocation: null };
 }
 /**
  * Set up the _onDispose callback on a GpuTexture to destroy its GPU texture.
@@ -36911,7 +36927,7 @@ function ensureGlTexture(gl, state, texture) {
             fmt: glFormat(gl, texture.format),
             version: -1,
             generation: 0,
-            allocation: createAllocation('texture', 'sampled', texture.label ?? 'unlabelled'),
+            allocation: createAllocation('texture', 'sampled', textureAllocationLabel(texture)),
             allocated: false,
             allocW: 0,
             allocD: 0,
@@ -38259,7 +38275,7 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
         const stencil = formatHasStencil(renderTarget._depthAttachment.format);
         const internalFormat = depthRenderbufferInternalFormat(gl, renderTarget._depthAttachment.format);
         if (!depthRenderbuffer) {
-            const label = renderTarget._depthAttachment._gpuTexture.label ?? 'unlabelled';
+            const label = textureAllocationLabel(renderTarget._depthAttachment._gpuTexture);
             const created = createRenderbuffer(gl, state, 'depth', label);
             if (!created)
                 throw new Error('[webgl] gl.createRenderbuffer returned null (depth).');
@@ -38401,7 +38417,7 @@ function buildMsaaFbo(gl, state, textures, renderTarget) {
             return null;
         }
         samples = Math.min(samples, supported);
-        const rb = createRenderbuffer(gl, state, 'msaa', tex._gpuTexture.label ?? 'unlabelled');
+        const rb = createRenderbuffer(gl, state, 'msaa', textureAllocationLabel(tex._gpuTexture));
         if (!rb) {
             gl.deleteFramebuffer(fbo);
             for (const r of colorRenderbuffers)
@@ -38424,7 +38440,7 @@ function buildMsaaFbo(gl, state, textures, renderTarget) {
     if (renderTarget._depthAttachment) {
         const depthData = getTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (depthData) {
-            const rb = createRenderbuffer(gl, state, 'msaa', renderTarget._depthAttachment._gpuTexture.label ?? 'unlabelled');
+            const rb = createRenderbuffer(gl, state, 'msaa', textureAllocationLabel(renderTarget._depthAttachment._gpuTexture));
             if (rb) {
                 gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
                 gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, depthData.fmt.internalFormat, w, h);

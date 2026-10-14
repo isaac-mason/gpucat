@@ -2,6 +2,8 @@ import type { DepthTextureFormat } from '../../texture/depth-texture';
 /** Alpha compositing mode for the canvas. Neutral (backend-agnostic) string type. */
 export type CanvasAlphaMode = 'opaque' | 'premultiplied';
 export type CanvasTargetOptions = {
+    /** Names the canvas's own attachments (depth, MSAA) in memory reports. Debug identity only. */
+    label?: string;
     /** alpha compositing mode for the canvas. defaults to 'opaque'. */
     alphaMode?: CanvasAlphaMode;
     /**
@@ -54,6 +56,8 @@ export declare class CanvasTarget {
     readonly depthFormat: DepthTextureFormat;
     /** Swapchain MSAA sample count; 1 = no MSAA. */
     readonly samples: number;
+    /** See `CanvasTargetOptions.label`. */
+    readonly label: string | undefined;
     /** Whether a pass matches the backing store to the canvas's CSS layout size before drawing. */
     readonly autoResize: boolean;
     /** Swapchain colour format, written by the backend when it configures the context. @internal */

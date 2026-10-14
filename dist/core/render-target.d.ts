@@ -3,6 +3,11 @@ import { DepthTexture, type DepthTextureFormat } from '../texture/depth-texture'
 import { Texture } from '../texture/texture';
 export type RenderTargetOptions = {
     /**
+     * Names the target in memory reports, as `<label>/<attachment>` (`shadows/depth`). Debug identity only:
+     * the attachments keep their names (`output`, `depth`), which `mrt()` and shader bindings read.
+     */
+    label?: string;
+    /**
      * Default format applied to every color attachment at construction.
      * For per-attachment formats (MRT with mixed formats), mutate `rt.textures[i].format` after construction.
      * Default: 'rgba16float'.
@@ -49,6 +54,8 @@ export declare class RenderTarget {
     height: number;
     /** The MSAA sample count of the render target */
     readonly samples: number;
+    /** See `RenderTargetOptions.label`. Read when the attachments are allocated. */
+    label: string | undefined;
     /**
      * Array of color attachment textures.
      * Each has its own mutable `.format` (per-attachment formats supported by mutating `textures[i].format`).

@@ -4759,6 +4759,8 @@ export type CanvasAlphaMode = 'opaque' | 'premultiplied';
 
 ```ts
 export type CanvasTargetOptions = {
+    /** Names the canvas's own attachments (depth, MSAA) in memory reports. Debug identity only. */
+    label?: string;
     /** alpha compositing mode for the canvas. defaults to 'opaque'. */
     alphaMode?: CanvasAlphaMode;
     /**
@@ -4815,6 +4817,8 @@ export class CanvasTarget {
     readonly depthFormat: DepthTextureFormat;
     /** Swapchain MSAA sample count; 1 = no MSAA. */
     readonly samples: number;
+    /** See `CanvasTargetOptions.label`. */
+    readonly label: string | undefined;
     /** Whether a pass matches the backing store to the canvas's CSS layout size before drawing. */
     readonly autoResize: boolean;
     clearColor: [number, number, number, number];
@@ -4904,6 +4908,11 @@ export function read(renderer: Renderer, target: RenderTarget, opts?: ReadOption
 ```ts
 export type RenderTargetOptions = {
     /**
+     * Names the target in memory reports, as `<label>/<attachment>` (`shadows/depth`). Debug identity only:
+     * the attachments keep their names (`output`, `depth`), which `mrt()` and shader bindings read.
+     */
+    label?: string;
+    /**
      * Default format applied to every color attachment at construction.
      * For per-attachment formats (MRT with mixed formats), mutate `rt.textures[i].format` after construction.
      * Default: 'rgba16float'.
@@ -4960,6 +4969,8 @@ export class RenderTarget {
     height: number;
     /** The MSAA sample count of the render target */
     readonly samples: number;
+    /** See `RenderTargetOptions.label`. Read when the attachments are allocated. */
+    label: string | undefined;
     /**
      * Array of color attachment textures.
      * Each has its own mutable `.format` (per-attachment formats supported by mutating `textures[i].format`).
