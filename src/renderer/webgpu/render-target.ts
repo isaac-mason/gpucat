@@ -13,7 +13,7 @@
 import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
-import { clearAllocation, setAllocation } from '../core/info';
+import { clearAllocation, createAllocation, setAllocation } from '../core/info';
 import { estimatedBytesPerTexel, mipLevelCountFor } from '../core/texture-size';
 import { setupTextureDispose, type TextureCache, type TextureData, textureAllocations } from './textures';
 
@@ -41,8 +41,10 @@ function tallyAttachments(cache: TextureCache, data: TextureData): void {
         isDepthFormat(gpu.format) ? 'depth' : 'render-target',
         gpu.format,
     );
-    if (data.msaaTexture) setAllocation(cache.tally, data.msaaAllocation, allocatedBytes(data.msaaTexture), 'msaa', gpu.format);
-    else clearAllocation(cache.tally, data.msaaAllocation);
+    if (data.msaaTexture) {
+        data.msaaAllocation ??= createAllocation('texture', 'msaa', data.allocation.label);
+        setAllocation(cache.tally, data.msaaAllocation, allocatedBytes(data.msaaTexture), 'msaa', gpu.format);
+    } else if (data.msaaAllocation) clearAllocation(cache.tally, data.msaaAllocation);
 }
 
 /**

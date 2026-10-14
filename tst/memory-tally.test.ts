@@ -256,3 +256,23 @@ describe('report', () => {
         expect(rows[1]!.bytes).toBe(16);
     });
 });
+
+describe('snapshot skipping', () => {
+    test('an unchanged tally skips the breakdown copy, but a reset snapshot is filled again', () => {
+        const info = createRendererInfo();
+        const tally = createMemoryTally();
+        setAllocation(tally, texturePiece(), 1024, 'sampled', 'rgba8unorm');
+        readMemoryTally(tally, info.memory);
+        const version = tally.version;
+
+        readMemoryTally(tally, info.memory);
+        expect(tally.version).toBe(version);
+        expect(info.memory.texturesByFormat).toEqual({ rgba8unorm: 1024 });
+
+        info.memory.byCategory = {};
+        info.memory.texturesByFormat = {};
+        readMemoryTally(tally, info.memory);
+        expect(info.memory.byCategory).toEqual({ 'texture/sampled': 1024 });
+        expect(info.memory.texturesByFormat).toEqual({ rgba8unorm: 1024 });
+    });
+});

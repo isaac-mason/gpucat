@@ -35,8 +35,8 @@ export type TextureData = {
     isDefaultTexture: boolean;
     /** What this entry currently contributes to `TextureCache.tally`. */
     allocation: Allocation;
-    /** `msaaTexture`'s contribution, live while there is one. */
-    msaaAllocation: Allocation;
+    /** `msaaTexture`'s contribution, made with the first one. */
+    msaaAllocation: Allocation | null;
     /**
      * Cached default render-attachment view (render target color/depth).
      * Lazily created by the renderer and cleared whenever `texture` is swapped
@@ -79,11 +79,7 @@ export function createTextureCache(tally: MemoryTally): TextureCache {
 
 /** A fresh entry's allocations: counted as `sampled` until a render target files it as an attachment. */
 export function textureAllocations(texture: GpuTexture): Pick<TextureData, 'allocation' | 'msaaAllocation'> {
-    const label = texture.label ?? 'unlabelled';
-    return {
-        allocation: createAllocation('texture', 'sampled', label),
-        msaaAllocation: createAllocation('texture', 'msaa', label),
-    };
+    return { allocation: createAllocation('texture', 'sampled', texture.label ?? 'unlabelled'), msaaAllocation: null };
 }
 
 /**
@@ -103,7 +99,7 @@ export function setupTextureDispose(cache: TextureCache, texture: GpuTexture): v
         // contributes nothing, so clearing is a no-op there.
         if (data) {
             clearAllocation(cache.tally, data.allocation);
-            clearAllocation(cache.tally, data.msaaAllocation);
+            if (data.msaaAllocation) clearAllocation(cache.tally, data.msaaAllocation);
         }
     };
 }

@@ -319,6 +319,11 @@ export type MemoryTally = {
     texturesSize: number;
     byCategory: Map<string, number>;
     texturesByFormat: Map<string, number>;
+    /** bumped on every change, so a frame where nothing was allocated skips copying the breakdowns */
+    version: number;
+    /** the version and the records the breakdowns were last copied into */
+    copiedVersion: number;
+    copiedInto: Record<string, number> | null;
 };
 
 export function createMemoryTally(): MemoryTally {
@@ -330,6 +335,9 @@ export function createMemoryTally(): MemoryTally {
         texturesSize: 0,
         byCategory: new Map(),
         texturesByFormat: new Map(),
+        version: 0,
+        copiedVersion: -1,
+        copiedInto: null,
     };
 }
 
@@ -344,6 +352,7 @@ function addTo(map: Map<string, number>, key: string, bytes: number): void {
 }
 
 function contribute(tally: MemoryTally, allocation: Allocation, sign: 1 | -1): void {
+    tally.version++;
     const bytes = sign * allocation.bytes;
     if (allocation.kind === 'buffer') {
         tally.buffers += sign;
@@ -403,6 +412,7 @@ export function resetMemoryTally(tally: MemoryTally): void {
     tally.texturesSize = 0;
     tally.byCategory.clear();
     tally.texturesByFormat.clear();
+    tally.version++;
 }
 
 /** Copy a map into a record kept across frames, so a settled scene allocates nothing here. */
@@ -418,8 +428,12 @@ export function readMemoryTally(tally: MemoryTally, memory: MemoryInfo): void {
     memory.textures = tally.textures;
     memory.texturesSize = tally.texturesSize;
     memory.totalSize = tally.buffersSize + tally.texturesSize;
+    // `resetRendererInfo` swaps in fresh records, which need filling even when nothing changed
+    if (tally.copiedVersion === tally.version && tally.copiedInto === memory.byCategory) return;
     copyInto(memory.byCategory, tally.byCategory);
     copyInto(memory.texturesByFormat, tally.texturesByFormat);
+    tally.copiedVersion = tally.version;
+    tally.copiedInto = memory.byCategory;
 }
 
 /** One row of `memoryReport`: a copy, the caller's to keep, sort and group. */
