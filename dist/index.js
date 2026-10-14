@@ -41512,8 +41512,8 @@ function attachmentsFor(sc, target) {
             depthTextureView: null,
             msaaTexture: null,
             msaaTextureView: null,
-            depthAllocation: createAllocation('texture', 'depth', 'canvas'),
-            msaaAllocation: createAllocation('texture', 'msaa', 'canvas'),
+            depthAllocation: createAllocation('texture', 'depth', target.label ?? 'canvas'),
+            msaaAllocation: createAllocation('texture', 'msaa', target.label ?? 'canvas'),
         };
         sc.byTarget.set(target, entry);
     }
