@@ -8,6 +8,9 @@ function clamp(value: number, [min, max]: [number, number]): number {
 }
 
 export type CanvasTargetOptions = {
+    /** Names the canvas's own attachments (depth, MSAA) in memory reports. Debug identity only. */
+    label?: string;
+
     /** alpha compositing mode for the canvas. defaults to 'opaque'. */
     alphaMode?: CanvasAlphaMode;
 
@@ -74,6 +77,9 @@ export class CanvasTarget {
     /** Swapchain MSAA sample count; 1 = no MSAA. */
     readonly samples: number;
 
+    /** See `CanvasTargetOptions.label`. */
+    readonly label: string | undefined;
+
     /** Whether a pass matches the backing store to the canvas's CSS layout size before drawing. */
     readonly autoResize: boolean;
 
@@ -100,6 +106,7 @@ export class CanvasTarget {
         this.alphaMode = opts.alphaMode ?? 'opaque';
         this.depthFormat = opts.depthFormat ?? 'depth24plus';
         this.samples = opts.samples ?? 1;
+        this.label = opts.label;
         // A canvas laid out by CSS reports clientWidth; an OffscreenCanvas is sized by the app alone.
         this.autoResize = opts.autoResize ?? 'clientWidth' in canvas;
         this.clearColor = opts.clearColor ?? [0, 0, 0, 1];

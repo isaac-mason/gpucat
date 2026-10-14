@@ -36,6 +36,7 @@ import {
     createAllocation,
     type MemoryTally,
     setAllocation,
+    textureAllocationLabel,
 } from '../core/info';
 import { formatHasStencil } from '../core/render-types';
 import { estimatedBytesPerTexel } from '../core/texture-size';
@@ -341,7 +342,7 @@ function rebuildFbo(
         const stencil = formatHasStencil(renderTarget._depthAttachment.format);
         const internalFormat = depthRenderbufferInternalFormat(gl, renderTarget._depthAttachment.format);
         if (!depthRenderbuffer) {
-            const label = renderTarget._depthAttachment._gpuTexture.label ?? 'unlabelled';
+            const label = textureAllocationLabel(renderTarget._depthAttachment._gpuTexture);
             const created = createRenderbuffer(gl, state, 'depth', label);
             if (!created) throw new Error('[webgl] gl.createRenderbuffer returned null (depth).');
             depthRenderbuffer = created;
@@ -501,7 +502,7 @@ function buildMsaaFbo(
         }
         samples = Math.min(samples, supported);
 
-        const rb = createRenderbuffer(gl, state, 'msaa', tex._gpuTexture.label ?? 'unlabelled');
+        const rb = createRenderbuffer(gl, state, 'msaa', textureAllocationLabel(tex._gpuTexture));
         if (!rb) {
             gl.deleteFramebuffer(fbo);
             for (const r of colorRenderbuffers) deleteRenderbuffer(gl, state, r);
@@ -523,7 +524,7 @@ function buildMsaaFbo(
     if (renderTarget._depthAttachment) {
         const depthData = getTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (depthData) {
-            const rb = createRenderbuffer(gl, state, 'msaa', renderTarget._depthAttachment._gpuTexture.label ?? 'unlabelled');
+            const rb = createRenderbuffer(gl, state, 'msaa', textureAllocationLabel(renderTarget._depthAttachment._gpuTexture));
             if (rb) {
                 gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
                 gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, depthData.fmt.internalFormat, w, h);

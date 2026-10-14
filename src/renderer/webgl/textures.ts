@@ -26,7 +26,14 @@ import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
 import { type ResolvedStorageBufferTexture, storageMirrorBytesPerTexel, storageMirrorGrid } from '../../nodes/lib/texture';
 import type { Any } from '../../schema/schema';
-import { type Allocation, clearAllocation, createAllocation, type MemoryTally, setAllocation } from '../core/info';
+import {
+    type Allocation,
+    clearAllocation,
+    createAllocation,
+    type MemoryTally,
+    setAllocation,
+    textureAllocationLabel,
+} from '../core/info';
 import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
 import { bytesPerTexel, gpuTextureBytes, mipLevelCountFor } from '../core/texture-size';
 import { mergeUpdateRanges } from '../core/update-ranges';
@@ -656,7 +663,7 @@ function ensureGlTexture(gl: WebGL2RenderingContext, state: TextureCache, textur
             fmt: glFormat(gl, texture.format),
             version: -1,
             generation: 0,
-            allocation: createAllocation('texture', 'sampled', texture.label ?? 'unlabelled'),
+            allocation: createAllocation('texture', 'sampled', textureAllocationLabel(texture)),
             allocated: false,
             allocW: 0,
             allocD: 0,

@@ -137,6 +137,7 @@ export const DELIBERATELY_INTERNAL: ReadonlySet<string> = new Set([
     './renderer/core/info#reportAllocations',
     './renderer/core/info#resetMemoryTally',
     './renderer/core/info#setAllocation',
+    './renderer/core/info#textureAllocationLabel',
     './renderer/webgl/renderer#DeviceLostInfo',
     './schema/pack#CompiledLayout',
     './schema/pack#StructFieldLayout',

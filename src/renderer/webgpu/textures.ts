@@ -16,7 +16,14 @@
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
 import type { Source } from '../../texture/source';
-import { type Allocation, clearAllocation, createAllocation, type MemoryTally, setAllocation } from '../core/info';
+import {
+    type Allocation,
+    clearAllocation,
+    createAllocation,
+    type MemoryTally,
+    setAllocation,
+    textureAllocationLabel,
+} from '../core/info';
 import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
 import { bytesPerTexel, gpuTextureBytes, mipLevelCountFor } from '../core/texture-size';
 import { createMipmapState, disposeMipmapState, generateMipmaps, type MipmapState } from './mipmap-utils';
@@ -79,7 +86,7 @@ export function createTextureCache(tally: MemoryTally): TextureCache {
 
 /** A fresh entry's allocations: counted as `sampled` until a render target files it as an attachment. */
 export function textureAllocations(texture: GpuTexture): Pick<TextureData, 'allocation' | 'msaaAllocation'> {
-    return { allocation: createAllocation('texture', 'sampled', texture.label ?? 'unlabelled'), msaaAllocation: null };
+    return { allocation: createAllocation('texture', 'sampled', textureAllocationLabel(texture)), msaaAllocation: null };
 }
 
 /**

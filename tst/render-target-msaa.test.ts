@@ -153,3 +153,20 @@ test('resizing reallocates and bumps generation so sampling bind groups rebuild'
     expect(data.generation).toBeGreaterThan(genBefore);
     expect(created.length).toBeGreaterThan(countAfterFirst);
 });
+
+test('a labelled target files its attachments under its label without renaming them', () => {
+    const { device } = recordingDevice();
+    const tally = createMemoryTally();
+    const cache = createTextureCache(tally);
+    const rt = createRenderTarget(16, 16, { samples: 4, label: 'shadows' });
+
+    ensureRenderTargetTexturesAllocated(cache, device, rt);
+    expect([...tally.live].map((allocation) => allocation.label).sort()).toEqual([
+        'shadows/depth',
+        'shadows/output',
+        'shadows/output',
+    ]);
+    // `mrt()` and shader bindings read the attachment names, which stay as they were
+    expect(rt.textures[0]!.name).toBe('output');
+    expect(rt.getTextureIndex('output')).toBe(0);
+});
