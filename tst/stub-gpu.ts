@@ -101,6 +101,9 @@ export type StubGPUStats = {
     errorScopePushes: number;
     /** Number of queue.submit calls */
     submits: number;
+    /** A render pass encoder's viewport, scissor, bundle and draw commands, in order, as `viewport x y w h`,
+     *  `scissor x y w h`, `bundle` and `draw`. */
+    passCommands: string[];
     /** Reset all counters */
     reset(): void;
 };
@@ -157,6 +160,7 @@ export function createStubGPU(): StubGPUResult {
         errorScopeDepth: 0,
         errorScopePushes: 0,
         submits: 0,
+        passCommands: [],
         reset() {
             this.bufferWrites = 0;
             this.bufferCopies = 0;
@@ -177,6 +181,7 @@ export function createStubGPU(): StubGPUResult {
             this.errorScopeDepth = 0;
             this.errorScopePushes = 0;
             this.submits = 0;
+            this.passCommands.length = 0;
         },
     };
 
@@ -353,20 +358,35 @@ export function createStubGPU(): StubGPUResult {
     };
 
     // Stub render pass encoder
-    const createStubRenderPassEncoder = (): GPURenderPassEncoder =>
-        ({
-            ...drawRecorder(),
-            setViewport: () => {},
-            setScissorRect: () => {},
+    const createStubRenderPassEncoder = (): GPURenderPassEncoder => {
+        const recorder = drawRecorder();
+        return {
+            ...recorder,
+            drawIndexed: (indexCount: number) => {
+                recorder.drawIndexed(indexCount);
+                stats.passCommands.push('draw');
+            },
+            draw: () => {
+                recorder.draw();
+                stats.passCommands.push('draw');
+            },
+            setViewport: (x: number, y: number, width: number, height: number) => {
+                stats.passCommands.push(`viewport ${x} ${y} ${width} ${height}`);
+            },
+            setScissorRect: (x: number, y: number, width: number, height: number) => {
+                stats.passCommands.push(`scissor ${x} ${y} ${width} ${height}`);
+            },
             setBlendConstant: () => {},
             setStencilReference: () => {},
             executeBundles: (bundles: Iterable<GPURenderBundle>) => {
                 for (const _ of bundles) stats.bundleExecutions++;
+                stats.passCommands.push('bundle');
             },
             end: () => {},
             beginOcclusionQuery: () => {},
             endOcclusionQuery: () => {},
-        }) as unknown as GPURenderPassEncoder;
+        } as unknown as GPURenderPassEncoder;
+    };
 
     // Stub compute pass encoder
     const createStubComputePassEncoder = (): GPUComputePassEncoder =>

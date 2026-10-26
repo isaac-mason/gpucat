@@ -15,9 +15,10 @@ import {
 } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import * as NodeManager from '../core/node-manager';
-import type { RenderContext } from '../core/pass-context';
+import type { RenderContext, ScissorValue, ViewportValue } from '../core/pass-context';
 import { pipelineLabel } from '../core/render-object';
 import { formatHasStencil, type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
+import type { View } from '../core/view';
 import type { DrawBindings } from './bindings';
 import * as Buffers from './buffers';
 import * as Pipelines from './pipelines';
@@ -445,7 +446,13 @@ export function resolveAttachments(b: WebGPUBackend, params: RenderPassParams): 
 /** What the draw loop needs: a bundle encoder offers the same surface as a pass encoder. */
 export type DrawEncoder = GPURenderPassEncoder | GPURenderBundleEncoder;
 
-export type PassScope = { gpuPass: GPURenderPassEncoder; currentSets: CurrentSets };
+/** The encoder and what it has set: bindings, and the viewport and scissor it last set, the whole target at first. */
+export type PassScope = {
+    gpuPass: GPURenderPassEncoder;
+    currentSets: CurrentSets;
+    viewport: ViewportValue;
+    scissor: ScissorValue;
+};
 
 /** The draw loop's own scope, which a bundle recording satisfies with a bundle encoder. */
 export type DrawScope = { gpuPass: DrawEncoder; currentSets: CurrentSets };
@@ -460,18 +467,57 @@ export function beginPass(b: WebGPUBackend, params: RenderPassParams): PassScope
         timestampWrites: inspector ? inspector.getTimestampWrites(params.passId) : undefined,
     });
 
-    // Physical-pixel, framebuffer-clamped rects, already resolved onto the pass params.
-    if (params.viewport) {
-        const v = params.viewportValue;
-        gpuPass.setViewport(v.x, v.y, v.width, v.height, v.minDepth, v.maxDepth);
-    }
-    if (params.scissor) {
-        const s = params.scissorValue;
-        gpuPass.setScissorRect(s.x, s.y, s.width, s.height);
+    // Fresh per pass: a pooled one needs resetting at the top of every pass, where this starts empty. A GPU pass
+    // starts with the whole target as both its viewport and scissor; each segment sets its own when they differ.
+    return {
+        gpuPass,
+        currentSets: createCurrentSets(),
+        viewport: { x: 0, y: 0, width: params.width, height: params.height, minDepth: 0, maxDepth: 1 },
+        scissor: { x: 0, y: 0, width: params.width, height: params.height },
+    };
+}
+
+/** Sets the viewport and scissor `segment` was recorded under where they differ from what the encoder has. A bundle
+ *  keeps them: they are pass state, which `executeBundles` leaves alone. */
+function applySegmentRects(scope: PassScope, segment: PreparedSegment, width: number, height: number): void {
+    const want = segment.viewport ? segment.viewportValue : null;
+    const x = want?.x ?? 0;
+    const y = want?.y ?? 0;
+    const w = want?.width ?? width;
+    const h = want?.height ?? height;
+    const minDepth = want?.minDepth ?? 0;
+    const maxDepth = want?.maxDepth ?? 1;
+    const viewport = scope.viewport;
+    if (
+        viewport.x !== x ||
+        viewport.y !== y ||
+        viewport.width !== w ||
+        viewport.height !== h ||
+        viewport.minDepth !== minDepth ||
+        viewport.maxDepth !== maxDepth
+    ) {
+        scope.gpuPass.setViewport(x, y, w, h, minDepth, maxDepth);
+        viewport.x = x;
+        viewport.y = y;
+        viewport.width = w;
+        viewport.height = h;
+        viewport.minDepth = minDepth;
+        viewport.maxDepth = maxDepth;
     }
 
-    // Fresh per pass: a pooled one needs resetting at the top of every pass, where this starts empty.
-    return { gpuPass, currentSets: createCurrentSets() };
+    const clip = segment.scissor ? segment.scissorValue : null;
+    const sx = clip?.x ?? 0;
+    const sy = clip?.y ?? 0;
+    const sw = clip?.width ?? width;
+    const sh = clip?.height ?? height;
+    const scissor = scope.scissor;
+    if (scissor.x !== sx || scissor.y !== sy || scissor.width !== sw || scissor.height !== sh) {
+        scope.gpuPass.setScissorRect(sx, sy, sw, sh);
+        scissor.x = sx;
+        scissor.y = sy;
+        scissor.width = sw;
+        scissor.height = sh;
+    }
 }
 
 export function endPass(scope: PassScope): void {
@@ -492,24 +538,28 @@ export type EncodeContext = {
     info: RendererInfo;
 };
 
-export function encodeDraws(ctx: EncodeContext, count: number, scope: PassScope, segments: readonly PreparedSegment[]): void {
+/** Encodes the pass's first `segmentCount` runs of draws, each under the viewport and scissor it was recorded with. */
+export function encodeDraws(
+    ctx: EncodeContext,
+    scope: PassScope,
+    segments: readonly PreparedSegment[],
+    segmentCount: number,
+): void {
     const inspector = ctx.inspector;
     if (inspector) inspector.perf.start('drawCalls');
 
-    if (segments.length === 0) {
-        encodeDrawRange(ctx, 0, count, scope);
-    } else {
-        for (const segment of segments) {
-            const { bundle, start } = segment;
-            const end = start + segment.count;
-            if (bundle === null) {
-                encodeDrawRange(ctx, start, end, scope);
-                continue;
-            }
-            scope.gpuPass.executeBundles([getOrRecordBundle(ctx, start, end, bundle)]);
-            // A bundle sets its own pipeline and bindings, so what the pass had set no longer holds.
-            resetCurrentSets(scope.currentSets);
+    for (let index = 0; index < segmentCount; index++) {
+        const segment = segments[index];
+        applySegmentRects(scope, segment, ctx.params.width, ctx.params.height);
+        const { bundle, start } = segment;
+        const end = start + segment.count;
+        if (bundle === null) {
+            encodeDrawRange(ctx, start, end, scope);
+            continue;
         }
+        scope.gpuPass.executeBundles([getOrRecordBundle(ctx, start, end, bundle, segment.camera)]);
+        // A bundle sets its own pipeline and bindings, so what the pass had set no longer holds.
+        resetCurrentSets(scope.currentSets);
     }
 
     if (inspector) inspector.perf.end('drawCalls');
@@ -533,14 +583,20 @@ export type BundleRecordings = { frameId: number; replays: number; recordings: R
  * A dynamic uniform allocation follows the frame's order of draws, so a recording holds while that order does. Camera and occurrence are in the key so a bundle replayed under several cameras, or
  * more than once under one, keeps a recording for each rather than overwriting a shared one.
  */
-function getOrRecordBundle(ctx: EncodeContext, from: number, to: number, bundle: RenderBundle): GPURenderBundle {
+function getOrRecordBundle(
+    ctx: EncodeContext,
+    from: number,
+    to: number,
+    bundle: RenderBundle,
+    camera: View | null,
+): GPURenderBundle {
     const { b, passCtx } = ctx;
     let byCamera = b.renderBundles.get(bundle);
     if (byCamera === undefined) {
         byCamera = new WeakMap();
         b.renderBundles.set(bundle, byCamera);
     }
-    const cameraKey = ctx.params.camera ?? CAMERALESS;
+    const cameraKey = camera ?? CAMERALESS;
     let byContext = byCamera.get(cameraKey);
     if (byContext === undefined) {
         byContext = new Map();

@@ -2658,6 +2658,50 @@ async function caseMultiCameraOneTarget(gpu: Renderer<WebGPUBackend>): Promise<C
     };
 }
 
+/**
+ * pass-views: one pass drawing two views, as a shadow atlas does. The left half is drawn from a camera facing a box,
+ * the right half from one at the same spot facing away, each under its own viewport and scissor. The left half's
+ * centre shows the box and the right half's shows the clear; both halves alike means the draws shared a camera. Two
+ * frames, so the second opens with the camera uniforms still holding the first frame's last view.
+ */
+async function casePassViews(gpu: Renderer<WebgpuBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const { box, facing, away } = boxBetweenCameras();
+    const left = { x: 0, y: 0, width: SIZE / 2, height: SIZE };
+    const right = { x: SIZE / 2, y: 0, width: SIZE / 2, height: SIZE };
+
+    for (let frameIndex = 0; frameIndex < 2; frameIndex++) {
+        const f = frame(gpu);
+        const pass = f.pass({ target, clear: [0, 0, 0, 1], label: 'views' });
+        pass.setCamera(facing);
+        pass.setViewport(left);
+        pass.setScissor(left);
+        pass.draw(box);
+        pass.setCamera(away);
+        pass.setViewport(right);
+        pass.setScissor(right);
+        pass.draw(box);
+        pass.end();
+        f.submit();
+    }
+
+    const pixels = await read(gpu, target);
+    const at = (x: number, y: number) => {
+        const i = (y * SIZE + x) * 4;
+        return [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]];
+    };
+    const leftCentre = at(SIZE / 4, SIZE / 2);
+    const rightCentre = at((SIZE * 3) / 4, SIZE / 2);
+    const blue = leftCentre[2] > 200 && leftCentre[0] < 60 && leftCentre[1] < 60;
+    const black = rightCentre[0] < 60 && rightCentre[1] < 60 && rightCentre[2] < 60;
+    return {
+        name: 'pass-views',
+        pixel: blue && black ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `left=${leftCentre.join(',')} (box, blue) right=${rightCentre.join(',')} (clear, black)`,
+    };
+}
+
 /** camera-reused-across-passes: one camera object, turned away between two passes of one frame. */
 async function caseCameraReusedAcrossPasses(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
@@ -2930,6 +2974,7 @@ const CASES: Record<string, Case> = {
     msaa: caseMsaa,
     'bundle-replay': caseBundleReplay,
     'multi-camera-one-target': caseMultiCameraOneTarget,
+    'pass-views': casePassViews,
     'camera-reused-across-passes': caseCameraReusedAcrossPasses,
     'bundle-across-cameras': caseBundleAcrossCameras,
     'cube-camera-faces': caseCubeCameraFaces,

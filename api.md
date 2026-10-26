@@ -509,9 +509,11 @@ Drive the GPU: create a renderer, build pipelines, render to the canvas or a tar
 <table><tr>
 <td><a href="#renderer"><code>Renderer</code></a></td><td><a href="#memoryreport"><code>memoryReport</code></a></td><td><a href="#init"><code>init</code></a></td><td><a href="#backendname"><code>BackendName</code></a></td>
 </tr><tr>
-<td><a href="#rect"><code>Rect</code></a></td><td><a href="#passdesc"><code>PassDesc</code></a></td><td><a href="#drawoptions"><code>DrawOptions</code></a></td><td><a href="#drawrecord"><code>DrawRecord</code></a></td>
+<td><a href="#rect"><code>Rect</code></a></td><td><a href="#viewportrect"><code>ViewportRect</code></a></td><td><a href="#passdesc"><code>PassDesc</code></a></td><td><a href="#drawoptions"><code>DrawOptions</code></a></td>
 </tr><tr>
-<td><a href="#renderbundle"><code>RenderBundle</code></a></td><td><a href="#bundlerecord"><code>BundleRecord</code></a></td><td><a href="#passentry"><code>PassEntry</code></a></td><td><a href="#computepassdesc"><code>ComputePassDesc</code></a></td>
+<td><a href="#drawrecord"><code>DrawRecord</code></a></td><td><a href="#renderbundle"><code>RenderBundle</code></a></td><td><a href="#bundlerecord"><code>BundleRecord</code></a></td><td><a href="#camerarecord"><code>CameraRecord</code></a></td>
+</tr><tr>
+<td><a href="#viewportrecord"><code>ViewportRecord</code></a></td><td><a href="#scissorrecord"><code>ScissorRecord</code></a></td><td><a href="#passentry"><code>PassEntry</code></a></td><td><a href="#computepassdesc"><code>ComputePassDesc</code></a></td>
 </tr><tr>
 <td><a href="#dispatchoptions"><code>DispatchOptions</code></a></td><td><a href="#dispatchindirectoptions"><code>DispatchIndirectOptions</code></a></td><td><a href="#dispatchrecord"><code>DispatchRecord</code></a></td><td><a href="#framebackend"><code>FrameBackend</code></a></td>
 </tr><tr>
@@ -4443,6 +4445,15 @@ export type Rect = {
 };
 ```
 
+#### `ViewportRect`
+
+```ts
+export type ViewportRect = Rect & {
+    minDepth?: number;
+    maxDepth?: number;
+};
+```
+
 #### `PassDesc`
 
 ```ts
@@ -4458,10 +4469,7 @@ export type PassDesc = {
     /** Mip level to render into. Only a `CubeRenderTarget` allocates a chain to select from. */
     mipLevel?: number;
     mrt?: MRTNode;
-    viewport?: Rect & {
-        minDepth?: number;
-        maxDepth?: number;
-    };
+    viewport?: ViewportRect;
     scissor?: Rect;
     label?: string;
 };
@@ -4524,11 +4532,42 @@ export type BundleRecord = {
 };
 ```
 
+#### `CameraRecord`
+
+```ts
+/** The camera the draws after it are drawn from. */
+export type CameraRecord = {
+    kind: 'camera';
+    camera: View;
+};
+```
+
+#### `ViewportRecord`
+
+```ts
+/** The viewport the draws after it are drawn into; undefined is the whole target. */
+export type ViewportRecord = {
+    kind: 'viewport';
+    viewport: ViewportRect | undefined;
+};
+```
+
+#### `ScissorRecord`
+
+```ts
+/** The scissor the draws after it are clipped to; undefined is none. */
+export type ScissorRecord = {
+    kind: 'scissor';
+    scissor: Rect | undefined;
+};
+```
+
 #### `PassEntry`
 
 ```ts
-/** What a pass records: a draw it was handed, or a bundle it was told to replay. */
-export type PassEntry = DrawRecord | BundleRecord;
+/** What a pass records: a draw it was handed, a bundle it was told to replay, or a change to what the draws after it
+ *  are drawn with. */
+export type PassEntry = DrawRecord | BundleRecord | CameraRecord | ViewportRecord | ScissorRecord;
 ```
 
 #### `ComputePassDesc`
@@ -4627,6 +4666,16 @@ export type Pass = {
     execute(bundle: RenderBundle): void;
     /** Walks a tree here: frustum culled, `visible` honoured, opaque before transparent. */
     scene(root: Object3D, camera?: View): void;
+    /**
+     * Draws what is recorded after this from `camera`, until the next. Its matrices are uniforms of their own for
+     * those draws, so one pass draws several views: a shadow atlas, cascades. The same camera again changes nothing.
+     */
+    setCamera(camera: View): void;
+    /** Draws what is recorded after this into `viewport`, in physical pixels from the target's top left, until the
+     *  next; undefined is the whole target. It must lie inside the target. */
+    setViewport(viewport: ViewportRect | undefined): void;
+    /** Clips what is recorded after this to `scissor`, clamped to the target, until the next; undefined is none. */
+    setScissor(scissor: Rect | undefined): void;
     end(): void;
 };
 ```

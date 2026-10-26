@@ -435,6 +435,7 @@ export {
     type BackendName,
     type BundleRecord,
     type CallRecord,
+    type CameraRecord,
     type ComputePass,
     type ComputePassDesc,
     type DispatchIndirectOptions,
@@ -450,10 +451,13 @@ export {
     type PassEntry,
     type Rect,
     type RenderBundle,
+    type ScissorRecord,
     type TransformFeedbackDispatch,
     type TransformFeedbackPass,
     type TransformFeedbackPassDesc,
     type TransformFeedbackRecord,
+    type ViewportRecord,
+    type ViewportRect,
 } from './renderer/core/frame';
 export {
     type AllocationCategory,

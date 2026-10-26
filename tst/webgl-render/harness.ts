@@ -4857,6 +4857,69 @@ async function caseClearIgnoresScissor(): Promise<CaseResult> {
     };
 }
 
+/** A box at the origin, a camera at z=3 facing it, and a camera at the same spot facing away. */
+function boxBetweenCameras(): { box: Mesh; facing: PerspectiveCamera; away: PerspectiveCamera } {
+    const worldPosition = mul(modelWorldMatrix, vec4(attribute('position', d.vec3f), f32(1)));
+    const clipPosition = mul(cameraProjectionMatrix, mul(cameraViewMatrix, worldPosition));
+    const box = new Mesh(createBoxGeometry(1, 1, 1), new Material({ vertex: clipPosition, fragment: vec4(0, 0, 1, 1) }));
+    box.updateWorldMatrix();
+    const aimed = (target: [number, number, number]) => {
+        const camera = new PerspectiveCamera(Math.PI / 4, 1, 0.1, 100);
+        camera.position[2] = 3;
+        camera.lookAt(target);
+        camera.updateWorldMatrix();
+        camera.updateViewMatrix();
+        return camera;
+    };
+    return { box, facing: aimed([0, 0, 0]), away: aimed([0, 0, 10]) };
+}
+
+/**
+ * pass-views: one pass drawing two views, as a shadow atlas does. The left half is drawn from a camera facing a box,
+ * the right half from one at the same spot facing away, each under its own viewport and scissor. The left half's
+ * centre shows the box and the right half's shows the clear; both halves alike means the draws shared a camera. A
+ * top-left rect lands top-left, so GL's flipped viewport origin is in it too: the rects split left from right only.
+ */
+async function casePassViews(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const { box, facing, away } = boxBetweenCameras();
+    const left = { x: 0, y: 0, width: SIZE / 2, height: SIZE };
+    const right = { x: SIZE / 2, y: 0, width: SIZE / 2, height: SIZE };
+
+    for (let frameIndex = 0; frameIndex < 2; frameIndex++) {
+        const f = frame(renderer);
+        const pass = f.pass({ target, clear: [0, 0, 0, 1], label: 'views' });
+        pass.setCamera(facing);
+        pass.setViewport(left);
+        pass.setScissor(left);
+        pass.draw(box);
+        pass.setCamera(away);
+        pass.setViewport(right);
+        pass.setScissor(right);
+        pass.draw(box);
+        pass.end();
+        f.submit();
+    }
+
+    const pixels = await read(renderer, target);
+    const at = (x: number, y: number) => {
+        const i = (y * SIZE + x) * 4;
+        return [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]];
+    };
+    const leftCentre = at(SIZE / 4, SIZE / 2);
+    const rightCentre = at((SIZE * 3) / 4, SIZE / 2);
+    renderer.dispose();
+    const blue = leftCentre[2] > 200 && leftCentre[0] < 60 && leftCentre[1] < 60;
+    const black = rightCentre[0] < 60 && rightCentre[1] < 60 && rightCentre[2] < 60;
+    return {
+        name: 'pass-views',
+        pixel: blue && black ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `left=${leftCentre.join(',')} (box, blue) right=${rightCentre.join(',')} (clear, black)`,
+    };
+}
+
 export async function run(): Promise<RunResult> {
     try {
         const cases: CaseResult[] = [];
@@ -4866,6 +4929,7 @@ export async function run(): Promise<RunResult> {
             caseFragCoordDirect,
             caseGeomUvPresent,
             caseViewportCellPresent,
+            casePassViews,
             caseClear,
             caseClearIgnoresScissor,
             caseCompilePrewarm,

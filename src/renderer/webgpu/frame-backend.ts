@@ -8,8 +8,21 @@ import type { DeviceBackend } from '../core/device-backend';
 import type { ComputePassDesc, DispatchRecord, DrawOptions, DrawRecord, PassDesc, PassEntry, RenderBundle } from '../core/frame';
 import { aimNodeFrame } from '../core/node-frame';
 import type { RenderContext } from '../core/pass-context';
-import { alignCameraToBackend, resolvePassContext, resolvePassParams } from '../core/pass-desc';
-import { createPassParams, type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
+import {
+    alignCameraToBackend,
+    applyViewRecord,
+    isViewRecord,
+    resolvePassContext,
+    resolvePassParams,
+    writeSegment,
+} from '../core/pass-desc';
+import {
+    createPassParams,
+    createSegment,
+    type PreparedRenderObject,
+    type PreparedSegment,
+    type RenderPassParams,
+} from '../core/render-types';
 import type { Renderer } from '../core/renderer';
 import { drawsNothing, prepareRecordedDraw } from '../core/renderer-ops';
 import { renderTargetOf } from '../core/target';
@@ -55,7 +68,8 @@ type OpenRenderPass = {
     preparedOpts: (DrawOptions | null)[];
     bindings: DrawBindings[];
     count: number;
-    /** Runs of `prepared`, one per bundle plus the direct draws between them. */
+    /** Runs of `prepared`: one per bundle, and the direct draws between them, split where the camera or a rect
+     *  changed. Pooled; the first `segmentCount` are this pass's. */
     segments: PreparedSegment[];
     segmentCount: number;
     runStart: number;
@@ -147,11 +161,17 @@ export function beginPass(s: WebGPUFrameBackendState, desc: PassDesc): void {
     backend.device.pushErrorScope('validation');
 }
 
-/** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded. */
+/** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded; a camera or rect
+ *  change ends the run of draws before it. */
 export function recordEntry(s: WebGPUFrameBackendState, entry: PassEntry): void {
     const depth = s.depth;
     const open = s.openByDepth[depth - 1];
     if (open.skipped) return;
+    if (isViewRecord(entry)) {
+        closeRun(open, null);
+        applyViewRecord(s.renderer, open.params, entry, CoordinateSystem.WEBGPU);
+        return;
+    }
     try {
         if (entry.kind !== 'bundle') {
             resolveDraw(s, open, entry);
@@ -187,7 +207,7 @@ function resolveDraw(s: WebGPUFrameBackendState, open: OpenRenderPass, entry: Dr
     }
 
     // A nested pass recorded by `updateBefore` aimed the frame at its own target.
-    aimNodeFrame(renderer, open.desc.camera ?? null, open.params.width, open.params.height);
+    aimNodeFrame(renderer, open.params.camera, open.params.width, open.params.height);
     const index = open.count++;
     open.prepared[index] = renderObject;
     open.preparedOpts[index] = entry.opts;
@@ -214,7 +234,13 @@ function keepProbeBindings(
 
 function closeRun(open: OpenRenderPass, bundle: RenderBundle | null): void {
     if (open.count === open.runStart) return;
-    open.segments[open.segmentCount++] = { bundle, start: open.runStart, count: open.count - open.runStart };
+    let segment = open.segments[open.segmentCount];
+    if (segment === undefined) {
+        segment = createSegment();
+        open.segments[open.segmentCount] = segment;
+    }
+    open.segmentCount++;
+    writeSegment(segment, bundle, open.runStart, open.count - open.runStart, open.params);
     open.runStart = open.count;
 }
 
@@ -228,12 +254,11 @@ export function encodePass(s: WebGPUFrameBackendState, desc: PassDesc): void {
 
     try {
         closeRun(open, null);
-        open.segments.length = open.segmentCount;
         aimNodeFrame(renderer, desc.camera ?? null, open.params.width, open.params.height);
 
         const scope = RenderPass.beginPass(backend, open.params);
         try {
-            if (open.count > 0) RenderPass.encodeDraws(contextAt(s, open), open.count, scope, open.segments);
+            if (open.count > 0) RenderPass.encodeDraws(contextAt(s, open), scope, open.segments, open.segmentCount);
         } finally {
             RenderPass.endPass(scope);
         }

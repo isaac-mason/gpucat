@@ -11,8 +11,21 @@ import type {
 } from '../core/frame';
 import { aimNodeFrame } from '../core/node-frame';
 import type { RenderContext } from '../core/pass-context';
-import { alignCameraToBackend, resolvePassContext, resolvePassParams } from '../core/pass-desc';
-import { createPassParams, type PreparedRenderObject, type RenderPassParams } from '../core/render-types';
+import {
+    alignCameraToBackend,
+    applyViewRecord,
+    isViewRecord,
+    resolvePassContext,
+    resolvePassParams,
+    writeSegment,
+} from '../core/pass-desc';
+import {
+    createPassParams,
+    createSegment,
+    type PreparedRenderObject,
+    type PreparedSegment,
+    type RenderPassParams,
+} from '../core/render-types';
 import type { Renderer } from '../core/renderer';
 import { drawsNothing, prepareRecordedDraw } from '../core/renderer-ops';
 import { renderTargetOf } from '../core/target';
@@ -60,6 +73,11 @@ type OpenRenderPass = {
     preparedOpts: (DrawOptions | null)[];
     captures: Bindings.RecordCapture[];
     count: number;
+    /** Runs of `prepared`, split where the camera or a rect changed. Pooled; the first `segmentCount` are this
+     *  pass's. A bundle's draws replay inside the run they land in: WebGL has no device bundles. */
+    segments: PreparedSegment[];
+    segmentCount: number;
+    runStart: number;
 };
 
 export function createWebGLFrameBackendState(renderer: Renderer<DeviceBackend>, backend: WebGLBackend): WebGLFrameBackendState {
@@ -129,11 +147,17 @@ export function beginPass(s: WebGLFrameBackendState, desc: PassDesc): void {
     renderer.inspector?.beginRender(open.params.passId);
 }
 
-/** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded. */
+/** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded; a camera or rect
+ *  change ends the run of draws before it. */
 export function recordEntry(s: WebGLFrameBackendState, entry: PassEntry): void {
     const depth = s.depth;
     const open = s.openByDepth[depth - 1];
     if (open.skipped) return;
+    if (isViewRecord(entry)) {
+        closeRun(open);
+        applyViewRecord(s.renderer, open.params, entry, CoordinateSystem.WEBGL);
+        return;
+    }
     try {
         if (entry.kind !== 'bundle') {
             resolveDraw(s, open, entry);
@@ -163,7 +187,7 @@ function resolveDraw(s: WebGLFrameBackendState, open: OpenRenderPass, entry: Dra
     }
 
     // A nested pass recorded by `updateBefore` aimed the frame at its own target.
-    aimNodeFrame(renderer, open.desc.camera ?? null, open.params.width, open.params.height);
+    aimNodeFrame(renderer, open.params.camera, open.params.width, open.params.height);
     const index = open.count++;
     open.prepared[index] = renderObject;
     open.preparedOpts[index] = entry.opts;
@@ -176,6 +200,18 @@ function resolveDraw(s: WebGLFrameBackendState, open: OpenRenderPass, entry: Dra
     renderer.inspector?.resolvedDraw(renderObject, false);
 }
 
+function closeRun(open: OpenRenderPass): void {
+    if (open.count === open.runStart) return;
+    let segment = open.segments[open.segmentCount];
+    if (segment === undefined) {
+        segment = createSegment();
+        open.segments[open.segmentCount] = segment;
+    }
+    open.segmentCount++;
+    writeSegment(segment, null, open.runStart, open.count - open.runStart, open.params);
+    open.runStart = open.count;
+}
+
 /** Encodes what the pass captured, then closes the scopes `beginPass` opened. */
 export function encodePass(s: WebGLFrameBackendState, desc: PassDesc): void {
     const open = s.openByDepth[--s.depth];
@@ -184,6 +220,7 @@ export function encodePass(s: WebGLFrameBackendState, desc: PassDesc): void {
     const { ctx, params } = open;
 
     try {
+        closeRun(open);
         aimNodeFrame(renderer, desc.camera ?? null, params.width, params.height);
 
         // The pass's own GL work starts here, after everything that prepared it: `beginPass` clears,
@@ -205,6 +242,8 @@ export function encodePass(s: WebGLFrameBackendState, desc: PassDesc): void {
                         open.preparedOpts,
                         open.captures,
                         open.count,
+                        open.segments,
+                        open.segmentCount,
                         renderer.inspector,
                         renderer.info,
                         scope,
@@ -256,6 +295,9 @@ function openAt(pool: OpenRenderPass[], depth: number, desc: PassDesc, ctx: Rend
             preparedOpts: [],
             captures: [],
             count: 0,
+            segments: [],
+            segmentCount: 0,
+            runStart: 0,
         };
         pool[depth] = open;
     }
@@ -263,6 +305,8 @@ function openAt(pool: OpenRenderPass[], depth: number, desc: PassDesc, ctx: Rend
     open.ctx = ctx;
     open.skipped = true;
     open.count = 0;
+    open.segmentCount = 0;
+    open.runStart = 0;
     return open;
 }
 

@@ -29,7 +29,7 @@
 
 import type { Object3D } from '../core/object3d';
 import type { ComputeNode, InspectorNode } from '../nodes/nodes';
-import type { AnyPass, CallRecord } from '../renderer/core/frame';
+import type { AnyPass, CallRecord, Rect } from '../renderer/core/frame';
 import type { RenderObject } from '../renderer/core/render-object';
 import type { Any } from '../schema/schema';
 import { type InspectableRenderer, InspectorBase } from './inspector-base';
@@ -1000,9 +1000,17 @@ function callName(record: CallRecord): string {
             return record.mesh.name || `Mesh #${record.mesh.objectId}`;
         case 'bundle':
             return record.bundle.label;
+        case 'camera':
+        case 'viewport':
+        case 'scissor':
+            return record.kind;
         default:
             return record.node.name ?? record.node.id;
     }
+}
+
+function rectDetail(rect: Rect | undefined, none: string): string {
+    return rect === undefined ? none : `${rect.x ?? 0}, ${rect.y ?? 0} ${rect.width} x ${rect.height}`;
 }
 
 function callDetail(record: CallRecord): string {
@@ -1018,6 +1026,18 @@ function callDetail(record: CallRecord): string {
         }
         case 'bundle':
             parts.push(`${record.bundle.count} draws`);
+            break;
+        case 'camera': {
+            const world = record.camera.matrixWorld;
+            parts.push(`at ${world[12].toFixed(2)}, ${world[13].toFixed(2)}, ${world[14].toFixed(2)}`);
+            parts.push(`near ${record.camera.near}, far ${record.camera.far}`);
+            break;
+        }
+        case 'viewport':
+            parts.push(rectDetail(record.viewport, 'whole target'));
+            break;
+        case 'scissor':
+            parts.push(rectDetail(record.scissor, 'none'));
             break;
         case 'dispatch':
             if (record.indirect !== undefined) parts.push(`indirect at ${record.indirectOffset ?? 0}`);

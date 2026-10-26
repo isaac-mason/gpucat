@@ -389,7 +389,7 @@ material.uniforms.set('color', new Uniform(d.vec3f, [1, 0, 0]));  // per materia
 
 A uniform's **group** sets both its WGSL `@group` and how often it is evaluated: `objectGroup` (default, per draw call), `renderGroup` (per pass), `frameGroup` (once per frame). The built-in camera and model uniforms already sit in the right groups.
 
-**When a value is read.** A draw or dispatch reads its uniform values when you record it: `pass.draw(mesh)` and `pass.dispatch(node, ...)` resolve the draw's bindings on the spot, so a value changed between two draws of one pass reaches each draw as it was when that draw was recorded, and a draw that cannot resolve (a missing attribute, an unbound buffer) throws at the call that recorded it. Values that belong to the pass rather than a draw (the camera matrices, `screenSize`) are read once per pass, at the first draw that uses them. Across passes, each pass sees its own values, even when several passes of one frame read the same uniform differently: two cameras into one target, one camera moved between passes, one material drawn into targets of different sizes (`screenSize`), one compute node dispatched from two compute passes. A uniform uploads only when its value changes. On WebGPU a later pass of the same frame with a different value reads a slice of a shared per-frame buffer instead of rewriting the uniform's own, which an earlier pass is still to read; `renderer.info.buffers.dynamicAllocations` counts those. `frameGroup` values are evaluated once per frame, so every pass sees the same one.
+**When a value is read.** A draw or dispatch reads its uniform values when you record it: `pass.draw(mesh)` and `pass.dispatch(node, ...)` resolve the draw's bindings on the spot, so a value changed between two draws of one pass reaches each draw as it was when that draw was recorded, and a draw that cannot resolve (a missing attribute, an unbound buffer) throws at the call that recorded it. Values that belong to the pass rather than a draw (the camera matrices, `screenSize`) are read once per pass, at the first draw that uses them, and the camera's again after a `setCamera` (see [Several views in one pass](#several-views-in-one-pass)). Across passes, each pass sees its own values, even when several passes of one frame read the same uniform differently: two cameras into one target, one camera moved between passes, one material drawn into targets of different sizes (`screenSize`), one compute node dispatched from two compute passes. A uniform uploads only when its value changes. On WebGPU a later pass of the same frame with a different value reads a slice of a shared per-frame buffer instead of rewriting the uniform's own, which an earlier pass is still to read; `renderer.info.buffers.dynamicAllocations` counts those. `frameGroup` values are evaluated once per frame, so every pass sees the same one.
 
 A shader can bind at most 8 groups whose values can change between passes or draws (every group but `frameGroup`), the WebGPU guarantee for one pipeline. Building a pipeline past the device's limit throws and names the material.
 
@@ -639,6 +639,25 @@ const env = cubeTexture(cubeRT.texture).sample(reflectDir);
 Like everything else, this does no automatic per-frame work: you call `update()` when you want to refresh the map, and it records onto the frame you hand it, so the cube and whatever samples it reach the device in one submit. See [`CubeRenderTarget`](./api.md#cuberendertarget) and [`CubeCamera`](./api.md#cubecamera).
 
 <ExamplesTable ids="example-webgpu-cube-camera" />
+
+### Several views in one pass
+
+A pass can change its camera, viewport and scissor between draws. Each applies to the draws recorded after it, until the next, so one pass draws several views of the world into one target: a shadow atlas with a light's view in each slot, cascades as quadrants of one map, a split screen.
+
+```ts
+const pass = f.pass({ target: atlas, label: 'shadows' });
+for (const shadow of shadows) {
+    pass.setCamera(shadow.camera);
+    pass.setViewport(shadow.rect);
+    pass.setScissor(shadow.rect);
+    pass.draw(casters);
+}
+pass.end();
+```
+
+This is cheaper than a pass per view: on a tile-based GPU (every phone, Apple silicon) each pass loads and stores its attachments, and these share one. The three cost differently, which is why they are separate. A viewport or scissor is one encoder command. A camera gives the draws after it camera uniforms of their own: on WebGPU they land in a slice of the shared per-frame uniform buffer, bound at a dynamic offset, so nothing is rewritten under a draw already recorded. Setting the camera the pass already draws from changes nothing.
+
+Rects are physical pixels from the target's top left, as on `PassDesc`; `undefined` puts the whole target back. A viewport reaching outside the target throws, naming the pass. A bundle replayed between two changes draws under the view before it, and records once per camera it is replayed under. The clear is the pass's, over the whole target; nothing clears a single rect.
 
 ### Tonemapping and post-processing
 
@@ -1091,7 +1110,7 @@ staticProps.dispose();      // done with it; drops the records too
 
 Executing a disposed bundle throws and names it, rather than quietly drawing nothing. The label you pass to `bundle()` is what appears there, and on the device objects recorded from it, so it is worth giving one.
 
-The one thing a bundle cannot contain is a draw that needs a stencil reference (`material.stencilRef` on a pass with a stencil attachment), because a bundle encoder has no `setStencilReference`. Recording one throws and names the mesh. Viewport and scissor are pass state and stay on `PassDesc`, so they are unaffected.
+The one thing a bundle cannot contain is a draw that needs a stencil reference (`material.stencilRef` on a pass with a stencil attachment), because a bundle encoder has no `setStencilReference`. Recording one throws and names the mesh. Viewport and scissor are pass state, set on `PassDesc` or between draws with `setViewport` and `setScissor`, never inside a bundle, so they are unaffected: a replayed bundle draws under the ones set before it.
 
 ## Controls and the Inspector
 

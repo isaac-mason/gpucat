@@ -54,15 +54,33 @@ export type RenderPassParams = {
 };
 
 /**
- * A contiguous run of prepared objects, and the bundle it came from if any. WebGPU records a device
- * bundle per run so it can `executeBundles` instead of re-encoding; WebGL ignores these, because the
- * flat prepared list already is the replay.
+ * A contiguous run of prepared objects: the bundle it came from if any, and the camera, viewport and scissor its draws
+ * were recorded under. A run ends at a bundle's edge or at a change of camera or rect. WebGPU records a device bundle per
+ * bundle run so it can `executeBundles` instead of re-encoding; WebGL replays a bundle's draws as they are.
  */
 export type PreparedSegment = {
     bundle: RenderBundle | null;
     start: number;
     count: number;
+    camera: View | null;
+    viewport: boolean;
+    viewportValue: ViewportValue;
+    scissor: boolean;
+    scissorValue: ScissorValue;
 };
+
+export function createSegment(): PreparedSegment {
+    return {
+        bundle: null,
+        start: 0,
+        count: 0,
+        camera: null,
+        viewport: false,
+        viewportValue: { x: 0, y: 0, width: 0, height: 0, minDepth: 0, maxDepth: 1 },
+        scissor: false,
+        scissorValue: { x: 0, y: 0, width: 0, height: 0 },
+    };
+}
 
 /** Whether a depth format carries a stencil aspect. `stencil8` is stencil-only and still counts. */
 export function formatHasStencil(format: GPUTextureFormat | undefined): boolean {

@@ -79,7 +79,7 @@ test('a stencil depth format is reported for either kind of target', () => {
 });
 
 test('viewport and scissor are taken as physical pixels, with defaults filled', () => {
-    const view = canvas(100, 50);
+    const view = canvas(200, 100);
     view.setPixelRatio(2);
 
     const params = resolvePassParams(

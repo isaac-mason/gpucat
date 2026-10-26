@@ -27,6 +27,7 @@ export const CASE_NAMES = [
     'msaa',
     'bundle-replay',
     'multi-camera-one-target',
+    'pass-views',
     'camera-reused-across-passes',
     'bundle-across-cameras',
     'cube-camera-faces',

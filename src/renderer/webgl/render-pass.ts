@@ -23,7 +23,7 @@ import * as NodeManager from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
 import { getBindings, pipelineLabel } from '../core/render-object';
 import * as RenderState from '../core/render-state';
-import type { PreparedRenderObject, RenderPassParams } from '../core/render-types';
+import type { PreparedRenderObject, PreparedSegment, RenderPassParams } from '../core/render-types';
 import * as Bindings from './bindings';
 import * as Geometries from './geometries';
 import { getRenderObjectGl } from './render-object-gl';
@@ -45,14 +45,17 @@ function bindFramebuffer(gl: WebGL2RenderingContext, caches: WebGLBackend, param
     return { hasStencil: params.swapchainStencil };
 }
 
-/** Apply the pass's resolved (physical-pixel) viewport + scissor to GL state. */
-function applyViewportScissor(gl: WebGL2RenderingContext, params: RenderPassParams): void {
-    if (params.viewport) {
-        const v = params.viewportValue;
+/** The resolved (physical-pixel) rects a run of draws is drawn under. */
+type Rects = Pick<RenderPassParams, 'viewport' | 'viewportValue' | 'scissor' | 'scissorValue'>;
+
+/** Apply a run's resolved (physical-pixel) viewport + scissor to GL state, over a `width` x `height` framebuffer. */
+function applyViewportScissor(gl: WebGL2RenderingContext, width: number, height: number, rects: Rects): void {
+    if (rects.viewport) {
+        const v = rects.viewportValue;
         // WebGPU's viewport origin is top-left; GL's is bottom-left. Flip Y against the framebuffer height
         // so a top-left rect (e.g. the studio grid's per-card cells, sourced from DOM coordinates) lands in
         // the right place. A full-framebuffer viewport is unchanged by the flip.
-        gl.viewport(v.x, params.height - v.y - v.height, v.width, v.height);
+        gl.viewport(v.x, height - v.y - v.height, v.width, v.height);
         // Honor the viewport's depth range (defaults 0,1). Threaded through per pass so a prior pass's
         // custom range never leaks into this one.
         gl.depthRange(v.minDepth, v.maxDepth);
@@ -63,14 +66,14 @@ function applyViewportScissor(gl: WebGL2RenderingContext, params: RenderPassPara
         // lets a render target larger than the canvas draw correctly — e.g. a headless 1x1 OffscreenCanvas
         // rendering into a full-size target. Also restore the default full depth range so a preceding
         // pass's custom depthRange doesn't persist as stale state.
-        gl.viewport(0, 0, params.width, params.height);
+        gl.viewport(0, 0, width, height);
         gl.depthRange(0, 1);
     }
-    if (params.scissor) {
-        const s = params.scissorValue;
+    if (rects.scissor) {
+        const s = rects.scissorValue;
         gl.enable(gl.SCISSOR_TEST);
         // Same top-left to bottom-left Y flip as the viewport above.
-        gl.scissor(s.x, params.height - s.y - s.height, s.width, s.height);
+        gl.scissor(s.x, height - s.y - s.height, s.width, s.height);
     } else {
         gl.disable(gl.SCISSOR_TEST);
     }
@@ -195,8 +198,7 @@ export function beginPass(caches: WebGLBackend, passCtx: RenderContext, params: 
         clearBuffers(gl, params, params.clearsColor, params.clearsDepth, params.clearsStencil, targetStencil);
     }
 
-    applyViewportScissor(gl, params);
-
+    // each run of draws sets the rects it was recorded under (`encodeDraws`)
     return { passBlend };
 }
 
@@ -258,6 +260,8 @@ export function encodeDraws(
     preparedOpts: readonly (DrawOptions | null)[],
     captures: readonly Bindings.RecordCapture[],
     count: number,
+    segments: readonly PreparedSegment[],
+    segmentCount: number,
     inspector: InspectorBase | null,
     info: RendererInfo,
     { passBlend }: PassScope,
@@ -270,7 +274,12 @@ export function encodeDraws(
     let currentProgram: WebGLProgram | null = null;
     let currentVao: WebGLVertexArrayObject | null = null;
 
+    // the runs cover the draws in order, each starting where the last ended
+    let segmentIndex = 0;
     for (let i = 0; i < count; i++) {
+        if (segmentIndex < segmentCount && segments[segmentIndex].start === i) {
+            applyViewportScissor(gl, params.width, params.height, segments[segmentIndex++]);
+        }
         const renderObject = prepared[i];
         const { mesh, material, geometry } = renderObject;
         const nodeState = renderObject.nodeBuilderState!;

@@ -18,6 +18,8 @@ export type BackendName = 'webgl' | 'webgpu';
 
 export type Rect = { x?: number; y?: number; width: number; height: number };
 
+export type ViewportRect = Rect & { minDepth?: number; maxDepth?: number };
+
 export type PassDesc = {
     target: Target;
     camera?: View;
@@ -30,7 +32,7 @@ export type PassDesc = {
     /** Mip level to render into. Only a `CubeRenderTarget` allocates a chain to select from. */
     mipLevel?: number;
     mrt?: MRTNode;
-    viewport?: Rect & { minDepth?: number; maxDepth?: number };
+    viewport?: ViewportRect;
     scissor?: Rect;
     label?: string;
 };
@@ -70,8 +72,16 @@ export type RenderBundle = {
 
 export type BundleRecord = { kind: 'bundle'; bundle: RenderBundle };
 
-/** What a pass records: a draw it was handed, or a bundle it was told to replay. */
-export type PassEntry = DrawRecord | BundleRecord;
+/** The camera the draws after it are drawn from. */
+export type CameraRecord = { kind: 'camera'; camera: View };
+/** The viewport the draws after it are drawn into; undefined is the whole target. */
+export type ViewportRecord = { kind: 'viewport'; viewport: ViewportRect | undefined };
+/** The scissor the draws after it are clipped to; undefined is none. */
+export type ScissorRecord = { kind: 'scissor'; scissor: Rect | undefined };
+
+/** What a pass records: a draw it was handed, a bundle it was told to replay, or a change to what the draws after it
+ *  are drawn with. */
+export type PassEntry = DrawRecord | BundleRecord | CameraRecord | ViewportRecord | ScissorRecord;
 
 export type ComputePassDesc = { label?: string };
 
@@ -141,6 +151,13 @@ export type Pass = {
     drawRecord: DrawRecord | null;
     /** Handed to the backend by every `execute()`, created by the first. @internal */
     bundleRecord: BundleRecord | null;
+    /** Handed to the backend by every `setCamera()`, created by the first. @internal */
+    cameraRecord: CameraRecord | null;
+    /** Handed to the backend by every `setViewport()` and `setScissor()`. @internal */
+    /** @internal */ viewportRecord: ViewportRecord;
+    /** @internal */ scissorRecord: ScissorRecord;
+    /** What the draws recorded next are drawn from: the desc's, until `setCamera`. @internal */
+    camera: View | undefined;
     /** @internal */ ended: boolean;
     /** Draws unconditionally: `mesh.visible` gates the scene walk, not a draw you recorded yourself. */
     draw(mesh: Mesh, opts?: DrawOptions): void;
@@ -148,6 +165,16 @@ export type Pass = {
     execute(bundle: RenderBundle): void;
     /** Walks a tree here: frustum culled, `visible` honoured, opaque before transparent. */
     scene(root: Object3D, camera?: View): void;
+    /**
+     * Draws what is recorded after this from `camera`, until the next. Its matrices are uniforms of their own for
+     * those draws, so one pass draws several views: a shadow atlas, cascades. The same camera again changes nothing.
+     */
+    setCamera(camera: View): void;
+    /** Draws what is recorded after this into `viewport`, in physical pixels from the target's top left, until the
+     *  next; undefined is the whole target. It must lie inside the target. */
+    setViewport(viewport: ViewportRect | undefined): void;
+    /** Clips what is recorded after this to `scissor`, clamped to the target, until the next; undefined is none. */
+    setScissor(scissor: Rect | undefined): void;
     end(): void;
 };
 
@@ -337,6 +364,7 @@ function openRenderPass(frame: Frame, desc: PassDesc): Pass {
         pass.desc = desc;
         pass.ended = false;
     }
+    pass.camera = desc.camera;
     frame.poolIndex++;
     beginOnBackend(frame, pass);
     frame.open = pass;
@@ -349,18 +377,50 @@ function createRenderPass(frame: Frame, desc: PassDesc): Pass {
         desc,
         drawRecord: null,
         bundleRecord: null,
+        cameraRecord: null,
+        viewportRecord: { kind: 'viewport', viewport: undefined },
+        scissorRecord: { kind: 'scissor', scissor: undefined },
+        camera: desc.camera,
         ended: false,
         draw: (mesh, opts) => recordDraw(frame, pass, mesh, opts),
         execute: (bundle) => recordBundle(frame, pass, bundle),
         scene: (root, camera) => recordScene(frame, pass, root, camera),
+        setCamera: (camera) => recordCamera(frame, pass, camera),
+        setViewport: (viewport) => recordViewport(frame, pass, viewport),
+        setScissor: (scissor) => recordScissor(frame, pass, scissor),
         end: () => endPass(frame, pass),
     };
     return pass;
 }
 
+function recordCamera(frame: Frame, pass: Pass, camera: View): void {
+    if (pass.ended) throw new Error(`[pass ${passLabel(pass)}] setCamera after end()`);
+    pass.camera = camera;
+    let record = pass.cameraRecord;
+    if (record === null) {
+        record = { kind: 'camera', camera };
+        pass.cameraRecord = record;
+    } else {
+        record.camera = camera;
+    }
+    resolveCall(frame, pass, record);
+}
+
+function recordViewport(frame: Frame, pass: Pass, viewport: ViewportRect | undefined): void {
+    if (pass.ended) throw new Error(`[pass ${passLabel(pass)}] setViewport after end()`);
+    pass.viewportRecord.viewport = viewport;
+    resolveCall(frame, pass, pass.viewportRecord);
+}
+
+function recordScissor(frame: Frame, pass: Pass, scissor: Rect | undefined): void {
+    if (pass.ended) throw new Error(`[pass ${passLabel(pass)}] setScissor after end()`);
+    pass.scissorRecord.scissor = scissor;
+    resolveCall(frame, pass, pass.scissorRecord);
+}
+
 function recordScene(frame: Frame, pass: Pass, root: Object3D, camera?: View): void {
     if (frame.renderer === null) throw new Error('[pass] scene() needs a frame opened with frame(renderer).');
-    const view = camera ?? pass.desc.camera;
+    const view = camera ?? pass.camera;
     if (view === undefined) throw new Error('[pass] scene() needs a camera, on the pass desc or as its second argument.');
     drawScene(frame.renderer, pass, root, view);
 }
