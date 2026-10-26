@@ -26,6 +26,12 @@ import type { WgslNode } from './lib/wgsl';
  * to the existing catch-all branches.
  */
 export type AnyNode = LiteralNode<d.Any> | BinaryOpNode<d.Any> | CallNode<d.Any> | ConstructNode<d.Any> | FieldNode<d.Any> | IndexNode<d.Any> | ArrayNode<d.Any> | ConditionalNode<d.Any> | BuiltinNode<d.Any> | ComputeIndexNode | ParameterNode<d.Any> | LetNode<d.Any> | VarNode<d.Any> | PrivateVarNode<d.Any> | WorkgroupVarNode<d.Any> | AssignNode | ReturnNode<d.Any> | BreakNode | ContinueNode | DiscardNode | LoopNode | IfNode | StackNode | WgslNode<d.Any> | UniformNode<d.Any> | AttributeNode<d.Any> | VaryingNode<d.Any> | StorageNode<d.Any> | OutputStructNode | MRTNode | TextureBindingNode | StorageTextureBindingNode | SamplerNode | TextureNode | CubeTextureNode | DepthTextureNode | ArrayTextureNode | RenderTextureNode | InspectorNode<d.Any>;
+/**
+ * Whether `node` reaches into a place the shader can write: an index or field chain into a local, private or workgroup
+ * variable, or a storage buffer. Such a read is emitted at every use rather than shared through a temp: a write
+ * between two uses would leave the temp stale, and a write through it would land in the copy.
+ */
+export declare function isPlaceAccess(rawNode: Node<d.Any>): boolean;
 /** Get all child nodes for traversal */
 export declare function getChildren(rawNode: Node<d.Any>): Node<d.Any>[];
 /**

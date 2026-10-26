@@ -18022,6 +18022,34 @@ function checkNested(schema, baseOffset, path, memLayout, fail) {
  * traversal, and struct-type walking. No WGSL/WebGPU concepts live here — the only value
  * import is NodeKind (for discriminant narrowing); all node classes are type-only.
  */
+/**
+ * Whether `node` reaches into a place the shader can write: an index or field chain into a local, private or workgroup
+ * variable, or a storage buffer. Such a read is emitted at every use rather than shared through a temp: a write
+ * between two uses would leave the temp stale, and a write through it would land in the copy.
+ */
+function isPlaceAccess(rawNode) {
+    const node = rawNode;
+    if (node.kind === NodeKind.Index)
+        return isPlace(node.array);
+    if (node.kind === NodeKind.Field)
+        return isPlace(node.object);
+    return false;
+}
+function isPlace(rawNode) {
+    const node = rawNode;
+    switch (node.kind) {
+        case NodeKind.Var:
+        case NodeKind.PrivateVar:
+        case NodeKind.WorkgroupVar:
+        case NodeKind.Storage:
+            return true;
+        case NodeKind.Index:
+        case NodeKind.Field:
+            return isPlaceAccess(node);
+        default:
+            return false;
+    }
+}
 /** Get all child nodes for traversal */
 function getChildren(rawNode) {
     const node = rawNode;
@@ -19294,7 +19322,7 @@ function generateExpr$1(ctx, rawNode) {
     ctx.precOf.set(node.id, prec);
     // CSE: hoist multi-use, non-trivial expressions into a local.
     const usage = ctx.usageCount.get(node.id) ?? 1;
-    if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr$1(ctx, node)) {
+    if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr$1(ctx, node) && !isPlaceAccess(node)) {
         const varName = allocName(ctx.names, cseBaseName(node));
         const decl = glslLocalDecl(node.type, varName);
         // A CSE local first materialized inside a nested block (indentLevel > 1) but read again outside
@@ -21624,25 +21652,12 @@ function isTrivialExpr(ctx, node) {
         node.kind === NodeKind.Sampler ||
         node.kind === NodeKind.Attribute);
 }
-/** Check if a node's type cannot be copied into a let binding */
+/** Check if a node's type cannot be copied into a let binding, or it is a place the shader writes */
 function isNonCopyable(node) {
     if (containsAtomics(node.type))
         return true;
-    if (isStorageElementAccess(node))
+    if (isPlaceAccess(node))
         return true;
-    return false;
-}
-/** Check if node is an access into storage (IndexNode into StorageNode, or FieldNode/IndexNode chain from one) */
-function isStorageElementAccess(rawNode) {
-    const node = rawNode;
-    if (node.kind === NodeKind.Index) {
-        if (node.array.kind === NodeKind.Storage)
-            return true;
-        // Also check if indexing into something that's itself a storage access
-        return isStorageElementAccess(node.array);
-    }
-    if (node.kind === NodeKind.Field)
-        return isStorageElementAccess(node.object);
     return false;
 }
 /* binding generation */
