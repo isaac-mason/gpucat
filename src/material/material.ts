@@ -28,6 +28,8 @@ export interface MaterialOptions {
      * Fragment output. Can be:
      * - A vec4f node for single color output
      * - An OutputStructNode/MRTNode for multiple render targets
+     * - A void call (a `Fn` returning nothing) for a fragment stage that runs only for its statements and writes no
+     *   colour, as a cutout's discard into a depth-only target
      * - Omitted/null for depth-only rendering (e.g. shadow passes)
      */
     fragment?: Node<Any>;

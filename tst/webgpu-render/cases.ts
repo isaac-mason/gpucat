@@ -75,6 +75,7 @@ import { frame } from '../../src/renderer/core/frame';
 import type { Renderer } from '../../src/renderer/core/renderer';
 import { createStructTexture } from '../../src/texture/data-texture';
 import { bitBuiltinsFragment } from '../bit-builtins';
+import { voidFragmentMaterial } from '../void-fragment';
 
 export type CaseResult = {
     name: string;
@@ -1619,6 +1620,51 @@ async function caseDepthLoadRead(gpu: Renderer<WebGPUBackend>): Promise<CaseResu
     };
 }
 
+/**
+ * void-fragment: a fragment that writes no colour, only discards, drawn into a depth-only target. The kept right
+ * half takes its depth and the discarded left keeps the clear, so a cutout casts the shape it has.
+ */
+async function caseVoidFragment(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const depthOnly = createRenderTarget(SIZE, SIZE, { count: 0, depthFormat: 'depth32float', depthSampled: true });
+    const cutout = new Mesh(fullscreenTriangle(), voidFragmentMaterial());
+    cutout.updateWorldMatrix();
+    const camera = new PerspectiveCamera();
+    const written = frame(gpu);
+    const writePass = written.pass({ target: depthOnly, camera, clearDepth: 1 });
+    writePass.draw(cutout);
+    writePass.end();
+    written.submit();
+
+    const shown = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const depthNode = depthTexture(depthOnly.depthTexture!);
+    const sceneZ = depthNode.load(vec2i(mul(screenUV, vec2f(textureDimensions(depthNode.bindingNode)))));
+    const showDepth = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(sceneZ, sceneZ, sceneZ, f32(1)),
+            depthTest: false,
+        }),
+    );
+    showDepth.updateWorldMatrix();
+    const display = frame(gpu);
+    const showPass = display.pass({ target: shown, camera, clear: [0, 0, 0, 1] });
+    showPass.draw(showDepth);
+    showPass.end();
+    display.submit();
+
+    const pixels = await read(gpu, shown);
+    const left = pixelAt(pixels, 3, CENTER);
+    const right = pixelAt(pixels, SIZE - 4, CENTER);
+    const ok = left[0] > 240 && right[0] < 200;
+    return {
+        name: 'void-fragment',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `left=${left[0]} right=${right[0]}; want the discarded left at the clear (255) and the kept right nearer`,
+    };
+}
+
 async function caseDepthBias(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
     const position = attribute('position', d.vec3f);
@@ -2912,6 +2958,7 @@ const CASES: Record<string, Case> = {
     'clear-depth-only': caseClearDepthOnly,
     'clear-selective': caseClearSelective,
     'depth-load-read': caseDepthLoadRead,
+    'void-fragment': caseVoidFragment,
     'depth-bias': caseDepthBias,
     'pass-occlude': casePassOcclude,
     'two-pass-nodes': caseTwoPassNodes,

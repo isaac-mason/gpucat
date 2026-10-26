@@ -80,6 +80,7 @@ import {
 import { RendererInspector } from '../../src/inspector/renderer-inspector';
 import * as Programs from '../../src/renderer/webgl/programs';
 import { bitBuiltinsFragment } from '../bit-builtins';
+import { voidFragmentMaterial } from '../void-fragment';
 
 /**
  * Browser-side harness for the WebGL2 draw path. Bundled to a single IIFE by esbuild and injected
@@ -4292,6 +4293,54 @@ async function caseDepthLoadRead(): Promise<CaseResult> {
 }
 
 /**
+ * void-fragment: a fragment that writes no colour, only discards, drawn into a depth-only target. The kept right
+ * half takes its depth and the discarded left keeps the clear, so a cutout casts the shape it has.
+ */
+async function caseVoidFragment(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const rt = createRenderTarget(SIZE, SIZE, { count: 0, depthFormat: 'depth32float', depthSampled: true });
+    const s1 = new Scene();
+    s1.add(new Mesh(createFullscreenTriangleGeometry(), voidFragmentMaterial()));
+    const cam1 = new PerspectiveCamera();
+    s1.updateWorldMatrix();
+    cam1.updateViewMatrix();
+    activeTarget = rt;
+    renderScene(renderer, s1, cam1);
+    activeTarget = null;
+
+    activeClear = [0, 0, 0, 1];
+    const depthNode = depthTexture(rt.depthTexture!);
+    const sceneZ = depthNode.load(vec2i(mul(screenUV, vec2f(textureDimensions(depthNode.bindingNode)))));
+    const s2 = new Scene();
+    s2.add(
+        new Mesh(
+            createFullscreenTriangleGeometry(),
+            new Material({
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: vec4(sceneZ, sceneZ, sceneZ, f32(1)),
+                depthTest: false,
+            }),
+        ),
+    );
+    const cam2 = new PerspectiveCamera();
+    s2.updateWorldMatrix();
+    cam2.updateViewMatrix();
+    renderScene(renderer, s2, cam2);
+
+    const gl = renderer.backend.gl!;
+    const left = readAt(gl, 3, CENTER);
+    const right = readAt(gl, SIZE - 4, CENTER);
+    renderer.dispose();
+    const ok = left[0] > 240 && right[0] < 230;
+    return {
+        name: 'void-fragment',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `left=${left[0]} right=${right[0]} (the discarded left at the clear, 255; the kept right nearer)`,
+    };
+}
+
+/**
  * pass-depth-sample: replicates makecat's FULL CanvasTrait machinery, not just a direct RenderTarget —
  * a `renderTexture()` renders a scene, its depth is taken via `getDepthTextureNode()`, and a composite pass
  * composite samples that pass-depth via `.load(screenUV * dims)` (the exact occlusion index). Proves the
@@ -4837,6 +4886,7 @@ export async function run(): Promise<RunResult> {
             caseFullscreen,
             caseUniform,
             caseBitBuiltins,
+            caseVoidFragment,
             caseLit,
             caseTextured,
             caseStorageAndTexture,

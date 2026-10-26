@@ -1,5 +1,6 @@
 import type { Geometry } from '../../geometry/geometry';
 import type { Material } from '../../material/material';
+import { isVoidFragment } from '../../nodes/backend/fragment';
 import type { VertexBufferGroup } from '../../nodes/builder';
 import type { MRTNode } from '../../nodes/lib/mrt';
 import { type ComputeNode, type Node, NodeKind, type OutputStructNode } from '../../nodes/nodes';
@@ -241,9 +242,10 @@ function buildRenderPipelineDescriptor(
     // still rasterizes and produces depth values from vertex positions.
     // When the material sets a frag_depth override (material.depth) but has no color output, a fragment
     // stage MUST still run (to write @builtin(frag_depth)), with an empty `targets` array.
+    // A void fragment (a cutout's discard into a depth-only target) also runs, with no colour target.
     const hasFragDepth = material.depth != null;
     const fragment: GPURenderPipelineDescriptor['fragment'] =
-        targetCount > 0 || hasFragDepth
+        targetCount > 0 || hasFragDepth || material.fragment != null
             ? {
                   module: shaderModule,
                   entryPoint: 'fs_main',
@@ -377,10 +379,10 @@ export function lookupCompute(state: PipelinesState, node: ComputeNode): Compute
 
 /**
  * Get the number of render targets for a fragment node.
- * Returns 0 for depth-only pipelines (null fragment node).
+ * Returns 0 for depth-only pipelines (no fragment node, or a void one).
  */
 function getTargetCount(fragmentNode: Node<Any> | undefined): number {
-    if (!fragmentNode) return 0;
+    if (!fragmentNode || isVoidFragment(fragmentNode)) return 0;
     // OutputStruct covers MRT too (MRTNode extends OutputStructNode)
     if (fragmentNode.kind === NodeKind.OutputStruct || fragmentNode.kind === NodeKind.MRT) {
         return Math.max(1, (fragmentNode as OutputStructNode).members.length);

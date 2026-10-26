@@ -878,10 +878,11 @@ export declare class FnNode<D extends Any> extends Node<D> {
     readonly jsFunc: (...args: Node<Any>[]) => Node<D>;
     constructor(returnType: D, paramDescs: (ParamDesc | Any)[], jsFunc: (...args: Node<Any>[]) => Node<D>, fnName?: string);
     compute(opts: ComputeOptions): ComputeNode;
+    /** the body as statements, and the value it returns: none for a void function. */
     trace(): {
         params: ParameterNode<Any>[];
         body: StackNode;
-        output: Node<D>;
+        output: Node<D> | undefined;
     };
 }
 export declare class ParameterNode<D extends Any> extends Node<D> {
@@ -990,6 +991,11 @@ export declare function Fn<D extends Any, P extends readonly ParamDesc[]>(jsFunc
     readonly return?: undefined;
 }): (...args: ParamDescsToNodes<P>) => CallNode<D>;
 export declare function Fn(jsFunc: () => void): FnNode<d.Void>;
+export declare function Fn<P extends readonly ParamDesc[]>(jsFunc: (...args: ParamDescsToNodes<P>) => void, layout: {
+    readonly name: string;
+    readonly params: [...P];
+    readonly return?: undefined;
+}): (...args: ParamDescsToNodes<P>) => CallNode<d.Void>;
 export declare function Fn<D extends Any>(jsFunc: (...args: Node<Any>[]) => Node<D>): (...args: Node<Any>[]) => CallNode<D>;
 export declare const cond: <D extends Any>(condition: Node<Any>, ifTrue: Node<D>, ifFalse?: Node<D>) => ConditionalNode<D>;
 /**

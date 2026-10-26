@@ -1207,7 +1207,7 @@ function discover(roots: Node<d.Any>[]): Discovery {
                 const traced = fn.trace();
                 fnDefs.set(fn.fnName, { fn, traced });
                 visit(traced.body);
-                visit(traced.output);
+                if (traced.output) visit(traced.output);
             }
         }
         if (node.kind === NodeKind.Call && node.wgslFnNode) {

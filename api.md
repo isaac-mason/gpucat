@@ -2118,6 +2118,11 @@ export function Fn<D extends Any, P extends readonly ParamDesc[]>(jsFunc: (...ar
     readonly return?: undefined;
 }): (...args: ParamDescsToNodes<P>) => CallNode<D>;
 export function Fn(jsFunc: () => void): FnNode<d.Void>;
+export function Fn<P extends readonly ParamDesc[]>(jsFunc: (...args: ParamDescsToNodes<P>) => void, layout: {
+    readonly name: string;
+    readonly params: [...P];
+    readonly return?: undefined;
+}): (...args: ParamDescsToNodes<P>) => CallNode<d.Void>;
 export function Fn<D extends Any>(jsFunc: (...args: Node<Any>[]) => Node<D>): (...args: Node<Any>[]) => CallNode<D>;
 ```
 
@@ -6299,6 +6304,8 @@ export interface MaterialOptions {
      * Fragment output. Can be:
      * - A vec4f node for single color output
      * - An OutputStructNode/MRTNode for multiple render targets
+     * - A void call (a `Fn` returning nothing) for a fragment stage that runs only for its statements and writes no
+     *   colour, as a cutout's discard into a depth-only target
      * - Omitted/null for depth-only rendering (e.g. shadow passes)
      */
     fragment?: Node<Any>;

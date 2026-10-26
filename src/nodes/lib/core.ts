@@ -1975,7 +1975,8 @@ export class FnNode<D extends Any> extends Node<D> {
         return compute(this, opts);
     }
 
-    trace(): { params: ParameterNode<Any>[]; body: StackNode; output: Node<D> } {
+    /** the body as statements, and the value it returns: none for a void function. */
+    trace(): { params: ParameterNode<Any>[]; body: StackNode; output: Node<D> | undefined } {
         const params = this.paramDescs.map((pd, i) => {
             const paramName = 'name' in pd ? (pd as ParamDesc).name : undefined;
             const desc = 'name' in pd ? (pd as ParamDesc).type : (pd as Any);
@@ -1983,9 +1984,9 @@ export class FnNode<D extends Any> extends Node<D> {
         });
         const stack = new StackNode();
         const prev = pushStack(stack);
-        let output: Node<D>;
+        let output: Node<D> | undefined;
         try {
-            output = this.jsFunc(...params);
+            output = this.jsFunc(...params) ?? undefined;
         } finally {
             popStack(prev);
         }
@@ -2218,6 +2219,12 @@ export function Fn<D extends Any, P extends readonly ParamDesc[]>(
 
 // Overload 2, no-params void body
 export function Fn(jsFunc: () => void): FnNode<d.Void>;
+
+// Overload 2b, a void body with a layout: a call of it is a statement, or a fragment that writes no colour
+export function Fn<P extends readonly ParamDesc[]>(
+    jsFunc: (...args: ParamDescsToNodes<P>) => void,
+    layout: { readonly name: string; readonly params: [...P]; readonly return?: undefined },
+): (...args: ParamDescsToNodes<P>) => CallNode<d.Void>;
 
 // Overload 3, no layout
 export function Fn<D extends Any>(jsFunc: (...args: Node<Any>[]) => Node<D>): (...args: Node<Any>[]) => CallNode<D>;

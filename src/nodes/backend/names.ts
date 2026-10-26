@@ -247,6 +247,6 @@ export function tracedFnCallees(traced: TracedFn): FnNode<d.Any>[] {
         for (const child of getChildren(node)) walk(child);
     };
     walk(traced.body);
-    walk(traced.output);
+    if (traced.output) walk(traced.output);
     return callees;
 }

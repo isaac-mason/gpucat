@@ -12462,6 +12462,12 @@ function updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, d
     }
 }
 
+/** a fragment node that writes no colour: a void call, run for its statements alone, as a cutout's discard in a
+ *  depth-only pass. It takes no colour target, and the fragment stage still runs. */
+function isVoidFragment(fragment) {
+    return fragment.type.wgslType === 'void';
+}
+
 // ─── Node id utilities ────────────────────────────────────────────────────────
 let _nodeId = 0;
 // ─── Runtime type lookup tables ───────────────────────────────────────────────
@@ -14048,6 +14054,7 @@ class FnNode extends Node {
         // Delegate to the free `compute()` factory so there is one construction path.
         return compute(this, opts);
     }
+    /** the body as statements, and the value it returns: none for a void function. */
     trace() {
         const params = this.paramDescs.map((pd, i) => {
             const paramName = 'name' in pd ? pd.name : undefined;
@@ -14058,7 +14065,7 @@ class FnNode extends Node {
         const prev = pushStack(stack);
         let output;
         try {
-            output = this.jsFunc(...params);
+            output = this.jsFunc(...params) ?? undefined;
         }
         finally {
             popStack(prev);
@@ -18404,7 +18411,8 @@ function tracedFnCallees(traced) {
             walk(child);
     };
     walk(traced.body);
-    walk(traced.output);
+    if (traced.output)
+        walk(traced.output);
     return callees;
 }
 
@@ -20725,7 +20733,7 @@ function emitGlslDslFunctions(ctx, allow) {
         // Generate the return-expr STRING BEFORE flushing fnCtx.code: evaluating the return expr can
         // append CSE decls (`_vN = ...;`) to fnCtx.code, and those must land inside the function body
         // (before the return). Flushing first would drop them, leaving `_vN` undeclared.
-        const retExpr = fn.type.wgslType !== 'void' ? generateExpr$1(fnCtx, traced.output) : null;
+        const retExpr = traced.output && fn.type.wgslType !== 'void' ? generateExpr$1(fnCtx, traced.output) : null;
         lines.push(`${retType} ${glslFnName(name)}(${params}) {`);
         lines.push(...fnCtx.hoistBuffer);
         lines.push(...fnCtx.code);
@@ -20944,7 +20952,9 @@ function validateTransformFeedbackOutputType(name, type) {
 /* fragment shader generation */
 function generateGlslFragmentShader(fragmentNode, ctx, varyings, depthNode = null) {
     const lines = [];
-    const hasColor = fragmentNode != null;
+    // a void fragment runs for its statements (a cutout's discard in a depth-only pass) and writes no colour
+    const isVoid = fragmentNode != null && isVoidFragment(fragmentNode);
+    const hasColor = fragmentNode != null && !isVoid;
     const hasDepth = depthNode != null;
     // Inherit varyings discovered by the vertex stage so `in` locations match.
     for (const [name, data] of varyings) {
@@ -21001,6 +21011,9 @@ function generateGlslFragmentShader(fragmentNode, ctx, varyings, depthNode = nul
     }
     else if (hasColor) {
         colorExpr = generateExpr$1(ctx, fragmentNode);
+    }
+    else if (isVoid) {
+        generateStmt$1(ctx, fragmentNode);
     }
     // Pre-generate the frag_depth override expression (assigned to gl_FragDepth in main). Built into
     // GLSL ES 3.00 fragment shaders — no `out` declaration, no extension.
@@ -22590,13 +22603,13 @@ function emitDslFunctions(ctx) {
         for (const stmt of traced.body.body) {
             generateStmt(fnCtx, stmt);
         }
-        // generate return expression
-        const returnExpr = generateExpr(fnCtx, traced.output);
-        lines.push(`fn ${name}(${params}) -> ${fn.type.wgslType} {`);
+        // generated before the body is flushed, so the CSE locals it declares land inside it
+        const returnExpr = traced.output && fn.type.wgslType !== 'void' ? generateExpr(fnCtx, traced.output) : null;
+        // a void function declares no return type
+        lines.push(returnExpr !== null ? `fn ${name}(${params}) -> ${fn.type.wgslType} {` : `fn ${name}(${params}) {`);
         lines.push(...fnCtx.code);
-        if (fn.type.wgslType !== 'void') {
+        if (returnExpr !== null)
             lines.push(`    return ${returnExpr};`);
-        }
         lines.push(`}`);
         lines.push('');
     }
@@ -22708,7 +22721,9 @@ function generateFragmentShader(fragmentNode, ctx, varyings, depthNode = null) {
             ctx.varyings.set(name, data);
         }
     }
-    const hasColor = fragmentNode != null;
+    // a void fragment runs for its statements (a cutout's discard in a depth-only pass) and writes no colour
+    const isVoid = fragmentNode != null && isVoidFragment(fragmentNode);
+    const hasColor = fragmentNode != null && !isVoid;
     const hasDepth = depthNode != null;
     // check for MRT
     const isMRT = hasColor && fragmentNode.kind === NodeKind.MRT;
@@ -22729,6 +22744,8 @@ function generateFragmentShader(fragmentNode, ctx, varyings, depthNode = null) {
     // between the color, MRT and depth walks is unchanged, so non-MRT output is
     // byte-identical.
     const fragmentExpr = hasColor && !isMRT ? generateExpr(ctx, fragmentNode) : '';
+    if (isVoid)
+        generateStmt(ctx, fragmentNode);
     let mrtExprs = null;
     if (isMRT && mrtNode) {
         mrtExprs = [];
@@ -22813,14 +22830,13 @@ function generateFragmentShader(fragmentNode, ctx, varyings, depthNode = null) {
         lines.push('');
     // emit main function - omit input parameter if no inputs
     lines.push('@fragment');
+    const params = hasInputs ? 'input: FragmentInput' : '';
     if (useStruct) {
-        if (hasInputs) {
-            lines.push('fn fs_main(input: FragmentInput) -> FragmentOutput {');
-        }
-        else {
-            lines.push('fn fs_main() -> FragmentOutput {');
-        }
+        lines.push(`fn fs_main(${params}) -> FragmentOutput {`);
         lines.push('    var output: FragmentOutput;');
+    }
+    else if (isVoid) {
+        lines.push(`fn fs_main(${params}) {`);
     }
     else {
         if (hasInputs) {
@@ -22846,7 +22862,7 @@ function generateFragmentShader(fragmentNode, ctx, varyings, depthNode = null) {
         }
         lines.push('    return output;');
     }
-    else {
+    else if (!isVoid) {
         lines.push(`    return ${fragmentExpr};`);
     }
     lines.push('}');
@@ -22865,7 +22881,7 @@ function generateComputeShader(node, traced, ctx) {
         generateStmt(ctx, stmt);
     }
     // generate output if non-void
-    if (fn.type.wgslType !== 'void') {
+    if (traced.output && fn.type.wgslType !== 'void') {
         const outputExpr = generateExpr(ctx, traced.output);
         ctx.code.push(`    // Output: ${outputExpr}`);
     }
@@ -23661,7 +23677,8 @@ function discover(roots) {
                 const traced = fn.trace();
                 fnDefs.set(fn.fnName, { fn, traced });
                 visit(traced.body);
-                visit(traced.output);
+                if (traced.output)
+                    visit(traced.output);
             }
         }
         if (node.kind === NodeKind.Call && node.wgslFnNode) {
@@ -24449,8 +24466,9 @@ function buildRenderPipelineDescriptor(device, renderObject, nodeState, bindGrou
     // still rasterizes and produces depth values from vertex positions.
     // When the material sets a frag_depth override (material.depth) but has no color output, a fragment
     // stage MUST still run (to write @builtin(frag_depth)), with an empty `targets` array.
+    // A void fragment (a cutout's discard into a depth-only target) also runs, with no colour target.
     const hasFragDepth = material.depth != null;
-    const fragment = targetCount > 0 || hasFragDepth
+    const fragment = targetCount > 0 || hasFragDepth || material.fragment != null
         ? {
             module: shaderModule,
             entryPoint: 'fs_main',
@@ -24567,10 +24585,10 @@ function lookupCompute(state, node) {
 }
 /**
  * Get the number of render targets for a fragment node.
- * Returns 0 for depth-only pipelines (null fragment node).
+ * Returns 0 for depth-only pipelines (no fragment node, or a void one).
  */
 function getTargetCount(fragmentNode) {
-    if (!fragmentNode)
+    if (!fragmentNode || isVoidFragment(fragmentNode))
         return 0;
     // OutputStruct covers MRT too (MRTNode extends OutputStructNode)
     if (fragmentNode.kind === NodeKind.OutputStruct || fragmentNode.kind === NodeKind.MRT) {

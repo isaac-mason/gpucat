@@ -23,7 +23,8 @@ type ShaderStage = 'vertex' | 'fragment' | 'compute';
 export type TracedFn = {
     params: ParameterNode<d.Any>[];
     body: StackNode;
-    output: Node<d.Any>;
+    /** none for a void function. */
+    output: Node<d.Any> | undefined;
 };
 /** Build context - carries all state during code generation */
 export type BuildContext = {

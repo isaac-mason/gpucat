@@ -59,6 +59,7 @@ import type { UniformGroup, UniformNode } from '../../lib/uniform';
 import type { VaryingNode } from '../../lib/varying';
 import type { WgslFunctionNode } from '../../lib/wgsl-fn';
 import { constLiteral } from '../../wgsl-utils';
+import { isVoidFragment } from '../fragment';
 import {
     allocName,
     createNameScope,
@@ -78,7 +79,8 @@ type ShaderStage = 'vertex' | 'fragment' | 'compute';
 export type TracedFn = {
     params: ParameterNode<d.Any>[];
     body: StackNode;
-    output: Node<d.Any>;
+    /** none for a void function. */
+    output: Node<d.Any> | undefined;
 };
 
 /** Build context - carries all state during code generation */
@@ -1743,14 +1745,13 @@ export function emitDslFunctions(ctx: BuildContext): string {
             generateStmt(fnCtx, stmt);
         }
 
-        // generate return expression
-        const returnExpr = generateExpr(fnCtx, traced.output);
+        // generated before the body is flushed, so the CSE locals it declares land inside it
+        const returnExpr = traced.output && fn.type.wgslType !== 'void' ? generateExpr(fnCtx, traced.output) : null;
 
-        lines.push(`fn ${name}(${params}) -> ${fn.type.wgslType} {`);
+        // a void function declares no return type
+        lines.push(returnExpr !== null ? `fn ${name}(${params}) -> ${fn.type.wgslType} {` : `fn ${name}(${params}) {`);
         lines.push(...fnCtx.code);
-        if (fn.type.wgslType !== 'void') {
-            lines.push(`    return ${returnExpr};`);
-        }
+        if (returnExpr !== null) lines.push(`    return ${returnExpr};`);
         lines.push(`}`);
         lines.push('');
     }
@@ -1881,7 +1882,9 @@ export function generateFragmentShader(
         }
     }
 
-    const hasColor = fragmentNode != null;
+    // a void fragment runs for its statements (a cutout's discard in a depth-only pass) and writes no colour
+    const isVoid = fragmentNode != null && isVoidFragment(fragmentNode);
+    const hasColor = fragmentNode != null && !isVoid;
     const hasDepth = depthNode != null;
 
     // check for MRT
@@ -1904,6 +1907,7 @@ export function generateFragmentShader(
     // between the color, MRT and depth walks is unchanged, so non-MRT output is
     // byte-identical.
     const fragmentExpr = hasColor && !isMRT ? generateExpr(ctx, fragmentNode) : '';
+    if (isVoid) generateStmt(ctx, fragmentNode);
 
     let mrtExprs: { name: string; expr: string }[] | null = null;
     if (isMRT && mrtNode) {
@@ -1990,13 +1994,12 @@ export function generateFragmentShader(
 
     // emit main function - omit input parameter if no inputs
     lines.push('@fragment');
+    const params = hasInputs ? 'input: FragmentInput' : '';
     if (useStruct) {
-        if (hasInputs) {
-            lines.push('fn fs_main(input: FragmentInput) -> FragmentOutput {');
-        } else {
-            lines.push('fn fs_main() -> FragmentOutput {');
-        }
+        lines.push(`fn fs_main(${params}) -> FragmentOutput {`);
         lines.push('    var output: FragmentOutput;');
+    } else if (isVoid) {
+        lines.push(`fn fs_main(${params}) {`);
     } else {
         if (hasInputs) {
             lines.push('fn fs_main(input: FragmentInput) -> @location(0) vec4f {');
@@ -2020,7 +2023,7 @@ export function generateFragmentShader(
             lines.push(`    output.${frag_depth_name} = ${depthExpr};`);
         }
         lines.push('    return output;');
-    } else {
+    } else if (!isVoid) {
         lines.push(`    return ${fragmentExpr};`);
     }
 
@@ -2046,7 +2049,7 @@ export function generateComputeShader(node: ComputeNode, traced: ReturnType<FnNo
     }
 
     // generate output if non-void
-    if (fn.type.wgslType !== 'void') {
+    if (traced.output && fn.type.wgslType !== 'void') {
         const outputExpr = generateExpr(ctx, traced.output);
         ctx.code.push(`    // Output: ${outputExpr}`);
     }

@@ -53,6 +53,7 @@ import {
 } from '../../lib/texture';
 import type { UniformGroup, UniformNode } from '../../lib/uniform';
 import type { VaryingNode } from '../../lib/varying';
+import { isVoidFragment } from '../fragment';
 import {
     allocName,
     createNameScope,
@@ -2383,7 +2384,7 @@ export function emitGlslDslFunctions(ctx: GlslBuildContext, allow?: Set<string>)
         // Generate the return-expr STRING BEFORE flushing fnCtx.code: evaluating the return expr can
         // append CSE decls (`_vN = ...;`) to fnCtx.code, and those must land inside the function body
         // (before the return). Flushing first would drop them, leaving `_vN` undeclared.
-        const retExpr = fn.type.wgslType !== 'void' ? generateExpr(fnCtx, traced.output) : null;
+        const retExpr = traced.output && fn.type.wgslType !== 'void' ? generateExpr(fnCtx, traced.output) : null;
         lines.push(`${retType} ${glslFnName(name)}(${params}) {`);
         lines.push(...fnCtx.hoistBuffer);
         lines.push(...fnCtx.code);
@@ -2657,7 +2658,9 @@ export function generateGlslFragmentShader(
 ): string {
     const lines: string[] = [];
 
-    const hasColor = fragmentNode != null;
+    // a void fragment runs for its statements (a cutout's discard in a depth-only pass) and writes no colour
+    const isVoid = fragmentNode != null && isVoidFragment(fragmentNode);
+    const hasColor = fragmentNode != null && !isVoid;
     const hasDepth = depthNode != null;
 
     // Inherit varyings discovered by the vertex stage so `in` locations match.
@@ -2711,6 +2714,8 @@ export function generateGlslFragmentShader(
         }
     } else if (hasColor) {
         colorExpr = generateExpr(ctx, fragmentNode);
+    } else if (isVoid) {
+        generateStmt(ctx, fragmentNode);
     }
 
     // Pre-generate the frag_depth override expression (assigned to gl_FragDepth in main). Built into
