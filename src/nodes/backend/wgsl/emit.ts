@@ -23,7 +23,7 @@ import type {
     UniformGroupBlock,
     UniformMember,
 } from '../../builder';
-import { type AnyNode, getChildren } from '../../graph';
+import { type AnyNode, getChildren, isPlaceAccess } from '../../graph';
 import type { AttributeNode } from '../../lib/attribute';
 import { type BuiltinNode, computeIndex } from '../../lib/builtin';
 import {
@@ -587,22 +587,10 @@ function isTrivialExpr(ctx: BuildContext, node: Node<d.Any>): boolean {
     );
 }
 
-/** Check if a node's type cannot be copied into a let binding */
+/** Check if a node's type cannot be copied into a let binding, or it is a place the shader writes */
 function isNonCopyable(node: Node<d.Any>): boolean {
     if (containsAtomics(node.type)) return true;
-    if (isStorageElementAccess(node)) return true;
-    return false;
-}
-
-/** Check if node is an access into storage (IndexNode into StorageNode, or FieldNode/IndexNode chain from one) */
-function isStorageElementAccess(rawNode: Node<d.Any>): boolean {
-    const node = rawNode as AnyNode;
-    if (node.kind === NodeKind.Index) {
-        if (node.array.kind === NodeKind.Storage) return true;
-        // Also check if indexing into something that's itself a storage access
-        return isStorageElementAccess(node.array);
-    }
-    if (node.kind === NodeKind.Field) return isStorageElementAccess(node.object);
+    if (isPlaceAccess(node)) return true;
     return false;
 }
 

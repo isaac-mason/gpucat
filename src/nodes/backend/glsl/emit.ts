@@ -20,7 +20,7 @@ import type { StructSchema } from '../../../schema/schema';
 import * as d from '../../../schema/schema';
 import { assertSchemaUniformValid, assertUniformLayoutConformant } from '../../../schema/validate-layout';
 import type { CompileSlots, Discovery, SamplerEntry, TextureEntry, UniformGroupBlock, UniformMember } from '../../builder';
-import { type AnyNode, getChildren } from '../../graph';
+import { type AnyNode, getChildren, isPlaceAccess } from '../../graph';
 import type { AttributeNode } from '../../lib/attribute';
 import type { BuiltinNode } from '../../lib/builtin';
 import {
@@ -830,7 +830,7 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
 
     // CSE: hoist multi-use, non-trivial expressions into a local.
     const usage = ctx.usageCount.get(node.id) ?? 1;
-    if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr(ctx, node)) {
+    if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr(ctx, node) && !isPlaceAccess(node)) {
         const varName = allocName(ctx.names, cseBaseName(node));
         const decl = glslLocalDecl(node.type, varName);
         // A CSE local first materialized inside a nested block (indentLevel > 1) but read again outside

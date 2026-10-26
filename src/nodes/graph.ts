@@ -102,6 +102,34 @@ export type AnyNode =
     | RenderTextureNode
     | InspectorNode<d.Any>;
 
+/**
+ * Whether `node` reaches into a place the shader can write: an index or field chain into a local, private or workgroup
+ * variable, or a storage buffer. Such a read is emitted at every use rather than shared through a temp: a write
+ * between two uses would leave the temp stale, and a write through it would land in the copy.
+ */
+export function isPlaceAccess(rawNode: Node<d.Any>): boolean {
+    const node = rawNode as AnyNode;
+    if (node.kind === NodeKind.Index) return isPlace(node.array);
+    if (node.kind === NodeKind.Field) return isPlace(node.object);
+    return false;
+}
+
+function isPlace(rawNode: Node<d.Any>): boolean {
+    const node = rawNode as AnyNode;
+    switch (node.kind) {
+        case NodeKind.Var:
+        case NodeKind.PrivateVar:
+        case NodeKind.WorkgroupVar:
+        case NodeKind.Storage:
+            return true;
+        case NodeKind.Index:
+        case NodeKind.Field:
+            return isPlaceAccess(node);
+        default:
+            return false;
+    }
+}
+
 /** Get all child nodes for traversal */
 export function getChildren(rawNode: Node<d.Any>): Node<d.Any>[] {
     const node = rawNode as AnyNode;
