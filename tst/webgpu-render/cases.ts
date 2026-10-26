@@ -2664,7 +2664,7 @@ async function caseMultiCameraOneTarget(gpu: Renderer<WebGPUBackend>): Promise<C
  * centre shows the box and the right half's shows the clear; both halves alike means the draws shared a camera. Two
  * frames, so the second opens with the camera uniforms still holding the first frame's last view.
  */
-async function casePassViews(gpu: Renderer<WebgpuBackend>): Promise<CaseResult> {
+async function casePassViews(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
     const { box, facing, away } = boxBetweenCameras();
     const left = { x: 0, y: 0, width: SIZE / 2, height: SIZE };
