@@ -6,6 +6,7 @@ import {
     collectGlslVaryings,
     collectStageFns,
     createGlslContext,
+    emitGlslBitHelpers,
     emitGlslDslFunctions,
     emitGlslModuleScopeVars,
     emitGlslRawFunctions,
@@ -388,13 +389,17 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
     const vertexFns = collectStageFns(vertexCtx, vertexRoots);
     const rawFnsGlsl = emitGlslRawFunctions(vertexCtx, vertexFns.raw);
     const dslFnsGlsl = emitGlslDslFunctions(vertexCtx, vertexFns.dsl);
+    // after the stage's body and functions, which are where bit builtins get called
+    const bitHelpersGlsl = emitGlslBitHelpers(vertexCtx);
 
     let fragmentRawFnsGlsl = '';
     let fragmentDslFnsGlsl = '';
+    let fragmentBitHelpersGlsl = '';
     if (emitFragment) {
         const fragmentFns = collectStageFns(fragmentCtx, [slots.fragment ?? null, slots.depth ?? null]);
         fragmentRawFnsGlsl = emitGlslRawFunctions(fragmentCtx, fragmentFns.raw);
         fragmentDslFnsGlsl = emitGlslDslFunctions(fragmentCtx, fragmentFns.dsl);
+        fragmentBitHelpersGlsl = emitGlslBitHelpers(fragmentCtx);
     }
 
     // Combined samplers are collected LAST: a texture sampled only inside a user Fn body (e.g. FXAA's
@@ -431,6 +436,7 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
     const vertexCode = joinSections([
         { body: version },
         ...sharedSections,
+        { title: '// Bit helpers', body: bitHelpersGlsl },
         { title: '// Raw functions (wgslFn/glslFn)', body: rawFnsGlsl },
         { title: '// Functions', body: dslFnsGlsl },
         { title: '// Vertex shader', body: vertexBody },
@@ -444,6 +450,7 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
         ? joinSections([
               { body: `${version}\nprecision ${precision} float;\nprecision ${precision} int;` },
               ...sharedSections,
+              { title: '// Bit helpers', body: fragmentBitHelpersGlsl },
               { title: '// Raw functions (wgslFn/glslFn)', body: fragmentRawFnsGlsl },
               { title: '// Functions', body: fragmentDslFnsGlsl },
               { title: '// Fragment shader', body: fragmentBody },
@@ -648,6 +655,7 @@ export function compileTransformFeedback(
     const moduleScopeVarsGlsl = emitGlslModuleScopeVars(ctx);
     const rawFnsGlsl = emitGlslRawFunctions(ctx);
     const dslFnsGlsl = emitGlslDslFunctions(ctx);
+    const bitHelpersGlsl = emitGlslBitHelpers(ctx);
     // Combined samplers are collected LAST, same as compileGlsl: a texture sampled only inside a user
     // Fn body (neighbour-gather via a helper Fn) is registered into `ctx.textures` while that Fn body
     // is emitted above, not during the kernel walk. Emitting the declarations first would miss it,
@@ -667,6 +675,7 @@ export function compileTransformFeedback(
         { title: '// Uniform blocks (std140)', body: uniformBlocksGlsl },
         { title: '// Combined samplers', body: samplersGlsl },
         { title: '// Module-scope variables', body: moduleScopeVarsGlsl },
+        { title: '// Bit helpers', body: bitHelpersGlsl },
         { title: '// Raw functions (wgslFn/glslFn)', body: rawFnsGlsl },
         { title: '// Functions', body: dslFnsGlsl },
         { title: '// Transform-feedback vertex shader', body: main },

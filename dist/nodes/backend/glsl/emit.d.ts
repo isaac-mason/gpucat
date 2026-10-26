@@ -68,6 +68,8 @@ export type GlslBuildContext = {
     /** Which flip HELPER functions (`_flipY2f`/`_flipY2i`/`_flipYd`) were actually referenced this stage,
      *  so only those are emitted (a shader that only `.sample()`s shouldn't carry the texelFetch/grad ones). */
     flipHelperFns: Set<string>;
+    /** the bit helper overloads (`fn:type`) this stage called; see {@link emitGlslBitHelpers}. */
+    bitHelpers: Set<string>;
     storageMirrors: Map<number, StorageMirror>;
     /** Cache of storage-mirror data-texture ids (derived from `storageMirrors`), built once on first
      *  lookup. Storage mirrors are populated before emission and never change, so this is safe to memo. */
@@ -98,6 +100,8 @@ export type GlslBuildContext = {
     paramIds: Set<number>;
 };
 export declare function createGlslContext(stage: ShaderStage, discovery: Discovery): GlslBuildContext;
+/** the bit helper overloads this stage called, with what they call, ahead of the stage's functions. */
+export declare function emitGlslBitHelpers(ctx: GlslBuildContext): string;
 /**
  * Emit GLSL `struct <Name> { <type> <field>; … };` declarations for every struct discovered in the
  * graph. discover() populates ctx.structDefs in topological order (nested dependencies first), so a

@@ -74,6 +74,7 @@ import type { MaterialOptions } from '../../src/material/material';
 import { frame } from '../../src/renderer/core/frame';
 import type { Renderer } from '../../src/renderer/core/renderer';
 import { createStructTexture } from '../../src/texture/data-texture';
+import { bitBuiltinsFragment } from '../bit-builtins';
 
 export type CaseResult = {
     name: string;
@@ -1388,6 +1389,11 @@ async function caseStorageMixedAlign(gpu: Renderer<WebGPUBackend>): Promise<Case
  * packer writing the two back to back puts `tint` where the shader expects padding. Its offsets are
  * checked by compiling WGSL elsewhere; this checks the bytes actually arrive there.
  */
+/** bit-builtins: the integer bit builtins, run natively; webgl-render draws the same material through its helpers. */
+async function caseBitBuiltins(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    return readsBack(gpu, bitBuiltinsFragment(), 'bit-builtins', [0, 255, 0, 255], 'red: a bit builtin gave the wrong answer');
+}
+
 async function caseUniformStructAlign(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     const EnvConfig = struct('EnvConfig', { enabled: d.u32, tint: d.vec3f });
     const config = uniform(new Uniform(EnvConfig, { enabled: 1, tint: [0.25, 0.5, 0.75] }));
@@ -2885,6 +2891,7 @@ const CASES: Record<string, Case> = {
     'storage-mat4': caseStorageMat4,
     'storage-mixed-align': caseStorageMixedAlign,
     'uniform-struct-align': caseUniformStructAlign,
+    'bit-builtins': caseBitBuiltins,
     'struct-texture-unorm8x4': caseStructTexturePackedUnorm,
     'struct-texture-snorm8x4': caseStructTexturePackedSnorm,
     'struct-texture-half2x16': caseStructTexturePackedHalf,

@@ -16,6 +16,7 @@ export const DELIBERATELY_INTERNAL: ReadonlySet<string> = new Set([
     './nodes/backend/glsl/emit#collectGlslVaryings',
     './nodes/backend/glsl/emit#collectStageFns',
     './nodes/backend/glsl/emit#createGlslContext',
+    './nodes/backend/glsl/emit#emitGlslBitHelpers',
     './nodes/backend/glsl/emit#emitGlslDslFunctions',
     './nodes/backend/glsl/emit#emitGlslModuleScopeVars',
     './nodes/backend/glsl/emit#emitGlslRawFunctions',

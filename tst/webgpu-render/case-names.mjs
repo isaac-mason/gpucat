@@ -73,6 +73,7 @@ export const CASE_NAMES = [
     'storage-mat4',
     'storage-mixed-align',
     'uniform-struct-align',
+    'bit-builtins',
     'struct-texture-unorm8x4',
     'struct-texture-snorm8x4',
     'struct-texture-half2x16',

@@ -79,6 +79,7 @@ import {
 } from '../../src/index';
 import { RendererInspector } from '../../src/inspector/renderer-inspector';
 import * as Programs from '../../src/renderer/webgl/programs';
+import { bitBuiltinsFragment } from '../bit-builtins';
 
 /**
  * Browser-side harness for the WebGL2 draw path. Bundled to a single IIFE by esbuild and injected
@@ -619,6 +620,26 @@ async function caseUniform(): Promise<CaseResult> {
     const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'uniform', pixel, expected: [u8(0.1), u8(0.7), u8(0.5), 255] };
+}
+
+/** bit-builtins: the integer bit builtins through the GLSL emitter's helpers, against WGSL's answers. */
+async function caseBitBuiltins(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    activeClear = [0, 0, 0, 1];
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: bitBuiltinsFragment(),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+    renderScene(renderer, scene, camera);
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    return { name: 'bit-builtins', pixel, expected: [0, 255, 0, 255] };
 }
 
 /**
@@ -4815,6 +4836,7 @@ export async function run(): Promise<RunResult> {
             caseClearSelective,
             caseFullscreen,
             caseUniform,
+            caseBitBuiltins,
             caseLit,
             caseTextured,
             caseStorageAndTexture,

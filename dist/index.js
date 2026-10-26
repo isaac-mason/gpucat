@@ -18711,10 +18711,9 @@ const CALL_RENAMES = {
     dpdy: 'dFdy',
     fwidth: 'fwidth',
     // WGSL math builtins whose GLSL ES 3.00 spelling differs (same args, just renamed) — emitting the
-    // WGSL name verbatim is a "no matching function" compile error otherwise. NOTE: the integer bit
-    // builtins (countOneBits/reverseBits/firstLeadingBit/firstTrailingBit → bitCount/bitfieldReverse/
-    // findMSB/findLSB) are GLSL ES 3.10 / desktop-4.0 only, NOT WebGL2's ES 3.00, so they are rejected
-    // in generateCall rather than renamed (they'd fail to compile).
+    // WGSL name verbatim is a "no matching function" compile error otherwise. The integer bit builtins
+    // have no ES 3.00 spelling at all (bitCount/findLSB/... are ES 3.10+), so they lower to helpers
+    // instead; see BIT_HELPER_FNS.
     atan2: 'atan', // GLSL's 2-arg atan(y, x) IS atan2
     inverseSqrt: 'inversesqrt',
     // WGSL and GLSL agree on the remaining common math builtins; further overrides go here.
@@ -18779,6 +18778,7 @@ function createGlslContext(stage, discovery) {
         textureSamplers: new Map(),
         flipYTextures: new Set(),
         flipHelperFns: new Set(),
+        bitHelpers: new Set(),
         // Populated once by compileGlsl (shared across stages) — see storage() read-lowering.
         storageMirrors: new Map(),
         attributes: new Map(),
@@ -18816,6 +18816,8 @@ function seedGlslGlobalNames(discovery) {
     }
     for (const helper of FLIP_HELPER_NAMES)
         reserveName(names, helper);
+    for (const fn of BIT_HELPER_FNS)
+        reserveName(names, `_${fn}`);
     for (const name of discovery.textureNames.values()) {
         reserveName(names, `u_${name}`);
         reserveName(names, `u_flipY_${name}`);
@@ -19576,13 +19578,14 @@ function generateCall$1(ctx, node) {
         const p = paren(args[0], emittedPrec$1(ctx, node.args[0]), Prec.Postfix);
         return `max(vec4(ivec4(int(${p}<<24u)>>24,int(${p}<<16u)>>24,int(${p}<<8u)>>24,int(${p})>>24))/127.0,vec4(-1.0))`;
     }
-    // Integer bit-count/scan builtins are GLSL ES 3.10+ / desktop-4.0 only — WebGL2 is ES 3.00, which
-    // has no bitCount/bitfieldReverse/findMSB/findLSB. Reject with a clear message rather than emit a
-    // name the driver won't resolve (would fail as an opaque "no matching function"). A polyfill could
-    // be added if a material ever needs them.
-    if (ES300_UNAVAILABLE_FNS.has(node.fn)) {
-        throw new Error(`[glsl] '${node.fn}' has no GLSL ES 3.00 (WebGL2) builtin — the integer bit-count/scan ` +
-            `functions are ES 3.10+ / desktop-only; not yet supported on the WebGL backend (needs a polyfill)`);
+    if (isBitHelperFn(node.fn)) {
+        const operand = node.args[0].type;
+        const type = glslType(operand);
+        if (!BIT_HELPER_TYPES.includes(type)) {
+            throw new Error(`[glsl] '${node.fn}' takes an i32/u32 scalar or vector, not '${operand.wgslType}'`);
+        }
+        ctx.bitHelpers.add(bitHelperKey(node.fn, type));
+        return `_${node.fn}(${args[0]})`;
     }
     // A type-constructor call (f32(x), vec3u(...), mat3x3f(...)) is spelled with the WGSL type name and
     // produces that type; emit the GLSL type name from the descriptor's `glslType` companion. Types with
@@ -19600,8 +19603,96 @@ function generateCall$1(ctx, node) {
     const fn = CALL_RENAMES[node.fn] ?? node.fn;
     return `${fn}(${args.join(', ')})`;
 }
-/** WGSL builtins with no GLSL ES 3.00 (WebGL2) counterpart — rejected clearly in generateCall. */
-const ES300_UNAVAILABLE_FNS = new Set(['countOneBits', 'reverseBits', 'firstLeadingBit', 'firstTrailingBit']);
+/**
+ * WGSL's integer bit builtins, which GLSL ES 3.00 has none of. Each call lowers to a `_<fn>` helper overloaded by
+ * operand type, and a stage emits only the overloads it calls (see {@link emitGlslBitHelpers}). In dependency order:
+ * a helper only calls helpers listed before it.
+ */
+const BIT_HELPER_FNS = [
+    'countOneBits',
+    'reverseBits',
+    'countLeadingZeros',
+    'countTrailingZeros',
+    'firstLeadingBit',
+    'firstTrailingBit',
+];
+/** operand types a bit helper has an overload for, scalars before the vectors built from them. */
+const BIT_HELPER_TYPES = ['uint', 'int', 'uvec2', 'uvec3', 'uvec4', 'ivec2', 'ivec3', 'ivec4'];
+function isBitHelperFn(fn) {
+    return BIT_HELPER_FNS.includes(fn);
+}
+function bitHelperKey(fn, type) {
+    return `${fn}:${type}`;
+}
+/** the u32 bodies, matching WGSL on every input: an empty operand counts 32 zeros and has no first bit (all ones). */
+const UINT_BIT_HELPER_BODIES = {
+    countOneBits: 'v = v - ((v >> 1u) & 0x55555555u); v = (v & 0x33333333u) + ((v >> 2u) & 0x33333333u); ' +
+        'return (((v + (v >> 4u)) & 0x0F0F0F0Fu) * 0x01010101u) >> 24u;',
+    reverseBits: 'v = ((v >> 1u) & 0x55555555u) | ((v & 0x55555555u) << 1u); v = ((v >> 2u) & 0x33333333u) | ((v & 0x33333333u) << 2u); ' +
+        'v = ((v >> 4u) & 0x0F0F0F0Fu) | ((v & 0x0F0F0F0Fu) << 4u); v = ((v >> 8u) & 0x00FF00FFu) | ((v & 0x00FF00FFu) << 8u); ' +
+        'return (v >> 16u) | (v << 16u);',
+    // smear the highest set bit down, then count what is left unset above it
+    countLeadingZeros: 'v |= v >> 1u; v |= v >> 2u; v |= v >> 4u; v |= v >> 8u; v |= v >> 16u; return 32u - _countOneBits(v);',
+    // the bits below the lowest set one; all 32 for zero
+    countTrailingZeros: 'return _countOneBits(~v & (v - 1u));',
+    firstLeadingBit: 'return v == 0u ? 0xFFFFFFFFu : 31u - _countLeadingZeros(v);',
+    firstTrailingBit: 'return v == 0u ? 0xFFFFFFFFu : _countTrailingZeros(v);',
+};
+/** one overload's definition; the uint one carries the arithmetic and the others reduce to it. */
+function bitHelperDef(fn, type) {
+    const name = `_${fn}`;
+    if (type === 'uint')
+        return `uint ${name}(uint v) { ${UINT_BIT_HELPER_BODIES[fn]} }`;
+    if (type === 'int') {
+        // a signed operand's leading bit is the highest one that differs from its sign, -1 for 0 and -1
+        if (fn === 'firstLeadingBit') {
+            return `int ${name}(int v) { uint u = v < 0 ? ~uint(v) : uint(v); return u == 0u ? -1 : int(31u - _countLeadingZeros(u)); }`;
+        }
+        // the rest only see the bits, and int(uint) keeps them
+        return `int ${name}(int v) { return int(${name}(uint(v))); }`;
+    }
+    const width = Number(type.slice(-1));
+    const components = ['x', 'y', 'z', 'w'].slice(0, width).map((c) => `${name}(v.${c})`);
+    return `${type} ${name}(${type} v) { return ${type}(${components.join(', ')}); }`;
+}
+/** the operand types `type`'s overload calls into, so they are emitted first. */
+function bitHelperDeps(fn, type) {
+    if (type.includes('vec'))
+        return [[fn, type.startsWith('u') ? 'uint' : 'int']];
+    if (type === 'int')
+        return fn === 'firstLeadingBit' ? [['countLeadingZeros', 'uint']] : [[fn, 'uint']];
+    if (fn === 'countLeadingZeros' || fn === 'countTrailingZeros')
+        return [['countOneBits', 'uint']];
+    if (fn === 'firstLeadingBit')
+        return [['countLeadingZeros', 'uint']];
+    if (fn === 'firstTrailingBit')
+        return [['countTrailingZeros', 'uint']];
+    return [];
+}
+/** the bit helper overloads this stage called, with what they call, ahead of the stage's functions. */
+function emitGlslBitHelpers(ctx) {
+    const needed = new Set();
+    const require = (fn, type) => {
+        const key = bitHelperKey(fn, type);
+        if (needed.has(key))
+            return;
+        needed.add(key);
+        for (const [depFn, depType] of bitHelperDeps(fn, type))
+            require(depFn, depType);
+    };
+    for (const key of ctx.bitHelpers) {
+        const [fn, type] = key.split(':');
+        require(fn, type);
+    }
+    const defs = [];
+    for (const fn of BIT_HELPER_FNS) {
+        for (const type of BIT_HELPER_TYPES) {
+            if (needed.has(bitHelperKey(fn, type)))
+                defs.push(bitHelperDef(fn, type));
+        }
+    }
+    return defs.join('\n');
+}
 /**
  * Implicit-LOD sampling. GLSL ES 3.00's `texture()` (and its bias overload) derives the mip level from
  * screen-space derivatives, which exist ONLY in the fragment stage — calling it in a vertex shader is a
@@ -23020,12 +23111,16 @@ function compileGlsl(slots, opts = {}) {
     const vertexFns = collectStageFns(vertexCtx, vertexRoots);
     const rawFnsGlsl = emitGlslRawFunctions(vertexCtx, vertexFns.raw);
     const dslFnsGlsl = emitGlslDslFunctions(vertexCtx, vertexFns.dsl);
+    // after the stage's body and functions, which are where bit builtins get called
+    const bitHelpersGlsl = emitGlslBitHelpers(vertexCtx);
     let fragmentRawFnsGlsl = '';
     let fragmentDslFnsGlsl = '';
+    let fragmentBitHelpersGlsl = '';
     if (emitFragment) {
         const fragmentFns = collectStageFns(fragmentCtx, [slots.fragment ?? null, slots.depth ?? null]);
         fragmentRawFnsGlsl = emitGlslRawFunctions(fragmentCtx, fragmentFns.raw);
         fragmentDslFnsGlsl = emitGlslDslFunctions(fragmentCtx, fragmentFns.dsl);
+        fragmentBitHelpersGlsl = emitGlslBitHelpers(fragmentCtx);
     }
     // Combined samplers are collected LAST: a texture sampled only inside a user Fn body (e.g. FXAA's
     // `FxaaSample`) is registered into its stage context while that Fn body is emitted above, not during
@@ -23062,6 +23157,7 @@ function compileGlsl(slots, opts = {}) {
     const vertexCode = joinSections([
         { body: version },
         ...sharedSections,
+        { title: '// Bit helpers', body: bitHelpersGlsl },
         { title: '// Raw functions (wgslFn/glslFn)', body: rawFnsGlsl },
         { title: '// Functions', body: dslFnsGlsl },
         { title: '// Vertex shader', body: vertexBody },
@@ -23075,6 +23171,7 @@ function compileGlsl(slots, opts = {}) {
         ? joinSections([
             { body: `${version}\nprecision ${precision} float;\nprecision ${precision} int;` },
             ...sharedSections,
+            { title: '// Bit helpers', body: fragmentBitHelpersGlsl },
             { title: '// Raw functions (wgslFn/glslFn)', body: fragmentRawFnsGlsl },
             { title: '// Functions', body: fragmentDslFnsGlsl },
             { title: '// Fragment shader', body: fragmentBody },
@@ -23240,6 +23337,7 @@ function compileTransformFeedback(node, opts = {}) {
     const moduleScopeVarsGlsl = emitGlslModuleScopeVars(ctx);
     const rawFnsGlsl = emitGlslRawFunctions(ctx);
     const dslFnsGlsl = emitGlslDslFunctions(ctx);
+    const bitHelpersGlsl = emitGlslBitHelpers(ctx);
     // Combined samplers are collected LAST, same as compileGlsl: a texture sampled only inside a user
     // Fn body (neighbour-gather via a helper Fn) is registered into `ctx.textures` while that Fn body
     // is emitted above, not during the kernel walk. Emitting the declarations first would miss it,
@@ -23256,6 +23354,7 @@ function compileTransformFeedback(node, opts = {}) {
         { title: '// Uniform blocks (std140)', body: uniformBlocksGlsl },
         { title: '// Combined samplers', body: samplersGlsl },
         { title: '// Module-scope variables', body: moduleScopeVarsGlsl },
+        { title: '// Bit helpers', body: bitHelpersGlsl },
         { title: '// Raw functions (wgslFn/glslFn)', body: rawFnsGlsl },
         { title: '// Functions', body: dslFnsGlsl },
         { title: '// Transform-feedback vertex shader', body: main },
