@@ -58,6 +58,7 @@ export type { Frustum } from './math/frustum';
 export * as frustum from './math/frustum';
 export { createRaycaster, type Intersection, type Ray, Raycaster } from './math/raycaster';
 export type { StorageMirror } from './nodes/backend/glsl/emit';
+export { STAGE_COMPUTE, STAGE_FRAGMENT, STAGE_VERTEX } from './nodes/backend/stage-reach';
 export {
     type AttributeEntry,
     type CompileGlslOptions,

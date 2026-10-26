@@ -302,22 +302,36 @@ export function getRenderBindGroupLayouts(state: BindingsState, renderObject: Re
     return layouts;
 }
 
-/** Initialize a BindGroup (create layout). Called once per BindGroup. */
-function initBindGroup(state: BindingsState, bindGroup: BindGroup, device: GPUDevice, visibility: GPUShaderStageFlags): void {
+/** Initialize a BindGroup (create layout). Called once per BindGroup. `uniformVisibility` is the stages a uniform
+ *  block is visible to; every other binding is visible to the stages its compile found reading it. */
+function initBindGroup(
+    state: BindingsState,
+    bindGroup: BindGroup,
+    device: GPUDevice,
+    uniformVisibility: GPUShaderStageFlags,
+): void {
     const data = getData(state, bindGroup);
 
     // already initialized
     if (data.bindGroupLayout) return;
 
     // build bind group layout entries
-    const entries = buildLayoutEntries(bindGroup, visibility, device);
+    const entries = buildLayoutEntries(bindGroup, uniformVisibility, device);
 
     // get or create the layout
     data.bindGroupLayout = getBindGroupLayout(state.layoutCache, device, entries);
 }
 
-/** Build bind group layout entries for a BindGroup. */
-function buildLayoutEntries(bindGroup: BindGroup, visibility: GPUShaderStageFlags, device: GPUDevice): GPUBindGroupLayoutEntry[] {
+/**
+ * Build bind group layout entries for a BindGroup. A uniform block is shared by every stage, as three.js does; any
+ * other binding is visible only to the stages that read it, since WebGPU counts a binding against each stage's limit
+ * (8 storage buffers by default) for every stage it is visible to.
+ */
+function buildLayoutEntries(
+    bindGroup: BindGroup,
+    uniformVisibility: GPUShaderStageFlags,
+    device: GPUDevice,
+): GPUBindGroupLayoutEntry[] {
     const float32Filterable = device.features.has('float32-filterable');
     const entries: GPUBindGroupLayoutEntry[] = [];
 
@@ -326,7 +340,7 @@ function buildLayoutEntries(bindGroup: BindGroup, visibility: GPUShaderStageFlag
             case 'uniform':
                 entries.push({
                     binding: binding.block.binding,
-                    visibility,
+                    visibility: uniformVisibility,
                     buffer: { type: 'uniform', hasDynamicOffset: usesDynamicOffset(binding.block) },
                 });
                 break;
@@ -334,7 +348,7 @@ function buildLayoutEntries(bindGroup: BindGroup, visibility: GPUShaderStageFlag
             case 'storage':
                 entries.push({
                     binding: binding.entry.binding,
-                    visibility,
+                    visibility: binding.entry.visibility,
                     buffer: {
                         type: binding.entry.access === 'read_write' ? 'storage' : 'read-only-storage',
                     },
@@ -344,7 +358,7 @@ function buildLayoutEntries(bindGroup: BindGroup, visibility: GPUShaderStageFlag
             case 'texture': {
                 entries.push({
                     binding: binding.entry.binding,
-                    visibility,
+                    visibility: binding.entry.visibility,
                     texture: textureBindingLayout(binding.entry, float32Filterable),
                 });
                 break;
@@ -353,7 +367,7 @@ function buildLayoutEntries(bindGroup: BindGroup, visibility: GPUShaderStageFlag
             case 'storageTexture': {
                 entries.push({
                     binding: binding.entry.binding,
-                    visibility,
+                    visibility: binding.entry.visibility,
                     storageTexture: {
                         access: storageLayoutAccess(binding.entry.access),
                         format: binding.entry.format as GPUTextureFormat,
@@ -366,7 +380,7 @@ function buildLayoutEntries(bindGroup: BindGroup, visibility: GPUShaderStageFlag
             case 'sampler':
                 entries.push({
                     binding: binding.entry.binding,
-                    visibility,
+                    visibility: binding.entry.visibility,
                     sampler: {
                         type: samplerBindingType(binding.entry),
                     },

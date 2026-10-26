@@ -1164,6 +1164,8 @@ export type ComputeStorageEntry = {
     access: 'read' | 'read_write';
     group: number;
     binding: number;
+    /** `STAGE_COMPUTE`. */
+    visibility: number;
 };
 ```
 
@@ -1226,6 +1228,8 @@ export type SamplerEntry = {
     group: number;
     binding: number;
     samplerNode: SamplerNode<d.sampler | d.samplerComparison>;
+    /** the stages reading it, as `STAGE_*` bits. */
+    visibility: number;
 };
 ```
 
@@ -1239,6 +1243,8 @@ export type StorageEntry = {
     access: 'read' | 'read_write';
     group: number;
     binding: number;
+    /** the stages reading it, as `STAGE_*` bits. */
+    visibility: number;
 };
 ```
 
@@ -1258,6 +1264,8 @@ export type StorageTextureEntry = {
     group: number;
     binding: number;
     node: StorageTextureBindingNode;
+    /** the stages reading it, as `STAGE_*` bits. */
+    visibility: number;
 };
 ```
 
@@ -1273,6 +1281,8 @@ export type TextureEntry = {
     group: number;
     binding: number;
     node: TextureBindingNode;
+    /** the stages reading it, as `STAGE_*` bits. */
+    visibility: number;
 };
 ```
 
@@ -7421,6 +7431,8 @@ export type StorageEntry = {
     access: 'read' | 'read_write';
     group: number;
     binding: number;
+    /** the stages reading it, as `STAGE_*` bits. */
+    visibility: number;
 };
 ```
 
@@ -7436,6 +7448,8 @@ export type TextureEntry = {
     group: number;
     binding: number;
     node: TextureBindingNode;
+    /** the stages reading it, as `STAGE_*` bits. */
+    visibility: number;
 };
 ```
 
@@ -7455,6 +7469,8 @@ export type StorageTextureEntry = {
     group: number;
     binding: number;
     node: StorageTextureBindingNode;
+    /** the stages reading it, as `STAGE_*` bits. */
+    visibility: number;
 };
 ```
 
@@ -7467,6 +7483,8 @@ export type SamplerEntry = {
     group: number;
     binding: number;
     samplerNode: SamplerNode<d.sampler | d.samplerComparison>;
+    /** the stages reading it, as `STAGE_*` bits. */
+    visibility: number;
 };
 ```
 
@@ -7480,6 +7498,8 @@ export type ComputeStorageEntry = {
     access: 'read' | 'read_write';
     group: number;
     binding: number;
+    /** `STAGE_COMPUTE`. */
+    visibility: number;
 };
 ```
 

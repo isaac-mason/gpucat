@@ -70,6 +70,7 @@ import {
     tracedFnCallees,
 } from '../names';
 import { binaryPrec, Prec, paren, unary, wgslBinaryOperandMin } from '../print';
+import { type RenderStageReach, renderStagesOf, STAGE_COMPUTE } from '../stage-reach';
 
 type ShaderStage = 'vertex' | 'fragment' | 'compute';
 
@@ -1378,7 +1379,12 @@ type BindingGroupData = {
  * - The @group(N) index is the SORTED ARRAY POSITION, not the order value directly
  * - Within each group, bindings get sequential @binding(M) indices starting from 0
  */
-export function emitAllBindings(ctx: BuildContext): {
+/** `stages` is what each render stage reads, for a binding's visibility; a compute shader passes null, and every
+ *  binding is the compute stage's. */
+export function emitAllBindings(
+    ctx: BuildContext,
+    stages: RenderStageReach | null,
+): {
     wgsl: string;
     uniformBlocks: UniformGroupBlock[];
     storageEntries: StorageEntry[];
@@ -1556,6 +1562,7 @@ export function emitAllBindings(ctx: BuildContext): {
                 access,
                 group: groupIndex,
                 binding: bindingIndex,
+                visibility: stages ? renderStagesOf(stages, (reach) => reach.storages.has(node.id)) : STAGE_COMPUTE,
             });
 
             bindingIndex++;
@@ -1571,6 +1578,7 @@ export function emitAllBindings(ctx: BuildContext): {
                 group: groupIndex,
                 binding: bindingIndex,
                 node,
+                visibility: stages ? renderStagesOf(stages, (reach) => reach.textures.has(node.textureId)) : STAGE_COMPUTE,
             });
             bindingIndex++;
         }
@@ -1598,6 +1606,7 @@ export function emitAllBindings(ctx: BuildContext): {
                 group: groupIndex,
                 binding: bindingIndex,
                 node,
+                visibility: stages ? renderStagesOf(stages, (reach) => reach.textures.has(node.textureId)) : STAGE_COMPUTE,
             });
             bindingIndex++;
         }
@@ -1612,6 +1621,7 @@ export function emitAllBindings(ctx: BuildContext): {
                 group: groupIndex,
                 binding: bindingIndex,
                 samplerNode: node,
+                visibility: stages ? renderStagesOf(stages, (reach) => reach.samplers.has(node.settingsKey)) : STAGE_COMPUTE,
             });
             bindingIndex++;
         }

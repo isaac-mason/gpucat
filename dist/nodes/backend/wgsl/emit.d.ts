@@ -17,6 +17,7 @@ import type { VaryingNode } from '../../lib/varying';
 import type { WgslFunctionNode } from '../../lib/wgsl-fn';
 import { type NameScope } from '../names';
 import { Prec } from '../print';
+import { type RenderStageReach } from '../stage-reach';
 type ShaderStage = 'vertex' | 'fragment' | 'compute';
 /** Traced FnNode data */
 export type TracedFn = {
@@ -96,7 +97,9 @@ export declare function emitModuleScopeVars(ctx: BuildContext): string;
  * - The @group(N) index is the SORTED ARRAY POSITION, not the order value directly
  * - Within each group, bindings get sequential @binding(M) indices starting from 0
  */
-export declare function emitAllBindings(ctx: BuildContext): {
+/** `stages` is what each render stage reads, for a binding's visibility; a compute shader passes null, and every
+ *  binding is the compute stage's. */
+export declare function emitAllBindings(ctx: BuildContext, stages: RenderStageReach | null): {
     wgsl: string;
     uniformBlocks: UniformGroupBlock[];
     storageEntries: StorageEntry[];

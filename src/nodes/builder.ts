@@ -20,6 +20,7 @@ import {
 } from './backend/glsl/emit';
 import { allocName, createNameScope, derivedSamplerName, type NameScope } from './backend/names';
 import { joinSections } from './backend/print';
+import { reachBindings } from './backend/stage-reach';
 import {
     collectVaryings,
     createContext,
@@ -95,6 +96,15 @@ export function compileWgsl(slots: CompileSlots): CompileResult {
     // generate vertex shader
     const vertexBody = generateVertexShader(slots, vertexCtx);
 
+    // what each stage reads, so a binding is visible only to the stages using it: WebGPU counts a binding against
+    // every stage it is visible to. The vertex stage also computes each varying's value.
+    const vertexRoots: (Node<d.Any> | null | undefined)[] = [slots.vertex];
+    for (const { node } of vertexCtx.varyings.values()) vertexRoots.push(node.node.node);
+    const stages = {
+        vertex: reachBindings(vertexRoots, discovered.fnDefs),
+        fragment: reachBindings([slots.fragment, slots.depth], discovered.fnDefs),
+    };
+
     // generate fragment shader (needed whenever there is a color output OR a frag_depth override)
     let fragmentBody = '';
     if (emitFragment) {
@@ -111,7 +121,7 @@ export function compileWgsl(slots: CompileSlots): CompileResult {
         textureEntries: textures,
         storageTextureEntries: storageTextures,
         samplerEntries: samplers,
-    } = emitAllBindings(vertexCtx);
+    } = emitAllBindings(vertexCtx, stages);
 
     // emit module-scope variables (var<private>)
     const moduleScopeVarsWgsl = emitModuleScopeVars(vertexCtx);
@@ -552,7 +562,7 @@ export function compileComputeWgsl(node: ComputeNode): ComputeCompileResult {
         textureEntries: textures,
         storageTextureEntries: storageTextures,
         samplerEntries: samplers,
-    } = emitAllBindings(ctx);
+    } = emitAllBindings(ctx, null);
 
     // emit module-scope variables (var<private>, var<workgroup>)
     const moduleScopeVarsWgsl = emitModuleScopeVars(ctx);
@@ -578,6 +588,7 @@ export function compileComputeWgsl(node: ComputeNode): ComputeCompileResult {
         access: e.access,
         group: e.group,
         binding: e.binding,
+        visibility: e.visibility,
     }));
 
     return {
@@ -795,6 +806,8 @@ export type StorageEntry = {
     access: 'read' | 'read_write';
     group: number;
     binding: number;
+    /** the stages reading it, as `STAGE_*` bits. */
+    visibility: number;
 };
 
 export type TextureEntry = {
@@ -806,6 +819,8 @@ export type TextureEntry = {
     group: number;
     binding: number;
     node: TextureBindingNode;
+    /** the stages reading it, as `STAGE_*` bits. */
+    visibility: number;
 };
 
 export type StorageTextureEntry = {
@@ -821,6 +836,8 @@ export type StorageTextureEntry = {
     group: number;
     binding: number;
     node: StorageTextureBindingNode;
+    /** the stages reading it, as `STAGE_*` bits. */
+    visibility: number;
 };
 
 export type SamplerEntry = {
@@ -829,6 +846,8 @@ export type SamplerEntry = {
     group: number;
     binding: number;
     samplerNode: SamplerNode<d.sampler | d.samplerComparison>;
+    /** the stages reading it, as `STAGE_*` bits. */
+    visibility: number;
 };
 
 export type ComputeStorageEntry = {
@@ -838,6 +857,8 @@ export type ComputeStorageEntry = {
     access: 'read' | 'read_write';
     group: number;
     binding: number;
+    /** `STAGE_COMPUTE`. */
+    visibility: number;
 };
 
 export type NodeGraphInfo = {

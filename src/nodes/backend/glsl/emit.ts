@@ -64,6 +64,7 @@ import {
     tracedFnCallees,
 } from '../names';
 import { binaryOperandMin, binaryPrec, Prec, paren, shortestF32, unary } from '../print';
+import { STAGE_FRAGMENT, STAGE_VERTEX } from '../stage-reach';
 import type { TracedFn } from '../wgsl/emit';
 
 type ShaderStage = 'vertex' | 'fragment';
@@ -1968,6 +1969,8 @@ export function emitGlslTextures(ctx: GlslBuildContext): {
                 group: groupIndex,
                 binding: unit,
                 node: binding,
+                // a GL sampler uniform belongs to the whole program, not to a stage
+                visibility: STAGE_VERTEX | STAGE_FRAGMENT,
             });
 
             // Fold the paired sampler's settings into the same texture unit. If the texture was only
@@ -1980,6 +1983,7 @@ export function emitGlslTextures(ctx: GlslBuildContext): {
                     group: groupIndex,
                     binding: unit,
                     samplerNode,
+                    visibility: STAGE_VERTEX | STAGE_FRAGMENT,
                 });
             }
 

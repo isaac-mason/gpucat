@@ -1389,6 +1389,45 @@ async function caseStorageMixedAlign(gpu: Renderer<WebGPUBackend>): Promise<Case
  * packer writing the two back to back puts `tint` where the shader expects padding. Its offsets are
  * checked by compiling WGSL elsewhere; this checks the bytes actually arrive there.
  */
+/**
+ * stage-visibility: ten storage buffers, five read by each stage. WebGPU allows 8 a stage by default, counting a
+ * binding against every stage it is visible to, so the pipeline only builds when each is visible to its own stage.
+ */
+async function caseStageVisibility(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const one = (label: string) => storage(createStorageBuffer(d.array(d.f32), new Float32Array([1]), label), 'read');
+    const vertexBuffers = ['v0', 'v1', 'v2', 'v3', 'v4'].map(one);
+    const fragmentBuffers = ['f0', 'f1', 'f2', 'f3', 'f4'].map(one);
+    const sum = (buffers: typeof vertexBuffers) =>
+        buffers.map((b) => b.element(u32(0))).reduce((total, value) => total.add(value));
+
+    const vertexSum = varying(sum(vertexBuffers), 'vertexSum').setInterpolation('flat');
+    const pass = vertexSum.equal(f32(5)).and(sum(fragmentBuffers).equal(f32(5)));
+    const mesh = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: select(vec4(1, 0, 0, 1), vec4(0, 1, 0, 1), pass),
+            depthTest: false,
+        }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const renderPass = f.pass({ target, camera: new PerspectiveCamera(), clear: [0, 0, 0, 1] });
+    renderPass.draw(mesh);
+    renderPass.end();
+    f.submit();
+
+    const pixel = centerPixel(await read(gpu, target));
+    return {
+        name: 'stage-visibility',
+        pixel,
+        expected: [0, 255, 0, 255],
+        note: 'not green: the pipeline was refused, 10 storage buffers counted against one stage',
+    };
+}
+
 /** bit-builtins: the integer bit builtins, run natively; webgl-render draws the same material through its helpers. */
 async function caseBitBuiltins(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     return readsBack(gpu, bitBuiltinsFragment(), 'bit-builtins', [0, 255, 0, 255], 'red: a bit builtin gave the wrong answer');
@@ -2892,6 +2931,7 @@ const CASES: Record<string, Case> = {
     'storage-mixed-align': caseStorageMixedAlign,
     'uniform-struct-align': caseUniformStructAlign,
     'bit-builtins': caseBitBuiltins,
+    'stage-visibility': caseStageVisibility,
     'struct-texture-unorm8x4': caseStructTexturePackedUnorm,
     'struct-texture-snorm8x4': caseStructTexturePackedSnorm,
     'struct-texture-half2x16': caseStructTexturePackedHalf,

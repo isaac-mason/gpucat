@@ -12042,19 +12042,24 @@ function getRenderBindGroupLayouts(state, renderObject) {
     }
     return layouts;
 }
-/** Initialize a BindGroup (create layout). Called once per BindGroup. */
-function initBindGroup(state, bindGroup, device, visibility) {
+/** Initialize a BindGroup (create layout). Called once per BindGroup. `uniformVisibility` is the stages a uniform
+ *  block is visible to; every other binding is visible to the stages its compile found reading it. */
+function initBindGroup(state, bindGroup, device, uniformVisibility) {
     const data = getData(state, bindGroup);
     // already initialized
     if (data.bindGroupLayout)
         return;
     // build bind group layout entries
-    const entries = buildLayoutEntries(bindGroup, visibility, device);
+    const entries = buildLayoutEntries(bindGroup, uniformVisibility, device);
     // get or create the layout
     data.bindGroupLayout = getBindGroupLayout(state.layoutCache, device, entries);
 }
-/** Build bind group layout entries for a BindGroup. */
-function buildLayoutEntries(bindGroup, visibility, device) {
+/**
+ * Build bind group layout entries for a BindGroup. A uniform block is shared by every stage, as three.js does; any
+ * other binding is visible only to the stages that read it, since WebGPU counts a binding against each stage's limit
+ * (8 storage buffers by default) for every stage it is visible to.
+ */
+function buildLayoutEntries(bindGroup, uniformVisibility, device) {
     const float32Filterable = device.features.has('float32-filterable');
     const entries = [];
     for (const binding of bindGroup.bindings) {
@@ -12062,14 +12067,14 @@ function buildLayoutEntries(bindGroup, visibility, device) {
             case 'uniform':
                 entries.push({
                     binding: binding.block.binding,
-                    visibility,
+                    visibility: uniformVisibility,
                     buffer: { type: 'uniform', hasDynamicOffset: usesDynamicOffset(binding.block) },
                 });
                 break;
             case 'storage':
                 entries.push({
                     binding: binding.entry.binding,
-                    visibility,
+                    visibility: binding.entry.visibility,
                     buffer: {
                         type: binding.entry.access === 'read_write' ? 'storage' : 'read-only-storage',
                     },
@@ -12078,7 +12083,7 @@ function buildLayoutEntries(bindGroup, visibility, device) {
             case 'texture': {
                 entries.push({
                     binding: binding.entry.binding,
-                    visibility,
+                    visibility: binding.entry.visibility,
                     texture: textureBindingLayout(binding.entry, float32Filterable),
                 });
                 break;
@@ -12086,7 +12091,7 @@ function buildLayoutEntries(bindGroup, visibility, device) {
             case 'storageTexture': {
                 entries.push({
                     binding: binding.entry.binding,
-                    visibility,
+                    visibility: binding.entry.visibility,
                     storageTexture: {
                         access: storageLayoutAccess(binding.entry.access),
                         format: binding.entry.format,
@@ -12098,7 +12103,7 @@ function buildLayoutEntries(bindGroup, visibility, device) {
             case 'sampler':
                 entries.push({
                     binding: binding.entry.binding,
-                    visibility,
+                    visibility: binding.entry.visibility,
                     sampler: {
                         type: samplerBindingType(binding.entry),
                     },
@@ -18541,6 +18546,56 @@ function trimFloat(s) {
     return trimmed.endsWith('.') ? `${trimmed}0` : trimmed;
 }
 
+/** a binding's stages as a mask, with the bit values WebGPU's `GPUShaderStage` gives them. */
+const STAGE_VERTEX = 1;
+const STAGE_FRAGMENT = 2;
+const STAGE_COMPUTE = 4;
+/**
+ * The bindings reachable from `roots`, into the `Fn` bodies they call (as `fnDefs` traced them, so the nodes found are
+ * the ones bound). A varying is where the stages meet: the fragment reads its value and never what produced it, so the
+ * walk stops there, and a vertex walk is seeded with each varying's source instead.
+ */
+function reachBindings(roots, fnDefs) {
+    const reach = { storages: new Set(), textures: new Set(), samplers: new Set() };
+    const seen = new Set();
+    const walked = new Set();
+    const walk = (rawNode) => {
+        if (!rawNode)
+            return;
+        const node = rawNode;
+        if (seen.has(node.id))
+            return;
+        seen.add(node.id);
+        if (node.kind === NodeKind.Varying)
+            return;
+        if (node.kind === NodeKind.Storage)
+            reach.storages.add(node.id);
+        else if (node.kind === NodeKind.TextureBinding || node.kind === NodeKind.StorageTextureBinding) {
+            reach.textures.add(node.textureId);
+        }
+        else if (node.kind === NodeKind.Sampler)
+            reach.samplers.add(node.settingsKey);
+        else if (node.kind === NodeKind.Call) {
+            const fnNode = node.fnNode;
+            if (fnNode && !walked.has(fnNode.fnName)) {
+                walked.add(fnNode.fnName);
+                const traced = fnDefs.get(fnNode.fnName)?.traced ?? fnNode.trace();
+                walk(traced.body);
+                walk(traced.output);
+            }
+        }
+        for (const child of getChildren(node))
+            walk(child);
+    };
+    for (const root of roots)
+        walk(root);
+    return reach;
+}
+/** the stages of a render pipeline reading a binding, as `reads` tells each stage's reach. */
+function renderStagesOf(stages, reads) {
+    return (reads(stages.vertex) ? STAGE_VERTEX : 0) | (reads(stages.fragment) ? STAGE_FRAGMENT : 0);
+}
+
 /**
  * backend/glsl/emit.ts — the GLSL ES 3.00 emitter.
  *
@@ -20274,6 +20329,8 @@ function emitGlslTextures(ctx) {
                 group: groupIndex,
                 binding: unit,
                 node: binding,
+                // a GL sampler uniform belongs to the whole program, not to a stage
+                visibility: STAGE_VERTEX | STAGE_FRAGMENT,
             });
             // Fold the paired sampler's settings into the same texture unit. If the texture was only
             // used as a bare handle (no sample), no sampler was registered — skip its SamplerEntry.
@@ -20285,6 +20342,7 @@ function emitGlslTextures(ctx) {
                     group: groupIndex,
                     binding: unit,
                     samplerNode,
+                    visibility: STAGE_VERTEX | STAGE_FRAGMENT,
                 });
             }
             unit++;
@@ -22222,7 +22280,9 @@ function generateModuleScopeInitExpr(rawNode) {
  * - The @group(N) index is the SORTED ARRAY POSITION, not the order value directly
  * - Within each group, bindings get sequential @binding(M) indices starting from 0
  */
-function emitAllBindings(ctx) {
+/** `stages` is what each render stage reads, for a binding's visibility; a compute shader passes null, and every
+ *  binding is the compute stage's. */
+function emitAllBindings(ctx, stages) {
     // step 1: collect all resources by their group
     const groupsByName = new Map();
     // helper to get or create a group
@@ -22364,6 +22424,7 @@ function emitAllBindings(ctx) {
                 access,
                 group: groupIndex,
                 binding: bindingIndex,
+                visibility: stages ? renderStagesOf(stages, (reach) => reach.storages.has(node.id)) : STAGE_COMPUTE,
             });
             bindingIndex++;
         }
@@ -22377,6 +22438,7 @@ function emitAllBindings(ctx) {
                 group: groupIndex,
                 binding: bindingIndex,
                 node,
+                visibility: stages ? renderStagesOf(stages, (reach) => reach.textures.has(node.textureId)) : STAGE_COMPUTE,
             });
             bindingIndex++;
         }
@@ -22401,6 +22463,7 @@ function emitAllBindings(ctx) {
                 group: groupIndex,
                 binding: bindingIndex,
                 node,
+                visibility: stages ? renderStagesOf(stages, (reach) => reach.textures.has(node.textureId)) : STAGE_COMPUTE,
             });
             bindingIndex++;
         }
@@ -22414,6 +22477,7 @@ function emitAllBindings(ctx) {
                 group: groupIndex,
                 binding: bindingIndex,
                 samplerNode: node,
+                visibility: stages ? renderStagesOf(stages, (reach) => reach.samplers.has(node.settingsKey)) : STAGE_COMPUTE,
             });
             bindingIndex++;
         }
@@ -22880,6 +22944,15 @@ function compileWgsl(slots) {
     }
     // generate vertex shader
     const vertexBody = generateVertexShader(slots, vertexCtx);
+    // what each stage reads, so a binding is visible only to the stages using it: WebGPU counts a binding against
+    // every stage it is visible to. The vertex stage also computes each varying's value.
+    const vertexRoots = [slots.vertex];
+    for (const { node } of vertexCtx.varyings.values())
+        vertexRoots.push(node.node.node);
+    const stages = {
+        vertex: reachBindings(vertexRoots, discovered.fnDefs),
+        fragment: reachBindings([slots.fragment, slots.depth], discovered.fnDefs),
+    };
     // generate fragment shader (needed whenever there is a color output OR a frag_depth override)
     let fragmentBody = '';
     if (emitFragment) {
@@ -22887,7 +22960,7 @@ function compileWgsl(slots) {
         // No need to merge bindings anymore - they're shared via discovered.*
     }
     // emit all bindings (each group gets its own @group index)
-    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, storageTextureEntries: storageTextures, samplerEntries: samplers, } = emitAllBindings(vertexCtx);
+    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, storageTextureEntries: storageTextures, samplerEntries: samplers, } = emitAllBindings(vertexCtx, stages);
     // emit module-scope variables (var<private>)
     const moduleScopeVarsWgsl = emitModuleScopeVars(vertexCtx);
     // emit functions
@@ -23253,7 +23326,7 @@ function compileComputeWgsl(node) {
     // causing emits like `undefined[...]`).
     const computeBody = generateComputeShader(node, traced, ctx);
     // emit all bindings (each group gets its own @group index)
-    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, storageTextureEntries: storageTextures, samplerEntries: samplers, } = emitAllBindings(ctx);
+    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, storageTextureEntries: storageTextures, samplerEntries: samplers, } = emitAllBindings(ctx, null);
     // emit module-scope variables (var<private>, var<workgroup>)
     const moduleScopeVarsWgsl = emitModuleScopeVars(ctx);
     // emit functions
@@ -23275,6 +23348,7 @@ function compileComputeWgsl(node) {
         access: e.access,
         group: e.group,
         binding: e.binding,
+        visibility: e.visibility,
     }));
     return {
         code,
@@ -43640,5 +43714,5 @@ function createData3DTexture(data = null, width = 1, height = 1, depth = 1, opti
     return new Data3DTexture(data, width, height, depth, options);
 }
 
-export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, Scene, Source, TOUCH, Texture, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, copyBuffer, copyTexture, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, memoryReport, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId, writeBuffer, writeTexture };
+export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, STAGE_COMPUTE, STAGE_FRAGMENT, STAGE_VERTEX, Scene, Source, TOUCH, Texture, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, copyBuffer, copyTexture, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, memoryReport, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId, writeBuffer, writeTexture };
 //# sourceMappingURL=index.js.map
