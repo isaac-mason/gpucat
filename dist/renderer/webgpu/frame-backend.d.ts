@@ -41,7 +41,8 @@ type OpenRenderPass = {
     preparedOpts: (DrawOptions | null)[];
     bindings: DrawBindings[];
     count: number;
-    /** Runs of `prepared`, one per bundle plus the direct draws between them. */
+    /** Runs of `prepared`: one per bundle, and the direct draws between them, split where the camera or a rect
+     *  changed. Pooled; the first `segmentCount` are this pass's. */
     segments: PreparedSegment[];
     segmentCount: number;
     runStart: number;
@@ -58,7 +59,8 @@ export declare function createWebGPUFrameBackendState(renderer: Renderer<DeviceB
 export declare function beginFrame(s: WebGPUFrameBackendState): void;
 /** Opens a render pass: its context and render scope are fixed here, before its first draw resolves. */
 export declare function beginPass(s: WebGPUFrameBackendState, desc: PassDesc): void;
-/** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded. */
+/** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded; a camera or rect
+ *  change ends the run of draws before it. */
 export declare function recordEntry(s: WebGPUFrameBackendState, entry: PassEntry): void;
 /** Encodes what the pass resolved, then closes the scopes `beginPass` opened. */
 export declare function encodePass(s: WebGPUFrameBackendState, desc: PassDesc): void;

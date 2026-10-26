@@ -17,7 +17,7 @@ import type { DrawOptions } from '../core/frame';
 import type { RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
-import type { PreparedRenderObject, RenderPassParams } from '../core/render-types';
+import type { PreparedRenderObject, PreparedSegment, RenderPassParams } from '../core/render-types';
 import * as Bindings from './bindings';
 import type { WebGLBackend } from './webgl-backend';
 /**
@@ -47,5 +47,5 @@ export declare function endPass(caches: WebGLBackend): void;
  * recorded it, so the draw uses the values set before that call.
  */
 export declare function captureDraw(caches: WebGLBackend, nodes: NodeManagerState, renderObject: PreparedRenderObject, out: Bindings.RecordCapture): void;
-export declare function encodeDraws(gl: WebGL2RenderingContext, caches: WebGLBackend, nodes: NodeManagerState, passCtx: RenderContext, params: RenderPassParams, prepared: readonly PreparedRenderObject[], preparedOpts: readonly (DrawOptions | null)[], captures: readonly Bindings.RecordCapture[], count: number, inspector: InspectorBase | null, info: RendererInfo, { passBlend }: PassScope): void;
+export declare function encodeDraws(gl: WebGL2RenderingContext, caches: WebGLBackend, nodes: NodeManagerState, passCtx: RenderContext, params: RenderPassParams, prepared: readonly PreparedRenderObject[], preparedOpts: readonly (DrawOptions | null)[], captures: readonly Bindings.RecordCapture[], count: number, segments: readonly PreparedSegment[], segmentCount: number, inspector: InspectorBase | null, info: RendererInfo, { passBlend }: PassScope): void;
 export {};

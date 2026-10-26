@@ -55,15 +55,21 @@ export type RenderPassParams = {
     mipLevel: number;
 };
 /**
- * A contiguous run of prepared objects, and the bundle it came from if any. WebGPU records a device
- * bundle per run so it can `executeBundles` instead of re-encoding; WebGL ignores these, because the
- * flat prepared list already is the replay.
+ * A contiguous run of prepared objects: the bundle it came from if any, and the camera, viewport and scissor its draws
+ * were recorded under. A run ends at a bundle's edge or at a change of camera or rect. WebGPU records a device bundle per
+ * bundle run so it can `executeBundles` instead of re-encoding; WebGL replays a bundle's draws as they are.
  */
 export type PreparedSegment = {
     bundle: RenderBundle | null;
     start: number;
     count: number;
+    camera: View | null;
+    viewport: boolean;
+    viewportValue: ViewportValue;
+    scissor: boolean;
+    scissorValue: ScissorValue;
 };
+export declare function createSegment(): PreparedSegment;
 /** Whether a depth format carries a stencil aspect. `stencil8` is stencil-only and still counts. */
 export declare function formatHasStencil(format: GPUTextureFormat | undefined): boolean;
 /** A pass's own struct, filled in place by `resolvePassParams` so a steady-state frame allocates none. */

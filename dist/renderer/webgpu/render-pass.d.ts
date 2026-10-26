@@ -3,7 +3,7 @@ import type { CanvasTarget } from '../core/canvas-target';
 import type { DrawOptions } from '../core/frame';
 import { type Allocation, type MemoryTally, type RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
-import type { RenderContext } from '../core/pass-context';
+import type { RenderContext, ScissorValue, ViewportValue } from '../core/pass-context';
 import { type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
 import type { DrawBindings } from './bindings';
 import type { WebGPUBackend } from './webgpu-backend';
@@ -76,9 +76,12 @@ type ResolvedAttachments = {
 export declare function resolveAttachments(b: WebGPUBackend, params: RenderPassParams): ResolvedAttachments;
 /** What the draw loop needs: a bundle encoder offers the same surface as a pass encoder. */
 export type DrawEncoder = GPURenderPassEncoder | GPURenderBundleEncoder;
+/** The encoder and what it has set: bindings, and the viewport and scissor it last set, the whole target at first. */
 export type PassScope = {
     gpuPass: GPURenderPassEncoder;
     currentSets: CurrentSets;
+    viewport: ViewportValue;
+    scissor: ScissorValue;
 };
 /** The draw loop's own scope, which a bundle recording satisfies with a bundle encoder. */
 export type DrawScope = {
@@ -100,7 +103,8 @@ export type EncodeContext = {
     inspector: InspectorBase | null;
     info: RendererInfo;
 };
-export declare function encodeDraws(ctx: EncodeContext, count: number, scope: PassScope, segments: readonly PreparedSegment[]): void;
+/** Encodes the pass's first `segmentCount` runs of draws, each under the viewport and scissor it was recorded with. */
+export declare function encodeDraws(ctx: EncodeContext, scope: PassScope, segments: readonly PreparedSegment[], segmentCount: number): void;
 /** A device bundle and the bind groups and dynamic offsets it baked, in draw then @group order. */
 export type RecordedBundle = {
     gpu: GPURenderBundle;

@@ -1,7 +1,7 @@
 import type { DeviceBackend } from '../core/device-backend';
 import type { DrawOptions, PassDesc, PassEntry, TransformFeedbackPassDesc, TransformFeedbackRecord } from '../core/frame';
 import type { RenderContext } from '../core/pass-context';
-import { type PreparedRenderObject, type RenderPassParams } from '../core/render-types';
+import { type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
 import * as Bindings from './bindings';
 import type { WebGLBackend } from './webgl-backend';
@@ -40,12 +40,18 @@ type OpenRenderPass = {
     preparedOpts: (DrawOptions | null)[];
     captures: Bindings.RecordCapture[];
     count: number;
+    /** Runs of `prepared`, split where the camera or a rect changed. Pooled; the first `segmentCount` are this
+     *  pass's. A bundle's draws replay inside the run they land in: WebGL has no device bundles. */
+    segments: PreparedSegment[];
+    segmentCount: number;
+    runStart: number;
 };
 export declare function createWebGLFrameBackendState(renderer: Renderer<DeviceBackend>, backend: WebGLBackend): WebGLFrameBackendState;
 export declare function beginFrame(s: WebGLFrameBackendState): void;
 /** Opens a render pass: its context and render scope are fixed here, before its first draw resolves. */
 export declare function beginPass(s: WebGLFrameBackendState, desc: PassDesc): void;
-/** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded. */
+/** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded; a camera or rect
+ *  change ends the run of draws before it. */
 export declare function recordEntry(s: WebGLFrameBackendState, entry: PassEntry): void;
 /** Encodes what the pass captured, then closes the scopes `beginPass` opened. */
 export declare function encodePass(s: WebGLFrameBackendState, desc: PassDesc): void;

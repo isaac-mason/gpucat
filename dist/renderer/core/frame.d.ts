@@ -17,6 +17,10 @@ export type Rect = {
     width: number;
     height: number;
 };
+export type ViewportRect = Rect & {
+    minDepth?: number;
+    maxDepth?: number;
+};
 export type PassDesc = {
     target: Target;
     camera?: View;
@@ -29,10 +33,7 @@ export type PassDesc = {
     /** Mip level to render into. Only a `CubeRenderTarget` allocates a chain to select from. */
     mipLevel?: number;
     mrt?: MRTNode;
-    viewport?: Rect & {
-        minDepth?: number;
-        maxDepth?: number;
-    };
+    viewport?: ViewportRect;
     scissor?: Rect;
     label?: string;
 };
@@ -73,8 +74,24 @@ export type BundleRecord = {
     kind: 'bundle';
     bundle: RenderBundle;
 };
-/** What a pass records: a draw it was handed, or a bundle it was told to replay. */
-export type PassEntry = DrawRecord | BundleRecord;
+/** The camera the draws after it are drawn from. */
+export type CameraRecord = {
+    kind: 'camera';
+    camera: View;
+};
+/** The viewport the draws after it are drawn into; undefined is the whole target. */
+export type ViewportRecord = {
+    kind: 'viewport';
+    viewport: ViewportRect | undefined;
+};
+/** The scissor the draws after it are clipped to; undefined is none. */
+export type ScissorRecord = {
+    kind: 'scissor';
+    scissor: Rect | undefined;
+};
+/** What a pass records: a draw it was handed, a bundle it was told to replay, or a change to what the draws after it
+ *  are drawn with. */
+export type PassEntry = DrawRecord | BundleRecord | CameraRecord | ViewportRecord | ScissorRecord;
 export type ComputePassDesc = {
     label?: string;
 };
@@ -141,6 +158,13 @@ export type Pass = {
     drawRecord: DrawRecord | null;
     /** Handed to the backend by every `execute()`, created by the first. @internal */
     bundleRecord: BundleRecord | null;
+    /** Handed to the backend by every `setCamera()`, created by the first. @internal */
+    cameraRecord: CameraRecord | null;
+    /** Handed to the backend by every `setViewport()` and `setScissor()`. @internal */
+    /** @internal */ viewportRecord: ViewportRecord;
+    /** @internal */ scissorRecord: ScissorRecord;
+    /** What the draws recorded next are drawn from: the desc's, until `setCamera`. @internal */
+    camera: View | undefined;
     /** @internal */ ended: boolean;
     /** Draws unconditionally: `mesh.visible` gates the scene walk, not a draw you recorded yourself. */
     draw(mesh: Mesh, opts?: DrawOptions): void;
@@ -148,6 +172,16 @@ export type Pass = {
     execute(bundle: RenderBundle): void;
     /** Walks a tree here: frustum culled, `visible` honoured, opaque before transparent. */
     scene(root: Object3D, camera?: View): void;
+    /**
+     * Draws what is recorded after this from `camera`, until the next. Its matrices are uniforms of their own for
+     * those draws, so one pass draws several views: a shadow atlas, cascades. The same camera again changes nothing.
+     */
+    setCamera(camera: View): void;
+    /** Draws what is recorded after this into `viewport`, in physical pixels from the target's top left, until the
+     *  next; undefined is the whole target. It must lie inside the target. */
+    setViewport(viewport: ViewportRect | undefined): void;
+    /** Clips what is recorded after this to `scissor`, clamped to the target, until the next; undefined is none. */
+    setScissor(scissor: Rect | undefined): void;
     end(): void;
 };
 /** A recording compute pass. The batch shares one GPU pass unless an inspector wants per-node timings. */
