@@ -35799,7 +35799,12 @@ function resolveViewport(viewport, width, height, passId, out) {
         return false;
     const x = viewport.x ?? 0;
     const y = viewport.y ?? 0;
-    if (x < 0 || y < 0 || viewport.width < 0 || viewport.height < 0 || x + viewport.width > width || y + viewport.height > height) {
+    if (x < 0 ||
+        y < 0 ||
+        viewport.width < 0 ||
+        viewport.height < 0 ||
+        x + viewport.width > width ||
+        y + viewport.height > height) {
         throw new Error(`[pass ${passId}] viewport ${x}, ${y} ${viewport.width} x ${viewport.height} reaches outside its ${width} x ${height} target`);
     }
     out.x = x;

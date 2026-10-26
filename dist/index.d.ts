@@ -39,7 +39,7 @@ export { compile, compileCompute } from './renderer/core/compile';
 export { copyBuffer } from './renderer/core/copy-buffer';
 export { type CopyTextureEnd, copyTexture } from './renderer/core/copy-texture';
 export type { DeviceBackend } from './renderer/core/device-backend';
-export { type AnyPass, type BackendName, type BundleRecord, type CallRecord, type ComputePass, type ComputePassDesc, type DispatchIndirectOptions, type DispatchOptions, type DispatchRecord, type CameraRecord, type DrawOptions, type DrawRecord, type Frame, type FrameBackend, frame, type Pass, type PassDesc, type PassEntry, type Rect, type RenderBundle, type ScissorRecord, type TransformFeedbackDispatch, type TransformFeedbackPass, type TransformFeedbackPassDesc, type TransformFeedbackRecord, type ViewportRecord, type ViewportRect, } from './renderer/core/frame';
+export { type AnyPass, type BackendName, type BundleRecord, type CallRecord, type CameraRecord, type ComputePass, type ComputePassDesc, type DispatchIndirectOptions, type DispatchOptions, type DispatchRecord, type DrawOptions, type DrawRecord, type Frame, type FrameBackend, frame, type Pass, type PassDesc, type PassEntry, type Rect, type RenderBundle, type ScissorRecord, type TransformFeedbackDispatch, type TransformFeedbackPass, type TransformFeedbackPassDesc, type TransformFeedbackRecord, type ViewportRecord, type ViewportRect, } from './renderer/core/frame';
 export { type AllocationCategory, type AllocationKind, type AllocationReport, type BufferInfo, type BufferWrite, type ComputeInfo, type MemoryInfo, type RendererInfo, type RenderInfo, resetRendererInfo, } from './renderer/core/info';
 export { init } from './renderer/core/init';
 export type { NodeFrame } from './renderer/core/node-frame';
