@@ -249,7 +249,7 @@ function stencilAttachmentOps(
     if (!formatHasStencil(format)) return undefined;
     return {
         stencilLoadOp: params.clearsStencil ? 'clear' : 'load',
-        stencilStoreOp: 'store',
+        stencilStoreOp: params.storesStencil ? 'store' : 'discard',
         stencilClearValue: params.clearStencilValue,
     };
 }
@@ -304,7 +304,7 @@ function resolveRenderTargetAttachments(
             view: RenderTargets.getRenderTargetView(depthTextureData),
             depthClearValue: params.clearDepthValue,
             depthLoadOp: params.clearsDepth ? 'clear' : 'load',
-            depthStoreOp: 'store',
+            depthStoreOp: params.storesDepth ? 'store' : 'discard',
             ...stencilAttachmentOps(renderTarget._depthAttachment.format, params),
         };
     }
@@ -378,7 +378,7 @@ function resolveSwapchainAttachments(
             view: entry.depthTextureView!,
             depthClearValue: params.clearDepthValue,
             depthLoadOp: params.clearsDepth ? 'clear' : 'load',
-            depthStoreOp: 'store',
+            depthStoreOp: params.storesDepth ? 'store' : 'discard',
             ...stencilAttachmentOps(depthFormatFor(target), params),
         },
     };
@@ -423,7 +423,7 @@ function resolveCubeAttachments(
                 view: RenderTargets.getRenderTargetView(depthData),
                 depthClearValue: params.clearDepthValue,
                 depthLoadOp: params.clearsDepth ? 'clear' : 'load',
-                depthStoreOp: 'store',
+                depthStoreOp: params.storesDepth ? 'store' : 'discard',
                 ...stencilAttachmentOps(renderTarget._depthAttachment.format, params),
             };
         }

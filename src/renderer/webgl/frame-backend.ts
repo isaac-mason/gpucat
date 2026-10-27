@@ -250,7 +250,7 @@ export function encodePass(s: WebGLFrameBackendState, desc: PassDesc): void {
                     );
                 }
             } finally {
-                RenderPass.endPass(backend);
+                RenderPass.endPass(backend, params);
             }
 
             const renderTarget = renderTargetOf(desc.target);

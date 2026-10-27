@@ -23,7 +23,7 @@ import * as NodeManager from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
 import { getBindings, pipelineLabel } from '../core/render-object';
 import * as RenderState from '../core/render-state';
-import type { PreparedRenderObject, PreparedSegment, RenderPassParams } from '../core/render-types';
+import { formatHasStencil, type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
 import * as Bindings from './bindings';
 import * as Geometries from './geometries';
 import { getRenderObjectGl } from './render-object-gl';
@@ -202,11 +202,25 @@ export function beginPass(caches: WebGLBackend, passCtx: RenderContext, params: 
     return { passBlend };
 }
 
-/** Unbinds the VAO so later buffer mutations cannot record into it, then resolves an MSAA target. */
-export function endPass(caches: WebGLBackend): void {
+/**
+ * Unbinds the VAO so later buffer mutations cannot record into it, invalidates the depth and stencil the pass doesn't
+ * store, then resolves an MSAA target (its colour alone, so they can go first).
+ */
+export function endPass(caches: WebGLBackend, params: RenderPassParams): void {
     const gl = caches.gl!;
     gl.bindVertexArray(null);
+    invalidateUnstored(gl, params);
     resolveActiveRenderTarget(gl, caches.renderTargets);
+}
+
+// the default framebuffer names its buffers, a framebuffer object its attachment points
+function invalidateUnstored(gl: WebGL2RenderingContext, params: RenderPassParams): void {
+    const rt = params.renderTarget;
+    const stencil = rt === null ? params.swapchainStencil : formatHasStencil(rt._depthAttachment?.format);
+    const attachments: GLenum[] = [];
+    if (!params.storesDepth) attachments.push(rt === null ? gl.DEPTH : gl.DEPTH_ATTACHMENT);
+    if (stencil && !params.storesStencil) attachments.push(rt === null ? gl.STENCIL : gl.STENCIL_ATTACHMENT);
+    if (attachments.length > 0) gl.invalidateFramebuffer(gl.FRAMEBUFFER, attachments);
 }
 
 /**

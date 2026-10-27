@@ -77,6 +77,8 @@ export function resolvePassParams(desc: PassDesc, out: RenderPassParams): Render
     out.clearsColor = desc.clear !== false;
     out.clearsDepth = desc.clearDepth !== false;
     out.clearDepthValue = typeof desc.clearDepth === 'number' ? desc.clearDepth : 1;
+    out.storesDepth = desc.storeDepth !== false;
+    out.storesStencil = desc.storeStencil !== false;
     out.clearsStencil = desc.clearStencil !== false;
     out.clearStencilValue = typeof desc.clearStencil === 'number' ? desc.clearStencil : 0;
     out.swapchainStencil = hasStencil(target);

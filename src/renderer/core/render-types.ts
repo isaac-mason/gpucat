@@ -28,6 +28,10 @@ export type RenderPassParams = {
     clearsDepth: boolean;
     /** Depth the attachment clears to. 0 with a 'greater' depth compare is reversed-Z. */
     clearDepthValue: number;
+    /** False discards the depth at the pass's end instead of storing it. */
+    storesDepth: boolean;
+    /** False discards the stencil at the pass's end instead of storing it. */
+    storesStencil: boolean;
     clearsStencil: boolean;
     clearStencilValue: number;
     /** Whether the swapchain depth format carries a stencil aspect (used only when renderTarget is null). */
@@ -96,6 +100,8 @@ export function createPassParams(): RenderPassParams {
         clearsColor: true,
         clearsDepth: true,
         clearDepthValue: 1,
+        storesDepth: true,
+        storesStencil: true,
         clearsStencil: true,
         clearStencilValue: 0,
         swapchainStencil: false,

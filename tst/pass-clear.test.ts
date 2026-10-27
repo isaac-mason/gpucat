@@ -53,3 +53,24 @@ test('clear: false loads on an MSAA render target', () => {
     expect(loadOpFor(msaa, { clear: false })).toBe('load');
     expect(loadOpFor(msaa, {})).toBe('clear');
 });
+
+const depthOpsFor = (target: Parameters<typeof resolvePassParams>[0]['target'], desc: Record<string, unknown>) => {
+    const depth = resolveAttachments(backend(), resolvePassParams({ target, ...desc }, createPassParams())).depthAttachment!;
+    return { depth: depth.depthStoreOp, stencil: depth.stencilStoreOp };
+};
+
+/** A pass nothing after loads the depth or stencil from discards them; otherwise both are stored for a later load. */
+test('storeDepth and storeStencil: false discard their aspect', () => {
+    const plain = createRenderTarget(8, 8, { colorFormat: 'rgba8unorm' });
+    expect(depthOpsFor(plain, { storeDepth: false })).toEqual({ depth: 'discard', stencil: undefined });
+    expect(depthOpsFor(plain, {})).toEqual({ depth: 'store', stencil: undefined });
+
+    const stenciled = createRenderTarget(8, 8, { colorFormat: 'rgba8unorm', stencilBuffer: true });
+    expect(depthOpsFor(stenciled, { storeDepth: false })).toEqual({ depth: 'discard', stencil: 'store' });
+    expect(depthOpsFor(stenciled, { storeStencil: false })).toEqual({ depth: 'store', stencil: 'discard' });
+    expect(depthOpsFor(stenciled, {})).toEqual({ depth: 'store', stencil: 'store' });
+
+    const cube = createCubeRenderTarget(8, { colorFormat: 'rgba8unorm' });
+    expect(depthOpsFor(cube, { storeDepth: false, layer: 2 }).depth).toBe('discard');
+    expect(depthOpsFor(cube, { layer: 2 }).depth).toBe('store');
+});

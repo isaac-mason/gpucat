@@ -363,6 +363,57 @@ async function caseFrameApi(): Promise<CaseResult> {
 }
 
 /**
+ * unstored-depth: a pass storing neither its depth nor its stencil invalidates them as it ends, by buffer on the canvas
+ * and by attachment point on a render target, and its colour still lands. A wrong enum would be a GL error.
+ */
+async function caseUnstoredDepth(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const gl = renderer.backend.gl!;
+    const invalidated: string[] = [];
+    const invalidate = gl.invalidateFramebuffer.bind(gl);
+    gl.invalidateFramebuffer = (target, attachments) => {
+        const name = (e: number) =>
+            ({
+                [gl.DEPTH]: 'DEPTH',
+                [gl.STENCIL]: 'STENCIL',
+                [gl.DEPTH_ATTACHMENT]: 'DEPTH_ATTACHMENT',
+                [gl.STENCIL_ATTACHMENT]: 'STENCIL_ATTACHMENT',
+            })[e] ?? String(e);
+        invalidated.push([...attachments].map(name).join('+'));
+        invalidate(target, attachments);
+    };
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const mesh = new Mesh(geometry, new Material({ vertex: vec4(position, f32(1)), fragment: vec4(1, 0, 0, 1) }));
+    mesh.updateWorldMatrix();
+    const camera = new PerspectiveCamera();
+    camera.updateViewMatrix();
+    const rt = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', stencilBuffer: true });
+
+    const f = frame(renderer);
+    const offscreen = f.pass({ target: rt, camera, storeDepth: false, storeStencil: false, label: 'offscreen' });
+    offscreen.draw(mesh);
+    offscreen.end();
+    const onscreen = f.pass({ target: renderer.backend.target, camera, storeDepth: false, label: 'onscreen' });
+    onscreen.draw(mesh);
+    onscreen.end();
+    f.submit();
+
+    const pixel = readCenter(gl);
+    const error = gl.getError();
+    renderer.dispose();
+    const expected = 'DEPTH_ATTACHMENT+STENCIL_ATTACHMENT,DEPTH';
+    const pass = isRed(pixel) && error === gl.NO_ERROR && invalidated.join(',') === expected;
+    return {
+        name: 'unstored-depth',
+        pixel: pass ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `pixel=${pixel.join(',')} error=${error} invalidated=${invalidated.join(',')} (want ${expected})`,
+    };
+}
+
+/**
  * foreign-canvas: a WebGL2 context belongs to one canvas for its lifetime, so a pass naming a second
  * canvas would silently draw to the first. It refuses, and the refusal costs the frame nothing: the
  * device canvas still draws afterwards, which is what makes a viewport per view the supported answer.
@@ -4935,6 +4986,7 @@ export async function run(): Promise<RunResult> {
             caseCompilePrewarm,
             caseSolid,
             caseFrameApi,
+            caseUnstoredDepth,
             caseFrameDone,
             caseForeignCanvas,
             caseDrawScene,
