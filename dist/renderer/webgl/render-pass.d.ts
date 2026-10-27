@@ -17,7 +17,7 @@ import type { DrawOptions } from '../core/frame';
 import type { RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
-import type { PreparedRenderObject, PreparedSegment, RenderPassParams } from '../core/render-types';
+import { type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
 import * as Bindings from './bindings';
 import type { WebGLBackend } from './webgl-backend';
 /**
@@ -40,8 +40,11 @@ export type PassScope = {
     passBlend: PassBlend;
 };
 export declare function beginPass(caches: WebGLBackend, passCtx: RenderContext, params: RenderPassParams): PassScope;
-/** Unbinds the VAO so later buffer mutations cannot record into it, then resolves an MSAA target. */
-export declare function endPass(caches: WebGLBackend): void;
+/**
+ * Unbinds the VAO so later buffer mutations cannot record into it, invalidates the depth and stencil the pass doesn't
+ * store, then resolves an MSAA target (its colour alone, so they can go first).
+ */
+export declare function endPass(caches: WebGLBackend, params: RenderPassParams): void;
 /**
  * Runs a draw's node updates and captures its uniforms and textures into `out`, at the call that
  * recorded it, so the draw uses the values set before that call.

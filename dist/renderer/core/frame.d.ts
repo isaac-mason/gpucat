@@ -28,6 +28,13 @@ export type PassDesc = {
     clear?: [number, number, number, number] | false;
     clearDepth?: number | false;
     clearStencil?: number | false;
+    /**
+     * `false` discards the depth when the pass ends, for a pass nothing after loads or samples it from: a tiled GPU then
+     * never writes it out. Default true, as a later pass with `clearDepth: false` loads it.
+     */
+    storeDepth?: boolean;
+    /** `storeDepth` for the stencil. */
+    storeStencil?: boolean;
     /** Cube face, 0..5 = +X, -X, +Y, -Y, +Z, -Z. Only a `CubeRenderTarget` can select one. */
     layer?: number;
     /** Mip level to render into. Only a `CubeRenderTarget` allocates a chain to select from. */

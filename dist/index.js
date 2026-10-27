@@ -9560,6 +9560,8 @@ function createPassParams() {
         clearsColor: true,
         clearsDepth: true,
         clearDepthValue: 1,
+        storesDepth: true,
+        storesStencil: true,
         clearsStencil: true,
         clearStencilValue: 0,
         swapchainStencil: false,
@@ -35794,6 +35796,8 @@ function resolvePassParams(desc, out) {
     out.clearsColor = desc.clear !== false;
     out.clearsDepth = desc.clearDepth !== false;
     out.clearDepthValue = typeof desc.clearDepth === 'number' ? desc.clearDepth : 1;
+    out.storesDepth = desc.storeDepth !== false;
+    out.storesStencil = desc.storeStencil !== false;
     out.clearsStencil = desc.clearStencil !== false;
     out.clearStencilValue = typeof desc.clearStencil === 'number' ? desc.clearStencil : 0;
     out.swapchainStencil = hasStencil(target);
@@ -39801,11 +39805,27 @@ function beginPass$3(caches, passCtx, params) {
     // each run of draws sets the rects it was recorded under (`encodeDraws`)
     return { passBlend };
 }
-/** Unbinds the VAO so later buffer mutations cannot record into it, then resolves an MSAA target. */
-function endPass$1(caches) {
+/**
+ * Unbinds the VAO so later buffer mutations cannot record into it, invalidates the depth and stencil the pass doesn't
+ * store, then resolves an MSAA target (its colour alone, so they can go first).
+ */
+function endPass$1(caches, params) {
     const gl = caches.gl;
     gl.bindVertexArray(null);
+    invalidateUnstored(gl, params);
     resolveActiveRenderTarget(gl, caches.renderTargets);
+}
+// the default framebuffer names its buffers, a framebuffer object its attachment points
+function invalidateUnstored(gl, params) {
+    const rt = params.renderTarget;
+    const stencil = rt === null ? params.swapchainStencil : formatHasStencil(rt._depthAttachment?.format);
+    const attachments = [];
+    if (!params.storesDepth)
+        attachments.push(rt === null ? gl.DEPTH : gl.DEPTH_ATTACHMENT);
+    if (stencil && !params.storesStencil)
+        attachments.push(rt === null ? gl.STENCIL : gl.STENCIL_ATTACHMENT);
+    if (attachments.length > 0)
+        gl.invalidateFramebuffer(gl.FRAMEBUFFER, attachments);
 }
 /**
  * Runs a draw's node updates and captures its uniforms and textures into `out`, at the call that
@@ -40443,7 +40463,7 @@ function encodePass$1(s, desc) {
                 }
             }
             finally {
-                endPass$1(backend);
+                endPass$1(backend, params);
             }
             const renderTarget = renderTargetOf(desc.target);
             if (renderTarget) {
@@ -41931,7 +41951,7 @@ function stencilAttachmentOps(format, params) {
         return undefined;
     return {
         stencilLoadOp: params.clearsStencil ? 'clear' : 'load',
-        stencilStoreOp: 'store',
+        stencilStoreOp: params.storesStencil ? 'store' : 'discard',
         stencilClearValue: params.clearStencilValue,
     };
 }
@@ -41975,7 +41995,7 @@ function resolveRenderTargetAttachments(device, textures, renderTarget, clearCol
             view: getRenderTargetView(depthTextureData),
             depthClearValue: params.clearDepthValue,
             depthLoadOp: params.clearsDepth ? 'clear' : 'load',
-            depthStoreOp: 'store',
+            depthStoreOp: params.storesDepth ? 'store' : 'discard',
             ...stencilAttachmentOps(renderTarget._depthAttachment.format, params),
         };
     }
@@ -42033,7 +42053,7 @@ function resolveSwapchainAttachments(contexts, device, sc, format, clearColor, p
             view: entry.depthTextureView,
             depthClearValue: params.clearDepthValue,
             depthLoadOp: params.clearsDepth ? 'clear' : 'load',
-            depthStoreOp: 'store',
+            depthStoreOp: params.storesDepth ? 'store' : 'discard',
             ...stencilAttachmentOps(depthFormatFor(target), params),
         },
     };
@@ -42068,7 +42088,7 @@ function resolveCubeAttachments(device, textures, renderTarget, clearColor, para
                 view: getRenderTargetView(depthData),
                 depthClearValue: params.clearDepthValue,
                 depthLoadOp: params.clearsDepth ? 'clear' : 'load',
-                depthStoreOp: 'store',
+                depthStoreOp: params.storesDepth ? 'store' : 'discard',
                 ...stencilAttachmentOps(renderTarget._depthAttachment.format, params),
             };
         }
