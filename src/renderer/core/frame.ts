@@ -140,6 +140,8 @@ export type FrameBackend = {
     recordTransformFeedback(record: TransformFeedbackRecord): void;
     encodeComputePass(desc: ComputePassDesc): void;
     encodeTransformFeedbackPass(desc: TransformFeedbackPassDesc): void;
+    /** Zeroes `byteSize` bytes of `buffer` from `byteOffset`, in the frame's order of work, between its passes. */
+    clearBuffer(buffer: GpuBuffer, byteOffset: number, byteSize: number): void;
     submitFrame(): void;
     discardFrame(): void;
     /**
@@ -253,6 +255,13 @@ export type Frame = {
     pass(desc: PassDesc): Pass;
     compute(desc?: ComputePassDesc): ComputePass;
     transformFeedback(desc?: TransformFeedbackPassDesc): TransformFeedbackPass;
+    /**
+     * Zeroes `byteSize` bytes of a `cpu: false` `buffer` from `byteOffset` on the GPU, at this point in the frame's
+     * work: after the passes ended before it, before those after. Between passes, not in one. Omitted, the offset is
+     * 0 and the size the rest of the buffer; both are multiples of 4. The GPU clears it itself, so nothing is
+     * uploaded (on WebGL2, which has no buffer clear, zeroes are written).
+     */
+    clearBuffer(buffer: GpuBuffer, byteOffset?: number, byteSize?: number): void;
     submit(): void;
     /**
      * Resolves once the device has finished this frame's work. **Resolve-only**: it is a completion
@@ -283,6 +292,8 @@ export function createFrame(backend: FrameBackend): Frame {
         pass: (desc) => openRenderPass(frame, desc),
         compute: (desc) => openComputePass(frame, desc ?? {}),
         transformFeedback: (desc) => openTransformFeedbackPass(frame, desc ?? {}),
+        clearBuffer: (buffer, byteOffset = 0, byteSize = buffer.byteLength - byteOffset) =>
+            clearFrameBuffer(frame, buffer, byteOffset, byteSize),
         submit: () => submitFrame(frame),
         abandon: () => abandonFrame(frame),
         get done(): Promise<void> {
@@ -347,6 +358,23 @@ function assertCanOpen(frame: Frame, verb: string): void {
     if (frame.open !== null) {
         throw new Error(`[frame] ${verb} while "${passLabel(frame.open)}" is still open; end it first`);
     }
+}
+
+function clearFrameBuffer(frame: Frame, buffer: GpuBuffer, byteOffset: number, byteSize: number): void {
+    assertCanOpen(frame, 'frame.clearBuffer()');
+    const what = `[frame] clearBuffer '${buffer.label ?? 'unlabelled'}'`;
+    if (buffer.cpu) {
+        throw new Error(`${what}: it keeps a CPU array, which the clear would leave stale; make it \`cpu: false\`.`);
+    }
+    if (buffer.disposed) throw new Error(`${what}: it is disposed.`);
+    if (byteOffset % 4 !== 0 || byteSize % 4 !== 0) {
+        throw new Error(`${what}: the offset (${byteOffset}) and size (${byteSize}) must be multiples of 4.`);
+    }
+    if (byteOffset < 0 || byteSize < 0 || byteOffset + byteSize > buffer.byteLength) {
+        throw new Error(`${what}: bytes ${byteOffset}..${byteOffset + byteSize} overrun its ${buffer.byteLength} bytes.`);
+    }
+    if (byteSize === 0) return;
+    frame.backend.clearBuffer(buffer, byteOffset, byteSize);
 }
 
 /** A WebGL2 context belongs to one canvas for its lifetime, so a pass naming another would draw nowhere visible. */

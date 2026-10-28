@@ -262,6 +262,10 @@ export class WebGPUBackend implements DeviceBackend {
         throw new Error('[webgpu] transform feedback is WebGL2-only');
     }
 
+    clearBuffer(buffer: GpuBuffer, byteOffset: number, byteSize: number): void {
+        FrameBackend.clearBuffer(this._frame, buffer, byteOffset, byteSize);
+    }
+
     submitFrame(): void {
         FrameBackend.submitFrame(this._frame);
     }

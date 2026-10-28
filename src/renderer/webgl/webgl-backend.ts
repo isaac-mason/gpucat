@@ -239,6 +239,10 @@ export class WebGLBackend implements DeviceBackend {
         FrameBackend.encodeTransformFeedbackPass(this._frame, desc);
     }
 
+    clearBuffer(buffer: GpuBuffer, byteOffset: number, byteSize: number): void {
+        FrameBackend.clearBuffer(this._frame, buffer, byteOffset, byteSize);
+    }
+
     submitFrame(): void {
         FrameBackend.submitFrame(this._frame);
     }

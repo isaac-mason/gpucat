@@ -1,4 +1,5 @@
 import { CoordinateSystem } from '../../core/coordinate-system';
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DeviceBackend } from '../core/device-backend';
 import type {
@@ -41,6 +42,8 @@ export type WebGLFrameBackendState = {
     renderer: Renderer<DeviceBackend>;
     /** Device state: the GL context, the canvas it lives on and every resource cache. */
     backend: WebGLBackend;
+    /** zeroes `clearBuffer` writes, grown to the largest clear */
+    zeroes: Uint8Array;
     /** Render passes begun and not yet encoded, pooled per nesting depth: a nested pass opens inside an outer one. */
     openByDepth: OpenRenderPass[];
     /** How many of `openByDepth` are open. */
@@ -84,6 +87,7 @@ export function createWebGLFrameBackendState(renderer: Renderer<DeviceBackend>, 
     return {
         renderer,
         backend,
+        zeroes: new Uint8Array(0),
         openByDepth: [],
         depth: 0,
         openTransformFeedbackByDepth: [],
@@ -391,6 +395,13 @@ export function encodeTransformFeedbackPass(s: WebGLFrameBackendState, desc: Tra
     } finally {
         inspector?.perf.end(label);
     }
+}
+
+/** WebGL2 has no buffer clear: zeroes are written, at once, as the passes before it already reached the driver. */
+export function clearBuffer(s: WebGLFrameBackendState, buffer: GpuBuffer, byteOffset: number, byteSize: number): void {
+    if (!usable(s)) return;
+    if (s.zeroes.byteLength < byteSize) s.zeroes = new Uint8Array(byteSize);
+    s.backend.writeBuffer(buffer, byteOffset, s.zeroes, 0, byteSize);
 }
 
 /** WebGL2 is immediate mode: the work reached the driver as each pass ended, so neither can undo it. */

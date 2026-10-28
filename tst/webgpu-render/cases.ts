@@ -2856,6 +2856,22 @@ async function caseCopyBuffer(gpu: Renderer<WebGPUBackend>): Promise<CaseResult>
     };
 }
 
+/** clear-buffer: a frame zeroes the middle two slots of a `cpu: false` buffer; the slots either side keep their values. */
+async function caseClearBuffer(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const buffer = new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage', cpu: false });
+    writeBuffer(gpu, buffer, 0, new Uint32Array([10, 64, 128, 255]));
+    const f = frame(gpu);
+    f.clearBuffer(buffer, 4, 8);
+    f.submit();
+    const slot = (i: number) => index(storage(buffer, 'read'), u32(i)).toF32().div(f32(255));
+    return {
+        name: 'clear-buffer',
+        pixel: await drawFullscreen(gpu, vec4(slot(0), slot(1), slot(2), slot(3))),
+        expected: [10, 0, 0, 255],
+        note: 'slots 1 and 2 cleared, 0 and 3 kept',
+    };
+}
+
 /** copy-buffer-cpu-source: a `cpu: true` source copies what its array holds, uploaded or not. */
 async function caseCopyBufferCpuSource(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     const source = new GpuBuffer(d.array(d.u32), { data: new Uint32Array([255, 32, 192, 255]), usage: 'storage' });
@@ -2985,6 +3001,7 @@ const CASES: Record<string, Case> = {
     'signed-shift': caseSignedShift,
     'write-buffer': caseWriteBuffer,
     'copy-buffer': caseCopyBuffer,
+    'clear-buffer': caseClearBuffer,
     'copy-buffer-cpu-source': caseCopyBufferCpuSource,
     'copy-texture': caseCopyTexture,
     'copy-texture-from-target': caseCopyTextureFromTarget,

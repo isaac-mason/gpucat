@@ -1,4 +1,5 @@
 import { expect, test } from 'vitest';
+import { GpuBuffer } from '../src/core/gpu-buffer';
 import { createRenderTarget } from '../src/core/render-target';
 import type { Mesh } from '../src/objects/mesh';
 import { createCanvasTarget } from '../src/renderer/core/canvas-target';
@@ -11,6 +12,7 @@ import {
     type PassDesc,
     type PassEntry,
 } from '../src/renderer/core/frame';
+import * as d from '../src/schema/schema';
 
 type Call = { fn: string; label?: string; drawn?: string[] };
 
@@ -40,6 +42,7 @@ function recorder(name: BackendName = 'webgpu'): { backend: FrameBackend; calls:
         recordTransformFeedback: () => {},
         encodeComputePass: () => void calls.push({ fn: 'encodeComputePass' }),
         encodeTransformFeedbackPass: () => undefined,
+        clearBuffer: (buffer) => void calls.push({ fn: 'clearBuffer', label: buffer.label }),
         submitFrame: () => void calls.push({ fn: 'submitFrame' }),
         discardFrame: () => void calls.push({ fn: 'discardFrame' }),
     };
@@ -207,6 +210,7 @@ test('a pass may open while another is mid-encode, and encodes first', () => {
         },
         encodeComputePass: () => {},
         encodeTransformFeedbackPass: () => undefined,
+        clearBuffer: () => {},
         submitFrame: () => void calls.push({ fn: 'submitFrame' }),
         discardFrame: () => {},
     });
@@ -242,6 +246,7 @@ test('a pass may open while another is resolving a draw, encodes first, and the 
         encodePass: (d) => drawn.encodePass(d),
         encodeComputePass: () => {},
         encodeTransformFeedbackPass: () => undefined,
+        clearBuffer: () => {},
         submitFrame: () => void calls.push({ fn: 'submitFrame' }),
         discardFrame: () => {},
     });
@@ -285,6 +290,7 @@ test('a nested pass takes its own pool slot and its own record', () => {
         encodePass: (d) => drawn.encodePass(d),
         encodeComputePass: () => {},
         encodeTransformFeedbackPass: () => undefined,
+        clearBuffer: () => {},
         submitFrame: () => {},
         discardFrame: () => {},
     });
@@ -511,4 +517,31 @@ test('draws cannot be combined with the single-draw fields it would silently ign
     expect(() => pass.draw(mesh('a'), { draws, instances: 4 })).toThrow(/instances/);
     expect(() => pass.draw(mesh('b'), { draws, range: { start: 0, count: 3 } })).toThrow(/range/);
     expect(() => pass.draw(mesh('c'), { draws })).not.toThrow();
+});
+
+/** A clear lands in the frame's order of work, between the passes either side of it. */
+test('clearBuffer records between the passes either side of it', () => {
+    const { backend, calls } = recorder();
+    const frame = createFrame(backend);
+    beginFrame(frame);
+    const counters = new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage', cpu: false, label: 'counters' });
+    frame.pass({ target: createRenderTarget(4, 4), label: 'before' }).end();
+    frame.clearBuffer(counters);
+    frame.pass({ target: createRenderTarget(4, 4), label: 'after' }).end();
+    expect(calls.filter((c) => c.fn !== 'beginFrame').map((c) => c.label ?? c.fn)).toEqual(['before', 'counters', 'after']);
+});
+
+/** What a clear may touch: a GPU-only buffer, in 4-byte steps, within it, and never inside an open pass. */
+test('clearBuffer refuses a CPU-kept buffer, a ragged span, an overrun, and an open pass', () => {
+    const { backend } = recorder();
+    const frame = createFrame(backend);
+    beginFrame(frame);
+    const kept = new GpuBuffer(d.array(d.u32), { data: new Uint32Array(4), usage: 'storage' });
+    const gpuOnly = new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage', cpu: false });
+    expect(() => frame.clearBuffer(kept)).toThrow(/cpu: false/);
+    expect(() => frame.clearBuffer(gpuOnly, 2, 4)).toThrow(/multiples of 4/);
+    expect(() => frame.clearBuffer(gpuOnly, 8, 16)).toThrow(/overrun/);
+    const pass = frame.pass({ target: createRenderTarget(4, 4), label: 'open' });
+    expect(() => frame.clearBuffer(gpuOnly)).toThrow(/still open/);
+    pass.end();
 });

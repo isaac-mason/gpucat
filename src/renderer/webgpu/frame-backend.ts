@@ -1,4 +1,5 @@
 import { CoordinateSystem } from '../../core/coordinate-system';
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
 import type { ComputeNode } from '../../nodes/nodes';
@@ -330,6 +331,14 @@ function closeComputeScopes(s: WebGPUFrameBackendState, label: string): void {
     const { renderer, backend } = s;
     backend._closeValidationScope('compute', label);
     renderer.inspector?.perf.end(label);
+}
+
+/** Zeroes a span of `buffer` on the frame's encoder, between the passes either side of it. */
+export function clearBuffer(s: WebGPUFrameBackendState, buffer: GpuBuffer, byteOffset: number, byteSize: number): void {
+    if (!usable(s)) return;
+    const { backend } = s;
+    const gpuBuffer = Buffers.ensureUploaded(backend.buffers, backend.device, buffer, buffer.label ?? 'cleared');
+    backend._currentEncoder!.clearBuffer(gpuBuffer, byteOffset, byteSize);
 }
 
 export function submitFrame(s: WebGPUFrameBackendState): void {

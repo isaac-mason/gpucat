@@ -38,6 +38,7 @@ export const CASE_NAMES = [
     'signed-shift',
     'write-buffer',
     'copy-buffer',
+    'clear-buffer',
     'copy-buffer-cpu-source',
     'copy-texture',
     'copy-texture-from-target',

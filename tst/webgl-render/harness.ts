@@ -3680,6 +3680,21 @@ async function caseCopyBuffer(): Promise<CaseResult> {
     return { name: 'copy-buffer', pixel, expected: [64, 128, 10, 255] };
 }
 
+/** clear-buffer: a frame zeroes the middle two slots of a `cpu: false` buffer; the slots either side keep their values. */
+async function caseClearBuffer(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const buffer = new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage', cpu: false });
+    writeBuffer(renderer, buffer, 0, new Uint32Array([10, 64, 128, 255]));
+    const f = frame(renderer);
+    f.clearBuffer(buffer, 4, 8);
+    f.submit();
+    const store = storage(buffer);
+    const slot = (i: number) => store.element(u32(i)).toF32().div(f32(255));
+    const pixel = drawFullscreen(renderer, vec4(slot(0), slot(1), slot(2), slot(3)));
+    renderer.dispose();
+    return { name: 'clear-buffer', pixel, expected: [10, 0, 0, 255] };
+}
+
 /** copy-buffer-cpu-source: a `cpu: true` source copies what its array holds, uploaded or not. */
 async function caseCopyBufferCpuSource(): Promise<CaseResult> {
     const renderer = await newRenderer();
@@ -5036,6 +5051,7 @@ export async function run(): Promise<RunResult> {
             caseWriteBufferRows,
             caseWriteBufferTexelAlign,
             caseCopyBuffer,
+            caseClearBuffer,
             caseCopyBufferCpuSource,
             caseCopyBufferRows,
             caseCopyBufferUnpack,

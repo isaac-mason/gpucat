@@ -24,6 +24,7 @@ function recorder(name: BackendName = 'webgpu'): FrameBackend {
         encodePass: () => {},
         encodeComputePass: () => {},
         encodeTransformFeedbackPass: () => undefined,
+        clearBuffer: () => {},
         submitFrame: () => {},
         discardFrame: () => {},
     };
