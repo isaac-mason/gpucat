@@ -15,6 +15,7 @@
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
 import { type Allocation, type MemoryTally } from '../core/info';
+import { type BindGroupData } from './bindings';
 import { type MipmapState } from './mipmap-utils';
 /** Data stored per Texture in the cache */
 export type TextureData = {
@@ -28,6 +29,8 @@ export type TextureData = {
     initialized: boolean;
     /** Whether this is a default placeholder texture */
     isDefaultTexture: boolean;
+    /** the bind groups that have bound it, whose variants its dispose clears: none may bind it again */
+    bindGroups?: Set<BindGroupData>;
     /** What this entry currently contributes to `TextureCache.tally`. */
     allocation: Allocation;
     /** `msaaTexture`'s contribution, made with the first one. */

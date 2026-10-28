@@ -11101,6 +11101,11 @@ function setupTextureDispose$1(cache, texture) {
             data.texture.destroy();
             data.msaaTexture?.destroy();
         }
+        if (data?.bindGroups) {
+            for (const group of data.bindGroups)
+                clearBindGroupVariants(group);
+            data.bindGroups.clear();
+        }
         // Stop counting it whether or not it owned its GPU texture; a default-texture entry
         // contributes nothing, so clearing is a no-op there.
         if (data) {
@@ -11921,8 +11926,6 @@ function getSamplerCacheStats$1(state) {
     return { samplerCount: state.cache.size };
 }
 
-/** the most resource sets a BindGroup keeps bind groups for, the most recently bound */
-const MAX_BIND_GROUP_VARIANTS = 8;
 /**
  * Create a new Bindings state. The shared bind group layout cache is owned by the backend and passed
  * in so the bindings and pipelines layers hit a single value-keyed layout cache.
@@ -12045,20 +12048,20 @@ function currentGPUBindGroup(state, device, bufferCache, textureCache, samplerCa
         variant.dynamicBindGroups[bufferId] = built;
     return built;
 }
-/** the variant `data` keeps for the resource set `key`, made the most recently bound; new, and the least recently
- *  bound let go of past MAX_BIND_GROUP_VARIANTS, if it keeps none */
+/** the variant `data` keeps for the resource set `key`, new if it keeps none */
 function variantFor(data, key) {
     let variant = data.variants.get(key);
-    if (variant !== undefined) {
-        data.variants.delete(key);
-    }
-    else {
+    if (variant === undefined) {
         variant = { bindGroup: null, dynamicBindGroups: [] };
-        if (data.variants.size >= MAX_BIND_GROUP_VARIANTS)
-            data.variants.delete(data.variants.keys().next().value);
+        data.variants.set(key, variant);
     }
-    data.variants.set(key, variant);
     return variant;
+}
+/** drops every variant `data` keeps, for a group that bound a texture since disposed: none may bind it again */
+function clearBindGroupVariants(data) {
+    data.variants.clear();
+    data.current = { bindGroup: null, dynamicBindGroups: [] };
+    data.needsUpdate = true;
 }
 /** the GPU objects `bindGroup` binds now, as the numbers `state` gives them: what tells one resource set from another */
 function resourceKey(state, bufferCache, textureCache, bindGroup, geometry, buffers) {
@@ -12376,6 +12379,8 @@ function updateTextureBinding(textureCache, device, binding, data) {
             binding.generation = texData.generation;
             data.needsUpdate = true;
         }
+        if (data.needsUpdate)
+            (texData.bindGroups ??= new Set()).add(data);
     }
     else {
         // Render target texture - the GPU resource is created/resized by the owning
@@ -12392,6 +12397,8 @@ function updateTextureBinding(textureCache, device, binding, data) {
                 binding.generation = texData.generation;
                 data.needsUpdate = true;
             }
+            if (data.needsUpdate)
+                (texData.bindGroups ??= new Set()).add(data);
         }
     }
 }
@@ -12413,6 +12420,8 @@ function updateStorageTextureBinding(textureCache, device, binding, data) {
         binding.generation = texData.generation;
         data.needsUpdate = true;
     }
+    if (data.needsUpdate)
+        (texData.bindGroups ??= new Set()).add(data);
 }
 /** Update a sampler binding. */
 function updateSamplerBinding(samplerCache, device, binding, data) {

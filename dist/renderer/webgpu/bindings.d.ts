@@ -25,9 +25,10 @@ export type BindGroupData = {
     /** the variant over the resources bound now */
     current: BindGroupVariant;
     /**
-     * Variants over each set of resources bound lately, by the GPU objects in it, least recently bound first. One
-     * BindGroup fed a few sets in turn (a compute node dispatched over several views' buffers) builds each set's once.
-     * A reallocated buffer or texture is a new GPU object, so it is a new set.
+     * A variant over each set of resources bound, by the GPU objects in it, as three.js keeps them: one BindGroup fed a
+     * few sets in turn (a compute node dispatched over several views' buffers) builds each set's once. A reallocated
+     * buffer or texture is a new GPU object, so it is a new set; a disposed texture clears every variant of a group
+     * that bound it.
      */
     variants: Map<string, BindGroupVariant>;
     /** GPU bind group layout. */
@@ -72,6 +73,8 @@ export type DrawBindings = {
 export declare function updateRenderBindings(b: WebGPUBackend, renderObject: RenderObject, frame: NodeFrame, out: DrawBindings): void;
 /** Update all bindings for one compute dispatch, into `out`. */
 export declare function updateComputeBindings(b: WebGPUBackend, nodeBuilderState: NodeBuilderState, frame: NodeFrame, buffers: Record<string, GpuBuffer<Any>> | null, out: DrawBindings): void;
+/** drops every variant `data` keeps, for a group that bound a texture since disposed: none may bind it again */
+export declare function clearBindGroupVariants(data: BindGroupData): void;
 /** Initialize bindings for a RenderObject. */
 export declare function initRenderBindings(state: BindingsState, renderObject: RenderObject, device: GPUDevice): void;
 /** Get the bind group layouts for a RenderObject. Used for pipeline creation. */
