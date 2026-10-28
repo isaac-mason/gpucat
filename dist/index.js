@@ -30442,6 +30442,7 @@ function createFrame(backend) {
         pass: (desc) => openRenderPass(frame, desc),
         compute: (desc) => openComputePass(frame, desc ?? {}),
         transformFeedback: (desc) => openTransformFeedbackPass(frame, desc ?? {}),
+        clearBuffer: (buffer, byteOffset = 0, byteSize = buffer.byteLength - byteOffset) => clearFrameBuffer(frame, buffer, byteOffset, byteSize),
         submit: () => submitFrame$2(frame),
         abandon: () => abandonFrame(frame),
         get done() {
@@ -30500,6 +30501,24 @@ function assertCanOpen(frame, verb) {
     if (frame.open !== null) {
         throw new Error(`[frame] ${verb} while "${passLabel(frame.open)}" is still open; end it first`);
     }
+}
+function clearFrameBuffer(frame, buffer, byteOffset, byteSize) {
+    assertCanOpen(frame, 'frame.clearBuffer()');
+    const what = `[frame] clearBuffer '${buffer.label ?? 'unlabelled'}'`;
+    if (buffer.cpu) {
+        throw new Error(`${what}: it keeps a CPU array, which the clear would leave stale; make it \`cpu: false\`.`);
+    }
+    if (buffer.disposed)
+        throw new Error(`${what}: it is disposed.`);
+    if (byteOffset % 4 !== 0 || byteSize % 4 !== 0) {
+        throw new Error(`${what}: the offset (${byteOffset}) and size (${byteSize}) must be multiples of 4.`);
+    }
+    if (byteOffset < 0 || byteSize < 0 || byteOffset + byteSize > buffer.byteLength) {
+        throw new Error(`${what}: bytes ${byteOffset}..${byteOffset + byteSize} overrun its ${buffer.byteLength} bytes.`);
+    }
+    if (byteSize === 0)
+        return;
+    frame.backend.clearBuffer(buffer, byteOffset, byteSize);
 }
 /** A WebGL2 context belongs to one canvas for its lifetime, so a pass naming another would draw nowhere visible. */
 function assertTargetReachable(frame, desc) {
@@ -40395,6 +40414,7 @@ function createWebGLFrameBackendState(renderer, backend) {
     return {
         renderer,
         backend,
+        zeroes: new Uint8Array(0),
         openByDepth: [],
         depth: 0,
         openTransformFeedbackByDepth: [],
@@ -40659,6 +40679,14 @@ function encodeTransformFeedbackPass(s, desc) {
     finally {
         inspector?.perf.end(label);
     }
+}
+/** WebGL2 has no buffer clear: zeroes are written, at once, as the passes before it already reached the driver. */
+function clearBuffer$1(s, buffer, byteOffset, byteSize) {
+    if (!usable$1(s))
+        return;
+    if (s.zeroes.byteLength < byteSize)
+        s.zeroes = new Uint8Array(byteSize);
+    s.backend.writeBuffer(buffer, byteOffset, s.zeroes, 0, byteSize);
 }
 /** WebGL2 is immediate mode: the work reached the driver as each pass ended, so neither can undo it. */
 function submitFrame$1(s) {
@@ -41123,6 +41151,9 @@ class WebGLBackend {
     }
     encodeTransformFeedbackPass(desc) {
         encodeTransformFeedbackPass(this._frame, desc);
+    }
+    clearBuffer(buffer, byteOffset, byteSize) {
+        clearBuffer$1(this._frame, buffer, byteOffset, byteSize);
     }
     submitFrame() {
         submitFrame$1(this._frame);
@@ -42793,6 +42824,14 @@ function closeComputeScopes(s, label) {
     backend._closeValidationScope('compute', label);
     renderer.inspector?.perf.end(label);
 }
+/** Zeroes a span of `buffer` on the frame's encoder, between the passes either side of it. */
+function clearBuffer(s, buffer, byteOffset, byteSize) {
+    if (!usable(s))
+        return;
+    const { backend } = s;
+    const gpuBuffer = ensureUploaded$1(backend.buffers, backend.device, buffer, buffer.label ?? 'cleared');
+    backend._currentEncoder.clearBuffer(gpuBuffer, byteOffset, byteSize);
+}
 function submitFrame(s) {
     if (!usable(s))
         return;
@@ -43140,6 +43179,9 @@ class WebGPUBackend {
     /** Unreachable: `frame.transformFeedback()` rejects this backend by name before a pass can open. */
     encodeTransformFeedbackPass() {
         throw new Error('[webgpu] transform feedback is WebGL2-only');
+    }
+    clearBuffer(buffer, byteOffset, byteSize) {
+        clearBuffer(this._frame, buffer, byteOffset, byteSize);
     }
     submitFrame() {
         submitFrame(this._frame);

@@ -110,6 +110,7 @@ export declare class WebGPUBackend implements DeviceBackend {
     encodeComputePass(desc: ComputePassDesc): void;
     /** Unreachable: `frame.transformFeedback()` rejects this backend by name before a pass can open. */
     encodeTransformFeedbackPass(): never;
+    clearBuffer(buffer: GpuBuffer, byteOffset: number, byteSize: number): void;
     submitFrame(): void;
     discardFrame(): void;
     /** Phase 1 compiles every pipeline in parallel; phase 2's uploads are per drawable, not per material. */

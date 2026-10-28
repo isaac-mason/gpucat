@@ -1,3 +1,4 @@
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { DeviceBackend } from '../core/device-backend';
 import type { DrawOptions, PassDesc, PassEntry, TransformFeedbackPassDesc, TransformFeedbackRecord } from '../core/frame';
 import type { RenderContext } from '../core/pass-context';
@@ -10,6 +11,8 @@ export type WebGLFrameBackendState = {
     renderer: Renderer<DeviceBackend>;
     /** Device state: the GL context, the canvas it lives on and every resource cache. */
     backend: WebGLBackend;
+    /** zeroes `clearBuffer` writes, grown to the largest clear */
+    zeroes: Uint8Array;
     /** Render passes begun and not yet encoded, pooled per nesting depth: a nested pass opens inside an outer one. */
     openByDepth: OpenRenderPass[];
     /** How many of `openByDepth` are open. */
@@ -59,6 +62,8 @@ export declare function beginTransformFeedbackPass(s: WebGLFrameBackendState, _d
 /** Captures a recorded dispatch's uniforms and textures, so it runs with the values set before the call. */
 export declare function recordTransformFeedback(s: WebGLFrameBackendState, record: TransformFeedbackRecord): void;
 export declare function encodeTransformFeedbackPass(s: WebGLFrameBackendState, desc: TransformFeedbackPassDesc): void;
+/** WebGL2 has no buffer clear: zeroes are written, at once, as the passes before it already reached the driver. */
+export declare function clearBuffer(s: WebGLFrameBackendState, buffer: GpuBuffer, byteOffset: number, byteSize: number): void;
 /** WebGL2 is immediate mode: the work reached the driver as each pass ended, so neither can undo it. */
 export declare function submitFrame(s: WebGLFrameBackendState): void;
 export declare function discardFrame(s: WebGLFrameBackendState): void;

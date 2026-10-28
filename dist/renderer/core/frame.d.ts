@@ -148,6 +148,8 @@ export type FrameBackend = {
     recordTransformFeedback(record: TransformFeedbackRecord): void;
     encodeComputePass(desc: ComputePassDesc): void;
     encodeTransformFeedbackPass(desc: TransformFeedbackPassDesc): void;
+    /** Zeroes `byteSize` bytes of `buffer` from `byteOffset`, in the frame's order of work, between its passes. */
+    clearBuffer(buffer: GpuBuffer, byteOffset: number, byteSize: number): void;
     submitFrame(): void;
     discardFrame(): void;
     /**
@@ -257,6 +259,13 @@ export type Frame = {
     pass(desc: PassDesc): Pass;
     compute(desc?: ComputePassDesc): ComputePass;
     transformFeedback(desc?: TransformFeedbackPassDesc): TransformFeedbackPass;
+    /**
+     * Zeroes `byteSize` bytes of a `cpu: false` `buffer` from `byteOffset` on the GPU, at this point in the frame's
+     * work: after the passes ended before it, before those after. Between passes, not in one. Omitted, the offset is
+     * 0 and the size the rest of the buffer; both are multiples of 4. The GPU clears it itself, so nothing is
+     * uploaded (on WebGL2, which has no buffer clear, zeroes are written).
+     */
+    clearBuffer(buffer: GpuBuffer, byteOffset?: number, byteSize?: number): void;
     submit(): void;
     /**
      * Resolves once the device has finished this frame's work. **Resolve-only**: it is a completion

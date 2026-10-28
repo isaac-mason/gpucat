@@ -1,3 +1,4 @@
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
 import type * as d from '../../schema/schema';
@@ -70,6 +71,8 @@ export declare function beginComputePass(s: WebGPUFrameBackendState, desc: Compu
 export declare function recordDispatch(s: WebGPUFrameBackendState, record: DispatchRecord): void;
 /** Encodes what the pass resolved, then closes the scope `beginComputePass` opened. */
 export declare function encodeComputePass(s: WebGPUFrameBackendState, desc: ComputePassDesc): void;
+/** Zeroes a span of `buffer` on the frame's encoder, between the passes either side of it. */
+export declare function clearBuffer(s: WebGPUFrameBackendState, buffer: GpuBuffer, byteOffset: number, byteSize: number): void;
 export declare function submitFrame(s: WebGPUFrameBackendState): void;
 export declare function discardFrame(s: WebGPUFrameBackendState): void;
 export {};

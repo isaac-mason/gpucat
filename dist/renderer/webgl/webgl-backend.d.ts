@@ -101,6 +101,7 @@ export declare class WebGLBackend implements DeviceBackend {
     /** Unreachable: `frame.compute()` rejects this backend by name before a dispatch can be recorded. */
     encodeComputePass(): never;
     encodeTransformFeedbackPass(desc: TransformFeedbackPassDesc): void;
+    clearBuffer(buffer: GpuBuffer, byteOffset: number, byteSize: number): void;
     submitFrame(): void;
     discardFrame(): void;
     /** WebGL2 has no async link, so this only moves the stall off the first frame and onto load. */
