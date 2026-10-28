@@ -41,26 +41,44 @@ import type { TextureCache } from './textures';
 import { getTextureData, updateTexture } from './textures';
 import type { WebGPUBackend } from './webgpu-backend';
 
+/** The GPU bind groups over one set of resources a BindGroup binds. */
+export type BindGroupVariant = {
+    /** over the uniform block's own buffer, or for a group with none; built on first need */
+    bindGroup: GPUBindGroup | null;
+    /**
+     * For a group whose uniform block binds at a dynamic offset: one GPU bind group per dynamic uniform
+     * buffer a use has been allocated from, by buffer id. Those buffers are pooled, never replaced, so each
+     * stays valid.
+     */
+    dynamicBindGroups: (GPUBindGroup | undefined)[];
+};
+
+/** the most resource sets a BindGroup keeps bind groups for, the most recently bound */
+const MAX_BIND_GROUP_VARIANTS = 8;
+
 /**
  * Per-BindGroup data (GPU resources).
  * Keyed by BindGroup object identity in a WeakMap.
  */
 export type BindGroupData = {
-    /** GPU bind group (recreated when resources change). */
-    bindGroup: GPUBindGroup | null;
+    /** the variant over the resources bound now */
+    current: BindGroupVariant;
 
     /**
-     * For a group whose uniform block binds at a dynamic offset: one GPU bind group per dynamic uniform
-     * buffer a use has been allocated from, by buffer id. Those buffers are pooled, never replaced, so each
-     * stays valid. `bindGroup` is the one over the block's own buffer.
+     * Variants over each set of resources bound lately, by the GPU objects in it, least recently bound first. One
+     * BindGroup fed a few sets in turn (a compute node dispatched over several views' buffers) builds each set's once.
+     * A reallocated buffer or texture is a new GPU object, so it is a new set.
      */
-    dynamicBindGroups: (GPUBindGroup | undefined)[];
+    variants: Map<string, BindGroupVariant>;
 
     /** GPU bind group layout. */
     bindGroupLayout: GPUBindGroupLayout | null;
 
-    /** Whether the bind group needs to be rebuilt. */
+    /** Whether a binding's resource changed since the variant was picked. */
     needsUpdate: boolean;
+
+    /** the GPU buffer each storage binding last bound: one a buffer reallocates (grown) is a resource change too */
+    storageGpuBuffers: Map<StorageBinding, GPUBuffer>;
 };
 
 /** Bindings state - manages per-BindGroup GPU resources */
@@ -77,6 +95,10 @@ export type BindingsState = {
      * Keyed by BindGroup object identity - shared groups share data.
      */
     data: WeakMap<BindGroup, BindGroupData>;
+
+    /** a number for each GPU object a variant's key names, held weakly so no key keeps one alive */
+    objectIds: WeakMap<object, number>;
+    nextObjectId: number;
 };
 
 /**
@@ -87,6 +109,8 @@ export function createBindingsState(layoutCache: BindGroupLayoutCache): Bindings
     return {
         layoutCache,
         data: new WeakMap(),
+        objectIds: new WeakMap(),
+        nextObjectId: 1,
     };
 }
 
@@ -124,10 +148,11 @@ function getData(state: BindingsState, bindGroup: BindGroup): BindGroupData {
     let data = state.data.get(bindGroup);
     if (!data) {
         data = {
-            bindGroup: null,
-            dynamicBindGroups: [],
+            current: { bindGroup: null, dynamicBindGroups: [] },
+            variants: new Map(),
             bindGroupLayout: null,
             needsUpdate: true,
+            storageGpuBuffers: new Map(),
         };
         state.data.set(bindGroup, data);
     }
@@ -162,6 +187,7 @@ export function updateRenderBindings(b: WebGPUBackend, renderObject: RenderObjec
         updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache, samplerCache);
 
         const gpuBindGroup = currentGPUBindGroup(
+            state,
             device,
             bufferCache,
             textureCache,
@@ -198,7 +224,17 @@ export function updateComputeBindings(
         const data = getData(state, bindGroup);
         updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, device, bindGroup, frame, buffers);
 
-        const gpuBindGroup = currentGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, null, buffers);
+        const gpuBindGroup = currentGPUBindGroup(
+            state,
+            device,
+            bufferCache,
+            textureCache,
+            samplerCache,
+            bindGroup,
+            data,
+            null,
+            buffers,
+        );
         if (gpuBindGroup) {
             out.groups.push(gpuBindGroup);
             out.offsets.push(dynamicOffsetOf(bindGroup));
@@ -209,9 +245,11 @@ export function updateComputeBindings(
 /**
  * The GPU bind group for the current use of `bindGroup`: its own when the uniform block reads its own
  * buffer (or it has no such block), else the one addressing the dynamic uniform buffer this use was
- * allocated from. Built on first need; a resource change (`needsUpdate`) drops every variant.
+ * allocated from. Built on first need, for the set of resources bound: a resource change (`needsUpdate`) picks the
+ * variant over the set now bound, built before or new.
  */
 function currentGPUBindGroup(
+    state: BindingsState,
     device: GPUDevice,
     bufferCache: BufferCache,
     textureCache: TextureCache,
@@ -222,14 +260,14 @@ function currentGPUBindGroup(
     buffers: Record<string, GpuBuffer<Any>> | null,
 ): GPUBindGroup | null {
     if (data.needsUpdate) {
-        data.bindGroup = null;
-        data.dynamicBindGroups.length = 0;
+        data.current = variantFor(data, resourceKey(state, bufferCache, textureCache, bindGroup, geometry, buffers));
         data.needsUpdate = false;
     }
 
+    const variant = data.current;
     const uniform = dynamicUniformBinding(bindGroup);
     if (uniform === null || uniform.sliceBufferId < 0) {
-        data.bindGroup ??= buildGPUBindGroup(
+        variant.bindGroup ??= buildGPUBindGroup(
             device,
             bufferCache,
             textureCache,
@@ -240,11 +278,11 @@ function currentGPUBindGroup(
             buffers,
             null,
         );
-        return data.bindGroup;
+        return variant.bindGroup;
     }
 
     const bufferId = uniform.sliceBufferId;
-    const cached = data.dynamicBindGroups[bufferId];
+    const cached = variant.dynamicBindGroups[bufferId];
     if (cached !== undefined) return cached;
     const built = buildGPUBindGroup(
         device,
@@ -257,8 +295,67 @@ function currentGPUBindGroup(
         buffers,
         dynamicUniformBuffer(bufferCache, bufferId),
     );
-    if (built !== null) data.dynamicBindGroups[bufferId] = built;
+    if (built !== null) variant.dynamicBindGroups[bufferId] = built;
     return built;
+}
+
+/** the variant `data` keeps for the resource set `key`, made the most recently bound; new, and the least recently
+ *  bound let go of past MAX_BIND_GROUP_VARIANTS, if it keeps none */
+function variantFor(data: BindGroupData, key: string): BindGroupVariant {
+    let variant = data.variants.get(key);
+    if (variant !== undefined) {
+        data.variants.delete(key);
+    } else {
+        variant = { bindGroup: null, dynamicBindGroups: [] };
+        if (data.variants.size >= MAX_BIND_GROUP_VARIANTS) data.variants.delete(data.variants.keys().next().value!);
+    }
+    data.variants.set(key, variant);
+    return variant;
+}
+
+/** the GPU objects `bindGroup` binds now, as the numbers `state` gives them: what tells one resource set from another */
+function resourceKey(
+    state: BindingsState,
+    bufferCache: BufferCache,
+    textureCache: TextureCache,
+    bindGroup: BindGroup,
+    geometry: Geometry | null,
+    buffers: Record<string, GpuBuffer<Any>> | null,
+): string {
+    const id = (object: object | null | undefined): number => {
+        if (!object) return 0;
+        let found = state.objectIds.get(object);
+        if (found === undefined) {
+            found = state.nextObjectId++;
+            state.objectIds.set(object, found);
+        }
+        return found;
+    };
+    let key = '';
+    for (const binding of bindGroup.bindings) {
+        switch (binding.kind) {
+            case 'uniform':
+                key += `${binding.bufferKey ? id(getRaw(bufferCache, binding.bufferKey)) : 0},`;
+                break;
+            case 'storage':
+                key += `${id(getUploaded(bufferCache, resolveStorageBuffer(binding.entry.node, geometry, buffers)))},`;
+                break;
+            case 'texture': {
+                const texture = binding.entry.node.value;
+                key += `${texture ? id(getTextureData(textureCache, texture)?.texture) : 0},`;
+                break;
+            }
+            case 'storageTexture': {
+                const texture = binding.entry.node.value;
+                key += `${texture ? id(getTextureData(textureCache, texture)?.texture) : 0}@${binding.entry.node.mipLevel},`;
+                break;
+            }
+            case 'sampler':
+                key += `${binding.entry.samplerNode.value?.settingsKey ?? ''},`;
+                break;
+        }
+    }
+    return key;
 }
 
 /** The dynamic offset the current use binds at: -1 for a group without one, 0 for the block's own buffer. */
@@ -692,8 +789,12 @@ function updateStorageBinding(
         data.needsUpdate = true;
     }
 
-    // Flush pending data to GPU (version check / partial ranges handled inside)
-    ensureUploaded(bufferCache, device, buffer, binding.entry.name);
+    // Flush pending data to GPU (version check / partial ranges handled inside); a grown buffer is a new GPU buffer
+    const gpuBuffer = ensureUploaded(bufferCache, device, buffer, binding.entry.name);
+    if (data.storageGpuBuffers.get(binding) !== gpuBuffer) {
+        data.storageGpuBuffers.set(binding, gpuBuffer);
+        data.needsUpdate = true;
+    }
 }
 
 /** Rebuild the GPU bind group for a BindGroup */
