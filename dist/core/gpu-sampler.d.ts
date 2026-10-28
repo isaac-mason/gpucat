@@ -41,6 +41,9 @@ export declare class GpuSampler {
     label: string | undefined;
     /** Renderer-set callback to clean up cache entry */
     _onDispose: (() => void) | null;
+    /** `settingsKey` as last built, and the settings it was built from, in its order */
+    private _settingsKey;
+    private readonly _keyedSettings;
     disposed: boolean;
     constructor(options?: GpuSamplerOptions);
     /** Is this a comparison sampler? */

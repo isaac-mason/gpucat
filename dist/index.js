@@ -3225,6 +3225,9 @@ class GpuSampler {
     label;
     /** Renderer-set callback to clean up cache entry */
     _onDispose = null;
+    /** `settingsKey` as last built, and the settings it was built from, in its order */
+    _settingsKey = '';
+    _keyedSettings = [];
     disposed = false;
     constructor(options = {}) {
         this.minFilter = options.minFilter ?? 'linear';
@@ -3245,10 +3248,35 @@ class GpuSampler {
     }
     /** Settings key for deduplication */
     get settingsKey() {
-        const base = `${this.minFilter}-${this.magFilter}-${this.mipmapFilter}-` +
-            `${this.addressModeU}-${this.addressModeV}-${this.addressModeW}-` +
-            `${this.maxAnisotropy}-${this.lodMinClamp}-${this.lodMaxClamp}`;
-        return this.compare ? `${base}-cmp-${this.compare}` : base;
+        // read per draw: built again only once a setting differs from those it was last built from
+        const kept = this._keyedSettings;
+        if (kept.length === 0 ||
+            kept[0] !== this.minFilter ||
+            kept[1] !== this.magFilter ||
+            kept[2] !== this.mipmapFilter ||
+            kept[3] !== this.addressModeU ||
+            kept[4] !== this.addressModeV ||
+            kept[5] !== this.addressModeW ||
+            kept[6] !== this.maxAnisotropy ||
+            kept[7] !== this.lodMinClamp ||
+            kept[8] !== this.lodMaxClamp ||
+            kept[9] !== this.compare) {
+            kept[0] = this.minFilter;
+            kept[1] = this.magFilter;
+            kept[2] = this.mipmapFilter;
+            kept[3] = this.addressModeU;
+            kept[4] = this.addressModeV;
+            kept[5] = this.addressModeW;
+            kept[6] = this.maxAnisotropy;
+            kept[7] = this.lodMinClamp;
+            kept[8] = this.lodMaxClamp;
+            kept[9] = this.compare;
+            const base = `${this.minFilter}-${this.magFilter}-${this.mipmapFilter}-` +
+                `${this.addressModeU}-${this.addressModeV}-${this.addressModeW}-` +
+                `${this.maxAnisotropy}-${this.lodMinClamp}-${this.lodMaxClamp}`;
+            this._settingsKey = this.compare ? `${base}-cmp-${this.compare}` : base;
+        }
+        return this._settingsKey;
     }
     dispose() {
         if (this.disposed)
@@ -41782,21 +41810,21 @@ function initRenderObject(b, nodes, renderObject, compile) {
         console.warn('[RenderObjects] Failed to compile NodeBuilderState');
         return false;
     }
-    // Initialize bindings (creates bind group layouts)
-    initRenderBindings(bindingsState, renderObject, device);
-    // Get bind group layouts for pipeline creation
-    const bindGroupLayouts = getRenderBindGroupLayouts(bindingsState, renderObject);
     // Check if we need to create/update pipeline
     const gpu = getRenderObjectGpu(renderObjectGpuCache, renderObject);
-    // A material or geometry version change moves the pipeline key, so the resolved pipeline is stale.
+    // A material or geometry version change moves the pipeline key, so the resolved pipeline is stale. The bind group
+    // layouts are only what a new pipeline is built against: a draw's own bindings initialise theirs as they update,
+    // and its geometry updates there too (`updateRenderObject`), so neither repeats here every draw.
     if (!gpu.pipeline || stale) {
+        initRenderBindings(bindingsState, renderObject, device);
+        const bindGroupLayouts = getRenderBindGroupLayouts(bindingsState, renderObject);
         assertDynamicUniformLimit(device, getBindings(renderObject), pipelineName(renderObject));
         // Create pipeline using the unified pipelines system (sync)
         const entry = getForRender(pipelinesState, device, renderObject, bindGroupLayouts, null);
         gpu.pipeline = entry.pipeline;
+        // the first draw's geometry, for the pipeline's vertex layout to meet uploaded buffers
+        updateForRender(b, renderObject);
     }
-    // Update geometry attributes
-    updateForRender(b, renderObject);
     return true;
 }
 /**
