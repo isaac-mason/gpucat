@@ -1,28 +1,41 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Any } from '../../schema/schema';
-import type { BindGroup } from '../core/bind-group';
+import type { BindGroup, StorageBinding } from '../core/bind-group';
 import type { NodeBuilderState } from '../core/node-builder-state';
 import type { NodeFrame } from '../core/node-frame';
 import type { RenderObject } from '../core/render-object';
 import { type BindGroupLayoutCache } from './bind-group-layout';
 import type { WebGPUBackend } from './webgpu-backend';
+/** The GPU bind groups over one set of resources a BindGroup binds. */
+export type BindGroupVariant = {
+    /** over the uniform block's own buffer, or for a group with none; built on first need */
+    bindGroup: GPUBindGroup | null;
+    /**
+     * For a group whose uniform block binds at a dynamic offset: one GPU bind group per dynamic uniform
+     * buffer a use has been allocated from, by buffer id. Those buffers are pooled, never replaced, so each
+     * stays valid.
+     */
+    dynamicBindGroups: (GPUBindGroup | undefined)[];
+};
 /**
  * Per-BindGroup data (GPU resources).
  * Keyed by BindGroup object identity in a WeakMap.
  */
 export type BindGroupData = {
-    /** GPU bind group (recreated when resources change). */
-    bindGroup: GPUBindGroup | null;
+    /** the variant over the resources bound now */
+    current: BindGroupVariant;
     /**
-     * For a group whose uniform block binds at a dynamic offset: one GPU bind group per dynamic uniform
-     * buffer a use has been allocated from, by buffer id. Those buffers are pooled, never replaced, so each
-     * stays valid. `bindGroup` is the one over the block's own buffer.
+     * Variants over each set of resources bound lately, by the GPU objects in it, least recently bound first. One
+     * BindGroup fed a few sets in turn (a compute node dispatched over several views' buffers) builds each set's once.
+     * A reallocated buffer or texture is a new GPU object, so it is a new set.
      */
-    dynamicBindGroups: (GPUBindGroup | undefined)[];
+    variants: Map<string, BindGroupVariant>;
     /** GPU bind group layout. */
     bindGroupLayout: GPUBindGroupLayout | null;
-    /** Whether the bind group needs to be rebuilt. */
+    /** Whether a binding's resource changed since the variant was picked. */
     needsUpdate: boolean;
+    /** the GPU buffer each storage binding last bound: one a buffer reallocates (grown) is a resource change too */
+    storageGpuBuffers: Map<StorageBinding, GPUBuffer>;
 };
 /** Bindings state - manages per-BindGroup GPU resources */
 export type BindingsState = {
@@ -37,6 +50,9 @@ export type BindingsState = {
      * Keyed by BindGroup object identity - shared groups share data.
      */
     data: WeakMap<BindGroup, BindGroupData>;
+    /** a number for each GPU object a variant's key names, held weakly so no key keeps one alive */
+    objectIds: WeakMap<object, number>;
+    nextObjectId: number;
 };
 /**
  * Create a new Bindings state. The shared bind group layout cache is owned by the backend and passed

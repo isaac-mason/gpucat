@@ -11921,6 +11921,8 @@ function getSamplerCacheStats$1(state) {
     return { samplerCount: state.cache.size };
 }
 
+/** the most resource sets a BindGroup keeps bind groups for, the most recently bound */
+const MAX_BIND_GROUP_VARIANTS = 8;
 /**
  * Create a new Bindings state. The shared bind group layout cache is owned by the backend and passed
  * in so the bindings and pipelines layers hit a single value-keyed layout cache.
@@ -11929,6 +11931,8 @@ function createBindingsState$1(layoutCache) {
     return {
         layoutCache,
         data: new WeakMap(),
+        objectIds: new WeakMap(),
+        nextObjectId: 1,
     };
 }
 /** Map a storage texture WGSL dimension tag to a GPU view dimension. */
@@ -11963,10 +11967,11 @@ function getData(state, bindGroup) {
     let data = state.data.get(bindGroup);
     if (!data) {
         data = {
-            bindGroup: null,
-            dynamicBindGroups: [],
+            current: { bindGroup: null, dynamicBindGroups: [] },
+            variants: new Map(),
             bindGroupLayout: null,
             needsUpdate: true,
+            storageGpuBuffers: new Map(),
         };
         state.data.set(bindGroup, data);
     }
@@ -11989,7 +11994,7 @@ function updateRenderBindings(b, renderObject, frame, out) {
         // Update uniforms, which decides where this use of each uniform block reads from
         const data = getData(state, bindGroup);
         updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache, samplerCache);
-        const gpuBindGroup = currentGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, renderObject.geometry, null);
+        const gpuBindGroup = currentGPUBindGroup(state, device, bufferCache, textureCache, samplerCache, bindGroup, data, renderObject.geometry, null);
         if (gpuBindGroup) {
             out.groups.push(gpuBindGroup);
             out.offsets.push(dynamicOffsetOf(bindGroup));
@@ -12007,7 +12012,7 @@ function updateComputeBindings(b, nodeBuilderState, frame, buffers, out) {
         // Update bindings
         const data = getData(state, bindGroup);
         updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, device, bindGroup, frame, buffers);
-        const gpuBindGroup = currentGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, null, buffers);
+        const gpuBindGroup = currentGPUBindGroup(state, device, bufferCache, textureCache, samplerCache, bindGroup, data, null, buffers);
         if (gpuBindGroup) {
             out.groups.push(gpuBindGroup);
             out.offsets.push(dynamicOffsetOf(bindGroup));
@@ -12017,27 +12022,81 @@ function updateComputeBindings(b, nodeBuilderState, frame, buffers, out) {
 /**
  * The GPU bind group for the current use of `bindGroup`: its own when the uniform block reads its own
  * buffer (or it has no such block), else the one addressing the dynamic uniform buffer this use was
- * allocated from. Built on first need; a resource change (`needsUpdate`) drops every variant.
+ * allocated from. Built on first need, for the set of resources bound: a resource change (`needsUpdate`) picks the
+ * variant over the set now bound, built before or new.
  */
-function currentGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, buffers) {
+function currentGPUBindGroup(state, device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, buffers) {
     if (data.needsUpdate) {
-        data.bindGroup = null;
-        data.dynamicBindGroups.length = 0;
+        data.current = variantFor(data, resourceKey(state, bufferCache, textureCache, bindGroup, geometry, buffers));
         data.needsUpdate = false;
     }
+    const variant = data.current;
     const uniform = dynamicUniformBinding(bindGroup);
     if (uniform === null || uniform.sliceBufferId < 0) {
-        data.bindGroup ??= buildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, buffers, null);
-        return data.bindGroup;
+        variant.bindGroup ??= buildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, buffers, null);
+        return variant.bindGroup;
     }
     const bufferId = uniform.sliceBufferId;
-    const cached = data.dynamicBindGroups[bufferId];
+    const cached = variant.dynamicBindGroups[bufferId];
     if (cached !== undefined)
         return cached;
     const built = buildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, buffers, dynamicUniformBuffer(bufferCache, bufferId));
     if (built !== null)
-        data.dynamicBindGroups[bufferId] = built;
+        variant.dynamicBindGroups[bufferId] = built;
     return built;
+}
+/** the variant `data` keeps for the resource set `key`, made the most recently bound; new, and the least recently
+ *  bound let go of past MAX_BIND_GROUP_VARIANTS, if it keeps none */
+function variantFor(data, key) {
+    let variant = data.variants.get(key);
+    if (variant !== undefined) {
+        data.variants.delete(key);
+    }
+    else {
+        variant = { bindGroup: null, dynamicBindGroups: [] };
+        if (data.variants.size >= MAX_BIND_GROUP_VARIANTS)
+            data.variants.delete(data.variants.keys().next().value);
+    }
+    data.variants.set(key, variant);
+    return variant;
+}
+/** the GPU objects `bindGroup` binds now, as the numbers `state` gives them: what tells one resource set from another */
+function resourceKey(state, bufferCache, textureCache, bindGroup, geometry, buffers) {
+    const id = (object) => {
+        if (!object)
+            return 0;
+        let found = state.objectIds.get(object);
+        if (found === undefined) {
+            found = state.nextObjectId++;
+            state.objectIds.set(object, found);
+        }
+        return found;
+    };
+    let key = '';
+    for (const binding of bindGroup.bindings) {
+        switch (binding.kind) {
+            case 'uniform':
+                key += `${binding.bufferKey ? id(getRaw$1(bufferCache, binding.bufferKey)) : 0},`;
+                break;
+            case 'storage':
+                key += `${id(getUploaded$1(bufferCache, resolveStorageBuffer(binding.entry.node, geometry, buffers)))},`;
+                break;
+            case 'texture': {
+                const texture = binding.entry.node.value;
+                key += `${texture ? id(getTextureData$1(textureCache, texture)?.texture) : 0},`;
+                break;
+            }
+            case 'storageTexture': {
+                const texture = binding.entry.node.value;
+                key += `${texture ? id(getTextureData$1(textureCache, texture)?.texture) : 0}@${binding.entry.node.mipLevel},`;
+                break;
+            }
+            case 'sampler':
+                key += `${binding.entry.samplerNode.value?.settingsKey ?? ''},`;
+                break;
+        }
+    }
+    return key;
 }
 /** The dynamic offset the current use binds at: -1 for a group without one, 0 for the block's own buffer. */
 function dynamicOffsetOf(bindGroup) {
@@ -12377,8 +12436,12 @@ function updateStorageBinding(bufferCache, device, binding, data, geometry, buff
         binding.lastBuffer = buffer;
         data.needsUpdate = true;
     }
-    // Flush pending data to GPU (version check / partial ranges handled inside)
-    ensureUploaded$1(bufferCache, device, buffer, binding.entry.name);
+    // Flush pending data to GPU (version check / partial ranges handled inside); a grown buffer is a new GPU buffer
+    const gpuBuffer = ensureUploaded$1(bufferCache, device, buffer, binding.entry.name);
+    if (data.storageGpuBuffers.get(binding) !== gpuBuffer) {
+        data.storageGpuBuffers.set(binding, gpuBuffer);
+        data.needsUpdate = true;
+    }
 }
 /** Rebuild the GPU bind group for a BindGroup */
 /**
@@ -42565,7 +42628,7 @@ function beginPass(s, desc) {
     incrementCallId(backend.geometries);
     aimNodeFrame(renderer, desc.camera ?? null, open.params.width, open.params.height);
     renderer.inspector?.beginRender(open.params.passId);
-    backend.device.pushErrorScope('validation');
+    backend._openValidationScope();
 }
 /** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded; a camera or rect
  *  change ends the run of draws before it. */
@@ -42673,13 +42736,7 @@ function encodePass(s, desc) {
 /** Pops the validation scope, inspector bracket and render scope an unskipped `beginPass` pushed. */
 function closePassScopes(s, open, passId) {
     const { renderer, backend } = s;
-    backend._pendingValidation.push(backend.device.popErrorScope().then((err) => {
-        if (err) {
-            const message = `[WebGPU render validation error] pass '${passId}': ${err.message}`;
-            console.error(message);
-            backend._validationErrors.push(message);
-        }
-    }));
+    backend._closeValidationScope('render', passId);
     renderer.inspector?.finishRender(passId);
     renderer._nodes.nodeFrame.endRender(open.previousRenderId);
 }
@@ -42692,7 +42749,7 @@ function beginComputePass(s, desc) {
     }
     open.skipped = false;
     s.renderer.inspector?.perf.start(desc.label ?? 'compute');
-    s.backend.device.pushErrorScope('validation');
+    s.backend._openValidationScope();
 }
 /** Resolves a recorded dispatch into the compute pass being recorded. */
 function recordDispatch(s, record) {
@@ -42724,13 +42781,7 @@ function encodeComputePass(s, desc) {
 }
 function closeComputeScopes(s, label) {
     const { renderer, backend } = s;
-    backend._pendingValidation.push(backend.device.popErrorScope().then((err) => {
-        if (err) {
-            const message = `[WebGPU compute validation error] pass '${label}': ${err.message}`;
-            console.error(message);
-            backend._validationErrors.push(message);
-        }
-    }));
+    backend._closeValidationScope('compute', label);
     renderer.inspector?.perf.end(label);
 }
 function submitFrame(s) {
@@ -42752,20 +42803,14 @@ function submitFrame(s) {
     s.mipTextures.clear();
     // The dynamic uniform copies go first in the same submit, so every pass reads its allocation.
     const dynamicUniformCopies = submitDynamicUniforms(backend.buffers, backend.device);
-    backend.device.pushErrorScope('validation');
+    backend._openValidationScope();
     try {
         const frameCommands = backend._currentEncoder.finish();
         backend.device.queue.submit(dynamicUniformCopies === null ? [frameCommands] : [dynamicUniformCopies, frameCommands]);
         onDynamicUniformsSubmitted(backend.buffers);
     }
     finally {
-        backend._pendingValidation.push(backend.device.popErrorScope().then((err) => {
-            if (err) {
-                const message = `[WebGPU submit validation error] ${err.message}`;
-                console.error(message);
-                backend._validationErrors.push(message);
-            }
-        }));
+        backend._closeValidationScope('submit');
     }
     backend._currentEncoder = null;
     renderer.inspector?.finish(renderer._nodes.nodeFrame.frameId);
@@ -42927,6 +42972,8 @@ async function readPixels(backend, renderTarget, attachmentIndex = 0, layer = 0,
     return tightlyPacked;
 }
 
+/** the most validation errors kept for `takeValidationErrors`, the newest */
+const MAX_VALIDATION_ERRORS = 64;
 /**
  * WebGPU's device half: the device, adapter, format, every resource cache, the swapchain and the
  * frame encoder. The node graph, render objects and pass contexts belong to the `Renderer` this is
@@ -42961,8 +43008,10 @@ class WebGPUBackend {
     /** @internal */ swapchain = createSwapchainState(this.memoryTally);
     /** A frame is one command buffer; `beginFrame` opens the encoder. @internal */
     _currentEncoder = null;
-    /** Error scopes resolve after the pass that opened them, so a caller has to await these to see one. @internal */
-    _pendingValidation = [];
+    validation;
+    /** Error scopes resolve after the pass that opened them, so a caller has to await these to see one; each leaves
+     *  as it settles. @internal */
+    _pendingValidation = new Set();
     /** @internal */ _validationErrors = [];
     /** Buffers with a read map in flight, released ahead of the device on dispose: Firefox's wgpu crashes
      *  (its GPU process, or the whole browser where it runs without one) when a device is destroyed while a
@@ -42975,6 +43024,31 @@ class WebGPUBackend {
     constructor(opts = {}) {
         this._opts = opts;
         this._deviceProvided = opts.device !== undefined;
+        this.validation = opts.validation ?? 'device';
+    }
+    /** Logs a validation error and keeps it for `takeValidationErrors`, the newest MAX_VALIDATION_ERRORS. @internal */
+    _reportValidation(message) {
+        console.error(message);
+        this._validationErrors.push(message);
+        if (this._validationErrors.length > MAX_VALIDATION_ERRORS)
+            this._validationErrors.shift();
+    }
+    /** Opens a pass's or submit's error scope, with `validation: 'per-pass'`. @internal */
+    _openValidationScope() {
+        if (this.validation === 'per-pass')
+            this.device.pushErrorScope('validation');
+    }
+    /** Closes the scope `_openValidationScope` opened, reporting what it caught as the `kind` of work, in `pass`. @internal */
+    _closeValidationScope(kind, pass) {
+        if (this.validation !== 'per-pass')
+            return;
+        const where = pass === undefined ? '' : ` pass '${pass}':`;
+        const pending = this.device.popErrorScope().then((err) => {
+            if (err)
+                this._reportValidation(`[WebGPU ${kind} validation error]${where} ${err.message}`);
+        });
+        this._pendingValidation.add(pending);
+        void pending.finally(() => this._pendingValidation.delete(pending));
     }
     /**
      * Bring up the device: a pre-created one, or an adapter/device requesting every supported feature.
@@ -43018,6 +43092,12 @@ class WebGPUBackend {
                 });
             });
             this.format = opts.format ?? navigator.gpu.getPreferredCanvasFormat();
+        }
+        // a listener rather than `onuncapturederror`, which a handed-in device's owner may have set
+        if (this.validation === 'device') {
+            this.device.addEventListener('uncapturederror', (event) => {
+                this._reportValidation(`[WebGPU validation error] ${event.error.message}`);
+            });
         }
         // Every canvas on one device shares this colour format; a pass's depth format comes from its
         // own target, so only the colour one is published here.
@@ -43157,7 +43237,6 @@ class WebGPUBackend {
     /** Awaits every open error scope and returns what they reported, emptying both lists. */
     async takeValidationErrors() {
         await Promise.all(this._pendingValidation);
-        this._pendingValidation.length = 0;
         return this._validationErrors.splice(0);
     }
 }

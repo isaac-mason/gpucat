@@ -32,6 +32,12 @@ export type WebGPUBackendOptions = {
     adapter?: GPUAdapter;
     /** Canvas texture format. Defaults to navigator.gpu.getPreferredCanvasFormat(), or 'bgra8unorm' with a pre-created device. */
     format?: GPUTextureFormat;
+    /**
+     * How validation errors are caught. `'device'` (the default) hears them from the device as they happen, naming
+     * nothing; `'per-pass'` opens an error scope around every pass and submit, so each error names its pass, at a few
+     * calls and a promise a pass.
+     */
+    validation?: 'device' | 'per-pass';
 };
 /**
  * WebGPU's device half: the device, adapter, format, every resource cache, the swapchain and the
@@ -65,8 +71,10 @@ export declare class WebGPUBackend implements DeviceBackend {
     /** @internal */ readonly swapchain: RenderPass.SwapchainState;
     /** A frame is one command buffer; `beginFrame` opens the encoder. @internal */
     _currentEncoder: GPUCommandEncoder | null;
-    /** Error scopes resolve after the pass that opened them, so a caller has to await these to see one. @internal */
-    _pendingValidation: Promise<void>[];
+    readonly validation: 'device' | 'per-pass';
+    /** Error scopes resolve after the pass that opened them, so a caller has to await these to see one; each leaves
+     *  as it settles. @internal */
+    readonly _pendingValidation: Set<Promise<void>>;
     /** @internal */ _validationErrors: string[];
     /** Buffers with a read map in flight, released ahead of the device on dispose: Firefox's wgpu crashes
      *  (its GPU process, or the whole browser where it runs without one) when a device is destroyed while a
@@ -77,6 +85,12 @@ export declare class WebGPUBackend implements DeviceBackend {
     private readonly _deviceProvided;
     private _frame;
     constructor(opts?: WebGPUBackendOptions);
+    /** Logs a validation error and keeps it for `takeValidationErrors`, the newest MAX_VALIDATION_ERRORS. @internal */
+    _reportValidation(message: string): void;
+    /** Opens a pass's or submit's error scope, with `validation: 'per-pass'`. @internal */
+    _openValidationScope(): void;
+    /** Closes the scope `_openValidationScope` opened, reporting what it caught as the `kind` of work, in `pass`. @internal */
+    _closeValidationScope(kind: 'render' | 'compute' | 'submit', pass?: string): void;
     /**
      * Bring up the device: a pre-created one, or an adapter/device requesting every supported feature.
      * A canvas context is acquired lazily, by the first pass that names that canvas.
