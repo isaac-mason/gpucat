@@ -49,6 +49,10 @@ export class GpuSampler {
     /** Renderer-set callback to clean up cache entry */
     _onDispose: (() => void) | null = null;
 
+    /** `settingsKey` as last built, and the settings it was built from, in its order */
+    private _settingsKey = '';
+    private readonly _keyedSettings: unknown[] = [];
+
     disposed = false;
 
     constructor(options: GpuSamplerOptions = {}) {
@@ -72,11 +76,38 @@ export class GpuSampler {
 
     /** Settings key for deduplication */
     get settingsKey(): string {
-        const base =
-            `${this.minFilter}-${this.magFilter}-${this.mipmapFilter}-` +
-            `${this.addressModeU}-${this.addressModeV}-${this.addressModeW}-` +
-            `${this.maxAnisotropy}-${this.lodMinClamp}-${this.lodMaxClamp}`;
-        return this.compare ? `${base}-cmp-${this.compare}` : base;
+        // read per draw: built again only once a setting differs from those it was last built from
+        const kept = this._keyedSettings;
+        if (
+            kept.length === 0 ||
+            kept[0] !== this.minFilter ||
+            kept[1] !== this.magFilter ||
+            kept[2] !== this.mipmapFilter ||
+            kept[3] !== this.addressModeU ||
+            kept[4] !== this.addressModeV ||
+            kept[5] !== this.addressModeW ||
+            kept[6] !== this.maxAnisotropy ||
+            kept[7] !== this.lodMinClamp ||
+            kept[8] !== this.lodMaxClamp ||
+            kept[9] !== this.compare
+        ) {
+            kept[0] = this.minFilter;
+            kept[1] = this.magFilter;
+            kept[2] = this.mipmapFilter;
+            kept[3] = this.addressModeU;
+            kept[4] = this.addressModeV;
+            kept[5] = this.addressModeW;
+            kept[6] = this.maxAnisotropy;
+            kept[7] = this.lodMinClamp;
+            kept[8] = this.lodMaxClamp;
+            kept[9] = this.compare;
+            const base =
+                `${this.minFilter}-${this.magFilter}-${this.mipmapFilter}-` +
+                `${this.addressModeU}-${this.addressModeV}-${this.addressModeW}-` +
+                `${this.maxAnisotropy}-${this.lodMinClamp}-${this.lodMaxClamp}`;
+            this._settingsKey = this.compare ? `${base}-cmp-${this.compare}` : base;
+        }
+        return this._settingsKey;
     }
 
     dispose(): void {

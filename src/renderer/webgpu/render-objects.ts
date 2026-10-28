@@ -59,16 +59,14 @@ export function initRenderObject(
         return false;
     }
 
-    // Initialize bindings (creates bind group layouts)
-    initRenderBindings(bindingsState, renderObject, device);
-
-    // Get bind group layouts for pipeline creation
-    const bindGroupLayouts = getRenderBindGroupLayouts(bindingsState, renderObject);
-
     // Check if we need to create/update pipeline
     const gpu = getRenderObjectGpu(renderObjectGpuCache, renderObject);
-    // A material or geometry version change moves the pipeline key, so the resolved pipeline is stale.
+    // A material or geometry version change moves the pipeline key, so the resolved pipeline is stale. The bind group
+    // layouts are only what a new pipeline is built against: a draw's own bindings initialise theirs as they update,
+    // and its geometry updates there too (`updateRenderObject`), so neither repeats here every draw.
     if (!gpu.pipeline || stale) {
+        initRenderBindings(bindingsState, renderObject, device);
+        const bindGroupLayouts = getRenderBindGroupLayouts(bindingsState, renderObject);
         assertDynamicUniformLimit(device, getBindings(renderObject), pipelineName(renderObject));
         // Create pipeline using the unified pipelines system (sync)
         const entry = pipelines.getForRender(
@@ -79,10 +77,9 @@ export function initRenderObject(
             null, // sync
         );
         gpu.pipeline = entry.pipeline;
+        // the first draw's geometry, for the pipeline's vertex layout to meet uploaded buffers
+        updateGeometry(b, renderObject);
     }
-
-    // Update geometry attributes
-    updateGeometry(b, renderObject);
 
     return true;
 }
