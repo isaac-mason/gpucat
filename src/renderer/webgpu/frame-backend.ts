@@ -158,7 +158,7 @@ export function beginPass(s: WebGPUFrameBackendState, desc: PassDesc): void {
     Geometries.incrementCallId(backend.geometries);
     aimNodeFrame(renderer, desc.camera ?? null, open.params.width, open.params.height);
     renderer.inspector?.beginRender(open.params.passId);
-    backend.device.pushErrorScope('validation');
+    backend._openValidationScope();
 }
 
 /** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded; a camera or rect
@@ -273,15 +273,7 @@ export function encodePass(s: WebGPUFrameBackendState, desc: PassDesc): void {
 /** Pops the validation scope, inspector bracket and render scope an unskipped `beginPass` pushed. */
 function closePassScopes(s: WebGPUFrameBackendState, open: OpenRenderPass, passId: string): void {
     const { renderer, backend } = s;
-    backend._pendingValidation.push(
-        backend.device.popErrorScope().then((err) => {
-            if (err) {
-                const message = `[WebGPU render validation error] pass '${passId}': ${err.message}`;
-                console.error(message);
-                backend._validationErrors.push(message);
-            }
-        }),
-    );
+    backend._closeValidationScope('render', passId);
     renderer.inspector?.finishRender(passId);
     renderer._nodes.nodeFrame.endRender(open.previousRenderId);
 }
@@ -295,7 +287,7 @@ export function beginComputePass(s: WebGPUFrameBackendState, desc: ComputePassDe
     }
     open.skipped = false;
     s.renderer.inspector?.perf.start(desc.label ?? 'compute');
-    s.backend.device.pushErrorScope('validation');
+    s.backend._openValidationScope();
 }
 
 /** Resolves a recorded dispatch into the compute pass being recorded. */
@@ -336,15 +328,7 @@ export function encodeComputePass(s: WebGPUFrameBackendState, desc: ComputePassD
 
 function closeComputeScopes(s: WebGPUFrameBackendState, label: string): void {
     const { renderer, backend } = s;
-    backend._pendingValidation.push(
-        backend.device.popErrorScope().then((err) => {
-            if (err) {
-                const message = `[WebGPU compute validation error] pass '${label}': ${err.message}`;
-                console.error(message);
-                backend._validationErrors.push(message);
-            }
-        }),
-    );
+    backend._closeValidationScope('compute', label);
     renderer.inspector?.perf.end(label);
 }
 
@@ -369,21 +353,13 @@ export function submitFrame(s: WebGPUFrameBackendState): void {
     // The dynamic uniform copies go first in the same submit, so every pass reads its allocation.
     const dynamicUniformCopies = Buffers.submitDynamicUniforms(backend.buffers, backend.device);
 
-    backend.device.pushErrorScope('validation');
+    backend._openValidationScope();
     try {
         const frameCommands = backend._currentEncoder!.finish();
         backend.device.queue.submit(dynamicUniformCopies === null ? [frameCommands] : [dynamicUniformCopies, frameCommands]);
         Buffers.onDynamicUniformsSubmitted(backend.buffers);
     } finally {
-        backend._pendingValidation.push(
-            backend.device.popErrorScope().then((err) => {
-                if (err) {
-                    const message = `[WebGPU submit validation error] ${err.message}`;
-                    console.error(message);
-                    backend._validationErrors.push(message);
-                }
-            }),
-        );
+        backend._closeValidationScope('submit');
     }
     backend._currentEncoder = null;
 

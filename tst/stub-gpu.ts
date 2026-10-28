@@ -121,6 +121,8 @@ export type StubGPUResult = {
     stats: StubGPUStats;
     /** Get renderer options with all stubs pre-configured */
     getRendererOptions(): WebGPUBackendOptions;
+    /** Raises an `uncapturederror` with `message` to the device's listeners, as a real device does. */
+    fireUncapturedError(message: string): void;
 };
 
 /**
@@ -140,6 +142,7 @@ export type StubGPUResult = {
  * ```
  */
 export function createStubGPU(): StubGPUResult {
+    const uncapturedListeners: ((event: unknown) => void)[] = [];
     const stats: StubGPUStats = {
         bufferWrites: 0,
         bufferCopies: 0,
@@ -485,7 +488,9 @@ export function createStubGPU(): StubGPUResult {
             return null;
         },
         onuncapturederror: null,
-        addEventListener: () => {},
+        addEventListener: (type: string, listener: (event: unknown) => void) => {
+            if (type === 'uncapturederror') uncapturedListeners.push(listener);
+        },
         removeEventListener: () => {},
         dispatchEvent: () => false,
     } as unknown as GPUDevice;
@@ -542,6 +547,9 @@ export function createStubGPU(): StubGPUResult {
                 adapter,
                 format: 'bgra8unorm',
             };
+        },
+        fireUncapturedError(message: string): void {
+            for (const listener of uncapturedListeners) listener({ error: { message } });
         },
     };
 }

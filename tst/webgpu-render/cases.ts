@@ -3072,7 +3072,7 @@ async function caseLineWidthOutside(gpu: Renderer<WebGPUBackend>): Promise<CaseR
 export async function runCase(device: GPUDevice, adapter: GPUAdapter, name: string): Promise<CaseResult> {
     const c = CASES[name];
     if (!c) throw new Error(`[webgpu-render] no case named '${name}'`);
-    const gpu = await init(webgpu({ device, adapter, format: 'rgba8unorm' }));
+    const gpu = await init(webgpu({ device, adapter, format: 'rgba8unorm', validation: 'per-pass' }));
     const result = await c(gpu);
 
     // Error scopes resolve after the pass that opened them, so without this a case can finish and the

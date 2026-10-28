@@ -60,7 +60,17 @@ export type WebGPUBackendOptions = {
 
     /** Canvas texture format. Defaults to navigator.gpu.getPreferredCanvasFormat(), or 'bgra8unorm' with a pre-created device. */
     format?: GPUTextureFormat;
+
+    /**
+     * How validation errors are caught. `'device'` (the default) hears them from the device as they happen, naming
+     * nothing; `'per-pass'` opens an error scope around every pass and submit, so each error names its pass, at a few
+     * calls and a promise a pass.
+     */
+    validation?: 'device' | 'per-pass';
 };
+
+/** the most validation errors kept for `takeValidationErrors`, the newest */
+const MAX_VALIDATION_ERRORS = 64;
 
 /**
  * WebGPU's device half: the device, adapter, format, every resource cache, the swapchain and the
@@ -105,8 +115,10 @@ export class WebGPUBackend implements DeviceBackend {
     /** A frame is one command buffer; `beginFrame` opens the encoder. @internal */
     _currentEncoder: GPUCommandEncoder | null = null;
 
-    /** Error scopes resolve after the pass that opened them, so a caller has to await these to see one. @internal */
-    _pendingValidation: Promise<void>[] = [];
+    readonly validation: 'device' | 'per-pass';
+    /** Error scopes resolve after the pass that opened them, so a caller has to await these to see one; each leaves
+     *  as it settles. @internal */
+    readonly _pendingValidation = new Set<Promise<void>>();
     /** @internal */ _validationErrors: string[] = [];
 
     /** Buffers with a read map in flight, released ahead of the device on dispose: Firefox's wgpu crashes
@@ -122,6 +134,30 @@ export class WebGPUBackend implements DeviceBackend {
     constructor(opts: WebGPUBackendOptions = {}) {
         this._opts = opts;
         this._deviceProvided = opts.device !== undefined;
+        this.validation = opts.validation ?? 'device';
+    }
+
+    /** Logs a validation error and keeps it for `takeValidationErrors`, the newest MAX_VALIDATION_ERRORS. @internal */
+    _reportValidation(message: string): void {
+        console.error(message);
+        this._validationErrors.push(message);
+        if (this._validationErrors.length > MAX_VALIDATION_ERRORS) this._validationErrors.shift();
+    }
+
+    /** Opens a pass's or submit's error scope, with `validation: 'per-pass'`. @internal */
+    _openValidationScope(): void {
+        if (this.validation === 'per-pass') this.device.pushErrorScope('validation');
+    }
+
+    /** Closes the scope `_openValidationScope` opened, reporting what it caught as the `kind` of work, in `pass`. @internal */
+    _closeValidationScope(kind: 'render' | 'compute' | 'submit', pass?: string): void {
+        if (this.validation !== 'per-pass') return;
+        const where = pass === undefined ? '' : ` pass '${pass}':`;
+        const pending = this.device.popErrorScope().then((err) => {
+            if (err) this._reportValidation(`[WebGPU ${kind} validation error]${where} ${err.message}`);
+        });
+        this._pendingValidation.add(pending);
+        void pending.finally(() => this._pendingValidation.delete(pending));
     }
 
     /**
@@ -173,6 +209,13 @@ export class WebGPUBackend implements DeviceBackend {
             });
 
             this.format = opts.format ?? navigator.gpu.getPreferredCanvasFormat();
+        }
+
+        // a listener rather than `onuncapturederror`, which a handed-in device's owner may have set
+        if (this.validation === 'device') {
+            this.device.addEventListener('uncapturederror', (event) => {
+                this._reportValidation(`[WebGPU validation error] ${(event as GPUUncapturedErrorEvent).error.message}`);
+            });
         }
 
         // Every canvas on one device shares this colour format; a pass's depth format comes from its
@@ -360,7 +403,6 @@ export class WebGPUBackend implements DeviceBackend {
     /** Awaits every open error scope and returns what they reported, emptying both lists. */
     async takeValidationErrors(): Promise<string[]> {
         await Promise.all(this._pendingValidation);
-        this._pendingValidation.length = 0;
         return this._validationErrors.splice(0);
     }
 }

@@ -40,9 +40,9 @@ import { frame } from '../src/renderer/core/frame';
  * throw skipped the pop, leaving the scope pushed for the life of the device, so every later pop
  * returned the wrong pass's error.
  */
-async function make() {
+async function make(validation: 'device' | 'per-pass' = 'per-pass') {
     const stub = createStubGPU();
-    const renderer = new Renderer(new WebGPUBackend(stub.getRendererOptions()));
+    const renderer = new Renderer(new WebGPUBackend({ ...stub.getRendererOptions(), validation }));
     await renderer.init();
     const camera = new PerspectiveCamera(Math.PI / 4, 1, 0.1, 100);
     camera.position[2] = 5;
@@ -141,4 +141,52 @@ test('a dispatch that throws while resolving leaves no scope behind once its pas
     f.submit();
 
     expect(stub.stats.errorScopeDepth).toBe(0);
+});
+
+/** A frame's worth of passes and a dispatch, to count what each validation mode does around them. */
+async function drawAndDispatch(renderer: Renderer<WebGPUBackend>, camera: PerspectiveCamera): Promise<void> {
+    const mesh = new Mesh(createBoxGeometry(1, 1, 1), material());
+    mesh.updateWorldMatrix();
+    const node = Fn(() => {
+        const out = storage('out', d.array(d.u32), 'read_write');
+        index(out, globalId.x).assign(index(out, globalId.x).add(u32(1)));
+    }).compute({ workgroupSize: [64, 1, 1] });
+    const out = new GpuBuffer(d.u32, { data: new Uint32Array(64), usage: 'storage' });
+    const f = frame(renderer);
+    const compute = f.compute({ label: 'cull' });
+    compute.dispatch(node, [1, 1, 1], { buffers: { out } });
+    compute.end();
+    const pass = f.pass({ target: createRenderTarget(64, 64), camera });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+    await f.done;
+}
+
+/** Validation heard from the device costs a frame nothing: no scope is opened around anything. */
+test("'device' validation opens no error scopes", async () => {
+    const { stub, renderer, camera } = await make('device');
+    stub.stats.reset();
+    await drawAndDispatch(renderer, camera);
+    expect(stub.stats.errorScopePushes).toBe(0);
+});
+
+/** Each pass's scope settles and is let go of; none is held for a later `takeValidationErrors` that may never come. */
+test("'per-pass' scopes are let go of once they settle", async () => {
+    const { renderer, camera } = await make('per-pass');
+    for (let i = 0; i < 3; i++) await drawAndDispatch(renderer, camera);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(renderer.backend._pendingValidation.size).toBe(0);
+});
+
+/** An error the device raises on its own reaches `takeValidationErrors`, and only the newest are kept. */
+test("'device' validation reports what the device raises, the newest 64", async () => {
+    const { stub, renderer } = await make('device');
+    stub.fireUncapturedError('a bad draw');
+    expect(await renderer.backend.takeValidationErrors()).toEqual(['[WebGPU validation error] a bad draw']);
+
+    for (let i = 0; i < 100; i++) stub.fireUncapturedError(`error ${i}`);
+    const errors = await renderer.backend.takeValidationErrors();
+    expect(errors.length).toBe(64);
+    expect(errors.at(-1)).toBe('[WebGPU validation error] error 99');
 });
