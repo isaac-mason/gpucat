@@ -8,7 +8,11 @@ beforeAll(() => {
 });
 
 import { GpuBuffer } from '../src/core/gpu-buffer';
-import { Fn, globalId, index, storage, u32 } from '../src/nodes/nodes';
+import { GpuSampler } from '../src/core/gpu-sampler';
+import type { GpuTexture } from '../src/core/gpu-texture';
+import { createRenderTarget } from '../src/core/render-target';
+import { Fn, f32, globalId, index, storage, texture, u32, vec2 } from '../src/nodes/nodes';
+import { fullscreen } from '../src/objects/fullscreen';
 import { frame } from '../src/renderer/core/frame';
 import { Renderer } from '../src/renderer/core/renderer';
 import { WebGPUBackend } from '../src/renderer/webgpu/webgpu-backend';
@@ -66,16 +70,36 @@ test('a buffer that grows builds its set anew', async () => {
     expect(stub.stats.bindGroupCreations).toBe(1);
 });
 
-/** Past the most sets a bind group keeps, the least recently bound is the one let go of. */
-test('only the most recently bound sets are kept', async () => {
+/** Every set bound is kept, however many: past a fixed number, a node fed one more set would rebuild every frame. */
+test('every resource set bound is kept', async () => {
     const { stub, renderer, node, buffer } = await make();
-    const views = Array.from({ length: 9 }, buffer);
+    const views = Array.from({ length: 12 }, buffer);
     await dispatchEach(renderer, node, views);
 
-    // the first was let go of to make room for the ninth; the ninth is still kept
     stub.stats.reset();
-    await dispatchEach(renderer, node, [views[8]!]);
+    await dispatchEach(renderer, node, views);
     expect(stub.stats.bindGroupCreations).toBe(0);
-    await dispatchEach(renderer, node, [views[0]!]);
-    expect(stub.stats.bindGroupCreations).toBe(1);
+});
+
+/** A disposed texture's GPU texture is destroyed, so no group that bound it may keep a bind group over it. */
+test('a disposed texture clears the variants of every group that bound it', async () => {
+    const { renderer } = await make();
+    const source = createRenderTarget(32, 32, { colorFormat: 'rgba8unorm' });
+    // A render target's texture types as a cube-or-2d union; this one is 2d by construction.
+    const flat = source.texture!._gpuTexture as unknown as GpuTexture<d.texture2d<d.TextureSampleType>>;
+    const mesh = fullscreen(texture(flat, new GpuSampler({})).sample(vec2(f32(0.5), f32(0.5))));
+    mesh.updateWorldMatrix();
+    const target = createRenderTarget(64, 64, { colorFormat: 'rgba8unorm' });
+    const f = frame(renderer);
+    const pass = f.pass({ target });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+    await f.done;
+
+    const groups = [...(renderer.backend.textures.textureMap.get(flat)?.bindGroups ?? [])];
+    expect(groups.length).toBeGreaterThan(0);
+    expect(groups.every((group) => group.variants.size > 0)).toBe(true);
+    source.dispose();
+    expect(groups.every((group) => group.variants.size === 0 && group.needsUpdate)).toBe(true);
 });

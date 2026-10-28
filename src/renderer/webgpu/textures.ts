@@ -26,6 +26,7 @@ import {
 } from '../core/info';
 import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
 import { bytesPerTexel, gpuTextureBytes, mipLevelCountFor } from '../core/texture-size';
+import { type BindGroupData, clearBindGroupVariants } from './bindings';
 import { createMipmapState, disposeMipmapState, generateMipmaps, type MipmapState } from './mipmap-utils';
 
 /** Data stored per Texture in the cache */
@@ -40,6 +41,8 @@ export type TextureData = {
     initialized: boolean;
     /** Whether this is a default placeholder texture */
     isDefaultTexture: boolean;
+    /** the bind groups that have bound it, whose variants its dispose clears: none may bind it again */
+    bindGroups?: Set<BindGroupData>;
     /** What this entry currently contributes to `TextureCache.tally`. */
     allocation: Allocation;
     /** `msaaTexture`'s contribution, made with the first one. */
@@ -101,6 +104,10 @@ export function setupTextureDispose(cache: TextureCache, texture: GpuTexture): v
         if (data && !data.isDefaultTexture) {
             data.texture.destroy();
             data.msaaTexture?.destroy();
+        }
+        if (data?.bindGroups) {
+            for (const group of data.bindGroups) clearBindGroupVariants(group);
+            data.bindGroups.clear();
         }
         // Stop counting it whether or not it owned its GPU texture; a default-texture entry
         // contributes nothing, so clearing is a no-op there.

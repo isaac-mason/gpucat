@@ -53,9 +53,6 @@ export type BindGroupVariant = {
     dynamicBindGroups: (GPUBindGroup | undefined)[];
 };
 
-/** the most resource sets a BindGroup keeps bind groups for, the most recently bound */
-const MAX_BIND_GROUP_VARIANTS = 8;
-
 /**
  * Per-BindGroup data (GPU resources).
  * Keyed by BindGroup object identity in a WeakMap.
@@ -65,9 +62,10 @@ export type BindGroupData = {
     current: BindGroupVariant;
 
     /**
-     * Variants over each set of resources bound lately, by the GPU objects in it, least recently bound first. One
-     * BindGroup fed a few sets in turn (a compute node dispatched over several views' buffers) builds each set's once.
-     * A reallocated buffer or texture is a new GPU object, so it is a new set.
+     * A variant over each set of resources bound, by the GPU objects in it, as three.js keeps them: one BindGroup fed a
+     * few sets in turn (a compute node dispatched over several views' buffers) builds each set's once. A reallocated
+     * buffer or texture is a new GPU object, so it is a new set; a disposed texture clears every variant of a group
+     * that bound it.
      */
     variants: Map<string, BindGroupVariant>;
 
@@ -299,18 +297,21 @@ function currentGPUBindGroup(
     return built;
 }
 
-/** the variant `data` keeps for the resource set `key`, made the most recently bound; new, and the least recently
- *  bound let go of past MAX_BIND_GROUP_VARIANTS, if it keeps none */
+/** the variant `data` keeps for the resource set `key`, new if it keeps none */
 function variantFor(data: BindGroupData, key: string): BindGroupVariant {
     let variant = data.variants.get(key);
-    if (variant !== undefined) {
-        data.variants.delete(key);
-    } else {
+    if (variant === undefined) {
         variant = { bindGroup: null, dynamicBindGroups: [] };
-        if (data.variants.size >= MAX_BIND_GROUP_VARIANTS) data.variants.delete(data.variants.keys().next().value!);
+        data.variants.set(key, variant);
     }
-    data.variants.set(key, variant);
     return variant;
+}
+
+/** drops every variant `data` keeps, for a group that bound a texture since disposed: none may bind it again */
+export function clearBindGroupVariants(data: BindGroupData): void {
+    data.variants.clear();
+    data.current = { bindGroup: null, dynamicBindGroups: [] };
+    data.needsUpdate = true;
 }
 
 /** the GPU objects `bindGroup` binds now, as the numbers `state` gives them: what tells one resource set from another */
@@ -709,6 +710,7 @@ function updateTextureBinding(textureCache: TextureCache, device: GPUDevice, bin
             binding.generation = texData.generation;
             data.needsUpdate = true;
         }
+        if (data.needsUpdate) (texData.bindGroups ??= new Set()).add(data);
     } else {
         // Render target texture - the GPU resource is created/resized by the owning
         // render target's pass. If that pass hasn't run this frame (e.g. the target
@@ -725,6 +727,7 @@ function updateTextureBinding(textureCache: TextureCache, device: GPUDevice, bin
                 binding.generation = texData.generation;
                 data.needsUpdate = true;
             }
+            if (data.needsUpdate) (texData.bindGroups ??= new Set()).add(data);
         }
     }
 }
@@ -753,6 +756,7 @@ function updateStorageTextureBinding(
         binding.generation = texData.generation;
         data.needsUpdate = true;
     }
+    if (data.needsUpdate) (texData.bindGroups ??= new Set()).add(data);
 }
 
 /** Update a sampler binding. */
