@@ -10,6 +10,10 @@
  * The cache is a per-renderer instance (held on WebGPUBackend as
  * `_renderObjectGpu`), not a module-global.
  */
+import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { Geometry } from '../../geometry/geometry';
+import type { Any } from '../../schema/schema';
+import type { NodeBuilderState } from '../core/node-builder-state';
 import type { RenderObject } from '../core/render-object';
 import type { DrawBindings } from './bindings';
 /**
@@ -29,6 +33,13 @@ export type RenderObjectGpu = {
      * the pipeline probe that redraws it. Draw bindings themselves are pooled per pass and reused.
      */
     probeBindings: DrawBindings | null;
+    /** The buffers a draw binds, in vertex slot order (`resolveVertexBuffers`), and the names they upload under. */
+    vertexBuffers: GpuBuffer<Any>[];
+    vertexBufferNames: string[];
+    /** What `vertexBuffers` was resolved against: the compile, the geometry and its buffer set. */
+    vertexNodeState: NodeBuilderState | null;
+    vertexGeometry: Geometry | null;
+    vertexGeometryBindings: number;
 };
 /**
  * Per-renderer cache mapping RenderObject -> its WebGPU device payload.

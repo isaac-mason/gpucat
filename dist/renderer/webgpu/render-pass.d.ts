@@ -5,7 +5,7 @@ import { type Allocation, type MemoryTally, type RendererInfo } from '../core/in
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext, ScissorValue, ViewportValue } from '../core/pass-context';
 import { type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
-import type { DrawBindings } from './bindings';
+import { type DrawBindings } from './bindings';
 import type { WebGPUBackend } from './webgpu-backend';
 /**
  * Get (or lazily create + configure) the WebGPU canvas context for a canvas target. Safe to call

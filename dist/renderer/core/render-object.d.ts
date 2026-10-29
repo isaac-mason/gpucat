@@ -108,10 +108,3 @@ export declare function disposeRenderObject(renderObject: RenderObject): void;
  * @throws Error if nodeBuilderState is not set
  */
 export declare function getBindings(renderObject: RenderObject): BindGroup[];
-/**
- * Compute the cache key for a RenderObject based on material and geometry.
- *
- * This is used to detect when recompilation is needed.
- * The key includes render state, geometry attributes, and context configuration.
- */
-export declare function computeRenderObjectCacheKey(material: Material, geometry: Geometry, renderContext: RenderContext, maxTextureSize?: number): string;

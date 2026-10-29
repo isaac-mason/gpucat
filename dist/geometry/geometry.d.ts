@@ -11,17 +11,23 @@ export type DrawRange = {
     count: number;
 };
 export declare class Geometry {
-    /** Buffers mapped by name. Can be vertex attributes, storage buffers, or any buffer type. @see setBuffer() @see removeBuffer() */
-    buffers: Map<string, GpuBuffer<Any>>;
-    /** Optional index buffer. Must have 'index' usage. @see setIndex(). */
-    index: GpuBuffer<Any> | undefined;
+    private readonly _buffers;
+    /**
+     * Buffers mapped by name. Can be vertex attributes, storage buffers, or any buffer type. Read-only:
+     * change it through `setBuffer` and `removeBuffer`, which version it so a renderer sees the change.
+     */
+    readonly buffers: ReadonlyMap<string, GpuBuffer<Any>>;
+    private _index;
+    private _indirect;
+    /** Optional index buffer. Must have 'index' usage. Read-only: change it through `setIndex`. */
+    get index(): GpuBuffer<Any> | undefined;
     /**
      * Range of vertices/indices to draw.
      * `start` maps to `firstVertex` (non-indexed) or `firstIndex` (indexed).
      * `count` is the number of vertices/indices. Defaults to `Infinity` (full buffer).
      */
     drawRange: DrawRange;
-    /** Bumped when any buffer is set or removed, which is what forces a rebind. */
+    /** Bumped when any buffer or the index buffer is set or removed, which is what forces a rebind. */
     bindingsVersion: number;
     /** Bumped when the buffer set or an attribute's format changes, which is what forces a recompile. */
     version: number;
@@ -29,10 +35,9 @@ export declare class Geometry {
      * Optional indirect draw buffer. When set, the renderer calls
      * drawIndirect / drawIndexedIndirect using this buffer instead of
      * draw / drawIndexed. `mesh.count` is ignored when this is set.
-     * Must have 'indirect' usage.
-     * @see setIndirect
+     * Must have 'indirect' usage. Read-only: change it through `setIndirect`.
      */
-    indirect: GpuBuffer<Any> | undefined;
+    get indirect(): GpuBuffer<Any> | undefined;
     /**
      * Byte offset into the indirect buffer where draw parameters begin.
      * Useful when non-indirect data precedes the DrawIndirect/DrawIndexedIndirect structs.

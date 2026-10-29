@@ -16,16 +16,29 @@
  * the emitter's `layout(location=N)`), and because a geometry may be drawn by different materials,
  * the VAO is cached per `(Geometry, program)` pair.
  */
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
 import type { NodeBuilderState } from '../core/node-builder-state';
 import type { WebGLBackend } from './webgl-backend';
+/** A geometry's VAO for one program, and the buffers it was built over. */
+type ProgramGeometry = {
+    /** What a draw binds. */
+    drawInfo: GeometryDrawInfo;
+    /** The buffers the VAO reads, in vertex-buffer group order, and the names they upload under. */
+    buffers: GpuBuffer[];
+    names: string[];
+};
 /** Per-geometry GL resources. Only VAOs: the buffers themselves belong to `buffers.ts`, keyed by
  *  `GpuBuffer`, so two geometries sharing one buffer share its GL object rather than each uploading. */
 type GeometryBuffers = {
-    /** VAOs keyed by program identity (a geometry may be drawn by several materials). */
-    vaos: Map<WebGLProgram, WebGLVertexArrayObject>;
+    /** Keyed by program identity (a geometry may be drawn by several materials). */
+    programs: Map<WebGLProgram, ProgramGeometry>;
     /** A VAO bakes in the buffers bound when it was built, so a rebind invalidates every one of them. */
     bindingsVersion: number;
+};
+/** The VAO a pass last bound, so a draw binds only a different one. */
+export type VaoBinding = {
+    vao: WebGLVertexArrayObject | null;
 };
 /** Geometries state: per-geometry VAOs, keyed by geometry identity. */
 export type GeometriesState = {
@@ -68,9 +81,13 @@ export type GeometryDrawInfo = {
 };
 /**
  * Ensure the geometry's GL buffers are uploaded and its VAO (for `program`) is built, returning the
- * draw resources. Re-uploads buffers whose version changed. The VAO is cached per (geometry, program).
+ * draw resources. Re-uploads buffers whose version changed. The VAO is cached per (geometry, program),
+ * with the buffers it reads, so a later draw only checks their versions.
+ *
+ * `bound` is the VAO the caller last bound. It is left bound unless an index upload or a VAO build has
+ * to unbind it, and `bound` follows, so the caller can skip binding a VAO that is still bound.
  */
-export declare function prepareGeometry(gl: WebGL2RenderingContext, b: WebGLBackend, geometry: Geometry, nodeState: NodeBuilderState, program: WebGLProgram, label?: string): GeometryDrawInfo;
+export declare function prepareGeometry(gl: WebGL2RenderingContext, b: WebGLBackend, geometry: Geometry, nodeState: NodeBuilderState, program: WebGLProgram, label?: string, bound?: VaoBinding): GeometryDrawInfo;
 /**
  * Dispose the GL resources this module owns for one geometry: its VAOs.
  *

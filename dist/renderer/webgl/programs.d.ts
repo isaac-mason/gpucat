@@ -25,17 +25,10 @@ export type ProgramInfo = {
      */
     uboBindingPoints: Map<string, number>;
     /**
-     * Cached combined-sampler uniform locations, keyed by the sampler-uniform name (`u_<textureId>`).
-     * Resolved lazily on first draw (needs the location, which is a linked-program property). A
-     * cached `null` means the sampler was optimized out / not found — the draw path skips it.
+     * Each texture binding's uniforms on this program, keyed by the binding's shader name. Resolved on
+     * the first draw that binds it (a location is a property of the linked program).
      */
-    samplerLocations: Map<string, WebGLUniformLocation | null>;
-    /**
-     * Cached per-texture flipY uniform locations, keyed by the flip-uniform name (`u_flipY_<textureId>`).
-     * Resolved lazily like `samplerLocations`; a cached `null` means the texture's samples weren't
-     * flip-wrapped (non-2D, or a storage read), so the draw path skips setting it.
-     */
-    flipLocations: Map<string, WebGLUniformLocation | null>;
+    textureUniforms: Map<string, TextureUniforms>;
     /**
      * Location of the batched-draw base uniform (`u_drawBase`), or `null` when the program doesn't
      * use `instanceIndex` (so the uniform isn't declared). Resolved at link time. The batched draw
@@ -48,6 +41,20 @@ export type ProgramInfo = {
      * to the current framebuffer height so gl_FragCoord / screenUV match WebGPU's top-left origin.
      */
     fragCoordFlipHeightLocation?: WebGLUniformLocation | null;
+};
+/**
+ * A texture binding's uniforms on one program, and the values last written to them. A program keeps a
+ * uniform's value until it is relinked, so a draw writes one only when the value moves.
+ */
+export type TextureUniforms = {
+    /** The combined-sampler uniform (`u_<textureId>`); null when the program has none, being optimized out. */
+    sampler: WebGLUniformLocation | null;
+    /** The flipY uniform (`u_flipY_<textureId>`); null when the texture's samples weren't flip-wrapped (non-2D, or a storage read). */
+    flip: WebGLUniformLocation | null;
+    /** The texture unit `sampler` holds; -1 until first set. */
+    unit: number;
+    /** What `flip` holds, 1 or 0; -1 until first set. */
+    flipped: number;
 };
 /** Program cache, keyed by the combined GLSL source string. */
 export type ProgramCache = {

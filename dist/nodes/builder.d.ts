@@ -36,8 +36,8 @@ export type CompileGlslOptions = {
      * The WebGL2 context's `MAX_TEXTURE_SIZE`, used to pick the `storage()` read-lowering's texel-grid
      * width (`width = min(totalTexels, maxTextureSize)`; height = ceil) so large read-only storage
      * buffers tile into a grid the device can allocate. Undefined → a conservative 2048 (WebGL2's
-     * guaranteed floor). GLSL-only and storage-only: the width is baked into the shader's texel
-     * addressing, so a change here alters the emitted GLSL; the compile cache is keyed by it.
+     * guaranteed floor). GLSL-only and storage-only. The shader reads the row width at runtime, so this
+     * shapes the texture and never the emitted GLSL.
      */
     maxTextureSize?: number;
 };

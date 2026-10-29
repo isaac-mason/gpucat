@@ -55,7 +55,7 @@ export type NodeBuilderState = {
     updateAfterNodes: UpdateAfterNode[];
     /** Nodes to update during rendering/dispatch. */
     updateNodes: UpdateNode[];
-    /** Cache key for pipeline lookup. Empty for compute. */
+    /** The key the NodeManager shares this render state under. Empty for compute. */
     cacheKey: string;
     readonly isNodeBuilderState: true;
 };
@@ -66,7 +66,7 @@ export type NodeBuilderState = {
  * Template groups are later cloned (non-shared) or reused (shared) via createBindings().
  *
  * @param compileResult - The compiler output
- * @param cacheKey - Pipeline cache key
+ * @param cacheKey - The key the NodeManager shares this state under
  * @param context - The binding context (RenderContext) for shared bind group caching
  */
 export declare function createNodeBuilderState(compileResult: CompileResult, cacheKey: string, context: BindingContext): NodeBuilderState;
@@ -96,5 +96,5 @@ export declare function createBindings(state: NodeBuilderState): BindGroup[];
  * and draws whatever the attribute last held — so it is named here instead, once, for both.
  */
 export declare function assertVertexBuffers(geometry: {
-    buffers: Map<string, unknown>;
+    buffers: ReadonlyMap<string, unknown>;
 }, state: NodeBuilderState, label: string): void;

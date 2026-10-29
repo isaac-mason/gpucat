@@ -83,6 +83,8 @@ export declare function writeBufferBytes(gl: WebGL2RenderingContext, cache: Buff
 export declare function copyBufferBytes(gl: WebGL2RenderingContext, cache: BufferCache, source: GpuBuffer, sourceByteOffset: number, destination: GpuBuffer, destinationByteOffset: number, byteSize: number): void;
 /** The GL buffer already created for a `GpuBuffer`, or undefined. Never uploads. */
 export declare function getUploaded(cache: BufferCache, buffer: GpuBuffer): WebGLBuffer | undefined;
+/** Whether `ensureUploaded` would find `buffer` current, binding and writing nothing. */
+export declare function isCurrent(cache: BufferCache, buffer: GpuBuffer): boolean;
 export type UploadRawResult = {
     glBuffer: WebGLBuffer;
     /** True when the GL buffer was newly created or grown, so dependent bindings must be refreshed. */

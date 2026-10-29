@@ -74,9 +74,15 @@ export declare class Uniform<T extends Any = Any> {
      */
     label: string | undefined;
     private _value;
+    /** The array plain arrays are packed into, reused while their length holds. Never one the caller passed. */
+    private _packed;
     constructor(schema: T, initialValue?: UniformValue<T>, group?: UniformGroup, label?: string);
     get value(): UniformStored<T> | null;
-    /** A typed array is adopted by reference, so writing through it keeps updating this uniform. */
+    /**
+     * A typed array is adopted by reference, so writing through it keeps updating this uniform. A plain
+     * array of numbers is copied into an array this uniform owns and reuses, so setting one every draw
+     * allocates nothing, and a `value` read earlier sees the later writes.
+     */
     set value(next: UniformValue<T> | null);
 }
 /** The factory form, matching `uniformGroup` and the other value constructors. */

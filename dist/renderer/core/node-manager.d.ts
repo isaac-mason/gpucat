@@ -1,15 +1,22 @@
 import type { CompileResult, CompileSlots } from '../../nodes/builder';
 import { type ComputeNode } from '../../nodes/nodes';
+import type { DeviceBackend } from './device-backend';
 import type { BindingContext, NodeBuilderState } from './node-builder-state';
 import { type NodeFrame } from './node-frame';
 import type { RenderObject } from './render-object';
+/** A compiled render shader and how many RenderObjects hold it. */
+type RenderStateEntry = {
+    nodeState: NodeBuilderState;
+    users: number;
+};
 /** node compilation and updates state */
 export type NodeManagerState = {
     /**
-     * Per-RenderObject NodeBuilderState.
-     * This is the compiled shader state.
+     * Compiled render shaders, keyed by what the compile reads (see `renderStateKey`), so every
+     * RenderObject drawing the same nodes into the same context shares one. Evicted when the last
+     * RenderObject holding an entry lets go of it.
      */
-    nodeStates: WeakMap<RenderObject, NodeBuilderState>;
+    renderStates: Map<string, RenderStateEntry>;
     /**
      * Per-ComputeNode NodeBuilderState.
      * Keyed by ComputeNode id string.
@@ -17,34 +24,30 @@ export type NodeManagerState = {
     computeStates: Map<string, NodeBuilderState>;
     /** the NodeFrame instance for this manager */
     nodeFrame: NodeFrame;
+    /** Frees the uniform blocks of the bind groups a RenderObject copies from its compiled shader. */
+    backend: Pick<DeviceBackend, 'releaseUniformBlock'>;
 };
 /** create a new NodeManager state */
-export declare function createNodeManagerState(): NodeManagerState;
+export declare function createNodeManagerState(backend: Pick<DeviceBackend, 'releaseUniformBlock'>): NodeManagerState;
 /**
  * Get the NodeFrame for rendering a specific RenderObject.
  * Sets the frame's context properties from the RenderObject.
  */
 export declare function getNodeFrameForRender(state: NodeManagerState, renderObject: RenderObject): NodeFrame;
 /**
- * Set the NodeBuilderState for a RenderObject.
- */
-export declare function setNodeBuilderState(state: NodeManagerState, renderObject: RenderObject, nodeState: NodeBuilderState): void;
-/**
- * Compile and set the NodeBuilderState for a RenderObject.
+ * Give a RenderObject the compiled shader for its material and context, compiling only when no other
+ * RenderObject already holds one under the same key.
  *
  * The render-shader emitter is injected via `compile` so the backend chooses the target language
  * (WGSL for WebGPU, GLSL for WebGL2). Neutral core code never references a concrete emitter here.
- *
- * @param state the NodeManager state
- * @param renderObject the RenderObject to compile for
- * @param cacheKey the pipeline cache key
- * @param compile the backend's render-shader emitter (WGSL/GLSL)
- * @returns the compiled NodeBuilderState and the raw CompileResult
  */
-export declare function compileNodeState(state: NodeManagerState, renderObject: RenderObject, cacheKey: string, compile: (slots: CompileSlots) => CompileResult): {
-    nodeState: NodeBuilderState;
-    compileResult: CompileResult;
-};
+export declare function compileNodeState(state: NodeManagerState, renderObject: RenderObject, compile: (slots: CompileSlots) => CompileResult): NodeBuilderState;
+/**
+ * Drop a RenderObject's hold on its compiled shader, evicting the shader once nothing holds it. The
+ * RenderObject's bind groups were copied from that shader, so they go with it: its own groups' uniform
+ * blocks are freed, and the shared groups are left to the shader's other users.
+ */
+export declare function releaseNodeState(state: NodeManagerState, renderObject: RenderObject): void;
 /**
  * Check if a RenderObject needs node recompilation.
  *
@@ -110,3 +113,4 @@ export declare function updateForCompute(state: NodeManagerState, computeNode: C
  * @param computeNode the ComputeNode being disposed
  */
 export declare function deleteForCompute(state: NodeManagerState, computeNode: ComputeNode): void;
+export {};

@@ -1,13 +1,11 @@
 /**
- * The device half of RenderObject init/update: compiling the node graph, building bind group layouts
- * and the pipeline, uploading geometry. The neutral cache is `../core/render-objects`, which callers
+ * The device half of RenderObject init: compiling the node graph, building bind group layouts and the
+ * pipeline. The neutral cache is `../core/render-objects`, which callers
  * import directly. The backend arrives as one parameter, so this module holds no state.
  */
 import type { CompileResult, CompileSlots } from '../../nodes/builder';
-import type { NodeFrame } from '../core/node-frame';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderObject } from '../core/render-object';
-import { type DrawBindings } from './bindings';
 import type { WebGPUBackend } from './webgpu-backend';
 /**
  * Initialize a RenderObject for rendering.
@@ -25,13 +23,5 @@ import type { WebGPUBackend } from './webgpu-backend';
  * @returns true if initialization succeeded
  */
 export declare function initRenderObject(b: WebGPUBackend, nodes: NodeManagerState, renderObject: RenderObject, compile: (slots: CompileSlots) => CompileResult): boolean;
-/**
- * Update a RenderObject for rendering.
- *
- * This is called each frame to:
- * - Update uniform buffers
- * - Rebuild bind groups if needed
- */
-export declare function updateRenderObject(b: WebGPUBackend, renderObject: RenderObject, frame: NodeFrame, out: DrawBindings): void;
 /** `initRenderObject` for the pre-warm: pipeline compilation is pushed onto `promises` instead of awaited. */
 export declare function initRenderObjectWithPromises(b: WebGPUBackend, nodes: NodeManagerState, renderObject: RenderObject, promises: Promise<void>[], compile: (slots: CompileSlots) => CompileResult): boolean;

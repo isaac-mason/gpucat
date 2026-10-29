@@ -15,12 +15,13 @@
  */
 import type { NodeFrame } from '../core/node-frame';
 import { type RenderObject } from '../core/render-object';
+import type { TextureUniforms } from './programs';
 import type { WebGLBackend } from './webgl-backend';
 /** A cached probe program: the linked GL program + its UBO binding points, plus the 1×1 readback FBO. */
 type ProbeGl = {
     program: WebGLProgram;
     uboBindingPoints: Map<string, number>;
-    samplerLocations: Map<string, WebGLUniformLocation | null>;
+    textureUniforms: Map<string, TextureUniforms>;
     fbo: WebGLFramebuffer;
     colorTex: WebGLTexture;
     depthRb: WebGLRenderbuffer;
