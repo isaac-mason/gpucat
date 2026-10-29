@@ -8,6 +8,7 @@ import type { UniformGroupBlock } from '../src/nodes/builder';
 import type { Mesh } from '../src/objects/mesh';
 import { createUniformBindGroup, type UniformBinding } from '../src/renderer/core/bind-group';
 import { createMemoryTally, createRendererInfo, type MemoryTally } from '../src/renderer/core/info';
+import { createNodeManagerState } from '../src/renderer/core/node-manager';
 import type { RenderContext } from '../src/renderer/core/pass-context';
 import { disposeRenderObject } from '../src/renderer/core/render-object';
 import * as RenderObjects from '../src/renderer/core/render-objects';
@@ -154,7 +155,9 @@ describe('webgl', () => {
 describe('render objects', () => {
     test('disposing one releases the uniform blocks of its own groups, never the shared ones', () => {
         const released: object[] = [];
-        const state = RenderObjects.createRenderObjectsState({ releaseUniformBlock: (key) => void released.push(key) });
+        const state = RenderObjects.createRenderObjectsState(
+            createNodeManagerState({ releaseUniformBlock: (key) => void released.push(key) }),
+        );
         const mesh = { geometry: {} } as unknown as Mesh;
         const material = {} as unknown as Material;
         const renderObject = RenderObjects.getRenderObject(state, mesh, material, {} as View, {} as RenderContext);

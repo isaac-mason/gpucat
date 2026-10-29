@@ -9,7 +9,7 @@ import type { NodeFrame } from '../core/node-frame';
 import type { NodeManagerState } from '../core/node-manager';
 import { compileNodeState, needsNodeUpdate } from '../core/node-manager';
 import type { RenderObject } from '../core/render-object';
-import { computeRenderObjectCacheKey, getBindings } from '../core/render-object';
+import { getBindings } from '../core/render-object';
 import { assertDynamicUniformLimit } from './bind-group-layout';
 import { type DrawBindings, getRenderBindGroupLayouts, initRenderBindings, updateRenderBindings } from './bindings';
 import { updateForRender as updateGeometry } from './geometries';
@@ -40,18 +40,9 @@ export function initRenderObject(
     compile: (slots: CompileSlots) => CompileResult,
 ): boolean {
     const { bindings: bindingsState, pipelines: pipelinesState, device, renderObjectGpu: renderObjectGpuCache } = b;
-    const material = renderObject.material;
-    const geometry = renderObject.geometry;
-    const renderContext = renderObject.renderContext;
-
     // Check if we need to (re)compile using fast version comparison
     const stale = needsNodeUpdate(nodes, renderObject);
-    if (stale) {
-        // Only compute cache key when we actually need to recompile
-        const cacheKey = computeRenderObjectCacheKey(material, geometry, renderContext);
-        // Compile node graph
-        compileNodeState(nodes, renderObject, cacheKey, compile);
-    }
+    if (stale) compileNodeState(nodes, renderObject, compile);
 
     const nodeState = renderObject.nodeBuilderState;
     if (!nodeState) {
@@ -105,18 +96,9 @@ export function initRenderObjectWithPromises(
     compile: (slots: CompileSlots) => CompileResult,
 ): boolean {
     const { bindings: bindingsState, pipelines: pipelinesState, device, renderObjectGpu: renderObjectGpuCache } = b;
-    const material = renderObject.material;
-    const geometry = renderObject.geometry;
-    const renderContext = renderObject.renderContext;
-
     // Check if we need to (re)compile using fast version comparison
     const stale = needsNodeUpdate(nodes, renderObject);
-    if (stale) {
-        // Only compute cache key when we actually need to recompile
-        const cacheKey = computeRenderObjectCacheKey(material, geometry, renderContext);
-        // Compile node graph (sync - this is fast)
-        compileNodeState(nodes, renderObject, cacheKey, compile);
-    }
+    if (stale) compileNodeState(nodes, renderObject, compile);
 
     const nodeState = renderObject.nodeBuilderState;
     if (!nodeState) {

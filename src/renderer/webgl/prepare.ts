@@ -1,6 +1,6 @@
 import { type CompileGlslOptions, compileGlsl } from '../../nodes/builder';
 import { compileNodeState, type NodeManagerState, needsNodeUpdate } from '../core/node-manager';
-import { computeRenderObjectCacheKey, getBindings, type RenderObject } from '../core/render-object';
+import { getBindings, type RenderObject } from '../core/render-object';
 import { getProgram } from './programs';
 import { getRenderObjectGl } from './render-object-gl';
 import type { WebGLBackend } from './webgl-backend';
@@ -28,16 +28,10 @@ export function prepareRenderObject(
 
     // (Re)compile the node graph to GLSL if the material/geometry version changed.
     if (needsNodeUpdate(nodes, renderObject)) {
-        const cacheKey = computeRenderObjectCacheKey(
-            renderObject.material,
-            renderObject.geometry,
-            renderObject.renderContext,
-            glslOptions?.maxTextureSize,
-        );
         // Bind the GLSL emitter options (precision) into the compile callback. When no options are
         // requested this is `compileGlsl` with defaults — byte-identical to the golden path.
         const compile = glslOptions ? (slots: Parameters<typeof compileGlsl>[0]) => compileGlsl(slots, glslOptions) : compileGlsl;
-        compileNodeState(nodes, renderObject, cacheKey, compile);
+        compileNodeState(nodes, renderObject, compile);
         // A recompile invalidates the cached program payload (the source may have changed).
         getRenderObjectGl(b.renderObjectGl, renderObject).program = null;
     }

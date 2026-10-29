@@ -27,7 +27,7 @@ export class Renderer<B extends DeviceBackend = DeviceBackend> implements Render
     /** @internal */ _frameState: Frame | null = null;
     /** @internal */ _renderContexts = RenderContext.createRenderContextsState();
     /** @internal */ _computeContext = RenderContext.createComputeContext();
-    /** @internal */ _nodes = NodeManager.createNodeManagerState();
+    /** @internal */ _nodes: NodeManager.NodeManagerState;
     /** @internal */ _renderObjects: RenderObjects.RenderObjectsState;
     /** @internal */ _renderLists = RenderLists.createRenderListsState();
 
@@ -39,7 +39,8 @@ export class Renderer<B extends DeviceBackend = DeviceBackend> implements Render
 
     constructor(backend: B) {
         this.backend = backend;
-        this._renderObjects = RenderObjects.createRenderObjectsState(backend);
+        this._nodes = NodeManager.createNodeManagerState(backend);
+        this._renderObjects = RenderObjects.createRenderObjectsState(this._nodes);
     }
 
     /** `B['name']`, not `RendererBackend`, so a union of concrete renderers discriminates on it. */

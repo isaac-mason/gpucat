@@ -20,10 +20,11 @@ const camera = {
 } as unknown as View;
 
 function state() {
+    const nodes = NodeManager.createNodeManagerState({ releaseUniformBlock: () => {} });
     return {
         inspector: null,
-        _renderObjects: RenderObjects.createRenderObjectsState({ releaseUniformBlock: () => {} }),
-        _nodes: NodeManager.createNodeManagerState(),
+        _renderObjects: RenderObjects.createRenderObjectsState(nodes),
+        _nodes: nodes,
     } as unknown as RendererState;
 }
 

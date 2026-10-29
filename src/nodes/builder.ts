@@ -224,8 +224,8 @@ export type CompileGlslOptions = {
      * The WebGL2 context's `MAX_TEXTURE_SIZE`, used to pick the `storage()` read-lowering's texel-grid
      * width (`width = min(totalTexels, maxTextureSize)`; height = ceil) so large read-only storage
      * buffers tile into a grid the device can allocate. Undefined → a conservative 2048 (WebGL2's
-     * guaranteed floor). GLSL-only and storage-only: the width is baked into the shader's texel
-     * addressing, so a change here alters the emitted GLSL; the compile cache is keyed by it.
+     * guaranteed floor). GLSL-only and storage-only. The shader reads the row width at runtime, so this
+     * shapes the texture and never the emitted GLSL.
      */
     maxTextureSize?: number;
 };
@@ -237,11 +237,10 @@ export type CompileGlslOptions = {
  * the buffer's own bytes directly as u32 texels (float fields round-trip through the accessor's
  * `uintBitsToFloat`) and caches one GL texture per `GpuBuffer`, version-synced, so mutating the buffer
  * between frames re-uploads, and N materials sharing a buffer share one GL texture. We only pick the
- * texel grid shape (baked into the shader's addressing via `width`): `width = min(totalTexels, cap)`
+ * texel grid shape, which the shader reads back at runtime: `width = min(totalTexels, cap)`
  * where `cap` is the device `MAX_TEXTURE_SIZE` (or 2048, WebGL2's guaranteed floor, when unknown), and
  * `height = ceil(totalTexels / width)`. No exact-division requirement: the renderer pads the (short)
- * last row and validates `height ≤ MAX_TEXTURE_SIZE` at upload. The baked width is device-specific, so
- * the GLSL compile cache is keyed by `maxTextureSize`.
+ * last row and validates `height ≤ MAX_TEXTURE_SIZE` at upload.
  */
 function createStorageBinding(node: StorageNode<d.Any>, maxTextureSize: number | undefined): StorageMirror {
     // Synthetic, sampler-less integer texture binding backed by the storage buffer's own bytes —

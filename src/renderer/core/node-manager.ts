@@ -2,18 +2,23 @@ import type { CompileResult, CompileSlots, UpdateNode } from '../../nodes/builde
 import { compileComputeWgsl } from '../../nodes/builder';
 import type { MRTNode } from '../../nodes/lib/mrt';
 import { type ComputeNode, NodeKind } from '../../nodes/nodes';
+import type { DeviceBackend } from './device-backend';
 import type { BindingContext, NodeBuilderState } from './node-builder-state';
 import { createNodeBuilderState, createNodeBuilderStateForCompute } from './node-builder-state';
 import { createNodeFrame, type NodeFrame } from './node-frame';
 import type { RenderObject } from './render-object';
 
+/** A compiled render shader and how many RenderObjects hold it. */
+type RenderStateEntry = { nodeState: NodeBuilderState; users: number };
+
 /** node compilation and updates state */
 export type NodeManagerState = {
     /**
-     * Per-RenderObject NodeBuilderState.
-     * This is the compiled shader state.
+     * Compiled render shaders, keyed by what the compile reads (see `renderStateKey`), so every
+     * RenderObject drawing the same nodes into the same context shares one. Evicted when the last
+     * RenderObject holding an entry lets go of it.
      */
-    nodeStates: WeakMap<RenderObject, NodeBuilderState>;
+    renderStates: Map<string, RenderStateEntry>;
 
     /**
      * Per-ComputeNode NodeBuilderState.
@@ -23,14 +28,18 @@ export type NodeManagerState = {
 
     /** the NodeFrame instance for this manager */
     nodeFrame: NodeFrame;
+
+    /** Frees the uniform blocks of the bind groups a RenderObject copies from its compiled shader. */
+    backend: Pick<DeviceBackend, 'releaseUniformBlock'>;
 };
 
 /** create a new NodeManager state */
-export function createNodeManagerState(): NodeManagerState {
+export function createNodeManagerState(backend: Pick<DeviceBackend, 'releaseUniformBlock'>): NodeManagerState {
     return {
-        nodeStates: new WeakMap(),
+        renderStates: new Map(),
         computeStates: new Map(),
         nodeFrame: createNodeFrame(),
+        backend,
     };
 }
 
@@ -48,31 +57,29 @@ export function getNodeFrameForRender(state: NodeManagerState, renderObject: Ren
 }
 
 /**
- * Set the NodeBuilderState for a RenderObject.
+ * Everything a render compile reads. The emitter sees only the material's node slots, named here by
+ * node identity, so materials holding the same nodes share a compile whatever their render state (which
+ * only the pipeline reads). The context is what the shared bind groups and the MRT outputs resolve
+ * against, and the material version keeps `needsUpdate` a recompile. The emitter and its options are
+ * not in it: a NodeManager belongs to one renderer, which has one backend.
  */
-export function setNodeBuilderState(state: NodeManagerState, renderObject: RenderObject, nodeState: NodeBuilderState): void {
-    state.nodeStates.set(renderObject, nodeState);
-    renderObject.nodeBuilderState = nodeState;
+function renderStateKey(renderObject: RenderObject): string {
+    const { material, renderContext } = renderObject;
+    return `${renderContext.id}|${material.vertex.id}|${material.fragment?.id ?? ''}|${material.depth?.id ?? ''}|${material.version}`;
 }
 
 /**
- * Compile and set the NodeBuilderState for a RenderObject.
+ * Give a RenderObject the compiled shader for its material and context, compiling only when no other
+ * RenderObject already holds one under the same key.
  *
  * The render-shader emitter is injected via `compile` so the backend chooses the target language
  * (WGSL for WebGPU, GLSL for WebGL2). Neutral core code never references a concrete emitter here.
- *
- * @param state the NodeManager state
- * @param renderObject the RenderObject to compile for
- * @param cacheKey the pipeline cache key
- * @param compile the backend's render-shader emitter (WGSL/GLSL)
- * @returns the compiled NodeBuilderState and the raw CompileResult
  */
 export function compileNodeState(
     state: NodeManagerState,
     renderObject: RenderObject,
-    cacheKey: string,
     compile: (slots: CompileSlots) => CompileResult,
-): { nodeState: NodeBuilderState; compileResult: CompileResult } {
+): NodeBuilderState {
     const material = renderObject.material;
 
     // RESOLVE THIS MATERIAL'S MRT BEFORE CODEGEN. An MRTNode names its outputs, but
@@ -85,9 +92,9 @@ export function compileNodeState(
     //
     // The renderer also resolves the PASS-level MRT node, but that is a different
     // object whenever a material brings its own outputs, and only the node actually
-    // being compiled has its `members` read. Resolving here, per material, per
-    // compile, mirrors three.js, which does the same work inside `MRTNode.setup()`
-    // against `builder.renderer.getRenderTarget()`.
+    // being compiled has its `members` read. It runs even when the compile is shared:
+    // the pipeline built next reads `members` for its target count, and the node may
+    // last have been resolved against another context's target.
     const fragmentNode = material.fragment;
     if (fragmentNode !== undefined && fragmentNode.kind === NodeKind.MRT) {
         const renderTarget = renderObject.renderContext.renderTarget;
@@ -99,24 +106,58 @@ export function compileNodeState(
         }
     }
 
-    // compile the material's node graph
-    const compileResult: CompileResult = compile({
-        vertex: material.vertex,
-        fragment: material.fragment,
-        depth: material.depth,
-    });
+    const key = renderStateKey(renderObject);
+    let entry = state.renderStates.get(key);
+    if (entry === undefined) {
+        const compileResult = compile({
+            vertex: material.vertex,
+            fragment: material.fragment,
+            depth: material.depth,
+        });
+        // the context is what the template's shared bind groups are cached against
+        entry = { nodeState: createNodeBuilderState(compileResult, key, renderObject.renderContext), users: 0 };
+        state.renderStates.set(key, entry);
+    }
 
-    // create NodeBuilderState from compile result (pass renderContext for shared bind group caching)
-    const nodeState = createNodeBuilderState(compileResult, cacheKey, renderObject.renderContext);
-
-    // store in manager and on render object
-    setNodeBuilderState(state, renderObject, nodeState);
+    if (renderObject.nodeBuilderState !== entry.nodeState) {
+        releaseNodeState(state, renderObject);
+        entry.users++;
+        renderObject.nodeBuilderState = entry.nodeState;
+    }
 
     // record versions at compilation time for change detection
     renderObject.materialVersion = material.version;
     renderObject.geometryVersion = renderObject.geometry.version;
 
-    return { nodeState, compileResult };
+    return entry.nodeState;
+}
+
+/**
+ * Drop a RenderObject's hold on its compiled shader, evicting the shader once nothing holds it. The
+ * RenderObject's bind groups were copied from that shader, so they go with it: its own groups' uniform
+ * blocks are freed, and the shared groups are left to the shader's other users.
+ */
+export function releaseNodeState(state: NodeManagerState, renderObject: RenderObject): void {
+    const bindings = renderObject._bindings;
+    if (bindings !== null) {
+        renderObject._bindings = null;
+        for (const group of bindings) {
+            if (group.shared) continue;
+            for (const binding of group.bindings) {
+                if (binding.kind === 'uniform' && binding.bufferKey !== null)
+                    state.backend.releaseUniformBlock(binding.bufferKey);
+            }
+        }
+    }
+
+    const nodeState = renderObject.nodeBuilderState;
+    if (nodeState === null) return;
+    renderObject.nodeBuilderState = null;
+
+    const entry = state.renderStates.get(nodeState.cacheKey);
+    if (entry === undefined || entry.nodeState !== nodeState) return;
+    entry.users--;
+    if (entry.users === 0) state.renderStates.delete(nodeState.cacheKey);
 }
 
 /**
