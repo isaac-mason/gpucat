@@ -1,18 +1,16 @@
 /**
- * The device half of RenderObject init/update: compiling the node graph, building bind group layouts
- * and the pipeline, uploading geometry. The neutral cache is `../core/render-objects`, which callers
+ * The device half of RenderObject init: compiling the node graph, building bind group layouts and the
+ * pipeline. The neutral cache is `../core/render-objects`, which callers
  * import directly. The backend arrives as one parameter, so this module holds no state.
  */
 
 import type { CompileResult, CompileSlots } from '../../nodes/builder';
-import type { NodeFrame } from '../core/node-frame';
 import type { NodeManagerState } from '../core/node-manager';
 import { compileNodeState, needsNodeUpdate } from '../core/node-manager';
 import type { RenderObject } from '../core/render-object';
 import { getBindings } from '../core/render-object';
 import { assertDynamicUniformLimit } from './bind-group-layout';
-import { type DrawBindings, getRenderBindGroupLayouts, initRenderBindings, updateRenderBindings } from './bindings';
-import { updateForRender as updateGeometry } from './geometries';
+import { getRenderBindGroupLayouts, initRenderBindings } from './bindings';
 import * as pipelines from './pipelines';
 import { getRenderObjectGpu } from './render-object-gpu';
 import type { WebGPUBackend } from './webgpu-backend';
@@ -54,7 +52,7 @@ export function initRenderObject(
     const gpu = getRenderObjectGpu(renderObjectGpuCache, renderObject);
     // A material or geometry version change moves the pipeline key, so the resolved pipeline is stale. The bind group
     // layouts are only what a new pipeline is built against: a draw's own bindings initialise theirs as they update,
-    // and its geometry updates there too (`updateRenderObject`), so neither repeats here every draw.
+    // and its vertex and index buffers upload as the draw binds them, so neither repeats here every draw.
     if (!gpu.pipeline || stale) {
         initRenderBindings(bindingsState, renderObject, device);
         const bindGroupLayouts = getRenderBindGroupLayouts(bindingsState, renderObject);
@@ -68,23 +66,9 @@ export function initRenderObject(
             null, // sync
         );
         gpu.pipeline = entry.pipeline;
-        // the first draw's geometry, for the pipeline's vertex layout to meet uploaded buffers
-        updateGeometry(b, renderObject);
     }
 
     return true;
-}
-
-/**
- * Update a RenderObject for rendering.
- *
- * This is called each frame to:
- * - Update uniform buffers
- * - Rebuild bind groups if needed
- */
-export function updateRenderObject(b: WebGPUBackend, renderObject: RenderObject, frame: NodeFrame, out: DrawBindings): void {
-    updateRenderBindings(b, renderObject, frame, out);
-    updateGeometry(b, renderObject);
 }
 
 /** `initRenderObject` for the pre-warm: pipeline compilation is pushed onto `promises` instead of awaited. */
@@ -135,9 +119,6 @@ export function initRenderObjectWithPromises(
             }),
         );
     }
-
-    // Update geometry attributes
-    updateGeometry(b, renderObject);
 
     return true;
 }

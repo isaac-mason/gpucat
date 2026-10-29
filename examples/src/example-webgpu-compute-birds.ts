@@ -377,7 +377,7 @@ function createBirdGeometry() {
     geom.setBuffer('wing', createVertexBuffer(d.f32, new Float32Array(wng)));
     const idx = new Uint16Array(pos.length / 3);
     for (let i = 0; i < idx.length; i++) idx[i] = i;
-    geom.index = createIndexBuffer(idx);
+    geom.setIndex(createIndexBuffer(idx));
     return geom;
 }
 

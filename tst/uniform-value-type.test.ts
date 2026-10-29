@@ -56,3 +56,34 @@ test('a struct value passes through unchanged', () => {
 
     expect(new Uniform(schema, light as never).value).toBe(light);
 });
+
+/** A per-object matrix is set every draw, so packing it must not allocate each time. */
+test('plain arrays set one after another pack into the same array', () => {
+    const matrix = new Uniform(d.mat4x4f, new Array(16).fill(0));
+    const first = matrix.value;
+
+    matrix.value = new Array(16).fill(1);
+
+    expect(matrix.value).toBe(first);
+    expect((matrix.value as Float32Array)[0]).toBe(1);
+});
+
+test('a plain array set after an adopted typed array never writes into the adopted one', () => {
+    const adopted = new Float32Array([5, 8, 6]);
+    const uniform = new Uniform(d.vec3f, adopted);
+
+    uniform.value = [1, 2, 3];
+
+    expect(Array.from(adopted)).toEqual([5, 8, 6]);
+    expect(Array.from(uniform.value as ArrayLike<number>)).toEqual([1, 2, 3]);
+});
+
+test('a plain array of a new length packs into a new array', () => {
+    const uniform = new Uniform(d.vec4f, [1, 2]);
+    const first = uniform.value;
+
+    uniform.value = [1, 2, 3];
+
+    expect(uniform.value).not.toBe(first);
+    expect(Array.from(uniform.value as Float32Array)).toEqual([1, 2, 3]);
+});

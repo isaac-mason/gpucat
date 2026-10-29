@@ -154,7 +154,7 @@ async function main() {
     const S = 0.06;
     const quad = new g.Geometry();
     quad.setBuffer('position', g.createVertexBuffer(d.vec3f, new Float32Array([-S, -S, 0, S, -S, 0, S, S, 0, -S, S, 0])));
-    quad.index = g.createIndexBuffer(new Uint16Array([0, 1, 2, 0, 2, 3]));
+    quad.setIndex(g.createIndexBuffer(new Uint16Array([0, 1, 2, 0, 2, 3])));
 
     const mesh = new g.Mesh(quad, material);
     mesh.count = N;

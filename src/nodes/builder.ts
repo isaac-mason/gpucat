@@ -1190,7 +1190,8 @@ function discover(roots: Node<d.Any>[]): Discovery {
         if (node.updateAfterType !== 'none' && node.updateAfter) {
             updateAfterNodes.push(node as unknown as UpdateAfterNode);
         }
-        if (node.updateType !== 'none' && node.update) {
+        // A uniform's update runs where its block is packed, which is the only place its value is read.
+        if (node.updateType !== 'none' && node.update && node.kind !== NodeKind.Uniform) {
             updateNodes.push(node as unknown as UpdateNode);
         }
 

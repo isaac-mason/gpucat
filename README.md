@@ -703,7 +703,7 @@ A `Geometry` is a set of named vertex buffers plus an optional index buffer. The
 const geom = new Geometry();
 geom.setBuffer('position', createVertexBuffer(d.vec3f, positions));
 geom.setBuffer('normal', createVertexBuffer(d.vec3f, normals));
-geom.index = createIndexBuffer(indices);   // a Uint16Array or Uint32Array
+geom.setIndex(createIndexBuffer(indices));   // a Uint16Array or Uint32Array
 ```
 
 For common shapes, the `create*Geometry` helpers build the position, normal, and uv buffers and an index for you. See [`Geometry`](./api.md#geometry) and the helpers in [api.md](./api.md#geometry).
@@ -1729,7 +1729,7 @@ With an indirect buffer the draw arguments (index count, instance count, offsets
 const args = new Uint32Array(packArray(DrawIndexedIndirect, [
     { indexCount, instanceCount, firstIndex: 0, baseVertex: 0, firstInstance: 0 },
 ]));
-geometry.indirect = createIndirectBuffer(DrawIndexedIndirect, args);
+geometry.setIndirect(createIndirectBuffer(DrawIndexedIndirect, args));
 ```
 
 One buffer can hold several draws (`geometry.indirectDrawCount`), and `geometry.indirectOffset` skips a header. The real payoff is GPU-driven rendering: the buffer has `storage` + `indirect` usage, so a compute pass can write the `instanceCount` (culling, LOD, spawning) and the draw reads it the same frame, with no CPU readback. `c.dispatchIndirect(node, buf)` dispatches a compute pass the same way, with its workgroup counts read from a buffer.

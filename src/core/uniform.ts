@@ -96,6 +96,8 @@ export class Uniform<T extends Any = Any> {
      */
     label: string | undefined;
     private _value: UniformStored<T> | null = null;
+    /** The array plain arrays are packed into, reused while their length holds. Never one the caller passed. */
+    private _packed: TypedArrayFor<T> | null = null;
 
     constructor(schema: T, initialValue?: UniformValue<T>, group: UniformGroup = objectGroup, label?: string) {
         this.schema = schema;
@@ -110,7 +112,11 @@ export class Uniform<T extends Any = Any> {
         return this._value;
     }
 
-    /** A typed array is adopted by reference, so writing through it keeps updating this uniform. */
+    /**
+     * A typed array is adopted by reference, so writing through it keeps updating this uniform. A plain
+     * array of numbers is copied into an array this uniform owns and reuses, so setting one every draw
+     * allocates nothing, and a `value` read earlier sees the later writes.
+     */
     set value(next: UniformValue<T> | null) {
         // Only a flat run of numbers packs. An array of vectors or matrices is already `Infer<T>`, and
         // `set` would flatten it to NaN at the wrong length.
@@ -118,9 +124,13 @@ export class Uniform<T extends Any = Any> {
             this._value = next as UniformStored<T> | null;
             return;
         }
-        const ArrayCtor = typedArrayCtorOf(this.schema);
-        const packed = new ArrayCtor(next.length);
-        packed.set(next as number[]);
+        let packed = this._packed;
+        if (packed === null || packed.length !== next.length) {
+            const ArrayCtor = typedArrayCtorOf(this.schema);
+            packed = new ArrayCtor(next.length) as TypedArrayFor<T>;
+            this._packed = packed;
+        }
+        (packed as Float32Array).set(next as number[]);
         this._value = packed as UniformStored<T>;
     }
 }

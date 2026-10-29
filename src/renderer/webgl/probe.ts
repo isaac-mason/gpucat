@@ -20,7 +20,7 @@ import { getBindings, type RenderObject } from '../core/render-object';
 import * as Bindings from './bindings';
 import { FRAGMENT_STAGE_MARKER } from './constants';
 import * as Geometries from './geometries';
-import type { ProgramInfo } from './programs';
+import type { ProgramInfo, TextureUniforms } from './programs';
 import { bindTextures } from './texture-bindings';
 import type { WebGLBackend } from './webgl-backend';
 
@@ -31,7 +31,7 @@ const _probeCaptures: Bindings.UniformCapture[] = [];
 type ProbeGl = {
     program: WebGLProgram;
     uboBindingPoints: Map<string, number>;
-    samplerLocations: Map<string, WebGLUniformLocation | null>;
+    textureUniforms: Map<string, TextureUniforms>;
     fbo: WebGLFramebuffer;
     colorTex: WebGLTexture;
     depthRb: WebGLRenderbuffer;
@@ -123,7 +123,7 @@ function buildProbeGl(gl: WebGL2RenderingContext, ro: RenderObject, patchedFragm
     return {
         program,
         uboBindingPoints,
-        samplerLocations: new Map(),
+        textureUniforms: new Map(),
         fbo,
         colorTex,
         depthRb,
@@ -179,13 +179,12 @@ export function renderProbe(
     const p = buildProbeGl(gl, ro, patchedFragment, state.gl);
     state.gl = p;
 
-    // Wrap the program in a ProgramInfo so the shared texture-binding path can reuse its sampler-loc
-    // cache. (bindTextures only reads `program` + `samplerLocations`.)
+    // Wrap the program in a ProgramInfo so the shared texture-binding path can reuse its texture-uniform
+    // cache. (bindTextures only reads `program` + `textureUniforms`.)
     const programInfo: ProgramInfo = {
         program: p.program,
         uboBindingPoints: p.uboBindingPoints,
-        samplerLocations: p.samplerLocations,
-        flipLocations: new Map(),
+        textureUniforms: p.textureUniforms,
     };
 
     // Bind the probe FBO + a 1×1 viewport and clear.

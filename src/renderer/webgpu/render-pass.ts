@@ -19,11 +19,11 @@ import type { RenderContext, ScissorValue, ViewportValue } from '../core/pass-co
 import { pipelineLabel } from '../core/render-object';
 import { formatHasStencil, type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
 import type { View } from '../core/view';
-import type { DrawBindings } from './bindings';
+import { type DrawBindings, updateRenderBindings } from './bindings';
 import * as Buffers from './buffers';
+import * as Geometries from './geometries';
 import * as Pipelines from './pipelines';
 import * as RenderObjectGpu from './render-object-gpu';
-import * as RenderObjects from './render-objects';
 import * as RenderTargets from './render-target';
 import * as Textures from './textures';
 import type { WebGPUBackend } from './webgpu-backend';
@@ -683,7 +683,7 @@ export function resolveDrawBindings(
     NodeManager.updateForRender(nodes, renderObject);
 
     if (inspector) inspector.perf.start('updateForRender');
-    RenderObjects.updateRenderObject(b, renderObject, frame, out);
+    updateRenderBindings(b, renderObject, frame, out);
     if (inspector) inspector.perf.end('updateForRender');
 }
 
@@ -693,7 +693,6 @@ function encodeDrawRange(ctx: EncodeContext, from: number, to: number, { gpuPass
     for (let index = from; index < to; index++) {
         const renderObject = preparedObjects[index];
         const { mesh, material, geometry } = renderObject;
-        const nodeState = renderObject.nodeBuilderState!;
 
         const opts = preparedOpts[index];
         const draws = opts?.draws ?? mesh.draws;
@@ -729,35 +728,14 @@ function encodeDrawRange(ctx: EncodeContext, from: number, to: number, { gpuPass
             }
         }
 
-        let slot = 0;
-        for (const group of nodeState.vertexBufferGroups) {
-            let gpuBuf: GPUBuffer;
-            if (group.name !== null) {
-                // Geometry-based group - resolve buffer by name
-                const bufAttr = geometry.buffers.get(group.name);
-                if (!bufAttr) {
-                    throw new Error(
-                        `[gpucat] '${mesh.name || 'mesh'}' lost vertex buffer '${group.name}' after its pipeline was ` +
-                            'built; the pipeline still has a layout for it and every later buffer would bind one slot off.',
-                    );
-                }
-                gpuBuf = Buffers.ensureUploaded(b.buffers, b.device, bufAttr, group.name);
-            } else {
-                // Direct buffer group
-                const gpuBuffer = group.buffer;
-                if (!gpuBuffer) {
-                    throw new Error(`[gpucat] VertexBufferGroup has no buffer`);
-                }
-                if (!gpuBuffer.array && gpuBuffer.cpu) {
-                    throw new Error(`[gpucat] VertexBufferGroup buffer array is null`);
-                }
-                gpuBuf = Buffers.ensureUploaded(b.buffers, b.device, gpuBuffer, group.name ?? 'vertex');
-            }
+        Geometries.resolveVertexBuffers(b.geometries, gpu, renderObject);
+        const { vertexBuffers, vertexBufferNames } = gpu;
+        for (let slot = 0; slot < vertexBuffers.length; slot++) {
+            const gpuBuf = Buffers.ensureUploaded(b.buffers, b.device, vertexBuffers[slot], vertexBufferNames[slot]);
             if (currentSets.attributes[slot] !== gpuBuf) {
                 passSetVertexBuffer(gpuPass, inspector, slot, gpuBuf);
                 currentSets.attributes[slot] = gpuBuf;
             }
-            slot++;
         }
 
         if (geometry.index) {

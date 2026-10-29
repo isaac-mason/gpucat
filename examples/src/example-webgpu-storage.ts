@@ -188,7 +188,7 @@ async function main() {
         const geometry = new Geometry();
         geometry.setBuffer('position', baseGeometry.getBuffer('position')!);
         geometry.setBuffer('normal', baseGeometry.getBuffer('normal')!);
-        geometry.index = baseGeometry.index;
+        geometry.setIndex(baseGeometry.index);
         geometry.setBuffer('instanceColors', colorBuffer);
 
         const mesh = new Mesh(geometry, materialNamed);

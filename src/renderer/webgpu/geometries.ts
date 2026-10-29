@@ -2,249 +2,81 @@ import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
 import type { Any } from '../../schema/schema';
 import type { RenderObject } from '../core/render-object';
-import type { BufferCache } from './buffers';
-import * as Buffers from './buffers';
-import type { WebGPUBackend } from './webgpu-backend';
+import type { RenderObjectGpu } from './render-object-gpu';
 
-/**
- * @deprecated No longer used, all buffer types route through ensureUploaded.
- * Kept temporarily while call sites that pass this type are migrated.
- */
-export type BufferType = 'vertex' | 'index' | 'indirect';
-
-/** Per-geometry tracking data */
-export type GeometryData = {
-    /** Whether the geometry has been initialized (buffers uploaded). */
-    initialized: boolean;
-};
-
-/**
- * GeometriesState - manages geometry and buffer GPU resources with deduplication.
- *
- * Combines the responsibilities of the former Geometries and Attributes systems.
- */
+/** Which geometries have had a draw bind their buffers, for `renderer.info.memory`. */
 export type GeometriesState = {
-    /**
-     * Tracks the last render call ID when each buffer was updated.
-     * Prevents duplicate updates within the same frame.
-     */
-    bufferCall: WeakMap<GpuBuffer<Any>, number>;
-
-    /**
-     * Current render call ID. Incremented at the start of each render call.
-     * Used for deduplication.
-     */
-    currentCallId: number;
-
-    /** Per-geometry tracking data. */
-    geometryData: WeakMap<Geometry, GeometryData>;
-
-    /** Cached wireframe index buffers per geometry. */
-    wireframes: WeakMap<Geometry, GpuBuffer<Any>>;
-
-    /** Geometries holding uploaded buffers. */
+    resident: WeakSet<Geometry>;
+    /** `resident` is a WeakSet, so it cannot be counted. */
     memory: {
         geometries: number;
     };
 };
 
-/**
- * Create a new Geometries state.
- */
+/** Create a new Geometries state. */
 export function createGeometriesState(): GeometriesState {
     return {
-        bufferCall: new WeakMap(),
-        currentCallId: 0,
-        geometryData: new WeakMap(),
-        wireframes: new WeakMap(),
+        resident: new WeakSet(),
         memory: {
             geometries: 0,
         },
     };
 }
 
-/**
- * Increment the call ID at the start of each render call.
- * This enables per-frame deduplication.
- */
-export function incrementCallId(state: GeometriesState): void {
-    state.currentCallId++;
-}
-
-/**
- * Update a buffer, uploading to GPU if needed.
- * Implements per-frame deduplication - each buffer is uploaded at most once per frame.
- *
- * Version tracking is delegated to buffers.ts, we only track per-frame deduplication here.
- */
-function updateBuffer(
-    state: GeometriesState,
-    bufferCache: BufferCache,
-    device: GPUDevice,
-    buffer: GpuBuffer<Any>,
-    type: BufferType,
-    name: string,
-): void {
-    const callId = state.currentCallId;
-
-    // Check if already updated this frame
-    const lastCallId = state.bufferCall.get(buffer);
-    if (lastCallId === callId) {
-        return; // Already updated this frame
-    }
-
-    // Mark as updated for this frame
-    state.bufferCall.set(buffer, callId);
-
-    // Route to unified upload function in buffers.ts
-    // buffers.ts handles version tracking internally
-    switch (type) {
-        case 'vertex':
-        case 'indirect':
-            Buffers.ensureUploaded(bufferCache, device, buffer, name);
-            break;
-        // Note: 'index' type uses updateIndex() instead
-    }
-}
-
-/**
- * Update an index buffer, uploading to GPU if needed.
- */
-function updateIndex(state: GeometriesState, bufferCache: BufferCache, device: GPUDevice, index: GpuBuffer<Any>): void {
-    const callId = state.currentCallId;
-
-    // Check if already updated this frame
-    const lastCallId = state.bufferCall.get(index);
-    if (lastCallId === callId) {
-        return; // Already updated this frame
-    }
-
-    // Mark as updated for this frame
-    state.bufferCall.set(index, callId);
-
-    Buffers.ensureUploaded(bufferCache, device, index, 'index');
-}
-
-/**
- * Delete a buffer from the deduplication tracking.
- * Note: This doesn't destroy the GPU buffer - buffers.ts handles that via WeakMap GC.
- */
-export function deleteBuffer(state: GeometriesState, buffer: GpuBuffer<Any>): void {
-    state.bufferCall.delete(buffer);
-}
-
-/**
- * Initialize a geometry for rendering.
- *
- * This uploads all vertex buffers and the index buffer (if present).
- * Called once when a geometry is first encountered.
- */
-function initGeometry(state: GeometriesState, bufferCache: BufferCache, device: GPUDevice, geometry: Geometry): void {
-    let data = state.geometryData.get(geometry);
-
-    if (data && data.initialized) {
-        return; // already initialized
-    }
-
-    // create tracking data
-    if (!data) {
-        data = {
-            initialized: false,
-        };
-        state.geometryData.set(geometry, data);
-        state.memory.geometries++;
-    }
-
-    // upload all vertex buffers
-    for (const [name, buffer] of geometry.buffers) {
-        if (buffer.usage.has('vertex')) {
-            updateBuffer(state, bufferCache, device, buffer, 'vertex', name);
-        }
-    }
-
-    // upload index buffer if present
-    if (geometry.index) {
-        updateIndex(state, bufferCache, device, geometry.index);
-    }
-
-    // upload indirect buffer if present
-    if (geometry.indirect) {
-        updateBuffer(state, bufferCache, device, geometry.indirect, 'indirect', 'indirect');
-    }
-
-    data.initialized = true;
-
-    // set up disposal callback
+/** Counts a geometry as resident from the first draw that binds its buffers until it is disposed. */
+function trackGeometry(state: GeometriesState, geometry: Geometry): void {
+    if (state.resident.has(geometry)) return;
+    state.resident.add(geometry);
+    state.memory.geometries++;
     geometry._onDispose = () => {
-        disposeGeometry(state, geometry);
+        if (state.resident.delete(geometry)) state.memory.geometries--;
     };
 }
 
 /**
- * Update a geometry for rendering.
- *
- * This checks for version changes and re-uploads modified buffers.
- * Called every frame for each visible geometry.
- *
- * Note: Version tracking is handled by buffers.ts. We just ensure each
- * buffer goes through the upload path (with per-frame deduplication).
+ * Resolves into `gpu` the buffers a draw of `renderObject` binds, in vertex slot order, with the names
+ * they upload under. Resolved against its compile and its geometry's buffer set, and kept until either
+ * moves, so a draw only checks each buffer's version rather than looking it up again.
  */
-export function updateForRender(b: WebGPUBackend, renderObject: RenderObject): void {
-    const { geometries: state, buffers: bufferCache, device } = b;
-    const geometry = renderObject.geometry;
-    const data = state.geometryData.get(geometry);
-
-    // initialize if needed
-    if (!data || !data.initialized) {
-        initGeometry(state, bufferCache, device, geometry);
-        return; // initGeometry already uploads everything
+export function resolveVertexBuffers(state: GeometriesState, gpu: RenderObjectGpu, renderObject: RenderObject): void {
+    const { geometry, mesh } = renderObject;
+    const nodeState = renderObject.nodeBuilderState!;
+    if (
+        gpu.vertexNodeState === nodeState &&
+        gpu.vertexGeometry === geometry &&
+        gpu.vertexGeometryBindings === geometry.bindingsVersion
+    ) {
+        return;
     }
 
-    // Update all vertex buffers (buffers.ts handles version checking)
-    for (const [name, buffer] of geometry.buffers) {
-        if (buffer.usage.has('vertex')) {
-            updateBuffer(state, bufferCache, device, buffer, 'vertex', name);
+    const buffers: GpuBuffer<Any>[] = [];
+    const names: string[] = [];
+    for (const group of nodeState.vertexBufferGroups) {
+        if (group.name !== null) {
+            const buffer = geometry.buffers.get(group.name);
+            if (!buffer) {
+                throw new Error(
+                    `[gpucat] '${mesh.name || 'mesh'}' lost vertex buffer '${group.name}' after its pipeline was ` +
+                        'built; the pipeline still has a layout for it and every later buffer would bind one slot off.',
+                );
+            }
+            buffers.push(buffer);
+            names.push(group.name);
+        } else {
+            const buffer = group.buffer;
+            if (!buffer) throw new Error(`[gpucat] VertexBufferGroup has no buffer`);
+            if (!buffer.array && buffer.cpu) throw new Error(`[gpucat] VertexBufferGroup buffer array is null`);
+            buffers.push(buffer);
+            names.push('vertex');
         }
     }
 
-    // Update index buffer if present
-    if (geometry.index) {
-        updateIndex(state, bufferCache, device, geometry.index);
-    }
-
-    // Update indirect buffer if present
-    if (geometry.indirect) {
-        updateBuffer(state, bufferCache, device, geometry.indirect, 'indirect', 'indirect');
-    }
-}
-
-/**
- * Dispose a geometry and clean up tracking.
- */
-export function disposeGeometry(state: GeometriesState, geometry: Geometry): void {
-    const data = state.geometryData.get(geometry);
-    if (!data) return;
-
-    // delete buffer tracking
-    for (const [_name, buffer] of geometry.buffers) {
-        deleteBuffer(state, buffer);
-    }
-
-    // delete index buffer tracking
-    if (geometry.index) {
-        deleteBuffer(state, geometry.index);
-    }
-
-    // delete wireframe index buffer if it exists
-    const wireframeIndex = state.wireframes.get(geometry);
-    if (wireframeIndex) {
-        deleteBuffer(state, wireframeIndex);
-        state.wireframes.delete(geometry);
-    }
-
-    // remove tracking data
-    state.geometryData.delete(geometry);
-    state.memory.geometries--;
+    gpu.vertexBuffers = buffers;
+    gpu.vertexBufferNames = names;
+    gpu.vertexNodeState = nodeState;
+    gpu.vertexGeometry = geometry;
+    gpu.vertexGeometryBindings = geometry.bindingsVersion;
+    trackGeometry(state, geometry);
 }
 
 /** Get geometry and buffer memory statistics */

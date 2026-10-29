@@ -364,7 +364,11 @@ export function createBindings(state: NodeBuilderState): BindGroup[] {
  * backends — WebGPU drops the layout and Dawn blames an anonymous vertex slot, WebGL skips the upload
  * and draws whatever the attribute last held — so it is named here instead, once, for both.
  */
-export function assertVertexBuffers(geometry: { buffers: Map<string, unknown> }, state: NodeBuilderState, label: string): void {
+export function assertVertexBuffers(
+    geometry: { buffers: ReadonlyMap<string, unknown> },
+    state: NodeBuilderState,
+    label: string,
+): void {
     for (const group of state.vertexBufferGroups) {
         if (group.stride > 0 || group.name === null) continue;
         if (geometry.buffers.has(group.name)) continue;

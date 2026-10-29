@@ -13,11 +13,21 @@ export type DrawRange = {
 };
 
 export class Geometry {
-    /** Buffers mapped by name. Can be vertex attributes, storage buffers, or any buffer type. @see setBuffer() @see removeBuffer() */
-    buffers: Map<string, GpuBuffer<Any>> = new Map();
+    private readonly _buffers = new Map<string, GpuBuffer<Any>>();
 
-    /** Optional index buffer. Must have 'index' usage. @see setIndex(). */
-    index: GpuBuffer<Any> | undefined = undefined;
+    /**
+     * Buffers mapped by name. Can be vertex attributes, storage buffers, or any buffer type. Read-only:
+     * change it through `setBuffer` and `removeBuffer`, which version it so a renderer sees the change.
+     */
+    readonly buffers: ReadonlyMap<string, GpuBuffer<Any>> = this._buffers;
+
+    private _index: GpuBuffer<Any> | undefined = undefined;
+    private _indirect: GpuBuffer<Any> | undefined = undefined;
+
+    /** Optional index buffer. Must have 'index' usage. Read-only: change it through `setIndex`. */
+    get index(): GpuBuffer<Any> | undefined {
+        return this._index;
+    }
 
     /**
      * Range of vertices/indices to draw.
@@ -26,7 +36,7 @@ export class Geometry {
      */
     drawRange: DrawRange = { start: 0, count: Infinity };
 
-    /** Bumped when any buffer is set or removed, which is what forces a rebind. */
+    /** Bumped when any buffer or the index buffer is set or removed, which is what forces a rebind. */
     bindingsVersion: number = 0;
 
     /** Bumped when the buffer set or an attribute's format changes, which is what forces a recompile. */
@@ -36,10 +46,11 @@ export class Geometry {
      * Optional indirect draw buffer. When set, the renderer calls
      * drawIndirect / drawIndexedIndirect using this buffer instead of
      * draw / drawIndexed. `mesh.count` is ignored when this is set.
-     * Must have 'indirect' usage.
-     * @see setIndirect
+     * Must have 'indirect' usage. Read-only: change it through `setIndirect`.
      */
-    indirect: GpuBuffer<Any> | undefined = undefined;
+    get indirect(): GpuBuffer<Any> | undefined {
+        return this._indirect;
+    }
 
     /**
      * Byte offset into the indirect buffer where draw parameters begin.
@@ -111,7 +122,7 @@ export class Geometry {
             existing.decreaseUsages();
         }
 
-        this.buffers.set(name, buffer);
+        this._buffers.set(name, buffer);
 
         if (existing !== buffer) {
             buffer.increaseUsages();
@@ -134,7 +145,7 @@ export class Geometry {
         const buffer = this.buffers.get(name);
         if (buffer) {
             buffer.decreaseUsages();
-            this.buffers.delete(name);
+            this._buffers.delete(name);
             this.bindingsVersion++;
             this.version++;
         }
@@ -154,7 +165,7 @@ export class Geometry {
             existing.decreaseUsages();
         }
 
-        this.indirect = buffer;
+        this._indirect = buffer;
         this.indirectOffset = offset;
 
         if (buffer && existing !== buffer) {
@@ -176,10 +187,12 @@ export class Geometry {
             existing.decreaseUsages();
         }
 
-        this.index = buffer;
+        this._index = buffer;
 
-        if (buffer && existing !== buffer) {
-            buffer.increaseUsages();
+        if (existing !== buffer) {
+            buffer?.increaseUsages();
+            // a vertex array captures the index buffer it was built over
+            this.bindingsVersion++;
         }
 
         return this;

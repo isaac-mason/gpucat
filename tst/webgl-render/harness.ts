@@ -983,7 +983,7 @@ async function caseIndirectUnsupported(): Promise<CaseResult> {
     const data = new Uint32Array(
         packArray(DrawIndirect, [{ vertexCount: 3, instanceCount: 1, firstVertex: 0, firstInstance: 0 }]),
     );
-    geometry.indirect = createIndirectBuffer(DrawIndirect, data);
+    geometry.setIndirect(createIndirectBuffer(DrawIndirect, data));
 
     const mesh = new Mesh(geometry, material);
     const scene = new Scene();

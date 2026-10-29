@@ -287,6 +287,8 @@ export function encodeDraws(
     const stateCache = createGlStateCache();
     let currentProgram: WebGLProgram | null = null;
     let currentVao: WebGLVertexArrayObject | null = null;
+    // Nothing is known bound when the loop starts, so its first draw binds.
+    const bound: Geometries.VaoBinding = { vao: null };
 
     // the runs cover the draws in order, each starting where the last ended
     let segmentIndex = 0;
@@ -335,9 +337,9 @@ export function encodeDraws(
         // Texture + sampler bindings → GL texture units + combined-sampler uniforms, as recorded.
         bindTextures(gl, caches, renderObject, programInfo, capture.textures);
 
-        // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
-        // `prepareGeometry` detaches the VAO to upload buffers safely (see its note), so the GL VAO
-        // is unbound on return — always rebind the resolved one here rather than deduping the GL call.
+        // Geometry VAO (uploads buffers + builds/reuses the VAO for this program). `bound` follows what is
+        // bound in GL, which `prepareGeometry` may unbind to upload safely; `currentVao` is the VAO the
+        // draws switched to, for the inspector.
         const drawInfo = Geometries.prepareGeometry(
             gl,
             caches,
@@ -345,8 +347,12 @@ export function encodeDraws(
             nodeState,
             programInfo.program,
             renderObject.mesh.name || 'mesh',
+            bound,
         );
-        gl.bindVertexArray(drawInfo.vao);
+        if (bound.vao !== drawInfo.vao) {
+            gl.bindVertexArray(drawInfo.vao);
+            bound.vao = drawInfo.vao;
+        }
         if (currentVao !== drawInfo.vao) {
             currentVao = drawInfo.vao;
             // Inspector: a VAO carries all vertex (+index) buffer bindings; log it as a single

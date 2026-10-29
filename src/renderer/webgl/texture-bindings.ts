@@ -18,7 +18,7 @@ import type { GpuTexture } from '../../core/gpu-texture';
 import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
 import { type ResolvedStorageBufferTexture, type StorageBufferTextureSource, storageMirrorGrid } from '../../nodes/lib/texture';
 import { getBindings, type RenderObject } from '../core/render-object';
-import type { ProgramInfo } from './programs';
+import type { ProgramInfo, TextureUniforms } from './programs';
 import { getSampler } from './samplers';
 import { getTextureData, isIntegerTextureFormat, type TextureCache, updateStorageBufferTexture, updateTexture } from './textures';
 import type { WebGLBackend } from './webgl-backend';
@@ -86,24 +86,26 @@ function assertIntegerNotFiltered(
     );
 }
 
-/** Resolve (and cache) a combined-sampler uniform's location on a program. */
-function getSamplerLocation(gl: WebGL2RenderingContext, programInfo: ProgramInfo, name: string): WebGLUniformLocation | null {
-    if (programInfo.samplerLocations.has(name)) {
-        return programInfo.samplerLocations.get(name) ?? null;
+/** A texture binding's uniforms on the program, resolved the first time a draw binds it. */
+function textureUniformsOf(gl: WebGL2RenderingContext, programInfo: ProgramInfo, shaderName: string): TextureUniforms {
+    let uniforms = programInfo.textureUniforms.get(shaderName);
+    if (uniforms === undefined) {
+        uniforms = {
+            sampler: gl.getUniformLocation(programInfo.program, samplerUniformName(shaderName)),
+            flip: gl.getUniformLocation(programInfo.program, flipUniformName(shaderName)),
+            unit: -1,
+            flipped: -1,
+        };
+        programInfo.textureUniforms.set(shaderName, uniforms);
     }
-    const loc = gl.getUniformLocation(programInfo.program, name);
-    programInfo.samplerLocations.set(name, loc);
-    return loc;
+    return uniforms;
 }
 
-/** Resolve (and cache) a per-texture flipY uniform's location; null when the texture wasn't flip-wrapped. */
-function getFlipLocation(gl: WebGL2RenderingContext, programInfo: ProgramInfo, name: string): WebGLUniformLocation | null {
-    if (programInfo.flipLocations.has(name)) {
-        return programInfo.flipLocations.get(name) ?? null;
-    }
-    const loc = gl.getUniformLocation(programInfo.program, name);
-    programInfo.flipLocations.set(name, loc);
-    return loc;
+/** Points the binding's combined sampler at `unit`, on the program in use. */
+function setSamplerUnit(gl: WebGL2RenderingContext, uniforms: TextureUniforms, unit: number): void {
+    if (uniforms.sampler === null || uniforms.unit === unit) return;
+    gl.uniform1i(uniforms.sampler, unit);
+    uniforms.unit = unit;
 }
 
 /**
@@ -237,8 +239,7 @@ export function bindTextures(
                 gl.activeTexture(gl.TEXTURE0 + unit); // updateStorageBufferTexture may have left another unit active
                 gl.bindTexture(gl.TEXTURE_2D, glTexture);
                 gl.bindSampler(unit, null);
-                const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.shaderName));
-                if (loc) gl.uniform1i(loc, unit);
+                setSamplerUnit(gl, textureUniformsOf(gl, programInfo, entry.shaderName), unit);
                 continue;
             }
 
@@ -275,15 +276,18 @@ export function bindTextures(
             }
 
             // Set the combined-sampler uniform to this texture unit.
-            const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.shaderName));
-            if (loc) gl.uniform1i(loc, unit);
+            const uniforms = textureUniformsOf(gl, programInfo, entry.shaderName);
+            setSamplerUnit(gl, uniforms, unit);
 
             // Drive the per-texture flipY conditional (declared only for flip-wrapped 2D samples): a
             // render-target texture was rendered bottom-up vs WebGPU's top-down, so its 2D samples flip V;
-            // an ordinary texture (flipped at upload instead) does not. `getFlipLocation` returns null when
-            // this texture's samples weren't wrapped, so the set is skipped.
-            const flipLoc = getFlipLocation(gl, programInfo, flipUniformName(entry.shaderName));
-            if (flipLoc) gl.uniform1i(flipLoc, gpuTexture.isRenderTargetTexture ? 1 : 0);
+            // an ordinary texture (flipped at upload instead) does not. `flip` is null when this texture's
+            // samples weren't wrapped, so the set is skipped.
+            const flipped = gpuTexture.isRenderTargetTexture ? 1 : 0;
+            if (uniforms.flip !== null && uniforms.flipped !== flipped) {
+                gl.uniform1i(uniforms.flip, flipped);
+                uniforms.flipped = flipped;
+            }
         }
     }
 }
@@ -352,8 +356,7 @@ export function bindStandaloneTextures(
             gl.bindSampler(unit, null);
         }
 
-        const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.shaderName));
-        if (loc) gl.uniform1i(loc, unit);
+        setSamplerUnit(gl, textureUniformsOf(gl, programInfo, entry.shaderName), unit);
     }
 }
 

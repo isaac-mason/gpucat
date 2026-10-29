@@ -1099,8 +1099,8 @@ export type CompileGlslOptions = {
      * The WebGL2 context's `MAX_TEXTURE_SIZE`, used to pick the `storage()` read-lowering's texel-grid
      * width (`width = min(totalTexels, maxTextureSize)`; height = ceil) so large read-only storage
      * buffers tile into a grid the device can allocate. Undefined → a conservative 2048 (WebGL2's
-     * guaranteed floor). GLSL-only and storage-only: the width is baked into the shader's texel
-     * addressing, so a change here alters the emitted GLSL; the compile cache is keyed by it.
+     * guaranteed floor). GLSL-only and storage-only. The shader reads the row width at runtime, so this
+     * shapes the texture and never the emitted GLSL.
      */
     maxTextureSize?: number;
 };
@@ -4464,6 +4464,13 @@ export type PassDesc = {
     clear?: [number, number, number, number] | false;
     clearDepth?: number | false;
     clearStencil?: number | false;
+    /**
+     * `false` discards the depth when the pass ends, for a pass nothing after loads or samples it from: a tiled GPU then
+     * never writes it out. Default true, as a later pass with `clearDepth: false` loads it.
+     */
+    storeDepth?: boolean;
+    /** `storeDepth` for the stencil. */
+    storeStencil?: boolean;
     /** Cube face, 0..5 = +X, -X, +Y, -Y, +Z, -Z. Only a `CubeRenderTarget` can select one. */
     layer?: number;
     /** Mip level to render into. Only a `CubeRenderTarget` allocates a chain to select from. */
@@ -4642,6 +4649,8 @@ export type FrameBackend = {
     recordTransformFeedback(record: TransformFeedbackRecord): void;
     encodeComputePass(desc: ComputePassDesc): void;
     encodeTransformFeedbackPass(desc: TransformFeedbackPassDesc): void;
+    /** Zeroes `byteSize` bytes of `buffer` from `byteOffset`, in the frame's order of work, between its passes. */
+    clearBuffer(buffer: GpuBuffer, byteOffset: number, byteSize: number): void;
     submitFrame(): void;
     discardFrame(): void;
     /**
@@ -4761,6 +4770,13 @@ export type Frame = {
     pass(desc: PassDesc): Pass;
     compute(desc?: ComputePassDesc): ComputePass;
     transformFeedback(desc?: TransformFeedbackPassDesc): TransformFeedbackPass;
+    /**
+     * Zeroes `byteSize` bytes of a `cpu: false` `buffer` from `byteOffset` on the GPU, at this point in the frame's
+     * work: after the passes ended before it, before those after. Between passes, not in one. Omitted, the offset is
+     * 0 and the size the rest of the buffer; both are multiples of 4. The GPU clears it itself, so nothing is
+     * uploaded (on WebGL2, which has no buffer clear, zeroes are written).
+     */
+    clearBuffer(buffer: GpuBuffer, byteOffset?: number, byteSize?: number): void;
     submit(): void;
     /**
      * Resolves once the device has finished this frame's work. **Resolve-only**: it is a completion
@@ -5700,17 +5716,20 @@ export type DrawRange = {
 
 ```ts
 export class Geometry {
-    /** Buffers mapped by name. Can be vertex attributes, storage buffers, or any buffer type. @see setBuffer() @see removeBuffer() */
-    buffers: Map<string, GpuBuffer<Any>>;
-    /** Optional index buffer. Must have 'index' usage. @see setIndex(). */
-    index: GpuBuffer<Any> | undefined;
+    /**
+     * Buffers mapped by name. Can be vertex attributes, storage buffers, or any buffer type. Read-only:
+     * change it through `setBuffer` and `removeBuffer`, which version it so a renderer sees the change.
+     */
+    readonly buffers: ReadonlyMap<string, GpuBuffer<Any>>;
+    /** Optional index buffer. Must have 'index' usage. Read-only: change it through `setIndex`. */
+    get index(): GpuBuffer<Any> | undefined;
     /**
      * Range of vertices/indices to draw.
      * `start` maps to `firstVertex` (non-indexed) or `firstIndex` (indexed).
      * `count` is the number of vertices/indices. Defaults to `Infinity` (full buffer).
      */
     drawRange: DrawRange;
-    /** Bumped when any buffer is set or removed, which is what forces a rebind. */
+    /** Bumped when any buffer or the index buffer is set or removed, which is what forces a rebind. */
     bindingsVersion: number;
     /** Bumped when the buffer set or an attribute's format changes, which is what forces a recompile. */
     version: number;
@@ -5718,10 +5737,9 @@ export class Geometry {
      * Optional indirect draw buffer. When set, the renderer calls
      * drawIndirect / drawIndexedIndirect using this buffer instead of
      * draw / drawIndexed. `mesh.count` is ignored when this is set.
-     * Must have 'indirect' usage.
-     * @see setIndirect
+     * Must have 'indirect' usage. Read-only: change it through `setIndirect`.
      */
-    indirect: GpuBuffer<Any> | undefined;
+    get indirect(): GpuBuffer<Any> | undefined;
     /**
      * Byte offset into the indirect buffer where draw parameters begin.
      * Useful when non-indirect data precedes the DrawIndirect/DrawIndexedIndirect structs.
@@ -6310,7 +6328,11 @@ export class Uniform<T extends Any = Any> {
     label: string | undefined;
     constructor(schema: T, initialValue?: UniformValue<T>, group?: UniformGroup, label?: string);
     get value(): UniformStored<T> | null;
-    /** A typed array is adopted by reference, so writing through it keeps updating this uniform. */
+    /**
+     * A typed array is adopted by reference, so writing through it keeps updating this uniform. A plain
+     * array of numbers is copied into an array this uniform owns and reuses, so setting one every draw
+     * allocates nothing, and a `value` read earlier sees the later writes.
+     */
     set value(next: UniformValue<T> | null);
 }
 ```
@@ -7320,8 +7342,8 @@ export type CompileGlslOptions = {
      * The WebGL2 context's `MAX_TEXTURE_SIZE`, used to pick the `storage()` read-lowering's texel-grid
      * width (`width = min(totalTexels, maxTextureSize)`; height = ceil) so large read-only storage
      * buffers tile into a grid the device can allocate. Undefined → a conservative 2048 (WebGL2's
-     * guaranteed floor). GLSL-only and storage-only: the width is baked into the shader's texel
-     * addressing, so a change here alters the emitted GLSL; the compile cache is keyed by it.
+     * guaranteed floor). GLSL-only and storage-only. The shader reads the row width at runtime, so this
+     * shapes the texture and never the emitted GLSL.
      */
     maxTextureSize?: number;
 };

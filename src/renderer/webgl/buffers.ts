@@ -269,6 +269,12 @@ export function getUploaded(cache: BufferCache, buffer: GpuBuffer): WebGLBuffer 
     return cache.bufferMap.get(buffer)?.glBuffer;
 }
 
+/** Whether `ensureUploaded` would find `buffer` current, binding and writing nothing. */
+export function isCurrent(cache: BufferCache, buffer: GpuBuffer): boolean {
+    const entry = cache.bufferMap.get(buffer);
+    return entry !== undefined && planBufferUpload(buffer, true, entry.byteLength, entry.version) === BufferUpload.Skip;
+}
+
 export type UploadRawResult = {
     glBuffer: WebGLBuffer;
     /** True when the GL buffer was newly created or grown, so dependent bindings must be refreshed. */

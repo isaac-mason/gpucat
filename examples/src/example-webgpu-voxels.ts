@@ -484,8 +484,8 @@ const idxBuf = createIndexBuffer(new Uint32Array([0, 1, 2, 3, 4, 5]));
 
 const geometry = new Geometry();
 geometry.setBuffer('cornerSlot', cornerBuf);
-geometry.index = idxBuf;
-geometry.indirect = indirectBuf;
+geometry.setIndex(idxBuf);
+geometry.setIndirect(indirectBuf);
 
 // ─── CPU mesh cache + GPU page bookkeeping ─────────────────────────────────────
 

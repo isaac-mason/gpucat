@@ -133,12 +133,14 @@ describe('frame encoder ownership', () => {
         firstPass.end();
         first.submit();
 
-        mesh.geometry.buffers.delete('position');
+        mesh.geometry.removeBuffer('position');
 
         const second = frame(renderer);
         const secondPass = second.pass({ target, camera });
-        secondPass.draw(mesh);
-        expect(() => secondPass.end()).toThrow(/position/);
+        expect(() => {
+            secondPass.draw(mesh);
+            secondPass.end();
+        }).toThrow(/position/);
         second.abandon();
     });
 

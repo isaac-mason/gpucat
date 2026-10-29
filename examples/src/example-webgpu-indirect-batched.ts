@@ -36,7 +36,7 @@ const sphIdxCount = sphIdx.length;
 const mergedGeometry = new g.Geometry();
 mergedGeometry.setBuffer('position', createVertexBuffer(d.vec3f, mergedPos));
 mergedGeometry.setBuffer('normal', createVertexBuffer(d.vec3f, mergedNorm));
-mergedGeometry.index = createIndexBuffer(mergedIdx);
+mergedGeometry.setIndex(createIndexBuffer(mergedIdx));
 
 const instanceMatrices = new Float32Array(TOTAL * 16);
 const instanceHues = new Float32Array(TOTAL); // [0..1] for color
@@ -139,7 +139,7 @@ const indirectData = new Uint32Array(
 );
 
 const indirectBuffer = createIndirectBuffer(g.DrawIndexedIndirect, indirectData);
-mergedGeometry.indirect = indirectBuffer;
+mergedGeometry.setIndirect(indirectBuffer);
 
 // ---------------------------------------------------------------------------
 // 5. Main

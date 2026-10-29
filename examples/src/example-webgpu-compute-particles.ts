@@ -152,7 +152,7 @@ const quadGeom = new Geometry();
 const verts = new Float32Array([-S2, -S2, 0, S2, -S2, 0, S2, S2, 0, -S2, S2, 0]);
 const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
 quadGeom.setBuffer('position', createVertexBuffer(d.vec3f, verts));
-quadGeom.index = createIndexBuffer(indices);
+quadGeom.setIndex(createIndexBuffer(indices));
 
 const mesh = new Mesh(quadGeom, material);
 mesh.count = N;

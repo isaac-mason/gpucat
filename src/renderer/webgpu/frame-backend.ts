@@ -30,7 +30,6 @@ import { renderTargetOf } from '../core/target';
 import type { DrawBindings } from './bindings';
 import * as Buffers from './buffers';
 import * as Compute from './compute';
-import * as Geometries from './geometries';
 import * as Prepare from './prepare';
 import * as RenderObjectGpu from './render-object-gpu';
 import * as RenderPass from './render-pass';
@@ -156,7 +155,6 @@ export function beginPass(s: WebGPUFrameBackendState, desc: PassDesc): void {
     renderer.info.render.frameCalls++;
     // Fresh per pass, so RENDER-scope node updates run once per pass rather than once per frame.
     open.previousRenderId = renderer._nodes.nodeFrame.beginRender();
-    Geometries.incrementCallId(backend.geometries);
     aimNodeFrame(renderer, desc.camera ?? null, open.params.width, open.params.height);
     renderer.inspector?.beginRender(open.params.passId);
     backend._openValidationScope();

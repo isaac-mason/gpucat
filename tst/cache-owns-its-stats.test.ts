@@ -35,6 +35,7 @@ const NO_STATS_YET: Record<string, string> = {
  */
 const WEAKMAP_ONLY: Record<string, string> = {
     'bindings.ts': 'bind group / UBO data keyed by the binding it belongs to',
+    'geometries.ts': 'WebGPU: the set of geometries a draw has bound, counted for memory stats; buffers are owned by buffers.ts',
     'render-object-gl.ts': 'per-RenderObject GL payload',
     'render-object-gpu.ts': 'per-RenderObject device payload',
 };

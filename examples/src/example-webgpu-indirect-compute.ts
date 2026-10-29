@@ -210,7 +210,7 @@ window.addEventListener('resize', () => {
 // geometry — non-indexed triangle, per-instance vertex buffers
 const geo = new Geometry();
 geo.setBuffer('position', createVertexBuffer(d.vec3f, positions));
-geo.indirect = drawBuffer; // use drawIndirect
+geo.setIndirect(drawBuffer); // use drawIndirect
 
 const mesh = new Mesh(geo, material);
 scene.add(mesh);

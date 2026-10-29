@@ -3,7 +3,7 @@ import { compileWgsl } from '../../nodes/builder';
 import type { NodeFrame } from '../core/node-frame';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderObject } from '../core/render-object';
-import type { DrawBindings } from './bindings';
+import { type DrawBindings, updateRenderBindings } from './bindings';
 import * as Buffers from './buffers';
 import * as RenderObjectGpu from './render-object-gpu';
 import * as RenderObjects from './render-objects';
@@ -86,7 +86,7 @@ export function uploadRenderObjectResources(
 
     // upload uniforms and rebuild bind groups
     // (must be after texture upload so bind groups can reference GPU resources)
-    RenderObjects.updateRenderObject(b, renderObject, frame, _prewarmBindings);
+    updateRenderBindings(b, renderObject, frame, _prewarmBindings);
 }
 
 /** The pre-warm builds bind groups ahead of any draw, so what they resolve to has no draw to go to. */
