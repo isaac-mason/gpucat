@@ -1361,9 +1361,9 @@ function implicitSample(ctx: GlslBuildContext, name: string, coord: string, bias
 function generateTextureCall(ctx: GlslBuildContext, node: CallNode<d.Any>): string {
     const rawArgs = node.args as AnyNode[];
 
-    // textureGather's signature puts the component index FIRST (component, t, s, coords[, offset]); every
-    // other builtin has the TextureBindingNode as arg 0. Resolve the binding position per builtin.
-    const bindingIndex = node.fn === 'textureGather' ? 1 : 0;
+    // a colour textureGather puts the component index FIRST (component, t, s, coords[, offset]); a depth one, and
+    // every other builtin, has the TextureBindingNode as arg 0
+    const bindingIndex = node.fn === 'textureGather' && rawArgs[0]?.kind !== NodeKind.TextureBinding ? 1 : 0;
     const binding = rawArgs[bindingIndex];
     if (!binding || binding.kind !== NodeKind.TextureBinding) {
         unsupported(`texture builtin '${node.fn}' whose texture argument is not a texture binding`);

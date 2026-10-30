@@ -3661,9 +3661,14 @@ export function textureDimensions(t: TextureBindingNode, level?: Node<d.u32>): C
 
 ```ts
 /**
- * textureGather - Gather a single component from 4 texels.
+ * textureGather - Gather 4 texels: one component of each from a sampled texture, or the depth of each from a depth
+ * texture, which takes no component (WGSL's forms). A depth array texture takes the layer after the coords. WGSL has
+ * no gather on a multisampled texture. A depth texture's sampler must be non-filtering (all-nearest filters), or
+ * WebGPU rejects the pipeline.
  */
 export function textureGather<D extends FlatSampledTexture>(component: Node<d.i32>, t: TextureBindingNode<D>, s: AnySamplerNode, coords: Node<d.vec2f>, offset?: Node<d.vec2i>): CallNode<d.TextureSampleResultOf<D>>;
+export function textureGather(t: TextureBindingNode<FlatDepthTexture>, s: AnySamplerNode, coords: Node<d.vec2f>, offset?: Node<d.vec2i>): CallNode<d.vec4f>;
+export function textureGather(t: TextureBindingNode<FlatDepthTexture>, s: AnySamplerNode, coords: Node<d.vec2f>, arrayIndex: Node<d.i32> | Node<d.u32>, offset?: Node<d.vec2i>): CallNode<d.vec4f>;
 ```
 
 #### `textureGatherCompare`

@@ -1646,7 +1646,10 @@ export function textureNumLayers(t: Node<Any>): CallNode<d.u32> {
 }
 
 /**
- * textureGather - Gather a single component from 4 texels.
+ * textureGather - Gather 4 texels: one component of each from a sampled texture, or the depth of each from a depth
+ * texture, which takes no component (WGSL's forms). A depth array texture takes the layer after the coords. WGSL has
+ * no gather on a multisampled texture. A depth texture's sampler must be non-filtering (all-nearest filters), or
+ * WebGPU rejects the pipeline.
  */
 export function textureGather<D extends FlatSampledTexture>(
     component: Node<d.i32>,
@@ -1654,9 +1657,28 @@ export function textureGather<D extends FlatSampledTexture>(
     s: AnySamplerNode,
     coords: Node<d.vec2f>,
     offset?: Node<d.vec2i>,
-): CallNode<d.TextureSampleResultOf<D>> {
-    const args: Node<Any>[] = offset ? [component, t, s, coords, offset] : [component, t, s, coords];
-    return new CallNode(d.textureSampleResultOf(t.type) as d.TextureSampleResultOf<D>, 'textureGather', args);
+): CallNode<d.TextureSampleResultOf<D>>;
+export function textureGather(
+    t: TextureBindingNode<FlatDepthTexture>,
+    s: AnySamplerNode,
+    coords: Node<d.vec2f>,
+    offset?: Node<d.vec2i>,
+): CallNode<d.vec4f>;
+export function textureGather(
+    t: TextureBindingNode<FlatDepthTexture>,
+    s: AnySamplerNode,
+    coords: Node<d.vec2f>,
+    arrayIndex: Node<d.i32> | Node<d.u32>,
+    offset?: Node<d.vec2i>,
+): CallNode<d.vec4f>;
+export function textureGather<D extends FlatSampledTexture>(
+    ...args: (Node<Any> | undefined)[]
+): CallNode<d.TextureSampleResultOf<D>> | CallNode<d.vec4f> {
+    const given = args.filter((arg): arg is Node<Any> => arg !== undefined);
+    // a depth texture's gather has no component: its texture comes first
+    if (given[0] instanceof TextureBindingNode) return new CallNode(d.vec4f, 'textureGather', given);
+    const t = given[1] as TextureBindingNode<D>;
+    return new CallNode(d.textureSampleResultOf(t.type) as d.TextureSampleResultOf<D>, 'textureGather', given);
 }
 
 /**
