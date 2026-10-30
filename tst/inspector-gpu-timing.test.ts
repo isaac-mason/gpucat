@@ -159,14 +159,14 @@ test('the whole-frame GPU time is the span of overlapping passes, not their sum'
 test('passes past the query set go untimed instead of writing out of range', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     inspector.begin(1);
-    // The query set holds MAX_PASSES_PER_FRAME (64) slots; 70 passes overruns it.
-    for (let i = 0; i < 70; i++) {
+    // The query set holds MAX_PASSES_PER_FRAME (2048) slots, WebGPU's most; 2052 passes overruns it.
+    for (let i = 0; i < 2052; i++) {
         const passId = `pass-${i}`;
         inspector.beginRender(passId);
         const writes = inspector.getTimestampWrites(passId);
-        if (i < 64) {
+        if (i < 2048) {
             expect(writes).toBeDefined();
-            expect(writes!.endOfPassWriteIndex).toBeLessThan(64 * 2);
+            expect(writes!.endOfPassWriteIndex).toBeLessThan(2048 * 2);
             fake.timestamps.set(i, [0n, BigInt(NS_PER_MS)]);
         } else {
             expect(writes).toBeUndefined();

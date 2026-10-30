@@ -156,14 +156,16 @@ interface EXT_disjoint_timer_query_webgl2 {
 }
 
 const FRAME_HISTORY = 512;
-const MAX_PASSES_PER_FRAME = 64;
+// WebGPU's most queries a query set holds is 4096, two a pass. A frame resolves and reads back only the slots it used,
+// so the headroom costs memory alone: a frame whose compute runs as a pass a dispatch can time well over 64.
+const MAX_PASSES_PER_FRAME = 2048;
 // Readback buffers rotate so a frame's timestamps can resolve while prior frames'
 // mapAsync reads are still in flight (map latency is 1-3 frames typically). The
 // pool is allocated on demand and self-sizes to the real latency rather than a
 // fixed guess (see _acquireReadback), so the Perf Timeline recording gets a
 // per-frame value without over-allocating. This cap only bounds the worst case: if
 // readbacks stall (device lost / tab backgrounded) it turns an unbounded pool leak
-// into a logged, dropped frame. Buffers are tiny (~1 KiB).
+// into a logged, dropped frame. Buffers are 32 KiB, room for every pass a frame can time.
 const READBACK_POOL_CAP = 8;
 
 /** Walk a timeline's render/compute entries, the ones that carry a GPU time, children included. */
