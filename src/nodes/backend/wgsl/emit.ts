@@ -32,6 +32,7 @@ import {
     type FnNode,
     type IfNode,
     isNode,
+    loopRange,
     type LetNode,
     type LoopNode,
     type Node,
@@ -1249,6 +1250,7 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
             end?: Node<d.Any> | number;
             type?: d.Scalar;
             condition?: '<' | '<=' | '>' | '>=';
+            update?: Node<d.Any> | number | string | ((...args: never[]) => void);
             name?: string;
         };
 
@@ -1262,11 +1264,36 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
             return generateOperand(ctx, v as Node<d.Any>, Prec.Relational + 1);
         };
 
-        const startExpr = getExpr(cfg.start) ?? '0i';
-        const endExpr = getExpr(cfg.end) ?? '0i';
-        const condition = cfg.condition ?? '<';
+        const range = loopRange(cfg.start, cfg.end, cfg.condition);
+        const startExpr = range.start === undefined ? constLiteral(typeStr, 0) : (getExpr(range.start) as string);
+        const startSnippet = range.startLessOne ? `${startExpr} - ${constLiteral(typeStr, 1)}` : startExpr;
+        const endExpr = range.end === undefined ? constLiteral(typeStr, 0) : (getExpr(range.end) as string);
+        const condition = range.condition;
+        const step = condition.includes('<') ? '+=' : '-=';
 
-        loopHeader = `for (var ${wgslVarName}: ${typeStr} = ${startExpr}; ${wgslVarName} ${condition} ${endExpr}; ${wgslVarName}++)`;
+        let updateSnippet: string;
+        if (node.updateNode !== null) {
+            // the step's one statement, emitted as the body's are and lifted into the header
+            const mark = ctx.code.length;
+            for (const stmt of node.updateNode.body) generateStmt(ctx, stmt);
+            const lines = ctx.code.splice(mark);
+            if (lines.length !== 1) {
+                throw new Error(`[Loop] an update function makes ${lines.length} statements; a for header holds exactly one`);
+            }
+            updateSnippet = lines[0]!.trim().replace(/;$/, '');
+        } else if (typeof cfg.update === 'number') {
+            updateSnippet = `${wgslVarName} ${step} ${constLiteral(typeStr, cfg.update)}`;
+        } else if (typeof cfg.update === 'string') {
+            updateSnippet = `${wgslVarName} ${cfg.update}`;
+        } else if (isNode(cfg.update)) {
+            updateSnippet = `${wgslVarName} ${step} ${generateExpr(ctx, cfg.update as Node<d.Any>)}`;
+        } else if (typeStr === 'i32' || typeStr === 'u32') {
+            updateSnippet = `${wgslVarName}${condition.includes('<') ? '++' : '--'}`;
+        } else {
+            updateSnippet = `${wgslVarName} ${step} ${constLiteral(typeStr, 1)}`;
+        }
+
+        loopHeader = `for (var ${wgslVarName}: ${typeStr} = ${startSnippet}; ${wgslVarName} ${condition} ${endExpr}; ${updateSnippet})`;
     } else {
         loopHeader = `/* unknown loop range type */`;
     }

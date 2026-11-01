@@ -2046,10 +2046,36 @@ export type LoopParam =
           start?: Node<Any> | number;
           end?: Node<Any> | number;
           type?: d.Scalar;
+          /** inferred as three.js TSL infers it: '>=' when a numeric `start` is above a numeric `end`, else '<' */
           condition?: '<' | '<=' | '>' | '>=';
-          update?: Node<Any> | number | string | ((...args: unknown[]) => void);
+          /**
+           * How the loop variable steps, after three.js TSL's `Loop`: a number or a node adds itself (subtracts, with a
+           * '>' or '>=' condition), a string follows the variable as written (`'+= 2'`, `'*= 2'`), and a function is
+           * the step's own statement, given the loop variable as the body is. Left out, `++` (`--` counting down), or
+           * `+= 1.0` for a float. A for header holds one statement, so a function makes exactly one.
+           */
+          update?: Node<Any> | number | string | ((vars: LoopVars) => void);
           name?: string;
       };
+
+/**
+ * A counted loop's range as three.js TSL completes it: a `start` with no `end` counts down from `start - 1` to 0, and a
+ * condition left out is '>=' when a numeric `start` is above a numeric `end`, else '<'. Missing ends are 0.
+ */
+export function loopRange(
+    start: Node<Any> | number | undefined,
+    end: Node<Any> | number | undefined,
+    condition: '<' | '<=' | '>' | '>=' | undefined,
+): {
+    start: Node<Any> | number | undefined;
+    end: Node<Any> | number | undefined;
+    condition: '<' | '<=' | '>' | '>=';
+    startLessOne: boolean;
+} {
+    if (start !== undefined && end === undefined) return { start, end: undefined, condition: '>=', startLessOne: true };
+    const inferred = condition ?? (typeof start === 'number' && typeof end === 'number' && start > end ? '>=' : '<');
+    return { start, end, condition: inferred, startLessOne: false };
+}
 
 let _loopVarCounter = 0;
 
@@ -2060,6 +2086,8 @@ export class LoopNode extends Node<d.Void> {
         readonly loopVar: ParameterNode<Any>,
         readonly callbackKey: string,
         readonly body: StackNode,
+        /** a function `update`'s statement, captured as the body is; null for any other update */
+        readonly updateNode: StackNode | null,
     ) {
         super(d.Void);
     }
@@ -2137,10 +2165,12 @@ export function Loop(o: number | LoopParam, callback: (vars: LoopVars) => void):
     let callbackKey = 'i';
     const varName = `_loop_${_loopVarCounter++}`;
 
+    let updateFn: ((vars: LoopVars) => void) | null = null;
     if (typeof o === 'object' && o !== null && !(o instanceof Node)) {
-        const cfg = o as { type?: d.Scalar; name?: string };
+        const cfg = o as { type?: d.Scalar; name?: string; update?: unknown };
         if (cfg.type) loopVarType = cfg.type;
         if (cfg.name) callbackKey = cfg.name;
+        if (typeof cfg.update === 'function') updateFn = cfg.update as (vars: LoopVars) => void;
     }
 
     // Create the loop variable ParameterNode
@@ -2155,7 +2185,18 @@ export function Loop(o: number | LoopParam, callback: (vars: LoopVars) => void):
         popStack(prev);
     }
 
-    const node = new LoopNode(o, loopVar, callbackKey, bodyStack);
+    let updateStack: StackNode | null = null;
+    if (updateFn !== null) {
+        updateStack = new StackNode();
+        const prevUpdate = pushStack(updateStack);
+        try {
+            updateFn({ [callbackKey]: loopVar } as LoopVars);
+        } finally {
+            popStack(prevUpdate);
+        }
+    }
+
+    const node = new LoopNode(o, loopVar, callbackKey, bodyStack, updateStack);
     addToStack(node);
     return node;
 }

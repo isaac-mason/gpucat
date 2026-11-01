@@ -36,7 +36,7 @@ import type {
     VarNode,
     WorkgroupVarNode,
 } from './lib/core';
-import { NodeKind } from './lib/core';
+import { isNode, NodeKind } from './lib/core';
 import type { RenderTextureNode } from './lib/display/render-texture-node';
 import type { MRTNode, OutputStructNode } from './lib/mrt';
 import type { StorageNode } from './lib/storage';
@@ -282,7 +282,16 @@ export function getChildren(rawNode: Node<d.Any>): Node<d.Any>[] {
     } else if (node.kind === NodeKind.OutputStruct) {
         children.push(...node.members);
     } else if (node.kind === NodeKind.Loop) {
+        // its range and step too: a uniform read only in a loop's bounds is still a binding
+        const config = node.config;
+        if (isNode(config)) children.push(config);
+        else if (typeof config === 'object' && config !== null) {
+            if (isNode(config.start)) children.push(config.start);
+            if (isNode(config.end)) children.push(config.end);
+            if (isNode(config.update)) children.push(config.update);
+        }
         children.push(node.body);
+        if (node.updateNode !== null) children.push(node.updateNode);
     } else if (node.kind === NodeKind.If) {
         children.push(node.condition);
         children.push(...node.thenBody.body);

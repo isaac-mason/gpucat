@@ -98,6 +98,7 @@ export const DELIBERATELY_INTERNAL: ReadonlySet<string> = new Set([
     './nodes/nodes#frameGroup',
     './nodes/nodes#isMatType',
     './nodes/nodes#isNode',
+    './nodes/nodes#loopRange',
     './nodes/nodes#isScalarType',
     './nodes/nodes#isVecType',
     './nodes/nodes#makeVec2',
