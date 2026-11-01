@@ -103,6 +103,10 @@ export type BuildContext = {
     attributes: Map<number, AttributeEntry>; // node.id -> entry
     varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>;
     builtins: Set<string>;
+    /** see {@link Discovery.fnBuiltins} */
+    fnBuiltins: Map<string, string>;
+    /** emitting a `Fn` body, which reads builtins through their module-scope copies */
+    inFunction: boolean;
 
     // Module-scope variables
     privateVars: Map<number, PrivateVarNode<d.Any>>; // node.id -> node
@@ -175,6 +179,7 @@ function emptyDiscovery(): Discovery {
         updateBeforeNodes: [],
         updateAfterNodes: [],
         updateNodes: [],
+        fnBuiltins: new Map(),
     };
 }
 
@@ -207,6 +212,8 @@ export function createContext(stage: ShaderStage, isRender: boolean, discovery: 
         mutatedNodes: discovery.mutatedNodes,
         fnDefs: discovery.fnDefs,
         wgslFnDefs: discovery.wgslFnDefs,
+        fnBuiltins: discovery.fnBuiltins,
+        inFunction: false,
         // Per-stage emission scratch — fresh each call.
         attributes: new Map(),
         varyings: new Map(),
@@ -240,6 +247,7 @@ function seedGlobalNames(discovery: Discovery): NameScope {
     for (const node of discovery.privateVars.values()) reserveName(names, node.varName);
     for (const node of discovery.workgroupVars.values()) reserveName(names, node.varName);
     for (const fnName of discovery.fnDefs.keys()) reserveName(names, fnName);
+    for (const kind of discovery.fnBuiltins.keys()) reserveName(names, fnBuiltinVarName(kind));
     return names;
 }
 
@@ -1011,7 +1019,13 @@ function generateVarying(ctx: BuildContext, node: VaryingNode<d.Any>): string {
     }
 }
 
+/** The module-scope copy a `Fn` body reads a builtin through (see {@link Discovery.fnBuiltins}). */
+function fnBuiltinVarName(kind: string): string {
+    return `builtin_${kind}`;
+}
+
 function generateBuiltin(ctx: BuildContext, node: BuiltinNode<d.Any>): string {
+    if (ctx.inFunction) return fnBuiltinVarName(node.builtinKind);
     ctx.builtins.add(node.builtinKind);
 
     const builtinMap: Record<string, string> = {
@@ -1332,6 +1346,11 @@ export function emitModuleScopeVars(ctx: BuildContext): string {
             // Without initializer
             lines.push(`var<private> ${node.varName}: ${node.type.wgslType};`);
         }
+    }
+
+    // the builtins `Fn` bodies read, assigned by each entry point the builtin is an input of
+    for (const [kind, wgslType] of ctx.fnBuiltins) {
+        lines.push(`var<private> ${fnBuiltinVarName(kind)}: ${wgslType};`);
     }
 
     // Emit workgroup variables (only in compute shaders - already validated in generateExpr)
@@ -1738,7 +1757,9 @@ export function emitDslFunctions(ctx: BuildContext): string {
         // must not take its name); emitModuleScopeVars runs on the stage context, never on this one.
         fnDiscovery.privateVars = ctx.privateVars;
         fnDiscovery.workgroupVars = ctx.workgroupVars;
+        fnDiscovery.fnBuiltins = ctx.fnBuiltins;
         const fnCtx = createContext(ctx.stage, ctx.isRender, fnDiscovery);
+        fnCtx.inFunction = true;
 
         // Allocated rather than taken verbatim, matching the GLSL emitter: a user's name can be
         // reserved in either language.
@@ -1820,6 +1841,17 @@ function varyingInterpolateAttr(node: VaryingNode<d.Any>): string {
 
 /* vertex shader generation */
 
+const VERTEX_INPUT_BUILTINS = ['vertex_index', 'instance_index'] as const;
+
+/** a compute entry point's builtin parameters, in declaration order: each one's name and type */
+const COMPUTE_INPUT_BUILTINS = {
+    global_invocation_id: { param: 'global_id', type: 'vec3u' },
+    local_invocation_id: { param: 'local_id', type: 'vec3u' },
+    local_invocation_index: { param: 'local_index', type: 'u32' },
+    workgroup_id: { param: 'workgroup_id', type: 'vec3u' },
+    num_workgroups: { param: 'num_workgroups', type: 'vec3u' },
+} as const;
+
 export function generateVertexShader(slots: CompileSlots, ctx: BuildContext): string {
     const lines: string[] = [];
 
@@ -1827,8 +1859,8 @@ export function generateVertexShader(slots: CompileSlots, ctx: BuildContext): st
     const vertexExpr = generateExpr(ctx, slots.vertex);
 
     // check if we have any vertex inputs (attributes or builtins)
-    const hasVertexIndex = ctx.builtins.has('vertex_index');
-    const hasInstanceIndex = ctx.builtins.has('instance_index');
+    const hasVertexIndex = ctx.builtins.has('vertex_index') || ctx.fnBuiltins.has('vertex_index');
+    const hasInstanceIndex = ctx.builtins.has('instance_index') || ctx.fnBuiltins.has('instance_index');
     const hasInputs = ctx.attributes.size > 0 || hasVertexIndex || hasInstanceIndex;
 
     // emit input struct only if we have inputs (WGSL structs must have at least one member)
@@ -1866,6 +1898,9 @@ export function generateVertexShader(slots: CompileSlots, ctx: BuildContext): st
         lines.push('fn vs_main() -> VertexOutput {');
     }
     lines.push('    var output: VertexOutput;');
+    for (const kind of VERTEX_INPUT_BUILTINS) {
+        if (ctx.fnBuiltins.has(kind)) lines.push(`    ${fnBuiltinVarName(kind)} = input.${kind};`);
+    }
     lines.push(...ctx.code);
     lines.push(`    output.position = ${vertexExpr};`);
 
@@ -1922,6 +1957,8 @@ export function generateFragmentShader(
     // between the color, MRT and depth walks is unchanged, so non-MRT output is
     // byte-identical.
     const fragmentExpr = hasColor && !isMRT ? generateExpr(ctx, fragmentNode) : '';
+    // the single output's type is the fragment's own: vec4f for a colour target, u32 or vec4u for an integer one
+    const fragmentType = hasColor && !isMRT ? fragmentNode.type.wgslType : '';
     if (isVoid) generateStmt(ctx, fragmentNode);
 
     let mrtExprs: { name: string; expr: string }[] | null = null;
@@ -1946,7 +1983,8 @@ export function generateFragmentShader(
     const depthExpr = hasDepth ? generateExpr(ctx, depthNode) : '';
 
     // check if we have any fragment inputs (varyings or builtins)
-    const hasFragCoord = ctx.builtins.has('position');
+    const fnReadsFragCoord = ctx.fnBuiltins.has('position');
+    const hasFragCoord = ctx.builtins.has('position') || fnReadsFragCoord;
     const hasInputs = ctx.varyings.size > 0 || hasFragCoord;
 
     // emit input struct only if we have inputs (WGSL structs must have at least one member)
@@ -1996,7 +2034,7 @@ export function generateFragmentShader(
             }
         } else if (hasColor) {
             // Single color output alongside the frag_depth override.
-            lines.push(`    @location(0) color: vec4f,`);
+            lines.push(`    @location(0) color: ${fragmentType},`);
         }
         if (hasDepth) {
             lines.push(`    @builtin(frag_depth) ${frag_depth_name}: f32,`);
@@ -2016,13 +2054,10 @@ export function generateFragmentShader(
     } else if (isVoid) {
         lines.push(`fn fs_main(${params}) {`);
     } else {
-        if (hasInputs) {
-            lines.push('fn fs_main(input: FragmentInput) -> @location(0) vec4f {');
-        } else {
-            lines.push('fn fs_main() -> @location(0) vec4f {');
-        }
+        lines.push(`fn fs_main(${params}) -> @location(0) ${fragmentType} {`);
     }
 
+    if (fnReadsFragCoord) lines.push(`    ${fnBuiltinVarName('position')} = input.position;`);
     lines.push(...ctx.code);
 
     if (useStruct) {
@@ -2091,24 +2126,21 @@ export function generateComputeShader(node: ComputeNode, traced: ReturnType<FnNo
     lines.push('fn cs_main(');
 
     const builtinParams: string[] = [];
-    if (ctx.builtins.has('global_invocation_id')) {
-        builtinParams.push('    @builtin(global_invocation_id) global_id: vec3u');
-    }
-    if (ctx.builtins.has('local_invocation_id')) {
-        builtinParams.push('    @builtin(local_invocation_id) local_id: vec3u');
-    }
-    if (ctx.builtins.has('local_invocation_index')) {
-        builtinParams.push('    @builtin(local_invocation_index) local_index: u32');
-    }
-    if (ctx.builtins.has('workgroup_id')) {
-        builtinParams.push('    @builtin(workgroup_id) workgroup_id: vec3u');
-    }
-    if (ctx.builtins.has('num_workgroups')) {
-        builtinParams.push('    @builtin(num_workgroups) num_workgroups: vec3u');
+    for (const kind in COMPUTE_INPUT_BUILTINS) {
+        if (ctx.builtins.has(kind) || ctx.fnBuiltins.has(kind)) {
+            const { param, type } = COMPUTE_INPUT_BUILTINS[kind as keyof typeof COMPUTE_INPUT_BUILTINS];
+            builtinParams.push(`    @builtin(${kind}) ${param}: ${type}`);
+        }
     }
 
     lines.push(builtinParams.join(',\n'));
     lines.push(') {');
+    for (const kind in COMPUTE_INPUT_BUILTINS) {
+        if (ctx.fnBuiltins.has(kind)) {
+            const { param } = COMPUTE_INPUT_BUILTINS[kind as keyof typeof COMPUTE_INPUT_BUILTINS];
+            lines.push(`    ${fnBuiltinVarName(kind)} = ${param};`);
+        }
+    }
 
     // compute linearized index at start of function (only if used)
     if (usesComputeIndex) {

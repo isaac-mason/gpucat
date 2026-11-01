@@ -16,6 +16,7 @@ import {
     generateGlslFragmentShader,
     generateGlslTransformFeedbackShader,
     generateGlslVertexShader,
+    type GlslBuildContext,
     type StorageMirror,
 } from './backend/glsl/emit';
 import { allocName, createNameScope, derivedSamplerName, type NameScope } from './backend/names';
@@ -63,6 +64,11 @@ import type { InterpolationSampling, InterpolationType } from './lib/varying';
 import type { WgslFunctionNode } from './lib/wgsl-fn';
 
 /* public apis */
+
+/** `u_drawBase`, which the instance index reads on GLSL, declared once the stage's body and functions have been emitted. */
+function drawBaseDeclaration(ctx: GlslBuildContext): string {
+    return ctx.builtins.has('instance_index') ? 'uniform highp uint u_drawBase;' : '';
+}
 
 export function compileWgsl(slots: CompileSlots): CompileResult {
     // A fragment-less material (depth/stencil-only) may leave the slot null or undefined.
@@ -445,6 +451,9 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
     const vertexCode = joinSections([
         { body: version },
         ...sharedSections,
+        // instanceIndex lowers to `u_drawBase + gl_InstanceID` (base-inclusive, matching WebGPU); the batched draw loop
+        // sets it per sub-draw, and it is 0 (the GL default) for single draws
+        { body: drawBaseDeclaration(vertexCtx) },
         { title: '// Bit helpers', body: bitHelpersGlsl },
         { title: '// Raw functions (wgslFn/glslFn)', body: rawFnsGlsl },
         { title: '// Functions', body: dslFnsGlsl },
@@ -459,6 +468,9 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
         ? joinSections([
               { body: `${version}\nprecision ${precision} float;\nprecision ${precision} int;` },
               ...sharedSections,
+              // @builtin(position) lowers to a Y-flipped gl_FragCoord reading the render-target height, which the
+              // renderer sets each pass; declared ahead of the functions, since a Fn body may read the position too
+              { body: fragmentCtx.builtins.has('position') ? 'uniform highp float u_fragCoordFlipHeight;' : '' },
               { title: '// Bit helpers', body: fragmentBitHelpersGlsl },
               { title: '// Raw functions (wgslFn/glslFn)', body: fragmentRawFnsGlsl },
               { title: '// Functions', body: fragmentDslFnsGlsl },
@@ -685,6 +697,8 @@ export function compileTransformFeedback(
         { title: '// Uniform blocks (std140)', body: uniformBlocksGlsl },
         { title: '// Combined samplers', body: samplersGlsl },
         { title: '// Module-scope variables', body: moduleScopeVarsGlsl },
+        // a transform-feedback kernel never sets the draw base, so it stays 0
+        { body: drawBaseDeclaration(ctx) },
         { title: '// Bit helpers', body: bitHelpersGlsl },
         { title: '// Raw functions (wgslFn/glslFn)', body: rawFnsGlsl },
         { title: '// Functions', body: dslFnsGlsl },
@@ -1028,7 +1042,28 @@ export type Discovery = {
     updateBeforeNodes: UpdateBeforeNode[];
     updateAfterNodes: UpdateAfterNode[];
     updateNodes: UpdateNode[];
+    /** The builtins read inside `Fn` bodies, by kind, to their WGSL type. A WGSL function can't reach its entry point's
+     *  inputs, so it reads module-scope copies the entry point assigns. */
+    fnBuiltins: Map<string, string>;
 };
+
+/** The builtins each traced `Fn` body reads, walked per body so a builtin `main` also reads is still found. */
+function collectFnBuiltins(fnDefs: Map<string, { traced: TracedFn }>): Map<string, string> {
+    const fnBuiltins = new Map<string, string>();
+    for (const { traced } of fnDefs.values()) {
+        const seen = new Set<number>();
+        const walk = (rawNode: Node<d.Any>): void => {
+            const node = rawNode as AnyNode;
+            if (seen.has(node.id)) return;
+            seen.add(node.id);
+            if (node.kind === NodeKind.Builtin) fnBuiltins.set(node.builtinKind, node.type.wgslType);
+            for (const child of getChildren(node)) walk(child);
+        };
+        walk(traced.body);
+        if (traced.output) walk(traced.output);
+    }
+    return fnBuiltins;
+}
 
 /**
  * Assign every binding its shader identifier, once per compile.
@@ -1326,6 +1361,7 @@ function discover(roots: Node<d.Any>[]): Discovery {
         nodeIdToNode,
         nodeIdToUsages,
         mutatedNodes,
+        fnBuiltins: collectFnBuiltins(fnDefs),
         fnDefs,
         wgslFnDefs,
         structDefs,

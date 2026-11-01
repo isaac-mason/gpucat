@@ -30,6 +30,17 @@ export type TextureOptions = {
 };
 
 /**
+ * The shader-facing sample type of a texture format: integer formats (...uint/...sint) are typed u32/i32, so the GLSL
+ * emitter declares usampler/isampler and a load returns uvec4/ivec4, and WGSL declares texture_*<u32>/<i32>; every
+ * other format is float-sampled. Fixed at construction, so a texture takes its format there.
+ */
+export function formatSampleType(format: GPUTextureFormat | undefined): d.u32 | d.i32 | d.f32 {
+    if (format?.endsWith('uint')) return d.u32;
+    if (format?.endsWith('sint')) return d.i32;
+    return d.f32;
+}
+
+/**
  * High-level 2D texture class.
  *
  * Holds sampling parameters and references a Source for image data.
@@ -87,7 +98,7 @@ export class Texture<out T extends SourceData = SourceData> {
         const src = image instanceof Source ? image : image !== null ? new Source<T>(image) : null;
 
         // Create the underlying GpuTexture
-        this._gpuTexture = new GpuTexture(d.texture2d(), {
+        this._gpuTexture = new GpuTexture(d.texture2d(formatSampleType(options.format)) as d.texture2d, {
             width: src?.width || 1,
             height: src?.height || 1,
             source: src ?? undefined,
@@ -199,7 +210,7 @@ export class Texture<out T extends SourceData = SourceData> {
         this._gpuSampler.maxAnisotropy = v;
     }
 
-    /** WebGPU texture format. */
+    /** WebGPU texture format. Its sample type is the constructor's format's (see {@link formatSampleType}). */
     get format(): GPUTextureFormat {
         return this._gpuTexture.format;
     }

@@ -1,5 +1,8 @@
 import {
     ArrayTexture,
+    If,
+    Fn,
+    Discard,
     arrayTexture,
     attribute,
     BlendMode,
@@ -20,6 +23,7 @@ import {
     createStructTexture,
     cubeTexture,
     DataTexture,
+    DepthTexture,
     DrawIndirect,
     d,
     depthTexture,
@@ -2810,6 +2814,104 @@ async function caseIntegerTexture(): Promise<CaseResult> {
 }
 
 /**
+ * integer-target-shared-depth: a visibility buffer's frame. An r32uint target with a depth-stencil is cleared to ID 5
+ * and drawn with ID 0x9ABCDEF1 (stencil replaced with 3) over its left half, the right half discarded. A colour
+ * target sharing that depth-stencil is then resolved: a draw testing stencil equal 3 reads the drawn ID, one testing
+ * equal 0 reads the cleared ID, each green when it reads what it should. Last, a draw over the drawn half and behind its
+ * depth must be rejected by the shared depth. `gl.clear` on an integer draw buffer is INVALID_OPERATION and drops the depth and
+ * stencil clears with it, so the clear and both halves fail together if integer attachments clear the float way.
+ */
+async function caseIntegerTargetSharedDepth(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const gl = renderer.backend.gl!;
+    const depthStencil = new DepthTexture(SIZE, SIZE, 'depth24plus-stencil8');
+    const ids = createRenderTarget(SIZE, SIZE, { colorFormat: 'r32uint', depthTexture: depthStencil });
+    const lit = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthTexture: depthStencil });
+    const position = attribute('position', d.vec3f);
+    const geometry = createFullscreenTriangleGeometry();
+
+    const drawnId = 0x9abcdef1;
+    const leftHalf = Fn(
+        () => {
+            If(screenCoordinate.x.greaterThan(f32(SIZE / 2)), () => {
+                Discard();
+            });
+            return u32(drawnId);
+        },
+        { name: 'leftHalf', return: d.u32, params: [] },
+    );
+    const visibility = new Mesh(
+        geometry,
+        new Material({
+            name: 'visibility',
+            vertex: vec4(position.x, position.y, f32(0), f32(1)),
+            fragment: leftHalf(),
+            stencilTest: true,
+            stencilZPass: 'replace',
+            stencilRef: 3,
+        }),
+    );
+    // a Texture's static type is float-sampled whatever its format; at run time an r32uint target's load is u32
+    const id = u32(texture(ids.texture! as Texture).load(vec2i(i32(screenCoordinate.x), i32(screenCoordinate.y)), i32(0)).x);
+    const resolve = (stencilRef: number, expected: number): Mesh =>
+        new Mesh(
+            geometry,
+            new Material({
+                name: `resolve-${stencilRef}`,
+                vertex: vec4(position, f32(1)),
+                fragment: select(vec4(1, 0, 0, 1), vec4(0, 1, 0, 1), id.equal(u32(expected))),
+                depthTest: false,
+                depthWrite: false,
+                stencilTest: true,
+                stencilFunc: 'equal',
+                stencilRef,
+            }),
+        );
+    const behind = new Mesh(
+        geometry,
+        new Material({
+            name: 'behind',
+            vertex: vec4(position.x, position.y, f32(0.5), f32(1)),
+            stencilTest: true,
+            stencilFunc: 'equal',
+            stencilRef: 3,
+            fragment: vec4(0, 0, 1, 1),
+            depthWrite: false,
+        }),
+    );
+    for (const mesh of [visibility, behind]) mesh.updateWorldMatrix();
+    const camera = new PerspectiveCamera();
+    camera.updateViewMatrix();
+
+    const f = frame(renderer);
+    const visibilityPass = f.pass({ target: ids, camera, clear: [5, 0, 0, 0], clearDepth: 1, clearStencil: 0 });
+    visibilityPass.draw(visibility);
+    visibilityPass.end();
+    const resolvePass = f.pass({ target: lit, camera, clear: [0, 0, 0, 1], clearDepth: false, clearStencil: false });
+    resolvePass.draw(resolve(3, drawnId));
+    resolvePass.draw(resolve(0, 5));
+    resolvePass.draw(behind);
+    resolvePass.end();
+    f.submit();
+
+    const pixels = await read(renderer, lit);
+    const error = gl.getError();
+    const centerRowPixel = (x: number): number[] =>
+        Array.from(pixels.subarray((CENTER * SIZE + x) * 4, (CENTER * SIZE + x) * 4 + 4));
+    const left = centerRowPixel(CENTER - 8);
+    const right = centerRowPixel(CENTER + 8);
+    renderer.dispose();
+    const isGreen = (c: number[]): boolean => c[1] === 255 && c[0] === 0 && c[2] === 0;
+    const ok = isGreen(left) && isGreen(right) && error === gl.NO_ERROR;
+    return {
+        name: 'integer-target-shared-depth',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `left (drawn id) ${left.join(',')}, right (cleared id) ${right.join(',')}, gl error ${error}`,
+    };
+}
+
+/**
  * struct-texture: schema-typed store→load round-trip. A `createStructTexture` for `{ color: vec4f,
  * id: u32 }` is written with `store(Rec, 0, …)` (CPU std430 pack into rgba32uint), then the fragment
  * reads it back with `texture(tex).load(Rec, 0)` — `.color` (a multi-lane f32 field via bitcast) into
@@ -5028,6 +5130,7 @@ export async function run(): Promise<RunResult> {
             casePassDepthSample,
             casePassOcclude,
             caseIntegerTexture,
+            caseIntegerTargetSharedDepth,
             caseStructTexture,
             caseStructTextureMat4,
             caseStructTexturePackedUnorm,

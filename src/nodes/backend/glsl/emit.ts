@@ -1076,7 +1076,8 @@ function generateBuiltin(ctx: GlslBuildContext, node: BuiltinNode<d.Any>): strin
             return 'uint(gl_VertexID)';
         case 'instance_index':
             // Base-inclusive, matching WebGPU's @builtin(instance_index) (which folds in firstInstance).
-            // WebGL2's gl_InstanceID is 0-based per draw, so we add u_drawBase — a draw-scoped uniform
+            // WebGL2's gl_InstanceID is 0-based per draw, so we add u_drawBase (declared by the builder ahead of the
+            // functions, since a Fn body may read the instance index too) — a draw-scoped uniform
             // set to the sub-draw's firstInstance by the batched draw loop, and left 0 (its GL default)
             // for single draws. The declaration is emitted by generateGlslVertexShader /
             // generateGlslTransformFeedbackShader whenever this builtin is used.
@@ -1098,7 +1099,7 @@ function generateBuiltin(ctx: GlslBuildContext, node: BuiltinNode<d.Any>): strin
             // keeps EVERY position read backend-consistent. Do not "align with three.js" by removing
             // this; it would re-mirror every render-to-texture-then-present. The expression stays inline
             // (not a main() local) so it is valid inside emitted user Fn scopes too — gl_FragCoord and
-            // the uniform are both GLSL globals. Declared by generateGlslFragmentShader when used.
+            // the uniform are both GLSL globals. Declared by the builder ahead of the functions when used.
             if (ctx.stage === 'fragment')
                 return '(vec4(gl_FragCoord.x, u_fragCoordFlipHeight - gl_FragCoord.y, gl_FragCoord.z, gl_FragCoord.w))';
             unsupported("builtin 'position' in vertex stage");
@@ -2469,14 +2470,6 @@ export function generateGlslVertexShader(slots: CompileSlots, ctx: GlslBuildCont
     }
     if (ctx.varyings.size > 0) lines.push('');
 
-    // Batched-draw base: when instanceIndex is used, it lowers to `u_drawBase + gl_InstanceID`
-    // (base-inclusive, matching WebGPU). The batched draw loop sets this per sub-draw; it is 0 by
-    // default (GL uniform default) for single draws.
-    if (ctx.builtins.has('instance_index')) {
-        lines.push('uniform highp uint u_drawBase;');
-        lines.push('');
-    }
-
     lines.push('void main() {');
     lines.push(...ctx.hoistBuffer);
     lines.push(...ctx.code);
@@ -2630,13 +2623,6 @@ export function generateGlslTransformFeedbackShader(
     }
     if (outputMeta.length > 0) lines.push('');
 
-    // instanceIndex lowers to `u_drawBase + gl_InstanceID`; declare u_drawBase when it is used.
-    // A transform-feedback kernel never sets it, so it stays 0 (correct: base 0 + gl_InstanceID).
-    if (ctx.builtins.has('instance_index')) {
-        lines.push('uniform highp uint u_drawBase;');
-        lines.push('');
-    }
-
     lines.push('void main() {');
     lines.push(...ctx.hoistBuffer);
     lines.push(...ctx.code);
@@ -2766,14 +2752,8 @@ export function generateGlslFragmentShader(
         }
         lines.push('');
     } else if (hasColor) {
-        lines.push('layout(location = 0) out vec4 fragColor;');
-        lines.push('');
-    }
-    // @builtin(position) lowers to a Y-flipped gl_FragCoord (see generateBuiltin 'position'); declare
-    // the render-target height uniform it reads when the builtin is used. The renderer sets it to the
-    // framebuffer height each pass.
-    if (ctx.builtins.has('position')) {
-        lines.push('uniform highp float u_fragCoordFlipHeight;');
+        // the output's type is the fragment's own: vec4 for a colour target, uint or uvec4 for an integer one
+        lines.push(`layout(location = 0) out ${glslType(fragmentNode.type)} fragColor;`);
         lines.push('');
     }
     // A depth-only fragment stage (no color output) declares no `out` — it only writes gl_FragDepth.

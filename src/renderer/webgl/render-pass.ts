@@ -30,6 +30,7 @@ import { getRenderObjectGl } from './render-object-gl';
 import { bindRenderTargetFramebuffer, resolveActiveRenderTarget } from './render-target';
 import { applyMaterialState, createGlStateCache, establishPassBaseline } from './state';
 import { bindTextures, captureTextures } from './texture-bindings';
+import { isIntegerTextureFormat } from './textures';
 import type { WebGLBackend } from './webgl-backend';
 
 /**
@@ -79,6 +80,13 @@ function applyViewportScissor(gl: WebGL2RenderingContext, width: number, height:
     }
 }
 
+const clearColorValue: number[] = [0, 0, 0, 0];
+
+function hasIntegerAttachment(textures: readonly { format: string }[]): boolean {
+    for (let i = 0; i < textures.length; i++) if (isIntegerTextureFormat(textures[i].format)) return true;
+    return false;
+}
+
 /**
  * Clear the currently-bound framebuffer per the color/depth/stencil flags, using
  * `params.clearColor` / `params.clearStencilValue`. Assumes the framebuffer is already bound.
@@ -97,9 +105,25 @@ function clearBuffers(
     let mask = 0;
     if (color) {
         const { r, g, b, a } = params.clearColor;
-        gl.clearColor(r, g, b, a);
         gl.colorMask(true, true, true, true);
-        mask |= gl.COLOR_BUFFER_BIT;
+        const textures = params.renderTarget?.textures;
+        if (textures && hasIntegerAttachment(textures)) {
+            // `gl.clear` on an integer draw buffer is INVALID_OPERATION, which drops the depth and stencil clear too:
+            // each attachment is cleared by its own type, as WebGPU's clearValue converts to the attachment's
+            clearColorValue[0] = r;
+            clearColorValue[1] = g;
+            clearColorValue[2] = b;
+            clearColorValue[3] = a;
+            for (let i = 0; i < textures.length; i++) {
+                const format = textures[i].format;
+                if (format.endsWith('uint')) gl.clearBufferuiv(gl.COLOR, i, clearColorValue);
+                else if (format.endsWith('sint')) gl.clearBufferiv(gl.COLOR, i, clearColorValue);
+                else gl.clearBufferfv(gl.COLOR, i, clearColorValue);
+            }
+        } else {
+            gl.clearColor(r, g, b, a);
+            mask |= gl.COLOR_BUFFER_BIT;
+        }
     }
     if (depth) {
         gl.clearDepth(params.clearDepthValue);

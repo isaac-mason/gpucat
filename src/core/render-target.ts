@@ -231,8 +231,7 @@ function createRenderTargetTexture(
     // create placeholder image object with dimensions
     const image: ImageSize = { width, height };
 
-    const texture = new Texture(image);
-    texture.format = format;
+    const texture = new Texture(image, { format });
     texture.isRenderTargetTexture = true;
     texture.generateMipmaps = false;
     texture.flipY = false;

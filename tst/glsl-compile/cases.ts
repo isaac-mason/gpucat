@@ -29,6 +29,7 @@ import {
     modelWorldMatrix,
     mrt,
     type Node,
+    screenCoordinate,
     screenUV,
     select,
     sRGBTransferOETF,
@@ -854,6 +855,26 @@ export const cases: Case[] = [
             const inst = instanceData.element(slotMap.element(instanceIndex));
             const clip = inst.field('worldMatrix').mul(vec4(attribute('position', d.vec3f), f32(1)));
             return { vertex: clip, fragment: varying(inst.field('params').field('tint'), 'vTintA'), depth: undefined };
+        },
+    },
+    {
+        // Builtins read inside a `Fn`, in each stage: a GLSL builtin is a global, but a WGSL function can't see its
+        // entry point's inputs, so it reads module-scope copies `vs_main` and `fs_main` assign. `main` reads the
+        // fragment position too, so the copy is found though discovery reaches that one node first from `main`.
+        name: 'builtins read inside a Fn (vertex instance index, fragment position)',
+        build: () => {
+            const offset = Fn(() => vec4(f32(instanceIndex), f32(0), f32(0), f32(0)), {
+                name: 'instanceOffset',
+                params: [] as const,
+                return: d.vec4f,
+            });
+            const shade = Fn(() => vec4(screenCoordinate.x, screenCoordinate.y, f32(0), f32(1)), {
+                name: 'pixelShade',
+                params: [] as const,
+                return: d.vec4f,
+            });
+            const clip = vec4(attribute('position', d.vec3f), f32(1)).add(offset());
+            return { vertex: clip, fragment: shade().add(vec4(screenCoordinate.x, f32(0), f32(0), f32(0))), depth: undefined };
         },
     },
     {

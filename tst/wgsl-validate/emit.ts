@@ -2,7 +2,7 @@
 // uniform-layout cases that exercise the hardening directly. run.mjs validates each with naga (the
 // validator Firefox uses — stricter than Chrome's Tint, which is what let the original bug ship).
 
-import { attribute, compileWgsl, d, f32, struct, vec4 } from '../../src/index';
+import { attribute, compileComputeWgsl, compileWgsl, d, Fn, f32, globalId, struct, u32, vec4 } from '../../src/index';
 import { fields, frameGroup, Uniform, UniformNode } from '../../src/nodes/nodes';
 import { cases } from '../glsl-compile/cases';
 
@@ -32,6 +32,17 @@ export function emitAll(): { name: string; code: string }[] {
             fragment: vec4(outer.tail, outer.tail, outer.tail, outer.tail),
             depth: undefined,
         }).code,
+    });
+
+    // A compute builtin read only inside a Fn: cs_main must still take it, and copy it where the Fn can read it.
+    const lane = Fn(() => globalId.x, { name: 'lane', params: [] as const, return: d.u32 });
+    const kernel = Fn(() => {
+        const idx = lane().toVar('idx');
+        idx.assign(idx.add(u32(1)));
+    });
+    out.push({
+        name: 'compute builtin read inside a Fn',
+        code: compileComputeWgsl(kernel.compute({ workgroupSize: [64, 1, 1] })).code,
     });
 
     return out;

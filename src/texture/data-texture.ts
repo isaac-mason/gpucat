@@ -5,7 +5,7 @@ import type { StructDef } from '../nodes/lib/core';
 import { packTo, packToView, structFieldLayout } from '../schema/pack';
 import * as d from '../schema/schema';
 import { type DataTextureImage, Source } from './source';
-import type { FilterMode, MipmapFilterMode, TextureOptions, WrapMode } from './texture';
+import { type FilterMode, formatSampleType, type MipmapFilterMode, type TextureOptions, type WrapMode } from './texture';
 
 /** Valid typed array types for DataTexture */
 export type DataTextureData = Uint8Array | Uint8ClampedArray | Uint16Array | Uint32Array | Float32Array;
@@ -53,14 +53,10 @@ export class DataTexture {
         // Create source with size info
         const src = data !== null ? new Source<DataTextureImage>({ data, width, height }) : null;
 
-        // Derive the shader-facing sample type from the format: integer formats (…uint/…sint) must be
-        // typed texture2d<u32>/texture2d<i32> so the GLSL emitter declares usampler2D/isampler2D and
-        // textureLoad returns uvec4/ivec4; every other format is float-sampled (texture2d<f32>).
         const format = options.format ?? 'rgba8unorm';
-        const sampleType = format.endsWith('uint') ? d.u32 : format.endsWith('sint') ? d.i32 : d.f32;
 
         // Create the underlying GpuTexture
-        this._gpuTexture = new GpuTexture(d.texture2d(sampleType) as d.texture2d, {
+        this._gpuTexture = new GpuTexture(d.texture2d(formatSampleType(format)) as d.texture2d, {
             width,
             height,
             source: src ?? undefined,

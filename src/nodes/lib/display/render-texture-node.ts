@@ -199,8 +199,7 @@ export class RenderTextureNode extends Node<d.vec4f> {
             // Clone the reference texture format and create new render target texture
             const refTexture = this.renderTarget.texture!;
             const image: ImageSize = { width: this.renderTarget.width, height: this.renderTarget.height };
-            texture = new Texture(image);
-            texture.format = refTexture.format;
+            texture = new Texture(image, { format: refTexture.format });
             texture.isRenderTargetTexture = true;
             texture.generateMipmaps = false;
             texture.flipY = false;
@@ -223,8 +222,7 @@ export class RenderTextureNode extends Node<d.vec4f> {
             // Create a clone of the current texture for previous frame storage
             const currentTexture = this.getTexture(name);
             const image: ImageSize = { width: this.renderTarget.width, height: this.renderTarget.height };
-            texture = new Texture(image);
-            texture.format = currentTexture.format;
+            texture = new Texture(image, { format: currentTexture.format });
             texture.isRenderTargetTexture = true;
             texture.generateMipmaps = false;
             texture.flipY = false;

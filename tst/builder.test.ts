@@ -23,6 +23,7 @@ import {
     sin,
     storage,
     struct,
+    u32,
     Var,
     varying,
     vec3,
@@ -330,6 +331,21 @@ describe('module-scope variables', () => {
 });
 
 describe('compute builtins', () => {
+    test('a builtin read inside a Fn reaches it through an entry-assigned module-scope copy', () => {
+        // a WGSL function can't see cs_main's parameters: cs_main takes global_id though only the Fn reads it
+        const lane = Fn(() => globalId.x, { name: 'lane', params: [] as const, return: d.u32 });
+        const fn = Fn(() => {
+            const idx = lane().toVar('idx');
+            idx.assign(idx.add(u32(1)));
+        });
+
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
+        expect(result.code).toContain('var<private> builtin_global_invocation_id: vec3u;');
+        expect(result.code).toContain('@builtin(global_invocation_id) global_id: vec3u');
+        expect(result.code).toContain('    builtin_global_invocation_id = global_id;');
+        expect(result.code).toContain('return builtin_global_invocation_id.x;');
+    });
+
     test('globalId builtin only includes global_invocation_id', () => {
         const fn = Fn(() => {
             // Use globalId.x in an expression to trigger builtin inclusion

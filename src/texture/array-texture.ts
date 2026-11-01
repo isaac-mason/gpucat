@@ -3,7 +3,7 @@ import { GpuTexture } from '../core/gpu-texture';
 import type { TextureRectInit, TextureRegionInit } from '../core/texture-region';
 import * as d from '../schema/schema';
 import { type DataTextureImage, Source } from './source';
-import type { FilterMode, MipmapFilterMode, TextureOptions, WrapMode } from './texture';
+import { type FilterMode, formatSampleType, type MipmapFilterMode, type TextureOptions, type WrapMode } from './texture';
 
 // TODO: consider rename to "Texture2DArray" ?
 
@@ -53,7 +53,7 @@ export class ArrayTexture {
         const src = data !== null ? new Source<ArrayTextureImage>({ data, width, height, depth }) : null;
 
         // Create the underlying GpuTexture
-        this._gpuTexture = new GpuTexture(d.texture2dArray(), {
+        this._gpuTexture = new GpuTexture(d.texture2dArray(formatSampleType(options.format)) as d.texture2dArray, {
             width,
             height,
             layers: depth,
