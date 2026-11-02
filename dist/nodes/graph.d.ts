@@ -15,6 +15,7 @@ import type { MRTNode, OutputStructNode } from './lib/mrt';
 import type { StorageNode } from './lib/storage';
 import type { ArrayTextureNode, CubeTextureNode, DepthTextureNode, SamplerNode, StorageTextureBindingNode, TextureBindingNode, TextureNode } from './lib/texture';
 import type { UniformNode } from './lib/uniform';
+import type { InvariantNode } from './lib/invariant';
 import type { VaryingNode } from './lib/varying';
 import type { WgslNode } from './lib/wgsl';
 /**
@@ -25,7 +26,7 @@ import type { WgslNode } from './lib/wgsl';
  * tree-shakeable). Nodes not in this union (e.g. the bare void Node) fall through
  * to the existing catch-all branches.
  */
-export type AnyNode = LiteralNode<d.Any> | BinaryOpNode<d.Any> | CallNode<d.Any> | ConstructNode<d.Any> | FieldNode<d.Any> | IndexNode<d.Any> | ArrayNode<d.Any> | ConditionalNode<d.Any> | BuiltinNode<d.Any> | ComputeIndexNode | ParameterNode<d.Any> | LetNode<d.Any> | VarNode<d.Any> | PrivateVarNode<d.Any> | WorkgroupVarNode<d.Any> | AssignNode | ReturnNode<d.Any> | BreakNode | ContinueNode | DiscardNode | LoopNode | IfNode | StackNode | WgslNode<d.Any> | UniformNode<d.Any> | AttributeNode<d.Any> | VaryingNode<d.Any> | StorageNode<d.Any> | OutputStructNode | MRTNode | TextureBindingNode | StorageTextureBindingNode | SamplerNode | TextureNode | CubeTextureNode | DepthTextureNode | ArrayTextureNode | RenderTextureNode | InspectorNode<d.Any>;
+export type AnyNode = LiteralNode<d.Any> | BinaryOpNode<d.Any> | CallNode<d.Any> | ConstructNode<d.Any> | FieldNode<d.Any> | IndexNode<d.Any> | ArrayNode<d.Any> | ConditionalNode<d.Any> | BuiltinNode<d.Any> | ComputeIndexNode | ParameterNode<d.Any> | LetNode<d.Any> | VarNode<d.Any> | PrivateVarNode<d.Any> | WorkgroupVarNode<d.Any> | AssignNode | ReturnNode<d.Any> | BreakNode | ContinueNode | DiscardNode | LoopNode | IfNode | StackNode | WgslNode<d.Any> | UniformNode<d.Any> | AttributeNode<d.Any> | VaryingNode<d.Any> | StorageNode<d.Any> | OutputStructNode | MRTNode | TextureBindingNode | StorageTextureBindingNode | SamplerNode | TextureNode | CubeTextureNode | DepthTextureNode | ArrayTextureNode | RenderTextureNode | InspectorNode<d.Any> | InvariantNode;
 /**
  * Whether `node` reaches into a place the shader can write: an index or field chain into a local, private or workgroup
  * variable, or a storage buffer. Such a read is emitted at every use rather than shared through a temp: a write

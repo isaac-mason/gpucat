@@ -15,12 +15,20 @@
 
 import type { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
+import type { TextureViewRange } from '../../core/gpu-texture-view';
 import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
 import { type ResolvedStorageBufferTexture, type StorageBufferTextureSource, storageMirrorGrid } from '../../nodes/lib/texture';
 import { getBindings, type RenderObject } from '../core/render-object';
 import type { ProgramInfo, TextureUniforms } from './programs';
 import { getSampler } from './samplers';
-import { getTextureData, isIntegerTextureFormat, type TextureCache, updateStorageBufferTexture, updateTexture } from './textures';
+import {
+    type GlTextureData,
+    getTextureData,
+    isIntegerTextureFormat,
+    type TextureCache,
+    updateStorageBufferTexture,
+    updateTexture,
+} from './textures';
 import type { WebGLBackend } from './webgl-backend';
 
 /** The combined-sampler uniform name for a binding's SHADER name (mirrors the GLSL emitter's own
@@ -160,11 +168,64 @@ function resolveStorageSource(
  * in the order `bindTextures` walks them (a storage-lowered binding holds nulls: its buffer resolves from
  * the geometry when the pass executes, like vertex data). Pooled per record.
  */
-export type TextureCapture = { textures: (GpuTexture | null)[]; samplers: (GpuSampler | null)[] };
+export type TextureCapture = {
+    textures: (GpuTexture | null)[];
+    /** the range of each texture its binding sees */
+    ranges: TextureViewRange[];
+    samplers: (GpuSampler | null)[];
+};
+
+/**
+ * Selects the mips `range` covers of the texture bound at the active unit. WebGL2 has no views: a texture's base and
+ * max level are set on the texture itself, which is how far a sampled view of a mip range maps to it. A layer, a
+ * dimension or an aspect it cannot express.
+ */
+function applyLevelRange(
+    gl: WebGL2RenderingContext,
+    texData: GlTextureData,
+    gpuTexture: GpuTexture,
+    range: TextureViewRange,
+): void {
+    if (
+        range.baseArrayLayer !== 0 ||
+        range.arrayLayerCount !== undefined ||
+        range.dimension !== undefined ||
+        range.aspect !== 'all'
+    ) {
+        throw new Error(
+            `[webgl] texture '${gpuTexture.label ?? gpuTexture.id}' is bound through a view of a layer, a dimension or an ` +
+                `aspect, which WebGL2 cannot express: it binds a whole texture, or a range of its mips.`,
+        );
+    }
+    if ((texData.levelRange ?? '') === range.key) return;
+    texData.levelRange = range.key;
+    const last = range.mipLevelCount === undefined ? 1000 : range.baseMipLevel + range.mipLevelCount - 1;
+    gl.texParameteri(texData.target, gl.TEXTURE_BASE_LEVEL, range.baseMipLevel);
+    gl.texParameteri(texData.target, gl.TEXTURE_MAX_LEVEL, last);
+}
+
+/** throws for one draw binding two ranges of a texture: they would be one GL texture with one base and max level */
+function assertOneRangePerTexture(
+    seen: Map<GpuTexture, TextureViewRange>,
+    gpuTexture: GpuTexture,
+    range: TextureViewRange,
+): void {
+    const other = seen.get(gpuTexture);
+    if (other !== undefined && other.key !== range.key) {
+        throw new Error(
+            `[webgl] texture '${gpuTexture.label ?? gpuTexture.id}' is bound through two views in one draw; WebGL2 binds ` +
+                `one range of a texture's mips at a time.`,
+        );
+    }
+    seen.set(gpuTexture, range);
+}
+
+const _rangesSeen = new Map<GpuTexture, TextureViewRange>();
 
 /** Captures what `renderObject`'s texture bindings hold now, so its draw binds the values set before it. */
 export function captureTextures(renderObject: RenderObject, out: TextureCapture): void {
     out.textures.length = 0;
+    out.ranges.length = 0;
     out.samplers.length = 0;
     const bindGroups = getBindings(renderObject);
     for (const bindGroup of bindGroups) {
@@ -172,6 +233,7 @@ export function captureTextures(renderObject: RenderObject, out: TextureCapture)
             if (binding.kind !== 'texture') continue;
             const storageLowered = !!binding.entry.node.storageBufferSource;
             out.textures.push(storageLowered ? null : (binding.entry.node.value ?? null));
+            out.ranges.push(binding.entry.node.range);
             out.samplers.push(storageLowered ? null : findSamplerForUnit(bindGroups, binding.entry.binding));
         }
     }
@@ -187,6 +249,7 @@ export function bindTextures(
 ): void {
     const bindGroups = getBindings(renderObject);
     let captured = 0;
+    _rangesSeen.clear();
 
     // First pass: collect the GpuSampler assigned to each texture unit (b.samplers share the unit of
     // their paired texture, per the combined-sampler model).
@@ -201,6 +264,11 @@ export function bindTextures(
             if (binding.kind !== 'texture') continue;
 
             const entry = binding.entry;
+            if (entry.node.slot !== null) {
+                throw new Error(
+                    `[webgl] texture slot '${entry.node.slot}' is filled by a compute dispatch, which WebGL2 has none of.`,
+                );
+            }
             const unit = entry.binding;
             const capturedIndex = captured++;
 
@@ -245,6 +313,8 @@ export function bindTextures(
 
             const gpuTexture = capture === null ? entry.node.value : capture.textures[capturedIndex];
             if (!gpuTexture) continue;
+            const range = capture === null ? entry.node.range : capture.ranges[capturedIndex]!;
+            assertOneRangePerTexture(_rangesSeen, gpuTexture, range);
 
             // Upload / allocate the GL texture (version-gated). Render-target b.textures are allocated
             // by the FBO path; if never seen, updateTexture allocates them here as a safe fallback.
@@ -258,6 +328,7 @@ export function bindTextures(
 
             gl.activeTexture(gl.TEXTURE0 + unit); // updateTexture may have left another unit active
             gl.bindTexture(texData.target, texData.texture);
+            applyLevelRange(gl, texData, gpuTexture, range);
 
             // Find the sampler assigned to this same unit and bind its GL sampler object.
             const gpuSampler = capture === null ? findSamplerForUnit(bindGroups, unit) : capture.samplers[capturedIndex];
@@ -308,9 +379,11 @@ export function captureStandaloneTextures(
     out: TextureCapture,
 ): void {
     out.textures.length = 0;
+    out.ranges.length = 0;
     out.samplers.length = 0;
     for (const entry of textureEntries) {
         out.textures.push(entry.node.value ?? null);
+        out.ranges.push(entry.node.range);
         out.samplers.push(findStandaloneSamplerForUnit(samplerEntries, entry.binding));
     }
 }
@@ -344,6 +417,7 @@ export function bindStandaloneTextures(
 
         gl.activeTexture(gl.TEXTURE0 + unit);
         gl.bindTexture(texData.target, texData.texture);
+        applyLevelRange(gl, texData, gpuTexture, capture.ranges[index]!);
 
         const gpuSampler = capture.samplers[index];
         assertFloatLinearFilterable(gl, gpuTexture.format, gpuSampler);

@@ -4,8 +4,13 @@ import { CanvasTarget } from '../src/renderer/core/canvas-target';
 import { createMemoryTally } from '../src/renderer/core/info';
 import { estimatedBytesPerTexel } from '../src/renderer/core/texture-size';
 import { attachmentsFor, createSwapchainState } from '../src/renderer/webgpu/render-pass';
-import { ensureRenderTargetTexturesAllocated, getRenderTargetMsaaView } from '../src/renderer/webgpu/render-target';
-import { createTextureCache, getTextureData } from '../src/renderer/webgpu/textures';
+import { WHOLE_TEXTURE } from '../src/core/gpu-texture-view';
+import {
+    ensureRenderTargetTexturesAllocated,
+    getRenderTargetMsaaView,
+    getRenderTargetView,
+} from '../src/renderer/webgpu/render-target';
+import { attachmentView, createTextureCache, getTextureData, rangeView } from '../src/renderer/webgpu/textures';
 import { installWebGPUPolyfills } from './stub-gpu';
 
 // RenderTarget construction + allocation reference GPUTextureUsage (a browser global).
@@ -13,10 +18,12 @@ installWebGPUPolyfills();
 
 /**
  * Minimal device that echoes each createTexture descriptor back as the texture,
- * so the allocator's size/format/sampleCount/usage choices are observable.
+ * so the allocator's size/format/sampleCount/usage choices are observable, and
+ * records each createView descriptor in `views`.
  */
 function recordingDevice() {
     const created: GPUTextureDescriptor[] = [];
+    const views: GPUTextureViewDescriptor[] = [];
     const device = {
         createTexture(desc: GPUTextureDescriptor): GPUTexture {
             created.push(desc);
@@ -25,16 +32,20 @@ function recordingDevice() {
                 width: size[0],
                 height: size[1],
                 depthOrArrayLayers: size[2] ?? 1,
+                dimension: desc.dimension ?? '2d',
                 format: desc.format,
                 sampleCount: desc.sampleCount ?? 1,
                 mipLevelCount: desc.mipLevelCount ?? 1,
                 usage: desc.usage,
-                createView: () => ({}) as GPUTextureView,
+                createView: (viewDesc?: GPUTextureViewDescriptor) => {
+                    views.push(viewDesc ?? {});
+                    return {} as GPUTextureView;
+                },
                 destroy: () => {},
             } as unknown as GPUTexture;
         },
     } as unknown as GPUDevice;
-    return { device, created };
+    return { device, created, views };
 }
 
 test('non-MSAA render target allocates a single single-sample color texture, no MSAA sibling', () => {
@@ -46,8 +57,8 @@ test('non-MSAA render target allocates a single single-sample color texture, no 
 
     const colorData = getTextureData(cache, rt.textures[0]._gpuTexture)!;
     expect(colorData.texture.sampleCount).toBe(1);
-    expect(colorData.msaaTexture ?? null).toBeNull();
-    expect(getRenderTargetMsaaView(colorData)).toBeNull();
+    expect(colorData.msaaTextures ?? null).toBeNull();
+    expect(getRenderTargetMsaaView(colorData, 0)).toBeNull();
 
     // color (resolve) + depth, nothing else
     expect(created).toHaveLength(2);
@@ -66,11 +77,11 @@ test('MSAA render target allocates a single-sample resolve texture plus a multis
     expect(colorData.texture.sampleCount).toBe(1);
     expect(colorData.texture.usage & GPUTextureUsage.TEXTURE_BINDING).toBeTruthy();
 
-    // The MSAA sibling is multisampled and render-attachment only.
-    expect(colorData.msaaTexture).toBeTruthy();
-    expect(colorData.msaaTexture!.sampleCount).toBe(4);
-    expect(colorData.msaaTexture!.usage).toBe(GPUTextureUsage.RENDER_ATTACHMENT);
-    expect(getRenderTargetMsaaView(colorData)).not.toBeNull();
+    // The MSAA sibling is multisampled and render-attachment only: one for the target's one layer.
+    expect(colorData.msaaTextures).toHaveLength(1);
+    expect(colorData.msaaTextures![0]!.sampleCount).toBe(4);
+    expect(colorData.msaaTextures![0]!.usage).toBe(GPUTextureUsage.RENDER_ATTACHMENT);
+    expect(getRenderTargetMsaaView(colorData, 0)).not.toBeNull();
 
     // Depth stays at the pass sample count so all attachments match.
     const depthData = getTextureData(cache, rt._depthAttachment!._gpuTexture)!;
@@ -99,6 +110,68 @@ test('a render target tallies its resolve texture, MSAA sibling and multisampled
     ensureRenderTargetTexturesAllocated(cache, device, rt);
     expect(tally.textures).toBe(3);
     expect(tally.texturesSize).toBe(4 * (texels * color + texels * color * 4 + texels * depth * 4));
+});
+
+test('a storage target allocates an sRGB colour in its linear twin with storage usage, and draws and samples it sRGB', () => {
+    const { device, created, views } = recordingDevice();
+    const cache = createTextureCache(createMemoryTally());
+    const rt = createRenderTarget(16, 16, { colorFormat: 'rgba8unorm-srgb', storage: true });
+
+    ensureRenderTargetTexturesAllocated(cache, device, rt);
+
+    const [colour, depth] = created;
+    expect(colour!.format).toBe('rgba8unorm');
+    expect(colour!.usage & GPUTextureUsage.STORAGE_BINDING).toBeTruthy();
+    expect(colour!.viewFormats).toEqual(['rgba8unorm-srgb']);
+    // depth is never a storage texture
+    expect(depth!.usage & GPUTextureUsage.STORAGE_BINDING).toBeFalsy();
+
+    // the sRGB views drop storage, which the sRGB format can't take
+    const drawnAndSampled = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
+    const data = getTextureData(cache, rt.textures[0]!._gpuTexture)!;
+    expect(data.viewFormat).toBe('rgba8unorm-srgb');
+    getRenderTargetView(data);
+    attachmentView(data, 0, 0, false);
+    rangeView(data, WHOLE_TEXTURE, '2d', false);
+    for (const view of views) {
+        expect(view.format).toBe('rgba8unorm-srgb');
+        expect(view.usage).toBe(drawnAndSampled);
+    }
+    expect(views).toHaveLength(3);
+
+    // a storage binding takes the allocation's own format and every usage
+    views.length = 0;
+    rangeView(data, WHOLE_TEXTURE, '2d', false, true);
+    expect(views[0]!.format).toBeUndefined();
+    expect(views[0]!.usage).toBeUndefined();
+});
+
+test('a linear storage target is allocated in its own format with storage usage, its views in that format', () => {
+    const { device, created } = recordingDevice();
+    const cache = createTextureCache(createMemoryTally());
+    const rt = createRenderTarget(16, 16, { colorFormat: 'rgba16float', storage: true, depthBuffer: false });
+
+    ensureRenderTargetTexturesAllocated(cache, device, rt);
+
+    expect(created[0]!.format).toBe('rgba16float');
+    expect(created[0]!.usage & GPUTextureUsage.STORAGE_BINDING).toBeTruthy();
+    expect(created[0]!.viewFormats).toEqual([]);
+    expect(getTextureData(cache, rt.textures[0]!._gpuTexture)!.viewFormat).toBeUndefined();
+});
+
+test('a target without storage has no storage usage', () => {
+    const { device, created } = recordingDevice();
+    const cache = createTextureCache(createMemoryTally());
+    const rt = createRenderTarget(16, 16, { colorFormat: 'rgba8unorm-srgb', depthBuffer: false });
+
+    ensureRenderTargetTexturesAllocated(cache, device, rt);
+
+    expect(created[0]!.format).toBe('rgba8unorm-srgb');
+    expect(created[0]!.usage & GPUTextureUsage.STORAGE_BINDING).toBeFalsy();
+});
+
+test('a storage target is single-sampled', () => {
+    expect(() => createRenderTarget(16, 16, { storage: true, samples: 4 })).toThrow(/storage render target is single-sampled/);
 });
 
 test('depth-only render target (count: 0) is allocated once and is idempotent', () => {
@@ -151,7 +224,7 @@ test('resizing reallocates and bumps generation so sampling bind groups rebuild'
 
     const data = getTextureData(cache, rt.textures[0]._gpuTexture)!;
     expect(data.texture.width).toBe(128);
-    expect(data.msaaTexture!.width).toBe(128);
+    expect(data.msaaTextures![0]!.width).toBe(128);
     expect(data.generation).toBeGreaterThan(genBefore);
     expect(created.length).toBeGreaterThan(countAfterFirst);
 });

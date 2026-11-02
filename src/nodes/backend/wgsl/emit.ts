@@ -57,6 +57,7 @@ import {
     type TextureNode,
 } from '../../lib/texture';
 import type { UniformGroup, UniformNode } from '../../lib/uniform';
+import { isInvariantPosition } from '../../lib/invariant';
 import type { VaryingNode } from '../../lib/varying';
 import type { WgslFunctionNode } from '../../lib/wgsl-fn';
 import { constLiteral } from '../../wgsl-utils';
@@ -483,6 +484,10 @@ function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
         // inspector is transparent - just generate the wrapped node
         expr = generateExpr(ctx, node.wrappedNode);
         prec = emittedPrec(ctx, node.wrappedNode);
+    } else if (node.kind === NodeKind.Invariant) {
+        // as a value, the position it marks; the mark is the vertex output's attribute
+        expr = generateExpr(ctx, node.node);
+        prec = emittedPrec(ctx, node.node);
     } else if (node.kind === NodeKind.OutputStruct || node.kind === NodeKind.MRT) {
         // these are handled specially at the fragment output level
         expr = `/* OutputStruct */`;
@@ -1881,7 +1886,7 @@ export function generateVertexShader(slots: CompileSlots, ctx: BuildContext): st
 
     // emit output struct
     lines.push('struct VertexOutput {');
-    lines.push('    @builtin(position) position: vec4f,');
+    lines.push(`    @builtin(position)${isInvariantPosition(slots.vertex) ? ' @invariant' : ''} position: vec4f,`);
     let varyingLoc = 0;
     for (const [name, { node }] of ctx.varyings) {
         lines.push(`    @location(${varyingLoc})${varyingInterpolateAttr(node)} ${name}: ${node.type.wgslType},`);

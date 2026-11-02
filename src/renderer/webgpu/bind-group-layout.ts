@@ -1,3 +1,4 @@
+import type * as d from '../../schema/schema';
 import type { SamplerEntry, TextureEntry, UniformGroupBlock } from '../../nodes/builder';
 import type { BindGroup as NodeBindGroup } from '../core/bind-group';
 
@@ -73,6 +74,11 @@ export function textureBindingLayout(entry: TextureEntry, float32Filterable: boo
         layout.sampleType = 'depth';
     } else if (isMultisampled) {
         layout.sampleType = 'unfilterable-float';
+    } else if (entry.node.slot !== null) {
+        // A named slot's texture is known only when a dispatch fills it, after the layout is made. Any float format
+        // binds as `unfilterable-float`, and a slot is read with `load`, which filters nothing.
+        const sampleType = (entry.node.type as d.SampledTexture).sampleType?.type;
+        layout.sampleType = sampleType === 'u32' ? 'uint' : sampleType === 'i32' ? 'sint' : 'unfilterable-float';
     } else {
         const format = entry.node.value?.format;
         layout.sampleType = format ? sampleTypeForFormat(format, float32Filterable) : 'float';

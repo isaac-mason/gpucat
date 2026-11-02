@@ -1,5 +1,6 @@
 import * as d from '../schema/schema';
 import { Source, type SourceData } from '../texture/source';
+import { GpuTextureView, type TextureViewRangeInit } from './gpu-texture-view';
 import type { RenderTarget } from './render-target';
 import { type TextureRegion, type TextureRegionInit } from './texture-region';
 /** GPU texture dimension from schema type */
@@ -175,6 +176,12 @@ export declare class GpuTexture<D extends d.Texture = d.Texture> {
     get isDepth(): boolean;
     /** Is all source data ready for upload? */
     get isComplete(): boolean;
+    /**
+     * A view of part of this texture, as `GPUTexture.createView` makes: a mip range, a layer range, a dimension or an
+     * aspect. Omitted counts cover the rest of the texture. A storage binding sees one mip, so a texture with mips is
+     * bound for storage through `view({ baseMipLevel, mipLevelCount: 1 })`.
+     */
+    view(range?: TextureViewRangeInit): GpuTextureView<D>;
     dispose(): void;
 }
 /** Create a 2D storage texture (`texture_storage_2d<format, _>`). */

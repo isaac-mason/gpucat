@@ -160,12 +160,22 @@ test('a context is not shared between targets whose textures are named different
     expect(resolvePassContext(contexts, { target: a })).not.toBe(resolvePassContext(contexts, { target: b }));
 });
 
-test('layer and mipLevel select a cube face and level, so a plain target rejects them', () => {
+test('layer and mipLevel select part of any target, within its layout', () => {
     const plain = createRenderTarget(8, 8);
-
-    expect(() => resolvePassParams({ target: plain, layer: 2 }, createPassParams())).toThrow(/has neither/);
-    expect(() => resolvePassParams({ target: plain, mipLevel: 1 }, createPassParams())).toThrow(/has neither/);
+    expect(() => resolvePassParams({ target: plain, layer: 2 }, createPassParams())).toThrow(/has 1 layer/);
+    expect(() => resolvePassParams({ target: plain, mipLevel: 1 }, createPassParams())).toThrow(/has 1 mip/);
     expect(() => resolvePassParams({ target: plain }, createPassParams())).not.toThrow();
+
+    const layered = createRenderTarget(8, 8, { layers: 4, mipLevelCount: 'full', depthBuffer: false });
+    const params = resolvePassParams({ target: layered, layer: 3, mipLevel: 2 }, createPassParams());
+    expect(params.layer).toBe(3);
+    expect(params.mipLevel).toBe(2);
+    expect(() => resolvePassParams({ target: layered, mipLevel: 4 }, createPassParams())).toThrow(/has 4 mip/);
+
+    // a 3D target's layer is a slice, and its mips have fewer
+    const volume = createRenderTarget(8, 8, { dimension: '3d', layers: 8, mipLevelCount: 2, depthBuffer: false });
+    expect(() => resolvePassParams({ target: volume, layer: 7 }, createPassParams())).not.toThrow();
+    expect(() => resolvePassParams({ target: volume, layer: 7, mipLevel: 1 }, createPassParams())).toThrow(/4 slice/);
 });
 
 test('a cube target takes both, and they travel with the pass', () => {

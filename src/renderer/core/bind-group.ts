@@ -68,6 +68,8 @@ export type TextureBinding = {
     /** Last seen GpuTexture (for detecting texture swaps, e.g. an atlas reload
      *  that rebinds the node's `value` to a fresh, different GpuTexture). */
     lastTexture: GpuTexture | null;
+    /** Last seen range of it, by key, for a binding rebound to another view of the same texture. */
+    lastRangeKey: string | null;
 };
 
 /** Storage texture binding (compute write / read) */
@@ -79,6 +81,8 @@ export type StorageTextureBinding = {
     generation: number;
     /** Last seen GpuTexture (for detecting texture swaps on the bound node). */
     lastTexture: GpuTexture | null;
+    /** Last seen range of it, by key, for a binding rebound to another view of the same texture. */
+    lastRangeKey: string | null;
 };
 
 /** Sampler binding */
@@ -159,11 +163,11 @@ export function createResourceBindGroup(
     }
 
     for (const entry of textures) {
-        bindings.push({ kind: 'texture', entry, generation: 0, lastTexture: null });
+        bindings.push({ kind: 'texture', entry, generation: 0, lastTexture: null, lastRangeKey: null });
     }
 
     for (const entry of storageTextures) {
-        bindings.push({ kind: 'storageTexture', entry, generation: 0, lastTexture: null });
+        bindings.push({ kind: 'storageTexture', entry, generation: 0, lastTexture: null, lastRangeKey: null });
     }
 
     for (const entry of samplers) {
@@ -212,6 +216,7 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
                     entry: binding.entry,
                     generation: 0,
                     lastTexture: null,
+                    lastRangeKey: null,
                 };
             case 'storageTexture':
                 return {
@@ -219,6 +224,7 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
                     entry: binding.entry,
                     generation: 0,
                     lastTexture: null,
+                    lastRangeKey: null,
                 };
             case 'sampler':
                 return {

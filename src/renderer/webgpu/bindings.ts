@@ -1,4 +1,6 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { GpuTexture } from '../../core/gpu-texture';
+import { type TextureViewRange, WHOLE_TEXTURE } from '../../core/gpu-texture-view';
 import type { Geometry } from '../../geometry/geometry';
 import type { Material } from '../../material/material';
 import type { UniformGroupBlock } from '../../nodes/builder';
@@ -13,6 +15,7 @@ import type {
     UniformBinding,
 } from '../core/bind-group';
 import { invokeUniformGroupCallbacks } from '../core/bind-group';
+import type { DispatchOptions } from '../core/frame';
 import type { NodeBuilderState } from '../core/node-builder-state';
 import type { NodeFrame } from '../core/node-frame';
 import type { RenderObject } from '../core/render-object';
@@ -38,7 +41,7 @@ import {
 import { ensureRenderTargetTexturesAllocated } from './render-target';
 import { getSampler, peekSampler, type SamplerCache } from './samplers';
 import type { TextureCache } from './textures';
-import { getTextureData, updateTexture } from './textures';
+import { getTextureData, rangeView, type TextureData, updateTexture } from './textures';
 import type { WebGPUBackend } from './webgpu-backend';
 
 /** The GPU bind groups over one set of resources a BindGroup binds. */
@@ -207,7 +210,7 @@ export function updateComputeBindings(
     b: WebGPUBackend,
     nodeBuilderState: NodeBuilderState,
     frame: NodeFrame,
-    buffers: Record<string, GpuBuffer<Any>> | null,
+    inputs: DispatchInputs | null,
     out: DrawBindings,
 ): void {
     const { bindings: state, device, buffers: bufferCache, textures: textureCache, samplers: samplerCache } = b;
@@ -220,7 +223,7 @@ export function updateComputeBindings(
 
         // Update bindings
         const data = getData(state, bindGroup);
-        updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, device, bindGroup, frame, buffers);
+        updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, device, bindGroup, frame, inputs);
 
         const gpuBindGroup = currentGPUBindGroup(
             state,
@@ -231,7 +234,7 @@ export function updateComputeBindings(
             bindGroup,
             data,
             null,
-            buffers,
+            inputs,
         );
         if (gpuBindGroup) {
             out.groups.push(gpuBindGroup);
@@ -255,10 +258,10 @@ function currentGPUBindGroup(
     bindGroup: BindGroup,
     data: BindGroupData,
     geometry: Geometry | null,
-    buffers: Record<string, GpuBuffer<Any>> | null,
+    inputs: DispatchInputs | null,
 ): GPUBindGroup | null {
     if (data.needsUpdate) {
-        data.current = variantFor(data, resourceKey(state, bufferCache, textureCache, bindGroup, geometry, buffers));
+        data.current = variantFor(data, resourceKey(state, bufferCache, textureCache, bindGroup, geometry, inputs));
         data.needsUpdate = false;
     }
 
@@ -273,7 +276,7 @@ function currentGPUBindGroup(
             bindGroup,
             data,
             geometry,
-            buffers,
+            inputs,
             null,
         );
         return variant.bindGroup;
@@ -290,7 +293,7 @@ function currentGPUBindGroup(
         bindGroup,
         data,
         geometry,
-        buffers,
+        inputs,
         dynamicUniformBuffer(bufferCache, bufferId),
     );
     if (built !== null) variant.dynamicBindGroups[bufferId] = built;
@@ -314,6 +317,42 @@ export function clearBindGroupVariants(data: BindGroupData): void {
     data.needsUpdate = true;
 }
 
+/** what a dispatch fills its node's named slots with: its `buffers` and `textures` */
+type DispatchInputs = DispatchOptions;
+
+type TextureBindingNodes = TextureBinding['entry']['node'] | StorageTextureBinding['entry']['node'];
+
+/** What a texture binding binds: written by {@link resolveTextureBinding}, read before the next call. */
+export type ResolvedTexture = { texture: GpuTexture | null; range: TextureViewRange };
+const _resolved: ResolvedTexture = { texture: null, range: null! };
+
+/**
+ * The texture and range `node` binds: its own, or for a named binding what the dispatch's `textures` fills its slot
+ * with. The result is shared: read it before the next call.
+ */
+export function resolveTextureBinding(node: TextureBindingNodes, inputs: DispatchInputs | null): ResolvedTexture {
+    if (node.slot === null) {
+        _resolved.texture = node.value;
+        _resolved.range = node.range;
+        return _resolved;
+    }
+    const source = inputs?.textures?.[node.slot];
+    if (source === undefined) {
+        throw new Error(`[gpucat] texture slot '${node.slot}' is unfilled: pass it in the dispatch's \`textures\`.`);
+    }
+    if ('isGpuTextureView' in source) {
+        _resolved.texture = source.texture;
+        _resolved.range = source.range;
+    } else if ('_gpuTexture' in source) {
+        _resolved.texture = source._gpuTexture;
+        _resolved.range = WHOLE_TEXTURE;
+    } else {
+        _resolved.texture = source;
+        _resolved.range = WHOLE_TEXTURE;
+    }
+    return _resolved;
+}
+
 /** the GPU objects `bindGroup` binds now, as the numbers `state` gives them: what tells one resource set from another */
 function resourceKey(
     state: BindingsState,
@@ -321,7 +360,7 @@ function resourceKey(
     textureCache: TextureCache,
     bindGroup: BindGroup,
     geometry: Geometry | null,
-    buffers: Record<string, GpuBuffer<Any>> | null,
+    inputs: DispatchInputs | null,
 ): string {
     const id = (object: object | null | undefined): number => {
         if (!object) return 0;
@@ -339,16 +378,12 @@ function resourceKey(
                 key += `${binding.bufferKey ? id(getRaw(bufferCache, binding.bufferKey)) : 0},`;
                 break;
             case 'storage':
-                key += `${id(getUploaded(bufferCache, resolveStorageBuffer(binding.entry.node, geometry, buffers)))},`;
+                key += `${id(getUploaded(bufferCache, resolveStorageBuffer(binding.entry.node, geometry, inputs?.buffers ?? null)))},`;
                 break;
-            case 'texture': {
-                const texture = binding.entry.node.value;
-                key += `${texture ? id(getTextureData(textureCache, texture)?.texture) : 0},`;
-                break;
-            }
+            case 'texture':
             case 'storageTexture': {
-                const texture = binding.entry.node.value;
-                key += `${texture ? id(getTextureData(textureCache, texture)?.texture) : 0}@${binding.entry.node.mipLevel},`;
+                const { texture, range } = resolveTextureBinding(binding.entry.node, inputs);
+                key += `${texture ? id(getTextureData(textureCache, texture)?.texture) : 0}@${range.key},`;
                 break;
             }
             case 'sampler':
@@ -519,11 +554,11 @@ function updateRenderBindGroup(
                 break;
 
             case 'texture':
-                updateTextureBinding(textureCache, device, binding, data);
+                updateTextureBinding(textureCache, device, binding, data, null);
                 break;
 
             case 'storageTexture':
-                updateStorageTextureBinding(textureCache, device, binding, data);
+                updateStorageTextureBinding(textureCache, device, binding, data, null);
                 break;
 
             case 'sampler':
@@ -682,11 +717,21 @@ function packAndCompare(
 }
 
 /** Update a texture binding. */
-function updateTextureBinding(textureCache: TextureCache, device: GPUDevice, binding: TextureBinding, data: BindGroupData): void {
-    const textureNode = binding.entry.node;
-    const gpuTexture = textureNode.value;
+function updateTextureBinding(
+    textureCache: TextureCache,
+    device: GPUDevice,
+    binding: TextureBinding,
+    data: BindGroupData,
+    inputs: DispatchInputs | null,
+): void {
+    const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, inputs);
 
     if (gpuTexture === null) return;
+
+    if (range.key !== binding.lastRangeKey) {
+        binding.lastRangeKey = range.key;
+        data.needsUpdate = true;
+    }
 
     // Texture SWAP: the node was rebound to a different GpuTexture (e.g. an atlas
     // reload allocating a fresh texture, or a placeholder->real swap). Generation
@@ -738,9 +783,15 @@ function updateStorageTextureBinding(
     device: GPUDevice,
     binding: StorageTextureBinding,
     data: BindGroupData,
+    inputs: DispatchInputs | null,
 ): void {
-    const gpuTexture = binding.entry.node.value;
+    const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, inputs);
     if (gpuTexture === null) return;
+
+    if (range.key !== binding.lastRangeKey) {
+        binding.lastRangeKey = range.key;
+        data.needsUpdate = true;
+    }
 
     // Swap detection: same rationale as updateTextureBinding — a rebound node
     // pointing at a fresh GpuTexture must rebuild the bind group.
@@ -749,9 +800,17 @@ function updateStorageTextureBinding(
         data.needsUpdate = true;
     }
 
-    // Storage textures hold no source data; updateTexture just ensures the GPU
-    // texture exists and returns its cache entry (with a generation counter).
-    const texData = updateTexture(textureCache, device, gpuTexture);
+    // A render target's attachment is allocated by its target, in the format a storage binding takes
+    // (`RenderTargetOptions.storage`), whichever binds it first. Other storage textures hold no source data;
+    // updateTexture just ensures the GPU texture exists and returns its cache entry (with a generation counter).
+    let texData: TextureData | null;
+    if (gpuTexture.isRenderTargetTexture) {
+        if (gpuTexture.renderTarget) ensureRenderTargetTexturesAllocated(textureCache, device, gpuTexture.renderTarget);
+        texData = getTextureData(textureCache, gpuTexture);
+        if (texData === null) return;
+    } else {
+        texData = updateTexture(textureCache, device, gpuTexture);
+    }
     if (binding.generation !== texData.generation) {
         binding.generation = texData.generation;
         data.needsUpdate = true;
@@ -814,7 +873,7 @@ function buildGPUBindGroup(
     bindGroup: BindGroup,
     data: BindGroupData,
     geometry: Geometry | null,
-    buffers: Record<string, GpuBuffer<Any>> | null,
+    inputs: DispatchInputs | null,
     dynamicBuffer: GPUBuffer | null,
 ): GPUBindGroup | null {
     if (!data.bindGroupLayout) return null;
@@ -839,7 +898,7 @@ function buildGPUBindGroup(
             }
 
             case 'storage': {
-                const buffer = resolveStorageBuffer(binding.entry.node, geometry, buffers);
+                const buffer = resolveStorageBuffer(binding.entry.node, geometry, inputs?.buffers ?? null);
                 const buf = getUploaded(bufferCache, buffer);
                 if (buf) {
                     entries.push({ binding: binding.entry.binding, resource: { buffer: buf } });
@@ -848,40 +907,34 @@ function buildGPUBindGroup(
             }
 
             case 'texture': {
-                const textureNode = binding.entry.node;
-                const gpuTexture = textureNode.value;
+                const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, inputs);
                 if (!gpuTexture) break;
 
-                // Get GPU texture from cache
                 const texData = getTextureData(textureCache, gpuTexture);
                 if (texData) {
-                    // A combined depth-stencil texture carries two aspects, and a view
-                    // may only ever expose ONE of them to a binding. Leaving the default
-                    // ('all') is a validation error the moment a pass allocates a stencil
-                    // alongside a depth that something also samples. Sampling is always
-                    // the depth aspect here: the stencil aspect would need a
-                    // `texture_2d<u32>` binding, which nothing declares.
-                    const view = texData.texture.createView({
-                        dimension: gpuTexture.viewDimension,
-                        ...(formatHasStencil(texData.texture.format) ? { aspect: 'depth-only' as const } : {}),
-                    });
+                    // A combined depth-stencil texture carries two aspects, and a view may expose only one of them to
+                    // a binding. Sampling sees the depth: the stencil would need a `texture_2d<u32>` binding, which
+                    // nothing declares.
+                    const view = rangeView(texData, range, gpuTexture.viewDimension, formatHasStencil(texData.texture.format));
                     entries.push({ binding: binding.entry.binding, resource: view });
                 }
                 break;
             }
 
             case 'storageTexture': {
-                const gpuTexture = binding.entry.node.value;
+                const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, inputs);
                 if (!gpuTexture) break;
 
                 const texData = getTextureData(textureCache, gpuTexture);
                 if (texData) {
-                    // Storage views target a single mip level at the node's chosen baseMipLevel.
-                    const view = texData.texture.createView({
-                        dimension: storageViewDimension(binding.entry.dim),
-                        baseMipLevel: binding.entry.node.mipLevel,
-                        mipLevelCount: 1,
-                    });
+                    const mips = range.mipLevelCount ?? gpuTexture.mipLevelCount - range.baseMipLevel;
+                    if (mips !== 1) {
+                        throw new Error(
+                            `[gpucat] storage texture '${gpuTexture.label ?? gpuTexture.id}' is bound with ${mips} mips; a storage ` +
+                                `binding sees one. Bind a view of one: \`view({ baseMipLevel, mipLevelCount: 1 })\`.`,
+                        );
+                    }
+                    const view = rangeView(texData, range, storageViewDimension(binding.entry.dim), false, true);
                     entries.push({ binding: binding.entry.binding, resource: view });
                 }
                 break;
@@ -918,7 +971,7 @@ function updateComputeBindGroup(
     device: GPUDevice,
     bindGroup: BindGroup,
     frame: NodeFrame,
-    buffers: Record<string, GpuBuffer<Any>> | null,
+    inputs: DispatchInputs | null,
 ): void {
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
@@ -927,15 +980,15 @@ function updateComputeBindGroup(
                 break;
 
             case 'storage':
-                updateStorageBinding(bufferCache, device, binding, data, null, buffers);
+                updateStorageBinding(bufferCache, device, binding, data, null, inputs?.buffers ?? null);
                 break;
 
             case 'texture':
-                updateTextureBinding(textureCache, device, binding, data);
+                updateTextureBinding(textureCache, device, binding, data, inputs);
                 break;
 
             case 'storageTexture':
-                updateStorageTextureBinding(textureCache, device, binding, data);
+                updateStorageTextureBinding(textureCache, device, binding, data, inputs);
                 break;
 
             case 'sampler':

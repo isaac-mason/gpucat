@@ -34,6 +34,13 @@ export {
     type OptionsCubeArray,
     type ViewDimensionOf,
 } from './core/gpu-texture';
+export {
+    GpuTextureView,
+    type TextureSource,
+    TextureViewRange,
+    type TextureViewRangeInit,
+    WHOLE_TEXTURE,
+} from './core/gpu-texture-view';
 export * from './core/object3d';
 export * from './core/render-target';
 export {
@@ -204,9 +211,11 @@ export {
     type InspectorNode,
     type InterpolationSampling,
     type InterpolationType,
+    type InvariantNode,
     i32,
     index,
     instanceIndex,
+    invariant,
     inverseSqrt,
     Let,
     type LetNode,

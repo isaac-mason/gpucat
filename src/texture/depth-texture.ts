@@ -20,8 +20,8 @@ export type DepthTextureFormat =
  */
 export class DepthTexture {
     readonly isDepthTexture = true;
-    /** The underlying GPU texture resource */
-    readonly _gpuTexture: GpuTexture<d.textureDepth2d>;
+    /** The underlying GPU texture resource: a 2D depth, or a 2D-array one when it has layers */
+    readonly _gpuTexture: GpuTexture<d.textureDepth2d | d.textureDepth2dArray>;
 
     /** The underlying sampler */
     readonly _gpuSampler: GpuSampler;
@@ -45,16 +45,16 @@ export class DepthTexture {
      * @param width - The width of the texture
      * @param height - The height of the texture
      * @param format - The depth format (default: 'depth24plus')
+     * @param layers - Array layers: more than one makes it a 2D-array depth, a layer a pass (default: 1)
      */
-    constructor(width: number, height: number, format: DepthTextureFormat = 'depth24plus') {
-        this._gpuTexture = new GpuTexture(d.textureDepth2d, {
-            width,
-            height,
-            format,
-            // Spec-fixed numeric flags (not the WebGPU `GPUTextureUsage` global), so a DepthTexture can be
-            // constructed under a WebGL2 context / headless where that global is undefined.
-            usage: TEXTURE_USAGE.RENDER_ATTACHMENT | TEXTURE_USAGE.TEXTURE_BINDING,
-        });
+    constructor(width: number, height: number, format: DepthTextureFormat = 'depth24plus', layers = 1) {
+        // Spec-fixed numeric flags (not the WebGPU `GPUTextureUsage` global), so a DepthTexture can be
+        // constructed under a WebGL2 context / headless where that global is undefined.
+        const usage = TEXTURE_USAGE.RENDER_ATTACHMENT | TEXTURE_USAGE.TEXTURE_BINDING;
+        this._gpuTexture =
+            layers > 1
+                ? new GpuTexture(d.textureDepth2dArray, { width, height, layers, format, usage })
+                : new GpuTexture(d.textureDepth2d, { width, height, format, usage });
 
         // Default to comparison sampler for shadow mapping
         this._gpuSampler = new GpuSampler({
@@ -75,6 +75,10 @@ export class DepthTexture {
     }
     get format(): DepthTextureFormat {
         return this._gpuTexture.format as DepthTextureFormat;
+    }
+    /** Array layers; 1 for a plain 2D depth. */
+    get layers(): number {
+        return this._gpuTexture.depthOrArrayLayers;
     }
 
     get compareFunction(): GPUCompareFunction | undefined {
@@ -104,7 +108,7 @@ export class DepthTexture {
     }
 
     clone(): DepthTexture {
-        const tex = new DepthTexture(this.width, this.height, this.format);
+        const tex = new DepthTexture(this.width, this.height, this.format, this.layers);
         tex.name = this.name;
         tex.compareFunction = this.compareFunction;
         return tex;
@@ -117,6 +121,6 @@ export class DepthTexture {
 }
 
 /** The factory form; the contents are written by the GPU, so there is no data argument. */
-export function createDepthTexture(width: number, height: number, format?: DepthTextureFormat): DepthTexture {
-    return new DepthTexture(width, height, format);
+export function createDepthTexture(width: number, height: number, format?: DepthTextureFormat, layers?: number): DepthTexture {
+    return new DepthTexture(width, height, format, layers);
 }

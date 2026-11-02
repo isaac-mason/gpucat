@@ -1,4 +1,3 @@
-import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { RenderTarget } from '../../core/render-target';
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { IndexedMeshDraw, NonIndexedMeshDraw } from '../../objects/mesh';
@@ -254,7 +253,11 @@ function stencilAttachmentOps(
     };
 }
 
-/** Attachments for a 2D render target (one color per attachment, MRT supported). */
+/**
+ * Attachments for a render target: each of its colour textures (MRT) and its depth, at the pass's mip and layer. A
+ * multisampled target draws into that layer's multisampled textures and resolves the colour into the layer. A 3D
+ * target's colour attachment is its mip, and the pass's layer is the slice drawn.
+ */
 function resolveRenderTargetAttachments(
     device: GPUDevice,
     textures: Textures.TextureCache,
@@ -264,6 +267,8 @@ function resolveRenderTargetAttachments(
 ): ResolvedAttachments {
     RenderTargets.ensureRenderTargetTexturesAllocated(textures, device, renderTarget);
 
+    const { layer, mipLevel } = params;
+    const is3d = renderTarget.dimension === '3d';
     // `clear: false` loads, which is how several viewport/scissor passes composite into one target.
     const loadOp: GPULoadOp = params.clearsColor ? 'clear' : 'load';
     const colorAttachments: GPURenderPassColorAttachment[] = [];
@@ -272,24 +277,12 @@ function resolveRenderTargetAttachments(
         if (!textureData) {
             throw new Error('[webgpu] Render target texture not found in cache');
         }
-        // MSAA: render into the multisampled texture and resolve into the sampled
-        // single-sample texture. Otherwise render directly into the single texture.
-        const msaaView = RenderTargets.getRenderTargetMsaaView(textureData);
+        const view = Textures.attachmentView(textureData, mipLevel, layer, is3d);
+        const msaaView = RenderTargets.getRenderTargetMsaaView(textureData, layer);
         colorAttachments.push(
             msaaView
-                ? {
-                      view: msaaView,
-                      resolveTarget: RenderTargets.getRenderTargetView(textureData),
-                      clearValue: clearColor,
-                      loadOp,
-                      storeOp: 'store',
-                  }
-                : {
-                      view: RenderTargets.getRenderTargetView(textureData),
-                      clearValue: clearColor,
-                      loadOp,
-                      storeOp: 'store',
-                  },
+                ? { view: msaaView, resolveTarget: view, clearValue: clearColor, loadOp, storeOp: 'store' }
+                : { view, depthSlice: is3d ? layer : undefined, clearValue: clearColor, loadOp, storeOp: 'store' },
         );
     }
 
@@ -301,7 +294,9 @@ function resolveRenderTargetAttachments(
             throw new Error('[webgpu] this render target has a depth attachment that was never allocated.');
         }
         depthAttachment = {
-            view: RenderTargets.getRenderTargetView(depthTextureData),
+            view:
+                RenderTargets.getRenderTargetMsaaView(depthTextureData, layer) ??
+                Textures.attachmentView(depthTextureData, mipLevel, layer, false),
             depthClearValue: params.clearDepthValue,
             depthLoadOp: params.clearsDepth ? 'clear' : 'load',
             depthStoreOp: params.storesDepth ? 'store' : 'discard',
@@ -384,61 +379,10 @@ function resolveSwapchainAttachments(
     };
 }
 
-/** Build the color/depth attachments for a cube render target's active face. */
-function resolveCubeAttachments(
-    device: GPUDevice,
-    textures: Textures.TextureCache,
-    renderTarget: CubeRenderTarget,
-    clearColor: GPUColorDict,
-    params: RenderPassParams,
-): ResolvedAttachments {
-    RenderTargets.ensureRenderTargetTexturesAllocated(textures, device, renderTarget);
-
-    const cubeData = Textures.getTextureData(textures, renderTarget.texture._gpuTexture);
-    if (!cubeData) {
-        throw new Error('[webgpu] Cube render target texture not found in cache');
-    }
-
-    // A 2D view of the single selected face (layer) of the cube texture.
-    const colorAttachments: GPURenderPassColorAttachment[] = [
-        {
-            view: cubeData.texture.createView({
-                dimension: '2d',
-                baseArrayLayer: params.layer,
-                arrayLayerCount: 1,
-                baseMipLevel: params.mipLevel,
-                mipLevelCount: 1,
-            }),
-            clearValue: clearColor,
-            loadOp: params.clearsColor ? 'clear' : 'load',
-            storeOp: 'store',
-        },
-    ];
-
-    let depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
-    if (renderTarget._depthAttachment) {
-        const depthData = Textures.getTextureData(textures, renderTarget._depthAttachment._gpuTexture);
-        if (depthData) {
-            depthAttachment = {
-                view: RenderTargets.getRenderTargetView(depthData),
-                depthClearValue: params.clearDepthValue,
-                depthLoadOp: params.clearsDepth ? 'clear' : 'load',
-                depthStoreOp: params.storesDepth ? 'store' : 'discard',
-                ...stencilAttachmentOps(renderTarget._depthAttachment.format, params),
-            };
-        }
-    }
-
-    return { colorAttachments, depthAttachment };
-}
-
 /** Build GPU color and depth attachments, dispatching on the target kind. */
 export function resolveAttachments(b: WebGPUBackend, params: RenderPassParams): ResolvedAttachments {
     const { device, textures } = b;
     const { renderTarget, clearColor } = params;
-    if (renderTarget?.isCubeRenderTarget) {
-        return resolveCubeAttachments(device, textures, renderTarget as CubeRenderTarget, clearColor, params);
-    }
     if (renderTarget) return resolveRenderTargetAttachments(device, textures, renderTarget, clearColor, params);
     return resolveSwapchainAttachments(b.canvasContexts, device, b.swapchain, b.format, clearColor, params);
 }

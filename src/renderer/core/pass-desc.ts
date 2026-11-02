@@ -1,6 +1,6 @@
 import type { CoordinateSystem } from '../../core/coordinate-system';
 import type { CubeRenderTarget } from '../../core/cube-render-target';
-import { deadAttachment, type RenderTarget } from '../../core/render-target';
+import { assertSubresource, deadAttachment, type RenderTarget } from '../../core/render-target';
 import type { CanvasTarget } from './canvas-target';
 import type { DeviceBackend } from './device-backend';
 import type { CameraRecord, PassDesc, PassEntry, Rect, RenderBundle, ScissorRecord, ViewportRecord, ViewportRect } from './frame';
@@ -67,7 +67,7 @@ export function resolvePassParams(desc: PassDesc, out: RenderPassParams): Render
     const { width, height } = sizeOf(target);
     const viewport = desc.viewport;
 
-    resolveCubeFace(rt, desc, out);
+    resolveSubresource(rt, desc, out);
     out.renderTarget = rt;
     out.canvasTarget = rt === null ? (target as CanvasTarget) : null;
     out.clearColor.r = r;
@@ -193,21 +193,25 @@ export function writeSegment(
     out.scissorValue.height = scissor.height;
 }
 
-/** Six faces with no default among them, so a cube pass names one and no other target may. */
-function resolveCubeFace(rt: RenderTarget | null, desc: PassDesc, out: RenderPassParams): void {
-    if (rt !== null && isCubeRenderTarget(rt)) {
-        if (desc.layer === undefined) {
-            throw new Error('[frame] a pass on a cube target names the face it writes: pass `layer: 0..5`.');
+/**
+ * The mip and layer of `rt` the pass draws into, 0 and 0 unless named, checked against its layout. A cube's six faces
+ * have no default among them, so a cube pass names its face. The canvas has one of each.
+ */
+function resolveSubresource(rt: RenderTarget | null, desc: PassDesc, out: RenderPassParams): void {
+    if (rt === null) {
+        if (desc.layer !== undefined || desc.mipLevel !== undefined) {
+            throw new Error('[frame] layer and mipLevel select part of a render target; the canvas has one layer and one mip.');
         }
-        out.layer = desc.layer;
-        out.mipLevel = desc.mipLevel ?? 0;
+        out.layer = 0;
+        out.mipLevel = 0;
         return;
     }
-    if (desc.layer !== undefined || desc.mipLevel !== undefined) {
-        throw new Error('[frame] layer and mipLevel select a cube face and level; this pass names a target that has neither.');
+    if (isCubeRenderTarget(rt) && desc.layer === undefined) {
+        throw new Error('[frame] a pass on a cube target names the face it writes: pass `layer: 0..5`.');
     }
-    out.layer = 0;
-    out.mipLevel = 0;
+    out.layer = desc.layer ?? 0;
+    out.mipLevel = desc.mipLevel ?? 0;
+    assertSubresource(rt, out.mipLevel, out.layer, 'frame');
 }
 
 /** Clamps into [0, framebuffer]: the origin is pulled to 0 and the extent shrunk to fit. */

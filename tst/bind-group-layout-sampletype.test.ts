@@ -7,7 +7,7 @@ import { sampleTypeForFormat, samplerBindingType, textureBindingLayout } from '.
 // derived from the actual sampler settings (comparison / non-filtering / filtering).
 
 const texEntry = (type: string, format?: string) =>
-    ({ type, binding: 0, node: { value: format ? { format } : null } }) as never;
+    ({ type, binding: 0, node: { value: format ? { format } : null, slot: null } }) as never;
 
 const samplerEntry = (type: 'sampler' | 'sampler_comparison', sampler?: unknown) =>
     ({ type, binding: 0, samplerNode: { value: sampler } }) as never;
@@ -60,14 +60,22 @@ describe('samplerBindingType', () => {
     });
 
     test('sampler with a compare function → comparison', () => {
-        expect(samplerBindingType(samplerEntry('sampler', { compare: 'less', minFilter: 'linear', magFilter: 'linear', mipmapFilter: 'linear' }))).toBe('comparison');
+        expect(
+            samplerBindingType(
+                samplerEntry('sampler', { compare: 'less', minFilter: 'linear', magFilter: 'linear', mipmapFilter: 'linear' }),
+            ),
+        ).toBe('comparison');
     });
 
     test('all-nearest, no-compare sampler → non-filtering', () => {
-        expect(samplerBindingType(samplerEntry('sampler', { minFilter: 'nearest', magFilter: 'nearest', mipmapFilter: 'nearest' }))).toBe('non-filtering');
+        expect(
+            samplerBindingType(samplerEntry('sampler', { minFilter: 'nearest', magFilter: 'nearest', mipmapFilter: 'nearest' })),
+        ).toBe('non-filtering');
     });
 
     test('linear sampler → filtering', () => {
-        expect(samplerBindingType(samplerEntry('sampler', { minFilter: 'linear', magFilter: 'linear', mipmapFilter: 'nearest' }))).toBe('filtering');
+        expect(
+            samplerBindingType(samplerEntry('sampler', { minFilter: 'linear', magFilter: 'linear', mipmapFilter: 'nearest' })),
+        ).toBe('filtering');
     });
 });

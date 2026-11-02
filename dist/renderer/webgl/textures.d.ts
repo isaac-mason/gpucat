@@ -70,6 +70,8 @@ export type GlTextureData = {
     allocD: number;
     /** What this entry currently contributes to `TextureCache.tally`. */
     allocation: Allocation;
+    /** The mip range the GL texture's base and max level last selected: a view's range key, '' for every mip. */
+    levelRange?: string;
 };
 /**
  * GL texture backing a read-only storage `GpuBuffer` reinterpreted as rgba32uint (the WebGL `storage()`

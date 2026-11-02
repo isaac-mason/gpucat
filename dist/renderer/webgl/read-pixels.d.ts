@@ -19,7 +19,7 @@ import type { WebGLBackend } from './webgl-backend';
  * Read a RenderTarget color attachment back to a tightly-packed, top-to-bottom RGBA8 `Uint8Array`
  * (length `width * height * 4`), matching the WebGPU `readPixels` output. The target's color format
  * must be `rgba8unorm` / `rgba8unorm-srgb` (WebGL2 has no BGRA render format). `attachmentIndex`
- * selects an MRT color attachment; `layer` selects a cube face (0..5). Throws if the target has not
+ * selects an MRT color attachment; `layer` an array layer, cube face (0..5) or 3D slice, and `mipLevel` a mip. Throws if the target has not
  * been rendered to yet. The copy is queued before this returns, so the target can be drawn into again
  * at once; the promise settles when the bytes are back.
  */

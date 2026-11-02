@@ -303,10 +303,16 @@ function buildTemplateBindGroups(
                 bindGroup.bindings.push({ kind: 'storage', entry: s, lastBuffer: null });
             }
             for (const t of groupTextures) {
-                bindGroup.bindings.push({ kind: 'texture', entry: t, generation: 0, lastTexture: null });
+                bindGroup.bindings.push({ kind: 'texture', entry: t, generation: 0, lastTexture: null, lastRangeKey: null });
             }
             for (const st of groupStorageTextures) {
-                bindGroup.bindings.push({ kind: 'storageTexture', entry: st, generation: 0, lastTexture: null });
+                bindGroup.bindings.push({
+                    kind: 'storageTexture',
+                    entry: st,
+                    generation: 0,
+                    lastTexture: null,
+                    lastRangeKey: null,
+                });
             }
             for (const s of groupSamplers) {
                 bindGroup.bindings.push({ kind: 'sampler', entry: s, samplerKey: null });

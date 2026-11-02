@@ -1,6 +1,8 @@
 // Generated once from the surface as it stood when the ratchet went in; see public-api.test.ts.
 // Add a name here to say "internal on purpose", or add it to index.ts to make it public.
 export const DELIBERATELY_INTERNAL: ReadonlySet<string> = new Set([
+    './core/gpu-texture-view#textureSourceParts',
+    './nodes/nodes#isInvariantPosition',
     './inspector/renderer-inspector#ComputeEntry',
     './inspector/renderer-inspector#FrameRecord',
     './inspector/renderer-inspector#MarkerEntry',

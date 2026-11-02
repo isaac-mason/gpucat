@@ -1,4 +1,6 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { GpuTexture } from '../../core/gpu-texture';
+import type { TextureSource } from '../../core/gpu-texture-view';
 import type { Object3D } from '../../core/object3d';
 import { deadAttachment } from '../../core/render-target';
 import type { InspectorBase } from '../../inspector/inspector-base';
@@ -34,9 +36,10 @@ export type PassDesc = {
     storeDepth?: boolean;
     /** `storeDepth` for the stencil. */
     storeStencil?: boolean;
-    /** Cube face, 0..5 = +X, -X, +Y, -Y, +Z, -Z. Only a `CubeRenderTarget` can select one. */
+    /** The layer of the target to draw into: an array layer, a cube face (0..5 = +X, -X, +Y, -Y, +Z, -Z), or a 3D
+     *  target's depth slice. Default 0; a cube pass names its face. */
     layer?: number;
-    /** Mip level to render into. Only a `CubeRenderTarget` allocates a chain to select from. */
+    /** The mip level of the target to draw into. Default 0. */
     mipLevel?: number;
     mrt?: MRTNode;
     viewport?: ViewportRect;
@@ -90,11 +93,22 @@ export type ScissorRecord = { kind: 'scissor'; scissor: Rect | undefined };
  *  are drawn with. */
 export type PassEntry = DrawRecord | BundleRecord | CameraRecord | ViewportRecord | ScissorRecord;
 
-export type ComputePassDesc = { label?: string };
+export type ComputePassDesc = {
+    label?: string;
+    /**
+     * The camera and pixel size the pass's dispatches read render-scope uniforms with (the camera's matrices and
+     * position, `screenSize`), as a render pass of that camera into a target that size would. Without one, a dispatch
+     * reading them gets whatever the last render pass left.
+     */
+    view?: { camera: View; width: number; height: number };
+};
 
 export type DispatchOptions = {
     /** Rebinds the node's named `storage()` refs for this dispatch alone, so no pipeline is recompiled. */
     buffers?: Record<string, GpuBuffer<Any>>;
+    /** Fills the node's named texture slots (`texture(slot, …)`, `storageTexture(slot, …)`) for this dispatch alone:
+     *  a texture, a view of part of one, or what holds one (a render target's attachment), as a copy takes. */
+    textures?: Record<string, TextureSource | { readonly _gpuTexture: GpuTexture }>;
 };
 
 export type DispatchIndirectOptions = DispatchOptions & { offset?: number };
@@ -540,9 +554,9 @@ function createComputePass(frame: Frame, desc: ComputePassDesc): ComputePass {
         desc,
         record: null,
         ended: false,
-        dispatch: (node, counts, opts) => recordDispatch(frame, pass, node, counts, undefined, 0, opts?.buffers),
+        dispatch: (node, counts, opts) => recordDispatch(frame, pass, node, counts, undefined, 0, opts),
         dispatchIndirect: (node, indirect, opts) =>
-            recordDispatch(frame, pass, node, undefined, indirect, opts?.offset ?? 0, opts?.buffers),
+            recordDispatch(frame, pass, node, undefined, indirect, opts?.offset ?? 0, opts),
         end: () => endPass(frame, pass),
     };
     return pass;
@@ -555,20 +569,21 @@ function recordDispatch(
     counts: [number, number, number] | undefined,
     indirect: GpuBuffer<Any> | undefined,
     indirectOffset: number,
-    buffers: Record<string, GpuBuffer<Any>> | undefined,
+    opts: DispatchOptions | undefined,
 ): void {
     if (pass.ended) throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
 
     let record = pass.record as DispatchRecordSlot | null;
     if (record === null) {
-        record = { kind: 'dispatch', node, counts, indirect, indirectOffset, buffers };
+        record = { kind: 'dispatch', node, counts, indirect, indirectOffset, buffers: opts?.buffers, textures: opts?.textures };
         pass.record = record as DispatchRecord;
     } else {
         record.node = node;
         record.counts = counts;
         record.indirect = indirect;
         record.indirectOffset = indirectOffset;
-        record.buffers = buffers;
+        record.buffers = opts?.buffers;
+        record.textures = opts?.textures;
     }
     resolveCall(frame, pass, record as DispatchRecord);
 }

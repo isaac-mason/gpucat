@@ -1,5 +1,6 @@
 import {
     ArrayTexture,
+    invariant,
     acesToneMapping,
     array,
     arrayTexture,
@@ -177,6 +178,18 @@ export const tfCases: TfCase[] = [
  * Each `build()` constructs fresh nodes so a throw is caught per-case.
  */
 export const cases: Case[] = [
+    {
+        // the position marked invariant for a pass testing depth for equality, and reused as a varying's value
+        name: 'invariant position',
+        build: () => {
+            const position = attribute('position', d.vec3f);
+            const clipPosition = invariant(
+                cameraProjectionMatrix.mul(cameraViewMatrix.mul(modelWorldMatrix.mul(vec4(position, f32(1))))),
+            );
+            const vDepth = varying(clipPosition.z.div(clipPosition.w), 'vDepth');
+            return { vertex: clipPosition, fragment: vec4(vDepth, vDepth, vDepth, f32(1)), depth: undefined };
+        },
+    },
     {
         name: 'lit mesh',
         build: () => {

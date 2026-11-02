@@ -1,6 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
+import { type TextureSource, type TextureViewRange, textureSourceParts, WHOLE_TEXTURE } from '../../core/gpu-texture-view';
 import type { RenderTarget } from '../../core/render-target';
 import { layoutStrideOf, structFieldLayout } from '../../schema/pack';
 import type { Any, CubeSampledTexture, FlatDepthTexture, FlatSampledTexture } from '../../schema/schema';
@@ -204,16 +205,34 @@ export class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D>
      */
     passSource: { passNode: Node<d.Any>; textureName: string; previous: boolean } | null = null;
 
-    /** Unique ID for this texture binding (e.g. 'tAlbedo', 'tShadowMap'). */
+    /** The part of `value` the binding sees: the whole texture unless bound through a view. */
+    range: TextureViewRange = WHOLE_TEXTURE;
+
+    /** For a named binding, the slot a dispatch fills with `textures: { [slot]: view }`; `value` is then unused. */
+    readonly slot: string | null;
+
+    /** The binding's identity: its texture and range, or its slot. Two nodes with the same id are one binding. */
     readonly textureId: string;
 
     /** Uniform group, determines @group index. */
     group: UniformGroup;
 
-    constructor(desc: D, textureId: string, group: UniformGroup = objectGroup) {
+    constructor(desc: D, textureId: string, group: UniformGroup = objectGroup, slot: string | null = null) {
         super(desc);
         this.textureId = textureId;
         this.group = group;
+        this.slot = slot;
+    }
+
+    /**
+     * Binds `source` (a texture, or a view of part of one) in place of what the binding bound. A storage texture binds
+     * as it is sampled, as `texture()` binds one.
+     */
+    bind(source: TextureSource<D> | TextureSource<d.StorageTexture>): this {
+        const { texture, range } = textureSourceParts(source as TextureSource<D>);
+        this.value = texture;
+        this.range = range;
+        return this;
     }
 }
 
@@ -223,32 +242,50 @@ export class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D>
  * and read via `textureLoad` (no sampler).
  *
  * Format + dimension come from the GpuTexture's descriptor; `access` is a
- * per-binding property (default `'write'`), so the same GpuTexture can be bound
- * `write` in one shader and `read` in another (ping-pong). `mipLevel` selects the
- * mip the binding view targets (for manual mip-pyramid writes).
+ * per-binding property (default `'write'`), as in the binding layout. The view it
+ * binds sees one mip, so a texture with mips is bound through a view of one, and
+ * one shader can read one mip of a texture while writing another.
  */
 export class StorageTextureBindingNode<D extends d.StorageTexture = d.StorageTexture> extends Node<D> {
     readonly kind = NodeKind.StorageTextureBinding;
     /** The GpuTexture */
     value: GpuTexture<D> | null = null;
 
-    /** Unique ID for this texture binding (e.g. 'st3'). */
+    /** The part of `value` the binding sees: the whole texture unless bound through a view. */
+    range: TextureViewRange = WHOLE_TEXTURE;
+
+    /** For a named binding, the slot a dispatch fills with `textures: { [slot]: view }`; `value` is then unused. */
+    readonly slot: string | null;
+
+    /** The binding's identity: its texture, range and access, or its slot. Two nodes with the same id are one binding. */
     readonly textureId: string;
 
     /** Uniform group, determines @group index. */
     group: UniformGroup;
 
     /** WGSL access mode for THIS binding (overrides the descriptor default). */
-    access: d.StorageTextureAccess;
+    readonly access: d.StorageTextureAccess;
 
-    /** Mip level the binding view targets. */
-    mipLevel: number = 0;
-
-    constructor(desc: D, textureId: string, access: d.StorageTextureAccess, group: UniformGroup = objectGroup) {
+    constructor(
+        desc: D,
+        textureId: string,
+        access: d.StorageTextureAccess,
+        group: UniformGroup = objectGroup,
+        slot: string | null = null,
+    ) {
         super(desc);
         this.textureId = textureId;
         this.access = access;
         this.group = group;
+        this.slot = slot;
+    }
+
+    /** Binds `source` (a texture, or a view of one mip of one) in place of what the binding bound. */
+    bind(source: TextureSource<D>): this {
+        const { texture, range } = textureSourceParts(source);
+        this.value = texture;
+        this.range = range;
+        return this;
     }
 
     /** The storage texel format (from the descriptor). */
@@ -265,32 +302,53 @@ export class StorageTextureBindingNode<D extends d.StorageTexture = d.StorageTex
     get wgslBindingType(): string {
         return `texture_storage_${this.type.dim}<${this.type.format}, ${this.access}>`;
     }
+}
 
-    /** Set the mip level this binding view targets (for manual mip writes). */
-    setMipLevel(level: number): this {
-        this.mipLevel = level;
-        return this;
+function assertStorageAccess(format: d.StorageTextureFormat, access: d.StorageTextureAccess): void {
+    if (access === 'read_write' && !d.STORAGE_FORMATS[format].readWrite) {
+        throw new Error(
+            `[gpucat] storage format '${format}' does not support 'read_write' access. ` +
+                `Use 'write' or 'read', or pick a read_write-capable format.`,
+        );
     }
 }
 
 /**
- * storageTexture - bind a GpuTexture as a storage texture for compute writes/reads.
+ * storageTexture - a storage texture binding for compute writes and reads.
  *
- * @param gpuTex - a storage GpuTexture (e.g. from `createStorageTexture(...)`)
+ * Bound by value to a texture, or a view of one mip of one:
+ * `storageTexture(pyramid.view({ baseMipLevel: 2, mipLevelCount: 1 }), 'write')`.
+ * Or named, filled by each dispatch: `storageTexture('destination', d.textureStorage2d('r32float'), 'write')` with
+ * `dispatch(node, counts, { textures: { destination: view } })`, so one kernel runs over many mips or layers.
+ *
  * @param access - 'write' (default), 'read', or 'read_write'
  */
 export function storageTexture<D extends d.StorageTexture>(
-    gpuTex: GpuTexture<D>,
-    access: d.StorageTextureAccess = 'write',
+    source: TextureSource<D>,
+    access?: d.StorageTextureAccess,
+): StorageTextureBindingNode<D>;
+export function storageTexture<D extends d.StorageTexture>(
+    slot: string,
+    schema: D,
+    access?: d.StorageTextureAccess,
+): StorageTextureBindingNode<D>;
+export function storageTexture<D extends d.StorageTexture>(
+    sourceOrSlot: TextureSource<D> | string,
+    schemaOrAccess?: D | d.StorageTextureAccess,
+    accessArg?: d.StorageTextureAccess,
 ): StorageTextureBindingNode<D> {
-    if (access === 'read_write' && !d.STORAGE_FORMATS[gpuTex.type.format].readWrite) {
-        throw new Error(
-            `[gpucat] storage format '${gpuTex.type.format}' does not support 'read_write' access. ` +
-                `Use 'write' or 'read', or pick a read_write-capable format.`,
-        );
+    if (typeof sourceOrSlot === 'string') {
+        const schema = schemaOrAccess as D;
+        const access = accessArg ?? 'write';
+        assertStorageAccess(schema.format, access);
+        return new StorageTextureBindingNode(schema, `slot:${sourceOrSlot}:${access}`, access, objectGroup, sourceOrSlot);
     }
-    const node = new StorageTextureBindingNode(gpuTex.type, `st${gpuTex.id}`, access);
-    node.value = gpuTex;
+    const { texture, range } = textureSourceParts(sourceOrSlot);
+    const access = (schemaOrAccess as d.StorageTextureAccess | undefined) ?? 'write';
+    assertStorageAccess(texture.type.format, access);
+    const node = new StorageTextureBindingNode(texture.type, `${textureBindingId(texture, range)}:${access}`, access);
+    node.value = texture;
+    node.range = range;
     return node;
 }
 
@@ -765,8 +823,46 @@ export function comparisonSampler(
  * GpuTexture could claim the same id. The emitters key their texture table on it, so the second
  * binding was dropped and both sampled the first texture.
  */
-function textureBindingId(gpuTexture: { id: number }): string {
-    return `t${gpuTexture.id}`;
+function textureBindingId(gpuTexture: { id: number }, range: TextureViewRange = WHOLE_TEXTURE): string {
+    return range.key === '' ? `t${gpuTexture.id}` : `t${gpuTexture.id}@${range.key}`;
+}
+
+/**
+ * The type a binding of `range` of a texture of type `desc` declares: the texture's own, unless the view names a
+ * dimension, as a view of one layer of an array names `'2d'`. The sample type stays the texture's.
+ */
+function viewDesc(desc: d.Texture, range: TextureViewRange): d.Texture {
+    const dimension = range.dimension;
+    if (dimension === undefined) return desc;
+    if (d.isDepthTextureDesc(desc)) {
+        switch (dimension) {
+            case '2d':
+                return d.textureDepth2d;
+            case '2d-array':
+                return d.textureDepth2dArray;
+            case 'cube':
+                return d.textureDepthCube;
+            case 'cube-array':
+                return d.textureDepthCubeArray;
+            default:
+                throw new Error(`[gpucat] a depth texture has no '${dimension}' view.`);
+        }
+    }
+    const sampleType = (desc as d.SampledTexture).sampleType ?? d.f32;
+    switch (dimension) {
+        case '1d':
+            return d.texture1d(sampleType);
+        case '2d':
+            return d.texture2d(sampleType);
+        case '2d-array':
+            return d.texture2dArray(sampleType);
+        case '3d':
+            return d.texture3d(sampleType);
+        case 'cube':
+            return d.textureCube(sampleType);
+        case 'cube-array':
+            return d.textureCubeArray(sampleType);
+    }
 }
 
 /** The sampled-texture descriptor a storage texture is sampled as (dual-usage). */
@@ -799,7 +895,9 @@ function sampledDescForStorage(desc: d.StorageTexture): FlatSampledTexture {
  *
  * Accepts either:
  * - A high-level Texture, DataTexture or Data3DTexture (auto-creates sampler from texture settings)
- * - A GpuTexture + GpuSampler pair (low-level)
+ * - A GpuTexture, or a view of part of one, with the GpuSampler it is sampled with. With no sampler it can only be
+ *   read with `.load()`, which needs none.
+ * - A slot name and the sampled type, filled by each dispatch with `textures: { [slot]: view }`. Read with `.load()`.
  *
  * @example
  * // From high-level Texture
@@ -807,6 +905,10 @@ function sampledDescForStorage(desc: d.StorageTexture): FlatSampledTexture {
  *
  * // From GpuTexture + GpuSampler (low-level)
  * const albedo = texture(gpuTex, gpuSampler);
+ *
+ * // A depth pyramid, every mip, read texel by texel
+ * const pyramid = texture(pyramidTex);
+ * pyramid.load(coords, mip)
  *
  * // Sampling methods
  * albedo.sample(customUv)              // textureSample with custom UVs
@@ -819,52 +921,49 @@ function sampledDescForStorage(desc: d.StorageTexture): FlatSampledTexture {
 export function texture(tex: Texture): TextureNode<d.texture2d>;
 export function texture(dataTex: DataTexture): TextureNode<d.texture2d>;
 export function texture(tex3d: Data3DTexture): TextureNode<d.texture3d>;
-export function texture<D extends FlatSampledTexture>(gpuTex: GpuTexture<D>, gpuSampler: GpuSampler): TextureNode<D>;
+export function texture<D extends FlatSampledTexture>(source: TextureSource<D>, gpuSampler?: GpuSampler): TextureNode<D>;
 export function texture<S extends d.StorageTexture>(
-    storageTex: GpuTexture<S>,
-    gpuSampler: GpuSampler,
-): TextureNode<StorageSampledOf<S>>;
-export function texture(
-    source: Texture | DataTexture | Data3DTexture | GpuTexture<FlatSampledTexture> | GpuTexture<d.StorageTexture>,
+    storageSource: TextureSource<S>,
     gpuSampler?: GpuSampler,
+): TextureNode<StorageSampledOf<S>>;
+export function texture<D extends FlatSampledTexture>(slot: string, schema: D): TextureNode<D>;
+export function texture(
+    source: Texture | DataTexture | Data3DTexture | TextureSource<FlatSampledTexture> | TextureSource<d.StorageTexture> | string,
+    samplerOrSchema?: GpuSampler | FlatSampledTexture,
 ): TextureNode<FlatSampledTexture> {
-    if ('isGpuTexture' in source) {
-        if (!gpuSampler) {
-            throw new Error('texture(): GpuSampler required when passing GpuTexture directly');
-        }
+    if (typeof source === 'string') {
+        const schema = samplerOrSchema as FlatSampledTexture;
+        return new TextureNode(new TextureBindingNode(schema, `slot:${source}`, objectGroup, source));
+    }
+    if ('isGpuTexture' in source || 'isGpuTextureView' in source) {
+        const { texture: gpuTexture, range } = textureSourceParts(source as TextureSource<FlatSampledTexture | d.StorageTexture>);
+        const gpuSampler = samplerOrSchema as GpuSampler | undefined;
         // Storage textures are dual-usage (STORAGE_BINDING | TEXTURE_BINDING): the same GPU
         // texture written in compute can be sampled here. Bind it as a sampled texture whose
         // sample type matches the storage format's channel.
-        if (d.isStorageTextureDesc(source.type)) {
-            const sampledDesc = sampledDescForStorage(source.type);
-            const binding = new TextureBindingNode(sampledDesc, textureBindingId(source));
-            binding.value = source as unknown as GpuTexture<FlatSampledTexture>;
-            const node = new TextureNode(binding);
-            node.samplerNode = sampler(gpuSampler, binding.group);
-            return node;
-        }
-        // Widen the type for the binding to FlatSampledTexture
-        const sampledSource = source as GpuTexture<FlatSampledTexture>;
-        const desc = sampledSource.type as FlatSampledTexture;
-        const binding = new TextureBindingNode(desc, textureBindingId(sampledSource));
-        binding.value = sampledSource;
+        const desc = viewDesc(
+            d.isStorageTextureDesc(gpuTexture.type) ? sampledDescForStorage(gpuTexture.type) : gpuTexture.type,
+            range,
+        ) as FlatSampledTexture;
+        const binding = new TextureBindingNode(desc, textureBindingId(gpuTexture, range));
+        binding.value = gpuTexture as unknown as GpuTexture<FlatSampledTexture>;
+        binding.range = range;
         const node = new TextureNode(binding);
-        node.samplerNode = sampler(gpuSampler, binding.group);
-        return node;
-    } else {
-        // A high-level Texture, DataTexture or Data3DTexture — all expose `_gpuTexture` / `_gpuSampler` /
-        // `id`. The GpuTexture's descriptor carries the sampled type (a DataTexture backed by an integer
-        // format reports `texture2d<u32>`/`texture2d<i32>`, so the emitter declares usampler2D/isampler2D
-        // and `.load()` returns uvec4/ivec4; a Data3DTexture reports `texture3d<f32>`) — so all three ride
-        // this same branch, no cast needed.
-        const gpuTex = source._gpuTexture;
-        const desc = gpuTex.type as FlatSampledTexture;
-        const binding = new TextureBindingNode(desc, textureBindingId(gpuTex));
-        binding.value = gpuTex;
-        const node = new TextureNode(binding);
-        node.samplerNode = sampler(source._gpuSampler, binding.group);
+        if (gpuSampler) node.samplerNode = sampler(gpuSampler, binding.group);
         return node;
     }
+    // A high-level Texture, DataTexture or Data3DTexture — all expose `_gpuTexture` / `_gpuSampler` /
+    // `id`. The GpuTexture's descriptor carries the sampled type (a DataTexture backed by an integer
+    // format reports `texture2d<u32>`/`texture2d<i32>`, so the emitter declares usampler2D/isampler2D
+    // and `.load()` returns uvec4/ivec4; a Data3DTexture reports `texture3d<f32>`) — so all three ride
+    // this same branch, no cast needed.
+    const gpuTex = source._gpuTexture;
+    const desc = gpuTex.type as FlatSampledTexture;
+    const binding = new TextureBindingNode(desc, textureBindingId(gpuTex));
+    binding.value = gpuTex;
+    const node = new TextureNode(binding);
+    node.samplerNode = sampler(source._gpuSampler, binding.group);
+    return node;
 }
 
 /**
@@ -1230,17 +1329,18 @@ function plainDepthSampler(src: GpuSampler): GpuSampler {
  * const shadow = depthTexture(gpuDepthTex, gpuSampler);
  */
 export function depthTexture(tex: DepthTexture): DepthTextureNode;
-export function depthTexture(gpuTex: GpuTexture<FlatDepthTexture>, gpuSampler: GpuSampler): DepthTextureNode;
-export function depthTexture(source: DepthTexture | GpuTexture<FlatDepthTexture>, gpuSampler?: GpuSampler): DepthTextureNode {
-    if ('isGpuTexture' in source) {
-        if (!gpuSampler) {
-            throw new Error('depthTexture(): GpuSampler required when passing GpuTexture directly');
-        }
-        const desc = source.type as FlatDepthTexture;
-        const binding = new TextureBindingNode(desc, textureBindingId(source));
-        binding.value = source;
+export function depthTexture(source: TextureSource<FlatDepthTexture>, gpuSampler?: GpuSampler): DepthTextureNode;
+export function depthTexture(source: DepthTexture | TextureSource<FlatDepthTexture>, gpuSampler?: GpuSampler): DepthTextureNode {
+    if ('isGpuTexture' in source || 'isGpuTextureView' in source) {
+        const { texture: gpuTexture, range } = textureSourceParts(source);
+        const binding = new TextureBindingNode(
+            viewDesc(gpuTexture.type, range) as FlatDepthTexture,
+            textureBindingId(gpuTexture, range),
+        );
+        binding.value = gpuTexture;
+        binding.range = range;
         const node = new DepthTextureNode(binding);
-        node.samplerNode = sampler(plainDepthSampler(gpuSampler), binding.group);
+        if (gpuSampler) node.samplerNode = sampler(plainDepthSampler(gpuSampler), binding.group);
         return node;
     } else {
         const gpuTex = source._gpuTexture;
@@ -1626,7 +1726,10 @@ export function textureStore<D extends d.StorageTexture>(
 /**
  * textureDimensions - Get texture dimensions.
  */
-export function textureDimensions(t: TextureBindingNode, level?: Node<d.u32>): CallNode<d.vec2u> {
+export function textureDimensions(t: TextureBindingNode, level?: Node<d.u32>): CallNode<d.vec2u>;
+/** A storage binding's size: the size of the one mip its view sees. */
+export function textureDimensions(t: StorageTextureBindingNode): CallNode<d.vec2u>;
+export function textureDimensions(t: TextureBindingNode | StorageTextureBindingNode, level?: Node<d.u32>): CallNode<d.vec2u> {
     const args: Node<Any>[] = level ? [t, level] : [t];
     return new CallNode(d.vec2u, 'textureDimensions', args);
 }

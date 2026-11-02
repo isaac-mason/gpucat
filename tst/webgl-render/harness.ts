@@ -1,5 +1,6 @@
 import {
     ArrayTexture,
+    invariant,
     If,
     Fn,
     Discard,
@@ -965,6 +966,169 @@ async function caseCubeRtt(): Promise<CaseResult> {
     const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'cube-rtt', pixel, expected: [u8(drawn[0]), u8(drawn[1]), u8(drawn[2]), 255] };
+}
+
+/** The texel at (x, y) of a tightly-packed, top-to-bottom RGBA8 readback `width` texels wide. */
+function texelOf(pixels: Uint8Array, width: number, x: number, y: number): [number, number, number, number] {
+    const i = (y * width + x) * 4;
+    return [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]];
+}
+
+/**
+ * rt-mip-depth: a pass draws into mip 2 of a mipped target with depth: the colour mip and the depth mip are attached
+ * together, so a triangle in front draws over one behind it.
+ */
+async function caseRtMipDepth(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const target = createRenderTarget(32, 32, { colorFormat: 'rgba8unorm', mipLevelCount: 3 });
+    const at = (z: number, colour: [number, number, number]) => {
+        const mesh = new Mesh(
+            createFullscreenTriangleGeometry(),
+            new Material({ vertex: vec4(attribute('position', d.vec3f).xy, f32(z), f32(1)), fragment: vec4(...colour, 1) }),
+        );
+        mesh.updateWorldMatrix();
+        return mesh;
+    };
+    const f = frame(renderer);
+    const pass = f.pass({ target, mipLevel: 2, clear: [0, 0, 0, 1], clearDepth: 1 });
+    pass.draw(at(0.25, [0, 1, 0]));
+    pass.draw(at(0.75, [1, 0, 0]));
+    pass.end();
+    f.submit();
+    const pixel = texelOf(await read(renderer, target, { mipLevel: 2 }), 8, 4, 4);
+    renderer.dispose();
+    return { name: 'rt-mip-depth', pixel, expected: [0, 255, 0, 255], note: 'red means the depth test failed at mip 2' };
+}
+
+/**
+ * rt-array-layer: a pass per layer of a 4-layer target, layer n cleared to n/8 red, then a draw reads layer 3 through
+ * `arrayTexture` (red) and layer 0 (blue, 0).
+ */
+async function caseRtArrayLayer(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const layered = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', layers: 4, depthBuffer: false });
+    const f = frame(renderer);
+    for (let layer = 0; layer < 4; layer++) f.pass({ target: layered, layer, clear: [layer / 8, 0, 0, 1] }).end();
+    const array = layered.texture as ArrayTexture;
+    const shown = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const show = new Mesh(
+        createFullscreenTriangleGeometry(),
+        new Material({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(
+                arrayTexture(array, i32(3)).sample(screenUV).x,
+                f32(0),
+                arrayTexture(array, i32(0)).sample(screenUV).x,
+                f32(1),
+            ),
+            depthTest: false,
+        }),
+    );
+    show.updateWorldMatrix();
+    const pass = f.pass({ target: shown, clear: [0, 0, 0, 1] });
+    pass.draw(show);
+    pass.end();
+    f.submit();
+    const pixel = texelOf(await read(renderer, shown), SIZE, CENTER, CENTER);
+    renderer.dispose();
+    return { name: 'rt-array-layer', pixel, expected: [u8(3 / 8), 0, 0, 255], note: 'red: layer 3; blue: layer 0' };
+}
+
+/** rt-3d-slice: a pass per slice of a 4-slice 3D target, slice n cleared to n/8 green, then slice 2 read back. */
+async function caseRt3dSlice(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const volume = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', dimension: '3d', layers: 4, depthBuffer: false });
+    const f = frame(renderer);
+    for (let slice = 0; slice < 4; slice++) f.pass({ target: volume, layer: slice, clear: [0, slice / 8, 0, 1] }).end();
+    f.submit();
+    const pixel = texelOf(await read(renderer, volume, { layer: 2 }), SIZE, CENTER, CENTER);
+    renderer.dispose();
+    return { name: 'rt-3d-slice', pixel, expected: [0, u8(2 / 8), 0, 255], note: 'slice 2 of 4' };
+}
+
+/**
+ * rt-msaa-layers: a multisampled 2-layer target. Layer 0 is cleared red, layer 1 blue, then a pass on layer 0 that
+ * keeps what was drawn draws nothing: it loads layer 0's own samples, so layer 0 stays red.
+ */
+async function caseRtMsaaLayers(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', layers: 2, samples: 4 });
+    const f = frame(renderer);
+    f.pass({ target, layer: 0, clear: [1, 0, 0, 1] }).end();
+    f.pass({ target, layer: 1, clear: [0, 0, 1, 1] }).end();
+    f.pass({ target, layer: 0, clear: false }).end();
+    f.submit();
+    const pixel = texelOf(await read(renderer, target, { layer: 0 }), SIZE, CENTER, CENTER);
+    renderer.dispose();
+    return { name: 'rt-msaa-layers', pixel, expected: [255, 0, 0, 255], note: 'blue means the layers shared their samples' };
+}
+
+/**
+ * invariant-prepass-equal: a depth prepass then a colour pass testing depth for equality, as a cutout surface is drawn
+ * so its lighting runs once a pixel. A box turned so its faces slope in depth, seen in perspective: the prepass drops
+ * where world x < 0 and writes depth, and the colour pass draws green with no discard, depth compare 'equal' and no
+ * depth write, both through one position marked invariant. The kept half must be green at every pixel (a speckle is
+ * a depth that differed between the two programs), and the dropped half the clear red.
+ */
+async function caseInvariantPrepassEqual(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const position = attribute('position', d.vec3f);
+    const world = modelWorldMatrix.mul(vec4(position, f32(1)));
+    const clip = invariant(cameraProjectionMatrix.mul(cameraViewMatrix.mul(world)));
+    const worldX = varying(world.x, 'worldX');
+    // in a pass with a colour attachment the prepass declares the colour target too, its writes masked off
+    const cutout = Fn(
+        (x) => {
+            If(x.lessThan(f32(0)), () => {
+                Discard();
+            });
+            return vec4(0, 0, 0, 1);
+        },
+        { name: 'cutout', return: d.vec4f, params: [{ name: 'x', type: d.f32 }] },
+    );
+    const geometry = createBoxGeometry(2, 2, 2);
+    const prepass = new Mesh(
+        geometry,
+        new Material({ name: 'prepass', vertex: clip, fragment: cutout(worldX), colorWrite: false }),
+    );
+    const colour = new Mesh(
+        geometry,
+        new Material({ name: 'colour', vertex: clip, fragment: vec4(0, 1, 0, 1), depthWrite: false, depthCompare: 'equal' }),
+    );
+    for (const mesh of [prepass, colour]) {
+        mesh.quaternion = [0.0725, 0.1814, 0.0364, 0.9801];
+        mesh.updateWorldMatrix();
+    }
+    const camera = new PerspectiveCamera();
+    camera.position[2] = 4;
+    camera.updateWorldMatrix();
+    camera.updateViewMatrix();
+    const f = frame(renderer);
+    const pass = f.pass({ target, camera, clear: [1, 0, 0, 1], clearDepth: 1 });
+    pass.draw(prepass);
+    pass.draw(colour);
+    pass.end();
+    f.submit();
+    const pixels = await read(renderer, target);
+    let keptGreen = 0;
+    let droppedRed = 0;
+    for (let y = CENTER - 6; y <= CENTER + 6; y++) {
+        for (let x = 2; x <= 10; x++) {
+            const kept = texelOf(pixels, SIZE, CENTER + x, y);
+            if (kept[1] === 255 && kept[0] === 0) keptGreen++;
+            const dropped = texelOf(pixels, SIZE, CENTER - x, y);
+            if (dropped[0] === 255 && dropped[1] === 0) droppedRed++;
+        }
+    }
+    renderer.dispose();
+    const ok = keptGreen === 117 && droppedRed === 117;
+    return {
+        name: 'invariant-prepass-equal',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `kept green ${keptGreen}/117, dropped red ${droppedRed}/117`,
+    };
 }
 
 /**
@@ -5172,6 +5336,11 @@ export async function run(): Promise<RunResult> {
             caseHeadlessOffscreen,
             caseMsaa,
             caseCubeRtt,
+            caseRtMipDepth,
+            caseRtArrayLayer,
+            caseRt3dSlice,
+            caseRtMsaaLayers,
+            caseInvariantPrepassEqual,
             caseIndirectUnsupported,
             caseDepthBias,
             caseAlphaToCoverage,

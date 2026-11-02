@@ -13,8 +13,8 @@ export type DepthTextureFormat = 'depth16unorm' | 'depth24plus' | 'depth24plus-s
  */
 export declare class DepthTexture {
     readonly isDepthTexture = true;
-    /** The underlying GPU texture resource */
-    readonly _gpuTexture: GpuTexture<d.textureDepth2d>;
+    /** The underlying GPU texture resource: a 2D depth, or a 2D-array one when it has layers */
+    readonly _gpuTexture: GpuTexture<d.textureDepth2d | d.textureDepth2dArray>;
     /** The underlying sampler */
     readonly _gpuSampler: GpuSampler;
     /**
@@ -31,12 +31,15 @@ export declare class DepthTexture {
      * @param width - The width of the texture
      * @param height - The height of the texture
      * @param format - The depth format (default: 'depth24plus')
+     * @param layers - Array layers: more than one makes it a 2D-array depth, a layer a pass (default: 1)
      */
-    constructor(width: number, height: number, format?: DepthTextureFormat);
+    constructor(width: number, height: number, format?: DepthTextureFormat, layers?: number);
     get id(): number;
     get width(): number;
     get height(): number;
     get format(): DepthTextureFormat;
+    /** Array layers; 1 for a plain 2D depth. */
+    get layers(): number;
     get compareFunction(): GPUCompareFunction | undefined;
     set compareFunction(v: GPUCompareFunction | undefined);
     /** Version for dirty tracking. */
@@ -49,4 +52,4 @@ export declare class DepthTexture {
     dispose(): void;
 }
 /** The factory form; the contents are written by the GPU, so there is no data argument. */
-export declare function createDepthTexture(width: number, height: number, format?: DepthTextureFormat): DepthTexture;
+export declare function createDepthTexture(width: number, height: number, format?: DepthTextureFormat, layers?: number): DepthTexture;

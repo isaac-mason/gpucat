@@ -40,6 +40,16 @@ export function formatSampleType(format: GPUTextureFormat | undefined): d.u32 | 
     return d.f32;
 }
 
+/** Throws where a texture's format would change its sample type: its shaders were typed by the old one, so they would
+ *  no longer bind it. A format of another type is given at construction (a render target's `colorFormats`). */
+export function assertSameSampleType(from: GPUTextureFormat, to: GPUTextureFormat): void {
+    if (formatSampleType(from) === formatSampleType(to)) return;
+    throw new Error(
+        `[gpucat] a texture's format can't change from ${from} to ${to}: its sample type is fixed at construction. ` +
+            "Construct it with the format, or give a render target its attachments' formats with `colorFormats`.",
+    );
+}
+
 /**
  * High-level 2D texture class.
  *
@@ -215,6 +225,7 @@ export class Texture<out T extends SourceData = SourceData> {
         return this._gpuTexture.format;
     }
     set format(v: GPUTextureFormat) {
+        assertSameSampleType(this._gpuTexture.format, v);
         this._gpuTexture.format = v;
     }
 

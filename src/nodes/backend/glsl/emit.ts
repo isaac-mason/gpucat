@@ -53,6 +53,7 @@ import {
     type TextureNode,
 } from '../../lib/texture';
 import type { UniformGroup, UniformNode } from '../../lib/uniform';
+import { isInvariantPosition } from '../../lib/invariant';
 import type { VaryingNode } from '../../lib/varying';
 import { isVoidFragment } from '../fragment';
 import {
@@ -819,6 +820,11 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
             // Inspector is transparent — emit the wrapped node.
             expr = generateExpr(ctx, node.wrappedNode);
             prec = emittedPrec(ctx, node.wrappedNode);
+            break;
+        case NodeKind.Invariant:
+            // as a value, the position it marks; the mark is `invariant gl_Position`
+            expr = generateExpr(ctx, node.node);
+            prec = emittedPrec(ctx, node.node);
             break;
 
         // Everything else is explicitly out-of-scope: fail loudly with a clear message rather than
@@ -2469,6 +2475,11 @@ export function generateGlslVertexShader(slots: CompileSlots, ctx: GlslBuildCont
         lines.push(`${glslVaryingQualifier(node)}out ${glslType(node.type)} ${name};`);
     }
     if (ctx.varyings.size > 0) lines.push('');
+
+    if (isInvariantPosition(slots.vertex)) {
+        lines.push('invariant gl_Position;');
+        lines.push('');
+    }
 
     lines.push('void main() {');
     lines.push(...ctx.hoistBuffer);

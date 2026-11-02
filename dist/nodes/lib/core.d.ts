@@ -96,7 +96,8 @@ export declare enum NodeKind {
     RenderTexture = 40,
     Inspector = 41,
     SubBuild = 42,
-    Node = 43
+    Invariant = 43,
+    Node = 44
 }
 export declare class Node<D extends Any> {
     readonly id: number;
@@ -919,17 +920,38 @@ export type LoopParam = Node<Any> | number | {
     start?: Node<Any> | number;
     end?: Node<Any> | number;
     type?: d.Scalar;
+    /** inferred as three.js TSL infers it: '>=' when a numeric `start` is above a numeric `end`, else '<' */
     condition?: '<' | '<=' | '>' | '>=';
-    update?: Node<Any> | number | string | ((...args: unknown[]) => void);
+    /**
+     * How the loop variable steps, after three.js TSL's `Loop`: a number or a node adds itself (subtracts, with a
+     * '>' or '>=' condition), a string follows the variable as written (`'+= 2'`, `'*= 2'`), and a function is
+     * the step's own statement, given the loop variable as the body is. Left out, `++` (`--` counting down), or
+     * `+= 1.0` for a float. A for header holds one statement, so a function makes exactly one.
+     */
+    update?: Node<Any> | number | string | ((vars: LoopVars) => void);
     name?: string;
+};
+/**
+ * A counted loop's range as three.js TSL completes it: a `start` with no `end` counts down from `start - 1` to 0, and a
+ * condition left out is '>=' when a numeric `start` is above a numeric `end`, else '<'. Missing ends are 0.
+ */
+export declare function loopRange(start: Node<Any> | number | undefined, end: Node<Any> | number | undefined, condition: '<' | '<=' | '>' | '>=' | undefined): {
+    start: Node<Any> | number | undefined;
+    end: Node<Any> | number | undefined;
+    condition: '<' | '<=' | '>' | '>=';
+    startLessOne: boolean;
 };
 export declare class LoopNode extends Node<d.Void> {
     readonly config: LoopParam;
     readonly loopVar: ParameterNode<Any>;
     readonly callbackKey: string;
     readonly body: StackNode;
+    /** a function `update`'s statement, captured as the body is; null for any other update */
+    readonly updateNode: StackNode | null;
     readonly kind = NodeKind.Loop;
-    constructor(config: LoopParam, loopVar: ParameterNode<Any>, callbackKey: string, body: StackNode);
+    constructor(config: LoopParam, loopVar: ParameterNode<Any>, callbackKey: string, body: StackNode, 
+    /** a function `update`'s statement, captured as the body is; null for any other update */
+    updateNode: StackNode | null);
 }
 export declare class BreakNode extends Node<d.Void> {
     readonly kind = NodeKind.Break;

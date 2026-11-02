@@ -62,6 +62,8 @@ export type TextureBinding = {
     /** Last seen GpuTexture (for detecting texture swaps, e.g. an atlas reload
      *  that rebinds the node's `value` to a fresh, different GpuTexture). */
     lastTexture: GpuTexture | null;
+    /** Last seen range of it, by key, for a binding rebound to another view of the same texture. */
+    lastRangeKey: string | null;
 };
 /** Storage texture binding (compute write / read) */
 export type StorageTextureBinding = {
@@ -72,6 +74,8 @@ export type StorageTextureBinding = {
     generation: number;
     /** Last seen GpuTexture (for detecting texture swaps on the bound node). */
     lastTexture: GpuTexture | null;
+    /** Last seen range of it, by key, for a binding rebound to another view of the same texture. */
+    lastRangeKey: string | null;
 };
 /** Sampler binding */
 export type SamplerBinding = {

@@ -272,6 +272,8 @@ export type GlTextureData = {
     allocD: number;
     /** What this entry currently contributes to `TextureCache.tally`. */
     allocation: Allocation;
+    /** The mip range the GL texture's base and max level last selected: a view's range key, '' for every mip. */
+    levelRange?: string;
 };
 
 /**
@@ -1102,16 +1104,20 @@ export function updateTexture(gl: WebGL2RenderingContext, state: TextureCache, t
 }
 
 /**
- * Allocate GL storage for a render-target color/depth texture at the target's size, with no upload.
- * Uses `texStorage2D` (immutable storage — attachable to an FBO and sampleable) for 2D targets, and
+ * Allocate GL storage for a render-target color/depth texture at the target's layout, with no upload.
+ * Uses `texStorage2D` (immutable storage — attachable to an FBO and sampleable) for 2D targets,
  * `texStorage2D(TEXTURE_CUBE_MAP, …)` for a cube render target (all 6 faces allocated at once — a
- * CubeRenderTarget renders each face and samples the result as an environment map).
+ * CubeRenderTarget renders each face and samples the result as an environment map), and `texStorage3D`
+ * for an array or 3D target, whose layers or slices a pass attaches one at a time.
  */
 function allocateRenderTargetStorage(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTextureData): void {
     const w = texture.width;
     const h = texture.height;
-    const levels = mipLevelCountFor(texture);
-    if (data.target === gl.TEXTURE_CUBE_MAP) {
+    // the target's layout sets it; a texture's `generateMipmaps` is for sampling, not the attachment's storage
+    const levels = Math.max(1, texture.mipLevelCount);
+    if (data.target === gl.TEXTURE_2D_ARRAY || data.target === gl.TEXTURE_3D) {
+        gl.texStorage3D(data.target, levels, data.fmt.internalFormat, w, h, texture.depthOrArrayLayers);
+    } else if (data.target === gl.TEXTURE_CUBE_MAP) {
         // Immutable storage allocates all 6 faces at once; each face is then attachable to an FBO
         // via framebufferTexture2D(TEXTURE_CUBE_MAP_POSITIVE_X + face, ...) (see render-target.ts).
         gl.texStorage2D(gl.TEXTURE_CUBE_MAP, levels, data.fmt.internalFormat, w, h);

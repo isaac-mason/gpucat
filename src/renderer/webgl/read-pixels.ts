@@ -14,10 +14,8 @@
  * is the free-function impl it delegates to.
  */
 
-import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { RenderTarget } from '../../core/render-target';
-import { resolveActiveRenderTarget } from './render-target';
-import { getTextureData } from './textures';
+import { attachSubresource, resolveActiveRenderTarget } from './render-target';
 import { clientWaitAsync } from './transform-feedback';
 import type { WebGLBackend } from './webgl-backend';
 
@@ -25,7 +23,7 @@ import type { WebGLBackend } from './webgl-backend';
  * Read a RenderTarget color attachment back to a tightly-packed, top-to-bottom RGBA8 `Uint8Array`
  * (length `width * height * 4`), matching the WebGPU `readPixels` output. The target's color format
  * must be `rgba8unorm` / `rgba8unorm-srgb` (WebGL2 has no BGRA render format). `attachmentIndex`
- * selects an MRT color attachment; `layer` selects a cube face (0..5). Throws if the target has not
+ * selects an MRT color attachment; `layer` an array layer, cube face (0..5) or 3D slice, and `mipLevel` a mip. Throws if the target has not
  * been rendered to yet. The copy is queued before this returns, so the target can be drawn into again
  * at once; the promise settles when the bytes are back.
  */
@@ -64,26 +62,11 @@ export async function readPixels(
     const height = Math.max(1, renderTarget.height >> mipLevel);
     const prevRead = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
 
-    if (renderTarget.isCubeRenderTarget === true) {
-        // Cube target: point the read FBO's color attachment at the requested face.
-        const cube = renderTarget as CubeRenderTarget;
-        const data = getTextureData(b.textures, cube.texture._gpuTexture);
-        if (!data) {
-            throw new Error('[readPixels] cube render target has no GL texture; render() into it first.');
-        }
-        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fboData.fbo);
-        gl.framebufferTexture2D(
-            gl.READ_FRAMEBUFFER,
-            gl.COLOR_ATTACHMENT0,
-            gl.TEXTURE_CUBE_MAP_POSITIVE_X + layer,
-            data.texture,
-            mipLevel,
-        );
-        fboData.attachedFace = layer;
-        fboData.attachedMip = mipLevel;
-    } else {
-        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fboData.fbo);
+    // point the texture FBO's attachments at the mip and layer read, then read through it
+    if (fboData.attachedMip !== mipLevel || fboData.attachedLayer !== layer) {
+        attachSubresource(gl, b.textures, renderTarget, fboData, mipLevel, layer);
     }
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fboData.fbo);
 
     gl.readBuffer(gl.COLOR_ATTACHMENT0 + attachmentIndex);
 

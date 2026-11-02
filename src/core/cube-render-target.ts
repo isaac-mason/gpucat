@@ -1,4 +1,3 @@
-import { fullMipChainLength } from '../renderer/core/texture-size';
 import { CubeTexture } from '../texture/cube-texture';
 import type { DepthTextureFormat } from '../texture/depth-texture';
 import { RenderTarget } from './render-target';
@@ -43,9 +42,8 @@ export type CubeRenderTargetOptions = {
  * Usually driven by a `CubeCamera`, which sets up the six face cameras and loops
  * the faces for you.
  *
- * Extends `RenderTarget`: the inherited 2D color texture carries the face format
- * for pipeline creation, and the inherited 2D depth texture is reused across all
- * six faces. Each pass names the face and level it writes.
+ * Its layout is six layers, and a full mip chain when it generates mips: the depth
+ * has a layer per face. Each pass names the face and level it writes.
  */
 export class CubeRenderTarget extends RenderTarget {
     readonly isCubeRenderTarget = true;
@@ -59,9 +57,15 @@ export class CubeRenderTarget extends RenderTarget {
     constructor(size: number, opts: CubeRenderTargetOptions = {}) {
         const format = opts.colorFormat ?? 'rgba8unorm';
         super(size, size, {
-            colorFormat: format,
+            // the one colour attachment is the cube texture below
+            count: 0,
             depthBuffer: opts.depthBuffer,
             depthFormat: opts.depthFormat,
+            layers: 6,
+            // Allocation must not follow `generateMipmaps`, which `CubeCamera` flips off mid-render to
+            // regenerate once rather than per face: storage is immutable, so a chain suppressed at the
+            // first face could never be added back.
+            mipLevelCount: opts.generateMipmaps ? 'full' : 1,
             // Cube faces are sampled directly as an environment map; MSAA (which would
             // need a per-face resolve) is not supported.
             samples: 1,
@@ -80,11 +84,8 @@ export class CubeRenderTarget extends RenderTarget {
         });
         this._texture.name = 'output';
         this._texture._gpuTexture.renderTarget = this;
-        // Allocation must not depend on `generateMipmaps`, which `CubeCamera` flips off mid-render to
-        // regenerate once rather than per face: storage is immutable, so a chain suppressed at the
-        // first face can never be added back.
-        if (opts.generateMipmaps) this._texture._gpuTexture.mipLevelCount = fullMipChainLength(size, size);
-        this.textures[0] = this._texture;
+        this._texture._gpuTexture.mipLevelCount = this.mipLevelCount;
+        this.textures.push(this._texture);
     }
 
     override get texture(): CubeTexture {

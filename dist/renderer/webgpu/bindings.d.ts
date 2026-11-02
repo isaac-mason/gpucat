@@ -1,6 +1,7 @@
-import type { GpuBuffer } from '../../core/gpu-buffer';
-import type { Any } from '../../schema/schema';
-import type { BindGroup, StorageBinding } from '../core/bind-group';
+import type { GpuTexture } from '../../core/gpu-texture';
+import { type TextureViewRange } from '../../core/gpu-texture-view';
+import type { BindGroup, StorageBinding, StorageTextureBinding, TextureBinding } from '../core/bind-group';
+import type { DispatchOptions } from '../core/frame';
 import type { NodeBuilderState } from '../core/node-builder-state';
 import type { NodeFrame } from '../core/node-frame';
 import type { RenderObject } from '../core/render-object';
@@ -72,10 +73,24 @@ export type DrawBindings = {
 /** Update all bindings for one draw of a RenderObject, into `out`. */
 export declare function updateRenderBindings(b: WebGPUBackend, renderObject: RenderObject, frame: NodeFrame, out: DrawBindings): void;
 /** Update all bindings for one compute dispatch, into `out`. */
-export declare function updateComputeBindings(b: WebGPUBackend, nodeBuilderState: NodeBuilderState, frame: NodeFrame, buffers: Record<string, GpuBuffer<Any>> | null, out: DrawBindings): void;
+export declare function updateComputeBindings(b: WebGPUBackend, nodeBuilderState: NodeBuilderState, frame: NodeFrame, inputs: DispatchInputs | null, out: DrawBindings): void;
 /** drops every variant `data` keeps, for a group that bound a texture since disposed: none may bind it again */
 export declare function clearBindGroupVariants(data: BindGroupData): void;
+/** what a dispatch fills its node's named slots with: its `buffers` and `textures` */
+type DispatchInputs = DispatchOptions;
+type TextureBindingNodes = TextureBinding['entry']['node'] | StorageTextureBinding['entry']['node'];
+/** What a texture binding binds: written by {@link resolveTextureBinding}, read before the next call. */
+export type ResolvedTexture = {
+    texture: GpuTexture | null;
+    range: TextureViewRange;
+};
+/**
+ * The texture and range `node` binds: its own, or for a named binding what the dispatch's `textures` fills its slot
+ * with. The result is shared: read it before the next call.
+ */
+export declare function resolveTextureBinding(node: TextureBindingNodes, inputs: DispatchInputs | null): ResolvedTexture;
 /** Initialize bindings for a RenderObject. */
 export declare function initRenderBindings(state: BindingsState, renderObject: RenderObject, device: GPUDevice): void;
 /** Get the bind group layouts for a RenderObject. Used for pipeline creation. */
 export declare function getRenderBindGroupLayouts(state: BindingsState, renderObject: RenderObject): GPUBindGroupLayout[];
+export {};

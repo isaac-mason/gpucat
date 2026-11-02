@@ -28,9 +28,10 @@
  */
 import type { RenderTarget } from '../../core/render-target';
 import { type Allocation, type MemoryTally } from '../core/info';
+import { type TextureCache } from './textures';
 import type { WebGLBackend } from './webgl-backend';
 /** Per-RenderTarget GL framebuffer + the color-texture generations it was built against. */
-type FboData = {
+export type FboData = {
     /** The GL framebuffer object (the resolve/texture FBO — its color attachments are the target's textures). */
     fbo: WebGLFramebuffer;
     /**
@@ -39,8 +40,8 @@ type FboData = {
      * more broadly FBO-complete (three.js parity). Null when depth is a sampled texture, or no depth.
      */
     depthRenderbuffer: WebGLRenderbuffer | null;
-    /** Whether the depth was built as a sampled texture (vs a renderbuffer); a change forces a rebuild. */
-    depthSampled: boolean;
+    /** Whether the depth was built as a texture (vs a renderbuffer); a change forces a rebuild. */
+    depthAsTexture: boolean;
     /** Color-attachment texture generations at last (re)build — a change forces a rebuild. */
     colorGenerations: number[];
     /** Depth-attachment texture generation at last rebuild (or -1 for renderbuffer/none). */
@@ -48,11 +49,11 @@ type FboData = {
     /** Last-built size (width, height) — a resize forces a renderbuffer reallocation. */
     width: number;
     height: number;
-    /** For a cube target: which face the color attachment currently points at (-1 = not a cube / unset). */
-    attachedFace: number;
+    /** The mip and layer the attachments point at; -1 until a pass first attaches them. */
     attachedMip: number;
-    /** MSAA render FBO (multisample renderbuffers). Non-null only for a supported `samples > 1` target. */
-    msaa: MsaaData | null;
+    attachedLayer: number;
+    /** MSAA render FBOs (multisample renderbuffers), one per layer. Non-null only for a supported `samples > 1` target. */
+    msaa: MsaaData[] | null;
 };
 /** MSAA render-side resources: the multisample FBO + its color/depth renderbuffers. */
 type MsaaData = {
@@ -82,15 +83,21 @@ export declare function createGlRenderTargetsState(tally: MemoryTally): GlRender
 /**
  * Get (or create/rebuild) and bind the FBO for a render target, then return whether it carries a
  * stencil aspect (so the pass knows whether to clear stencil). Allocates the color + depth textures,
- * attaches them, sets `drawBuffers` for MRT, and leaves the FBO bound as `FRAMEBUFFER`.
+ * attaches mip `mipLevel` of layer `layer` of each, sets `drawBuffers` for MRT, and leaves the FBO bound as
+ * `FRAMEBUFFER`.
  *
- * For an MSAA target the bound FBO is the multisample render FBO (drawn into); its result is resolved
- * into the texture FBO at pass end by `resolveActiveRenderTarget`. For a cube target the selected
- * `activeFace` is attached as the color attachment (re-attached cheaply when the face changes).
+ * For an MSAA target the bound FBO is the layer's multisample render FBO (drawn into); its result is resolved into
+ * the texture FBO at pass end by `resolveActiveRenderTarget`.
  */
 export declare function bindRenderTargetFramebuffer(gl: WebGL2RenderingContext, b: WebGLBackend, renderTarget: RenderTarget, layer: number, mipLevel: number): {
     hasStencil: boolean;
 };
+/**
+ * Points the texture FBO's attachments at mip `mipLevel` of layer `layer`: a cube's face, an array's layer or a 3D
+ * texture's slice, or a 2D texture's mip. A depth renderbuffer stays attached as it is. Then checks the FBO is
+ * complete, and leaves it bound as `FRAMEBUFFER`.
+ */
+export declare function attachSubresource(gl: WebGL2RenderingContext, textures: TextureCache, renderTarget: RenderTarget, fboData: FboData, mipLevel: number, layer: number): void;
 /**
  * Resolve the pending MSAA target (if any) at pass end: blit each color attachment from the
  * multisample render FBO into the target's texture FBO (`blitFramebuffer(… COLOR_BUFFER_BIT,

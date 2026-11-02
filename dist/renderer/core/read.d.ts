@@ -1,4 +1,4 @@
-import type { RenderTarget } from '../../core/render-target';
+import { type RenderTarget } from '../../core/render-target';
 import type { Renderer } from './renderer';
 export type ReadOptions = {
     /** Which MRT colour attachment to read. Defaults to the first. */

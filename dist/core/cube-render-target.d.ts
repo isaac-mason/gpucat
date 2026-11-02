@@ -31,9 +31,8 @@ export type CubeRenderTargetOptions = {
  * Usually driven by a `CubeCamera`, which sets up the six face cameras and loops
  * the faces for you.
  *
- * Extends `RenderTarget`: the inherited 2D color texture carries the face format
- * for pipeline creation, and the inherited 2D depth texture is reused across all
- * six faces. Each pass names the face and level it writes.
+ * Its layout is six layers, and a full mip chain when it generates mips: the depth
+ * has a layer per face. Each pass names the face and level it writes.
  */
 export declare class CubeRenderTarget extends RenderTarget {
     readonly isCubeRenderTarget = true;

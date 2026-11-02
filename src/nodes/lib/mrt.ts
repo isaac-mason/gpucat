@@ -111,9 +111,10 @@ export class MRTNode extends OutputStructNode {
                 const has = attachmentNames?.length ? attachmentNames.join(', ') : '(none)';
                 throw new Error(`[mrt] output '${name}' names no attachment on this target. It has: ${has}.`);
             }
-            // Ensure the node outputs vec4f (wrap if needed)
+            // a colour given as rgb takes alpha 1; any other output (an integer target's u32 or vec4u, say) is written
+            // as its own type, which the emitters declare the location with
             let node = this.outputNodes[name];
-            if (node.type.wgslType !== 'vec4f') {
+            if (node.type.wgslType === 'vec3f') {
                 node = vec4f(node as Node<d.vec3f>, new LiteralNode(d.f32, 1));
             }
             members[index] = node;

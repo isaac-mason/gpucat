@@ -50,6 +50,7 @@ import type {
     TextureNode,
 } from './lib/texture';
 import type { UniformNode } from './lib/uniform';
+import type { InvariantNode } from './lib/invariant';
 import type { VaryingNode } from './lib/varying';
 import type { WgslNode } from './lib/wgsl';
 
@@ -100,7 +101,8 @@ export type AnyNode =
     | DepthTextureNode
     | ArrayTextureNode
     | RenderTextureNode
-    | InspectorNode<d.Any>;
+    | InspectorNode<d.Any>
+    | InvariantNode;
 
 /**
  * Whether `node` reaches into a place the shader can write: an index or field chain into a local, private or workgroup
@@ -172,6 +174,8 @@ export function getChildren(rawNode: Node<d.Any>): Node<d.Any>[] {
         children.push(node.value);
     } else if (node.kind === NodeKind.Inspector) {
         children.push(node.wrappedNode);
+    } else if (node.kind === NodeKind.Invariant) {
+        children.push(node.node);
     } else if (node.kind === NodeKind.RenderTexture) {
         // RenderTextureNode delegates to its texture node during code generation
         const textureNode = node.read === 'depth' ? node.getLinearDepthNode() : node.getTextureNode();

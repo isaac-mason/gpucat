@@ -229,9 +229,11 @@ function buildRenderPipelineDescriptor(
             );
         }
         const targetName = mrt !== null && textures !== null ? textures[i]!.name : null;
+        // an integer format cannot blend: WebGPU rejects a blend state on one, whatever the material asks
+        const integer = format.endsWith('uint') || format.endsWith('sint');
         colorTargets.push({
             format,
-            blend: RenderState.resolveTargetBlend(material, mrt, targetName),
+            blend: integer ? undefined : RenderState.resolveTargetBlend(material, mrt, targetName),
             writeMask: material.colorWrite ? GPUColorWrite.ALL : 0,
         });
     }

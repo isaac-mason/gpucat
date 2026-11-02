@@ -1,6 +1,8 @@
+import { ArrayTexture } from '../texture/array-texture';
 import type { CubeTexture } from '../texture/cube-texture';
 import { DepthTexture, type DepthTextureFormat } from '../texture/depth-texture';
 import { Texture } from '../texture/texture';
+import { Data3DTexture } from '../texture/texture-3d';
 export type RenderTargetOptions = {
     /**
      * Names the target in memory reports, as `<label>/<attachment>` (`shadows/depth`). Debug identity only:
@@ -8,11 +10,15 @@ export type RenderTargetOptions = {
      */
     label?: string;
     /**
-     * Default format applied to every color attachment at construction.
-     * For per-attachment formats (MRT with mixed formats), mutate `rt.textures[i].format` after construction.
-     * Default: 'rgba16float'.
+     * Default format applied to every color attachment at construction. Default: 'rgba16float'.
      */
     colorFormat?: GPUTextureFormat;
+    /**
+     * Each colour attachment's format, for MRT with mixed formats (an integer attachment beside a float one, say),
+     * in place of `colorFormat`. Its length is the attachment count; `count`, if given too, has to match. Given at
+     * construction because a texture's sample type follows its format there.
+     */
+    colorFormats?: GPUTextureFormat[];
     /** Whether to allocate a depth attachment. Default: true. */
     depthBuffer?: boolean;
     /** Format of the auto-allocated DepthTexture. Default: 'depth24plus' ('depth24plus-stencil8' when `stencilBuffer`). Ignored if `depthTexture` is provided or `depthBuffer` is false. */
@@ -35,8 +41,28 @@ export type RenderTargetOptions = {
     samples?: number;
     /** Number of color attachments (MRT). Default: 1. */
     count?: number;
+    /**
+     * The attachments' dimension, as `GPUTextureDimension`. A `'3d'` target draws a pass into one depth slice of its
+     * colour textures, and has no depth attachment, since depth formats cannot be 3D. Default `'2d'`.
+     */
+    dimension?: '2d' | '3d';
+    /** Array layers of a `'2d'` target, or depth slices of a `'3d'` one. A pass draws into one. Default 1. */
+    layers?: number;
+    /**
+     * Mip levels of every attachment. A pass draws into one. `'full'` is the whole chain, recomputed when the target is
+     * resized. Default 1.
+     */
+    mipLevelCount?: number | 'full';
+    /**
+     * Whether compute may also write the colour attachments, as storage textures. WebGPU can't store to an sRGB format,
+     * so an sRGB attachment is allocated in its linear twin and drawn and sampled through an sRGB view: a storage
+     * binding of it takes the linear format, and a shader storing to it encodes sRGB itself. Single-sampled only.
+     * Default false; WebGL has no storage textures and ignores it.
+     */
+    storage?: boolean;
 };
-export type RenderTargetTexture = Texture | CubeTexture;
+/** A render target's colour attachment: a 2D texture, an array of them, a 3D texture, or a cube's faces. */
+export type RenderTargetTexture = Texture | ArrayTexture | Data3DTexture | CubeTexture;
 /**
  * A render target is a buffer where the video card draws pixels for a scene
  * that is being rendered in the background. It is used in different effects,
@@ -54,11 +80,20 @@ export declare class RenderTarget {
     height: number;
     /** The MSAA sample count of the render target */
     readonly samples: number;
+    /** See `RenderTargetOptions.storage`. */
+    readonly storage: boolean;
     /** See `RenderTargetOptions.label`. Read when the attachments are allocated. */
     label: string | undefined;
+    /** See `RenderTargetOptions.dimension`. */
+    readonly dimension: '2d' | '3d';
+    /** Array layers, or a 3D target's depth slices. See `RenderTargetOptions.layers`. */
+    readonly layers: number;
+    /** The mip levels asked for; {@link mipLevelCount} is how many that is at the current size. */
+    readonly mipLevels: number | 'full';
     /**
      * Array of color attachment textures.
-     * Each has its own mutable `.format` (per-attachment formats supported by mutating `textures[i].format`).
+     * Their formats come from `colorFormats` or `colorFormat` at construction; one can change after only to a format of
+     * the same sample type.
      * Each has a `.name` for MRT mapping; the first texture is also accessible via the `texture` getter.
      */
     textures: RenderTargetTexture[];
@@ -91,6 +126,8 @@ export declare class RenderTarget {
     depthSampled: boolean;
     /** Constructs a new render target */
     constructor(width: number, height: number, opts?: RenderTargetOptions);
+    /** Mip levels of every attachment at the current size. */
+    get mipLevelCount(): number;
     /** The first color attachment texture, or undefined when count=0 (depth-only target). */
     get texture(): RenderTargetTexture | undefined;
     set texture(value: RenderTargetTexture | undefined);
@@ -117,5 +154,10 @@ export declare class RenderTarget {
 }
 /** Holds no device: the backend allocates the textures on first use. */
 export declare function createRenderTarget(width: number, height: number, opts?: RenderTargetOptions): RenderTarget;
+/**
+ * Throws unless mip `mipLevel` and layer `layer` are in `renderTarget`'s layout: a mip it has, and a layer it has, or
+ * for a `'3d'` target a slice of that mip. `what` names the caller in the message.
+ */
+export declare function assertSubresource(renderTarget: RenderTarget, mipLevel: number, layer: number, what: string): void;
 /** The name of the first attachment whose texture is disposed, or null. Depth counts: a submit dies on either. */
 export declare function deadAttachment(rt: RenderTarget): string | null;

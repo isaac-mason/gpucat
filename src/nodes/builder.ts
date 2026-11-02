@@ -1101,11 +1101,13 @@ function nameBindings(
     // binding still says which kind it is.
     let unnamedTextures = 0;
     for (const [textureId, binding] of textures) {
-        textureNames.set(textureId, allocName(scope, binding.value?.label || `t${unnamedTextures++}`));
+        const base = binding.slot ?? (binding.value?.label || `t${unnamedTextures++}`) + binding.range.nameSuffix;
+        textureNames.set(textureId, allocName(scope, base));
     }
     let unnamedStorageTextures = 0;
     for (const [textureId, binding] of storageTextures) {
-        textureNames.set(textureId, allocName(scope, binding.value?.label || `st${unnamedStorageTextures++}`));
+        const base = binding.slot ?? (binding.value?.label || `st${unnamedStorageTextures++}`) + binding.range.nameSuffix;
+        textureNames.set(textureId, allocName(scope, base));
     }
 
     for (const [key, sampler] of samplers) {
@@ -1197,6 +1199,12 @@ function discover(roots: Node<d.Any>[]): Discovery {
         // For sampling modes (not 'load'), ensure a sampler exists and register it
         if (textureNode.samplingMode !== 'load') {
             let samplerNode = textureNode.samplerNode;
+            if (!samplerNode && (binding.slot !== null || binding.value !== null)) {
+                throw new Error(
+                    `[gpucat] texture '${binding.slot ?? binding.value?.label ?? name}' is sampled but was bound with no sampler. ` +
+                        `Pass a GpuSampler to texture(), or read it with .load(), which needs none.`,
+                );
+            }
             if (!samplerNode) {
                 // Create default sampler (same logic as generateTexture had)
                 samplerNode = new SamplerNode(d.sampler, name, binding.group);

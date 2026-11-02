@@ -82,6 +82,8 @@ type OpenComputePass = {
     skipped: boolean;
     resolved: Compute.ResolvedDispatch[];
     count: number;
+    /** the render scope a pass with a `view` opened inside, restored when it closes */
+    previousRenderId: number;
 };
 
 export function createWebGPUFrameBackendState(
@@ -285,6 +287,13 @@ export function beginComputePass(s: WebGPUFrameBackendState, desc: ComputePassDe
         return;
     }
     open.skipped = false;
+    const view = desc.view;
+    if (view !== undefined) {
+        // its own render scope, so render-scope uniforms update for its camera and size as a render pass's would
+        alignCameraToBackend(view.camera, CoordinateSystem.WEBGPU);
+        open.previousRenderId = s.renderer._nodes.nodeFrame.beginRender();
+        aimNodeFrame(s.renderer, view.camera, view.width, view.height);
+    }
     s.renderer.inspector?.perf.start(desc.label ?? 'compute');
     s.backend._openValidationScope();
 }
@@ -294,6 +303,9 @@ export function recordDispatch(s: WebGPUFrameBackendState, record: DispatchRecor
     const open = s.openComputeByDepth[s.computeDepth - 1];
     if (open.skipped) return;
     const { renderer, backend } = s;
+    const view = open.desc.view;
+    // a pass recorded meanwhile may have aimed the frame at its own
+    if (view !== undefined) aimNodeFrame(renderer, view.camera, view.width, view.height);
     const resolved = resolvedAt(open.resolved, open.count, record.node);
     Compute.resolveDispatch(
         backend,
@@ -321,12 +333,13 @@ export function encodeComputePass(s: WebGPUFrameBackendState, desc: ComputePassD
             Compute.encodeDispatches(backend, backend._currentEncoder!, open.resolved, open.count, label, renderer.inspector);
         }
     } finally {
-        closeComputeScopes(s, label);
+        closeComputeScopes(s, open, label);
     }
 }
 
-function closeComputeScopes(s: WebGPUFrameBackendState, label: string): void {
+function closeComputeScopes(s: WebGPUFrameBackendState, open: OpenComputePass, label: string): void {
     const { renderer, backend } = s;
+    if (open.desc.view !== undefined) renderer._nodes.nodeFrame.endRender(open.previousRenderId);
     backend._closeValidationScope('compute', label);
     renderer.inspector?.perf.end(label);
 }
@@ -378,7 +391,7 @@ export function discardFrame(s: WebGPUFrameBackendState): void {
     unwindTo(s, 0);
     while (s.computeDepth > 0) {
         const open = s.openComputeByDepth[--s.computeDepth];
-        if (!open.skipped && usable(s)) closeComputeScopes(s, open.desc.label ?? 'compute');
+        if (!open.skipped && usable(s)) closeComputeScopes(s, open, open.desc.label ?? 'compute');
     }
     if (!usable(s)) return;
     const { renderer, backend } = s;
@@ -422,7 +435,7 @@ function openAt(pool: OpenRenderPass[], depth: number, desc: PassDesc, ctx: Rend
 function openComputeAt(pool: OpenComputePass[], depth: number, desc: ComputePassDesc): OpenComputePass {
     let open = pool[depth];
     if (open === undefined) {
-        open = { desc, skipped: true, resolved: [], count: 0 };
+        open = { desc, skipped: true, resolved: [], count: 0, previousRenderId: 0 };
         pool[depth] = open;
     }
     open.desc = desc;

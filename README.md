@@ -269,6 +269,26 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
       </a>
     </td>
     <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgl-cascaded-shadow-maps">
+        <img src="./examples/public/screenshots/example-webgl-cascaded-shadow-maps.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Cascaded Shadow Maps (WebGL)
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgl-warped-shadow-map">
+        <img src="./examples/public/screenshots/example-webgl-warped-shadow-map.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Warped Shadow Map (WebGL)
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgl-deferred-voxel-lights">
+        <img src="./examples/public/screenshots/example-webgl-deferred-voxel-lights.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Deferred Voxel Lights (WebGL)
+      </a>
+    </td>
+    <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-webgl-instanced-mesh">
         <img src="./examples/public/screenshots/example-webgl-instanced-mesh.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Instanced Mesh (WebGL)
@@ -1124,6 +1144,34 @@ off-screen. See [`RenderTarget`](./api.md#rendertarget).
   </tr>
 </table>
 
+### Render target layouts
+
+A render target can have mips, array layers, or 3D slices. Every attachment, depth included, has the same layout, so a
+pass draws into the same mip and layer of each. Pass `mipLevel` and `layer` to choose them.
+
+```ts
+// a mip chain drawn mip by mip
+const chain = createRenderTarget(512, 512, { mipLevelCount: 'full', depthBuffer: false });
+f.pass({ target: chain, mipLevel: 3 });
+
+// shadow cascades in one array depth texture, a pass a cascade
+const cascades = createRenderTarget(2048, 2048, { count: 0, layers: 4, depthFormat: 'depth32float', depthSampled: true });
+f.pass({ target: cascades, layer: 2, camera: cascadeCameras[2] });
+
+// a volume drawn slice by slice
+const volume = createRenderTarget(64, 64, { dimension: '3d', layers: 64, depthBuffer: false });
+f.pass({ target: volume, layer: 10 });
+```
+
+`'full'` is the whole mip chain, and it is worked out again when the target is resized. A layered target's colour
+textures are `ArrayTexture`s, read with `arrayTexture()`, and a 3D target's are `Data3DTexture`s. One layer reads
+through a view: `texture(array._gpuTexture.view({ baseArrayLayer: 2, arrayLayerCount: 1, dimension: '2d' }), sampler)`.
+`read(renderer, target, { layer, mipLevel })` reads one back.
+
+The spec sets the limits. A 3D target has no depth, since depth formats cannot be 3D. A multisampled target has one
+mip. It may have layers: each keeps its own multisampled texture, so a pass that keeps what was drawn loads that
+layer. A cube target is a six-layer layout whose colour is sampled as a cube.
+
 ### Environment maps with a cube camera
 
 A `CubeRenderTarget` is a render target whose color attachment is a cube texture, and a `CubeCamera` renders the surroundings into its six faces. Place the cube camera where a reflective object sits, call `update()` to capture the scene, then sample the result as an environment map with `cubeTexture(rt.texture)`. Rendering the cube each frame (rather than loading a static one) gives realtime reflections.
@@ -1485,7 +1533,40 @@ paintPass.dispatch(paint, [Math.ceil(256 / 8), Math.ceil(256 / 8), 1]);
 paintPass.end();
 ```
 
-`access` is a property of the binding, not the texture, so one texture can be bound `write` in one kernel and `read` in another (e.g. ping-pong simulations). Reads use `textureLoad(node, coords)` (no mip level). Writes are compute-only; binding a `write`/`read_write` storage texture in a vertex or fragment shader is a compile error. `read_write` access is limited by WebGPU to the `r32uint` / `r32sint` / `r32float` formats; the value type of `textureStore`/`textureLoad` follows the format's channel (`vec4f` / `vec4u` / `vec4i`). If the texture has mips and `mipmapsAutoUpdate` is on (the default), its mips regenerate after a compute write so it can be sampled mipmapped.
+`access` is a property of the binding, not the texture, so one texture can be bound `write` in one kernel and `read` in another (e.g. ping-pong simulations). Reads use `textureLoad(node, coords)` (no mip level). Writes are compute-only; binding a `write`/`read_write` storage texture in a vertex or fragment shader is a compile error. `read_write` access is limited by WebGPU to the `r32uint` / `r32sint` / `r32float` formats; the value type of `textureStore`/`textureLoad` follows the format's channel (`vec4f` / `vec4u` / `vec4i`). If the texture has mips and `mipmapsAutoUpdate` is on (the default), its mips regenerate after a compute write to mip 0 so it can be sampled mipmapped. A write to any other mip leaves the chain alone, since that is a chain being built by hand.
+
+#### Texture views
+
+A binding can see part of a texture: a range of mips or layers, a dimension, or an aspect. `tex.view({...})` makes a view, as `GPUTexture.createView` does. Omitted counts cover the rest of the texture. Pass a view wherever a texture is bound.
+
+A storage binding sees one mip. So a texture with mips is bound for storage through a view of one mip, and one kernel can read one mip while it writes another. This is how a depth pyramid is built:
+
+```ts
+const pyramid = new GpuTexture(d.textureStorage2d('r32float'), { width, height, mipLevelCount, mipmapsAutoUpdate: false });
+const mips = Array.from({ length: mipLevelCount }, (_, mip) => pyramid.view({ baseMipLevel: mip, mipLevelCount: 1 }));
+
+// one kernel for every mip: named slots, filled by each dispatch
+const source = storageTexture('source', d.textureStorage2d('r32float'), 'read');
+const destination = storageTexture('destination', d.textureStorage2d('r32float'), 'write');
+const reduce = Fn(() => {
+    const last = textureDimensions(source).sub(vec2u(1, 1));
+    const at = (x: number, y: number) => textureLoad(source, min(globalId.xy.mul(u32(2)).add(vec2u(x, y)), last)).x;
+    textureStore(destination, globalId.xy, vec4f(max(max(at(0, 0), at(1, 0)), max(at(0, 1), at(1, 1))), 0, 0, 0));
+}).compute({ workgroupSize: [8, 8, 1] });
+for (let mip = 1; mip < mipLevelCount; mip++) {
+    pass.dispatch(reduce, counts(mip), { textures: { source: mips[mip - 1], destination: mips[mip] } });
+}
+
+// read the whole chain texel by texel: no sampler needed
+const chain = texture(pyramid);
+chain.load(coords, mip);
+```
+
+Two bindings of one texture are one binding only when they see the same range the same way. Bound by value, `storageTexture(mips[1], 'read')` and `storageTexture(mips[2], 'write')` in one kernel are two bindings. A view is a plain value, so two views of the same range are the same binding. Make the views a frame needs once and keep them.
+
+`texture()` takes a sampler only for sampling. A texture read only with `.load()` needs none, and sampling one bound without a sampler is an error that says so.
+
+On WebGL a sampled view of a range of mips maps to the texture's base and max level. WebGL2 has no other views, so a view of a layer, a dimension or an aspect is an error there.
 
 3D storage textures (`createStorageTexture3d`) work the same way and pair naturally with `texture_3d` sampling: write a volume in compute, then raymarch it in a render pass (`texture(volume, sampler).sample(vec3)`). The sample coordinate type is derived from the texture: a 3D texture's `.sample()` requires a `vec3`, a 2D one a `vec2`.
 

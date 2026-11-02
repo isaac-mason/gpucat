@@ -1,5 +1,6 @@
 import * as d from '../schema/schema';
 import { Source, type SourceData } from '../texture/source';
+import { GpuTextureView, type TextureViewRangeInit, TextureViewRange } from './gpu-texture-view';
 import type { RenderTarget } from './render-target';
 import { addRegion, deriveMipRegion, normalizeRegion, type TextureRegion, type TextureRegionInit } from './texture-region';
 
@@ -391,6 +392,15 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
         // Cube textures need exactly 6 faces
         if (d.isCubeTextureDesc(this.type) && this.sources.length !== 6) return false;
         return true;
+    }
+
+    /**
+     * A view of part of this texture, as `GPUTexture.createView` makes: a mip range, a layer range, a dimension or an
+     * aspect. Omitted counts cover the rest of the texture. A storage binding sees one mip, so a texture with mips is
+     * bound for storage through `view({ baseMipLevel, mipLevelCount: 1 })`.
+     */
+    view(range: TextureViewRangeInit = {}): GpuTextureView<D> {
+        return new GpuTextureView(this, new TextureViewRange(range));
     }
 
     dispose(): void {

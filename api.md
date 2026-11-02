@@ -343,161 +343,165 @@ The full node DSL, grouped by category. Learn it with examples in the [guide](./
 </tr><tr>
 <td><a href="#options3d"><code>Options3D</code></a></td><td><a href="#optionscube"><code>OptionsCube</code></a></td><td><a href="#optionscubearray"><code>OptionsCubeArray</code></a></td><td><a href="#viewdimensionof"><code>ViewDimensionOf</code></a></td>
 </tr><tr>
-<td><a href="#region_cap"><code>REGION_CAP</code></a></td><td><a href="#regionextent"><code>RegionExtent</code></a></td><td><a href="#regionsfromlinearrun"><code>regionsFromLinearRun</code></a></td><td><a href="#textureorigin"><code>TextureOrigin</code></a></td>
+<td><a href="#gputextureview"><code>GpuTextureView</code></a></td><td><a href="#texturesource"><code>TextureSource</code></a></td><td><a href="#textureviewrange"><code>TextureViewRange</code></a></td><td><a href="#textureviewrangeinit"><code>TextureViewRangeInit</code></a></td>
 </tr><tr>
-<td><a href="#textureorigininit"><code>TextureOriginInit</code></a></td><td><a href="#texturerectinit"><code>TextureRectInit</code></a></td><td><a href="#textureregion"><code>TextureRegion</code></a></td><td><a href="#textureregioninit"><code>TextureRegionInit</code></a></td>
+<td><a href="#whole_texture"><code>WHOLE_TEXTURE</code></a></td><td><a href="#region_cap"><code>REGION_CAP</code></a></td><td><a href="#regionextent"><code>RegionExtent</code></a></td><td><a href="#regionsfromlinearrun"><code>regionsFromLinearRun</code></a></td>
 </tr><tr>
-<td><a href="#attributeentry"><code>AttributeEntry</code></a></td><td><a href="#compileglsloptions"><code>CompileGlslOptions</code></a></td><td><a href="#compileresult"><code>CompileResult</code></a></td><td><a href="#compileslots"><code>CompileSlots</code></a></td>
+<td><a href="#textureorigin"><code>TextureOrigin</code></a></td><td><a href="#textureorigininit"><code>TextureOriginInit</code></a></td><td><a href="#texturerectinit"><code>TextureRectInit</code></a></td><td><a href="#textureregion"><code>TextureRegion</code></a></td>
 </tr><tr>
-<td><a href="#computecompileresult"><code>ComputeCompileResult</code></a></td><td><a href="#computestorageentry"><code>ComputeStorageEntry</code></a></td><td><a href="#compilecomputewgsl"><code>compileComputeWgsl</code></a></td><td><a href="#compileglsl"><code>compileGlsl</code></a></td>
+<td><a href="#textureregioninit"><code>TextureRegionInit</code></a></td><td><a href="#attributeentry"><code>AttributeEntry</code></a></td><td><a href="#compileglsloptions"><code>CompileGlslOptions</code></a></td><td><a href="#compileresult"><code>CompileResult</code></a></td>
 </tr><tr>
-<td><a href="#compiletransformfeedback"><code>compileTransformFeedback</code></a></td><td><a href="#compilewgsl"><code>compileWgsl</code></a></td><td><a href="#nodegraphinfo"><code>NodeGraphInfo</code></a></td><td><a href="#nodeupdatetype"><code>NodeUpdateType</code></a></td>
+<td><a href="#compileslots"><code>CompileSlots</code></a></td><td><a href="#computecompileresult"><code>ComputeCompileResult</code></a></td><td><a href="#computestorageentry"><code>ComputeStorageEntry</code></a></td><td><a href="#compilecomputewgsl"><code>compileComputeWgsl</code></a></td>
 </tr><tr>
-<td><a href="#samplerentry"><code>SamplerEntry</code></a></td><td><a href="#storageentry"><code>StorageEntry</code></a></td><td><a href="#storagetextureentry"><code>StorageTextureEntry</code></a></td><td><a href="#textureentry"><code>TextureEntry</code></a></td>
+<td><a href="#compileglsl"><code>compileGlsl</code></a></td><td><a href="#compiletransformfeedback"><code>compileTransformFeedback</code></a></td><td><a href="#compilewgsl"><code>compileWgsl</code></a></td><td><a href="#nodegraphinfo"><code>NodeGraphInfo</code></a></td>
 </tr><tr>
-<td><a href="#transformfeedbackglslresult"><code>TransformFeedbackGlslResult</code></a></td><td><a href="#transformfeedbackinputattribute"><code>TransformFeedbackInputAttribute</code></a></td><td><a href="#uniformgroupblock"><code>UniformGroupBlock</code></a></td><td><a href="#uniformmember"><code>UniformMember</code></a></td>
+<td><a href="#nodeupdatetype"><code>NodeUpdateType</code></a></td><td><a href="#samplerentry"><code>SamplerEntry</code></a></td><td><a href="#storageentry"><code>StorageEntry</code></a></td><td><a href="#storagetextureentry"><code>StorageTextureEntry</code></a></td>
 </tr><tr>
-<td><a href="#varyingentry"><code>VaryingEntry</code></a></td><td><a href="#vertexbuffergroup"><code>VertexBufferGroup</code></a></td><td><a href="#arraysamplingmode"><code>ArraySamplingMode</code></a></td><td><a href="#atomicptrdesc"><code>AtomicPtrDesc</code></a></td>
+<td><a href="#textureentry"><code>TextureEntry</code></a></td><td><a href="#transformfeedbackglslresult"><code>TransformFeedbackGlslResult</code></a></td><td><a href="#transformfeedbackinputattribute"><code>TransformFeedbackInputAttribute</code></a></td><td><a href="#uniformgroupblock"><code>UniformGroupBlock</code></a></td>
 </tr><tr>
-<td><a href="#attributeoptions"><code>AttributeOptions</code></a></td><td><a href="#abs"><code>abs</code></a></td><td><a href="#acestonemapping"><code>acesToneMapping</code></a></td><td><a href="#acos"><code>acos</code></a></td>
+<td><a href="#uniformmember"><code>UniformMember</code></a></td><td><a href="#varyingentry"><code>VaryingEntry</code></a></td><td><a href="#vertexbuffergroup"><code>VertexBufferGroup</code></a></td><td><a href="#arraysamplingmode"><code>ArraySamplingMode</code></a></td>
 </tr><tr>
-<td><a href="#add"><code>add</code></a></td><td><a href="#and"><code>and</code></a></td><td><a href="#array"><code>array</code></a></td><td><a href="#arraytexture"><code>arrayTexture</code></a></td>
+<td><a href="#atomicptrdesc"><code>AtomicPtrDesc</code></a></td><td><a href="#attributeoptions"><code>AttributeOptions</code></a></td><td><a href="#abs"><code>abs</code></a></td><td><a href="#acestonemapping"><code>acesToneMapping</code></a></td>
 </tr><tr>
-<td><a href="#asin"><code>asin</code></a></td><td><a href="#atan"><code>atan</code></a></td><td><a href="#atan2"><code>atan2</code></a></td><td><a href="#atomicadd"><code>atomicAdd</code></a></td>
+<td><a href="#acos"><code>acos</code></a></td><td><a href="#add"><code>add</code></a></td><td><a href="#and"><code>and</code></a></td><td><a href="#array"><code>array</code></a></td>
 </tr><tr>
-<td><a href="#atomicand"><code>atomicAnd</code></a></td><td><a href="#atomiccompareexchangeweak"><code>atomicCompareExchangeWeak</code></a></td><td><a href="#atomicexchange"><code>atomicExchange</code></a></td><td><a href="#atomicload"><code>atomicLoad</code></a></td>
+<td><a href="#arraytexture"><code>arrayTexture</code></a></td><td><a href="#asin"><code>asin</code></a></td><td><a href="#atan"><code>atan</code></a></td><td><a href="#atan2"><code>atan2</code></a></td>
 </tr><tr>
-<td><a href="#atomicmax"><code>atomicMax</code></a></td><td><a href="#atomicmin"><code>atomicMin</code></a></td><td><a href="#atomicor"><code>atomicOr</code></a></td><td><a href="#atomicstore"><code>atomicStore</code></a></td>
+<td><a href="#atomicadd"><code>atomicAdd</code></a></td><td><a href="#atomicand"><code>atomicAnd</code></a></td><td><a href="#atomiccompareexchangeweak"><code>atomicCompareExchangeWeak</code></a></td><td><a href="#atomicexchange"><code>atomicExchange</code></a></td>
 </tr><tr>
-<td><a href="#atomicsub"><code>atomicSub</code></a></td><td><a href="#atomicxor"><code>atomicXor</code></a></td><td><a href="#attribute"><code>attribute</code></a></td><td><a href="#binaryop"><code>BinaryOp</code></a></td>
+<td><a href="#atomicload"><code>atomicLoad</code></a></td><td><a href="#atomicmax"><code>atomicMax</code></a></td><td><a href="#atomicmin"><code>atomicMin</code></a></td><td><a href="#atomicor"><code>atomicOr</code></a></td>
 </tr><tr>
-<td><a href="#break"><code>Break</code></a></td><td><a href="#builtinkind"><code>BuiltinKind</code></a></td><td><a href="#bitcastf32"><code>bitcastF32</code></a></td><td><a href="#bitcasti32"><code>bitcastI32</code></a></td>
+<td><a href="#atomicstore"><code>atomicStore</code></a></td><td><a href="#atomicsub"><code>atomicSub</code></a></td><td><a href="#atomicxor"><code>atomicXor</code></a></td><td><a href="#attribute"><code>attribute</code></a></td>
 </tr><tr>
-<td><a href="#bitcastu32"><code>bitcastU32</code></a></td><td><a href="#bitwiseand"><code>bitwiseAnd</code></a></td><td><a href="#bitwiseor"><code>bitwiseOr</code></a></td><td><a href="#bitwisexor"><code>bitwiseXor</code></a></td>
+<td><a href="#binaryop"><code>BinaryOp</code></a></td><td><a href="#break"><code>Break</code></a></td><td><a href="#builtinkind"><code>BuiltinKind</code></a></td><td><a href="#bitcastf32"><code>bitcastF32</code></a></td>
 </tr><tr>
-<td><a href="#bool"><code>bool</code></a></td><td><a href="#builtin"><code>builtin</code></a></td><td><a href="#computenodeoptions"><code>ComputeNodeOptions</code></a></td><td><a href="#computeoptions"><code>ComputeOptions</code></a></td>
+<td><a href="#bitcasti32"><code>bitcastI32</code></a></td><td><a href="#bitcastu32"><code>bitcastU32</code></a></td><td><a href="#bitwiseand"><code>bitwiseAnd</code></a></td><td><a href="#bitwiseor"><code>bitwiseOr</code></a></td>
 </tr><tr>
-<td><a href="#const"><code>Const</code></a></td><td><a href="#continue"><code>Continue</code></a></td><td><a href="#cubesamplingmode"><code>CubeSamplingMode</code></a></td><td><a href="#camerafar"><code>cameraFar</code></a></td>
+<td><a href="#bitwisexor"><code>bitwiseXor</code></a></td><td><a href="#bool"><code>bool</code></a></td><td><a href="#builtin"><code>builtin</code></a></td><td><a href="#computenodeoptions"><code>ComputeNodeOptions</code></a></td>
 </tr><tr>
-<td><a href="#cameranear"><code>cameraNear</code></a></td><td><a href="#cameraposition"><code>cameraPosition</code></a></td><td><a href="#cameraprojectionmatrix"><code>cameraProjectionMatrix</code></a></td><td><a href="#cameraviewmatrix"><code>cameraViewMatrix</code></a></td>
+<td><a href="#computeoptions"><code>ComputeOptions</code></a></td><td><a href="#const"><code>Const</code></a></td><td><a href="#continue"><code>Continue</code></a></td><td><a href="#cubesamplingmode"><code>CubeSamplingMode</code></a></td>
 </tr><tr>
-<td><a href="#ceil"><code>ceil</code></a></td><td><a href="#clamp"><code>clamp</code></a></td><td><a href="#comparisonsampler"><code>comparisonSampler</code></a></td><td><a href="#compute"><code>compute</code></a></td>
+<td><a href="#camerafar"><code>cameraFar</code></a></td><td><a href="#cameranear"><code>cameraNear</code></a></td><td><a href="#cameraposition"><code>cameraPosition</code></a></td><td><a href="#cameraprojectionmatrix"><code>cameraProjectionMatrix</code></a></td>
 </tr><tr>
-<td><a href="#computeindex"><code>computeIndex</code></a></td><td><a href="#cond"><code>cond</code></a></td><td><a href="#cos"><code>cos</code></a></td><td><a href="#countleadingzeros"><code>countLeadingZeros</code></a></td>
+<td><a href="#cameraviewmatrix"><code>cameraViewMatrix</code></a></td><td><a href="#ceil"><code>ceil</code></a></td><td><a href="#clamp"><code>clamp</code></a></td><td><a href="#comparisonsampler"><code>comparisonSampler</code></a></td>
 </tr><tr>
-<td><a href="#countonebits"><code>countOneBits</code></a></td><td><a href="#counttrailingzeros"><code>countTrailingZeros</code></a></td><td><a href="#cross"><code>cross</code></a></td><td><a href="#cubetexture"><code>cubeTexture</code></a></td>
+<td><a href="#compute"><code>compute</code></a></td><td><a href="#computeindex"><code>computeIndex</code></a></td><td><a href="#cond"><code>cond</code></a></td><td><a href="#cos"><code>cos</code></a></td>
 </tr><tr>
-<td><a href="#depthsamplingmode"><code>DepthSamplingMode</code></a></td><td><a href="#discard"><code>Discard</code></a></td><td><a href="#drawindexedindirect"><code>DrawIndexedIndirect</code></a></td><td><a href="#drawindirect"><code>DrawIndirect</code></a></td>
+<td><a href="#countleadingzeros"><code>countLeadingZeros</code></a></td><td><a href="#countonebits"><code>countOneBits</code></a></td><td><a href="#counttrailingzeros"><code>countTrailingZeros</code></a></td><td><a href="#cross"><code>cross</code></a></td>
 </tr><tr>
-<td><a href="#depthtexture"><code>depthTexture</code></a></td><td><a href="#div"><code>div</code></a></td><td><a href="#dot"><code>dot</code></a></td><td><a href="#dpdx"><code>dpdx</code></a></td>
+<td><a href="#cubetexture"><code>cubeTexture</code></a></td><td><a href="#depthsamplingmode"><code>DepthSamplingMode</code></a></td><td><a href="#discard"><code>Discard</code></a></td><td><a href="#drawindexedindirect"><code>DrawIndexedIndirect</code></a></td>
 </tr><tr>
-<td><a href="#dpdxcoarse"><code>dpdxCoarse</code></a></td><td><a href="#dpdxfine"><code>dpdxFine</code></a></td><td><a href="#dpdy"><code>dpdy</code></a></td><td><a href="#dpdycoarse"><code>dpdyCoarse</code></a></td>
+<td><a href="#drawindirect"><code>DrawIndirect</code></a></td><td><a href="#depthtexture"><code>depthTexture</code></a></td><td><a href="#div"><code>div</code></a></td><td><a href="#dot"><code>dot</code></a></td>
 </tr><tr>
-<td><a href="#dpdyfine"><code>dpdyFine</code></a></td><td><a href="#equal"><code>equal</code></a></td><td><a href="#exp"><code>exp</code></a></td><td><a href="#exp2"><code>exp2</code></a></td>
+<td><a href="#dpdx"><code>dpdx</code></a></td><td><a href="#dpdxcoarse"><code>dpdxCoarse</code></a></td><td><a href="#dpdxfine"><code>dpdxFine</code></a></td><td><a href="#dpdy"><code>dpdy</code></a></td>
 </tr><tr>
-<td><a href="#fieldaccessor"><code>FieldAccessor</code></a></td><td><a href="#fields"><code>Fields</code></a></td><td><a href="#fn"><code>Fn</code></a></td><td><a href="#fnlayout"><code>FnLayout</code></a></td>
+<td><a href="#dpdycoarse"><code>dpdyCoarse</code></a></td><td><a href="#dpdyfine"><code>dpdyFine</code></a></td><td><a href="#equal"><code>equal</code></a></td><td><a href="#exp"><code>exp</code></a></td>
 </tr><tr>
-<td><a href="#for"><code>For</code></a></td><td><a href="#f16"><code>f16</code></a></td><td><a href="#f32"><code>f32</code></a></td><td><a href="#field"><code>field</code></a></td>
+<td><a href="#exp2"><code>exp2</code></a></td><td><a href="#fieldaccessor"><code>FieldAccessor</code></a></td><td><a href="#fields"><code>Fields</code></a></td><td><a href="#fn"><code>Fn</code></a></td>
 </tr><tr>
-<td><a href="#fields-2"><code>fields</code></a></td><td><a href="#firstleadingbit"><code>firstLeadingBit</code></a></td><td><a href="#firsttrailingbit"><code>firstTrailingBit</code></a></td><td><a href="#floor"><code>floor</code></a></td>
+<td><a href="#fnlayout"><code>FnLayout</code></a></td><td><a href="#for"><code>For</code></a></td><td><a href="#f16"><code>f16</code></a></td><td><a href="#f32"><code>f32</code></a></td>
 </tr><tr>
-<td><a href="#fract"><code>fract</code></a></td><td><a href="#fragcoord"><code>fragCoord</code></a></td><td><a href="#fwidth"><code>fwidth</code></a></td><td><a href="#fwidthcoarse"><code>fwidthCoarse</code></a></td>
+<td><a href="#field"><code>field</code></a></td><td><a href="#fields-2"><code>fields</code></a></td><td><a href="#firstleadingbit"><code>firstLeadingBit</code></a></td><td><a href="#firsttrailingbit"><code>firstTrailingBit</code></a></td>
 </tr><tr>
-<td><a href="#fwidthfine"><code>fwidthFine</code></a></td><td><a href="#fxaa"><code>fxaa</code></a></td><td><a href="#glslfnlayout"><code>GlslFnLayout</code></a></td><td><a href="#gputypedarray"><code>GpuTypedArray</code></a></td>
+<td><a href="#floor"><code>floor</code></a></td><td><a href="#fract"><code>fract</code></a></td><td><a href="#fragcoord"><code>fragCoord</code></a></td><td><a href="#fwidth"><code>fwidth</code></a></td>
 </tr><tr>
-<td><a href="#globalid"><code>globalId</code></a></td><td><a href="#glsl"><code>glsl</code></a></td><td><a href="#glslfn"><code>glslFn</code></a></td><td><a href="#greaterthan"><code>greaterThan</code></a></td>
+<td><a href="#fwidthcoarse"><code>fwidthCoarse</code></a></td><td><a href="#fwidthfine"><code>fwidthFine</code></a></td><td><a href="#fxaa"><code>fxaa</code></a></td><td><a href="#glslfnlayout"><code>GlslFnLayout</code></a></td>
 </tr><tr>
-<td><a href="#greaterthanequal"><code>greaterThanEqual</code></a></td><td><a href="#highleveltexture"><code>HighLevelTexture</code></a></td><td><a href="#if"><code>If</code></a></td><td><a href="#ifchain"><code>IfChain</code></a></td>
+<td><a href="#gputypedarray"><code>GpuTypedArray</code></a></td><td><a href="#globalid"><code>globalId</code></a></td><td><a href="#glsl"><code>glsl</code></a></td><td><a href="#glslfn"><code>glslFn</code></a></td>
 </tr><tr>
-<td><a href="#interpolationsampling"><code>InterpolationSampling</code></a></td><td><a href="#interpolationtype"><code>InterpolationType</code></a></td><td><a href="#i32"><code>i32</code></a></td><td><a href="#index"><code>index</code></a></td>
+<td><a href="#greaterthan"><code>greaterThan</code></a></td><td><a href="#greaterthanequal"><code>greaterThanEqual</code></a></td><td><a href="#highleveltexture"><code>HighLevelTexture</code></a></td><td><a href="#if"><code>If</code></a></td>
 </tr><tr>
-<td><a href="#instanceindex"><code>instanceIndex</code></a></td><td><a href="#inversesqrt"><code>inverseSqrt</code></a></td><td><a href="#let"><code>Let</code></a></td><td><a href="#loop"><code>Loop</code></a></td>
+<td><a href="#ifchain"><code>IfChain</code></a></td><td><a href="#interpolationsampling"><code>InterpolationSampling</code></a></td><td><a href="#interpolationtype"><code>InterpolationType</code></a></td><td><a href="#i32"><code>i32</code></a></td>
 </tr><tr>
-<td><a href="#loopparam"><code>LoopParam</code></a></td><td><a href="#loopvars"><code>LoopVars</code></a></td><td><a href="#length"><code>length</code></a></td><td><a href="#lessthan"><code>lessThan</code></a></td>
+<td><a href="#index"><code>index</code></a></td><td><a href="#instanceindex"><code>instanceIndex</code></a></td><td><a href="#invariant"><code>invariant</code></a></td><td><a href="#inversesqrt"><code>inverseSqrt</code></a></td>
 </tr><tr>
-<td><a href="#lessthanequal"><code>lessThanEqual</code></a></td><td><a href="#localid"><code>localId</code></a></td><td><a href="#localindex"><code>localIndex</code></a></td><td><a href="#log"><code>log</code></a></td>
+<td><a href="#let"><code>Let</code></a></td><td><a href="#loop"><code>Loop</code></a></td><td><a href="#loopparam"><code>LoopParam</code></a></td><td><a href="#loopvars"><code>LoopVars</code></a></td>
 </tr><tr>
-<td><a href="#log2"><code>log2</code></a></td><td><a href="#mattype"><code>MatType</code></a></td><td><a href="#mat2x2f"><code>mat2x2f</code></a></td><td><a href="#mat2x2h"><code>mat2x2h</code></a></td>
+<td><a href="#length"><code>length</code></a></td><td><a href="#lessthan"><code>lessThan</code></a></td><td><a href="#lessthanequal"><code>lessThanEqual</code></a></td><td><a href="#localid"><code>localId</code></a></td>
 </tr><tr>
-<td><a href="#mat2x3f"><code>mat2x3f</code></a></td><td><a href="#mat2x3h"><code>mat2x3h</code></a></td><td><a href="#mat2x4f"><code>mat2x4f</code></a></td><td><a href="#mat2x4h"><code>mat2x4h</code></a></td>
+<td><a href="#localindex"><code>localIndex</code></a></td><td><a href="#log"><code>log</code></a></td><td><a href="#log2"><code>log2</code></a></td><td><a href="#mattype"><code>MatType</code></a></td>
 </tr><tr>
-<td><a href="#mat3"><code>mat3</code></a></td><td><a href="#mat3x2f"><code>mat3x2f</code></a></td><td><a href="#mat3x2h"><code>mat3x2h</code></a></td><td><a href="#mat3x3f"><code>mat3x3f</code></a></td>
+<td><a href="#mat2x2f"><code>mat2x2f</code></a></td><td><a href="#mat2x2h"><code>mat2x2h</code></a></td><td><a href="#mat2x3f"><code>mat2x3f</code></a></td><td><a href="#mat2x3h"><code>mat2x3h</code></a></td>
 </tr><tr>
-<td><a href="#mat3x3h"><code>mat3x3h</code></a></td><td><a href="#mat3x4f"><code>mat3x4f</code></a></td><td><a href="#mat3x4h"><code>mat3x4h</code></a></td><td><a href="#mat4"><code>mat4</code></a></td>
+<td><a href="#mat2x4f"><code>mat2x4f</code></a></td><td><a href="#mat2x4h"><code>mat2x4h</code></a></td><td><a href="#mat3"><code>mat3</code></a></td><td><a href="#mat3x2f"><code>mat3x2f</code></a></td>
 </tr><tr>
-<td><a href="#mat4x2f"><code>mat4x2f</code></a></td><td><a href="#mat4x2h"><code>mat4x2h</code></a></td><td><a href="#mat4x3f"><code>mat4x3f</code></a></td><td><a href="#mat4x3h"><code>mat4x3h</code></a></td>
+<td><a href="#mat3x2h"><code>mat3x2h</code></a></td><td><a href="#mat3x3f"><code>mat3x3f</code></a></td><td><a href="#mat3x3h"><code>mat3x3h</code></a></td><td><a href="#mat3x4f"><code>mat3x4f</code></a></td>
 </tr><tr>
-<td><a href="#mat4x4f"><code>mat4x4f</code></a></td><td><a href="#mat4x4h"><code>mat4x4h</code></a></td><td><a href="#max"><code>max</code></a></td><td><a href="#min"><code>min</code></a></td>
+<td><a href="#mat3x4h"><code>mat3x4h</code></a></td><td><a href="#mat4"><code>mat4</code></a></td><td><a href="#mat4x2f"><code>mat4x2f</code></a></td><td><a href="#mat4x2h"><code>mat4x2h</code></a></td>
 </tr><tr>
-<td><a href="#mix"><code>mix</code></a></td><td><a href="#mod"><code>mod</code></a></td><td><a href="#modelnormalmatrix"><code>modelNormalMatrix</code></a></td><td><a href="#modelworldmatrix"><code>modelWorldMatrix</code></a></td>
+<td><a href="#mat4x3f"><code>mat4x3f</code></a></td><td><a href="#mat4x3h"><code>mat4x3h</code></a></td><td><a href="#mat4x4f"><code>mat4x4f</code></a></td><td><a href="#mat4x4h"><code>mat4x4h</code></a></td>
 </tr><tr>
-<td><a href="#mrt"><code>mrt</code></a></td><td><a href="#mul"><code>mul</code></a></td><td><a href="#nodekind"><code>NodeKind</code></a></td><td><a href="#numerictype"><code>NumericType</code></a></td>
+<td><a href="#max"><code>max</code></a></td><td><a href="#min"><code>min</code></a></td><td><a href="#mix"><code>mix</code></a></td><td><a href="#mod"><code>mod</code></a></td>
 </tr><tr>
-<td><a href="#ndcdepthtostorage"><code>ndcDepthToStorage</code></a></td><td><a href="#normalize"><code>normalize</code></a></td><td><a href="#notequal"><code>notEqual</code></a></td><td><a href="#numworkgroups"><code>numWorkgroups</code></a></td>
+<td><a href="#modelnormalmatrix"><code>modelNormalMatrix</code></a></td><td><a href="#modelworldmatrix"><code>modelWorldMatrix</code></a></td><td><a href="#mrt"><code>mrt</code></a></td><td><a href="#mul"><code>mul</code></a></td>
 </tr><tr>
-<td><a href="#outputcolorspace"><code>OutputColorSpace</code></a></td><td><a href="#or"><code>or</code></a></td><td><a href="#paramdesc"><code>ParamDesc</code></a></td><td><a href="#paramdescstonodes"><code>ParamDescsToNodes</code></a></td>
+<td><a href="#nodekind"><code>NodeKind</code></a></td><td><a href="#numerictype"><code>NumericType</code></a></td><td><a href="#ndcdepthtostorage"><code>ndcDepthToStorage</code></a></td><td><a href="#normalize"><code>normalize</code></a></td>
 </tr><tr>
-<td><a href="#privatevar"><code>PrivateVar</code></a></td><td><a href="#pack2x16float"><code>pack2x16float</code></a></td><td><a href="#pack2x16snorm"><code>pack2x16snorm</code></a></td><td><a href="#pack2x16unorm"><code>pack2x16unorm</code></a></td>
+<td><a href="#notequal"><code>notEqual</code></a></td><td><a href="#numworkgroups"><code>numWorkgroups</code></a></td><td><a href="#outputcolorspace"><code>OutputColorSpace</code></a></td><td><a href="#or"><code>or</code></a></td>
 </tr><tr>
-<td><a href="#pack4x8snorm"><code>pack4x8snorm</code></a></td><td><a href="#pack4x8unorm"><code>pack4x8unorm</code></a></td><td><a href="#positionclip"><code>positionClip</code></a></td><td><a href="#pow"><code>pow</code></a></td>
+<td><a href="#paramdesc"><code>ParamDesc</code></a></td><td><a href="#paramdescstonodes"><code>ParamDescsToNodes</code></a></td><td><a href="#privatevar"><code>PrivateVar</code></a></td><td><a href="#pack2x16float"><code>pack2x16float</code></a></td>
 </tr><tr>
-<td><a href="#recordaccessor"><code>RecordAccessor</code></a></td><td><a href="#renderoutputoptions"><code>RenderOutputOptions</code></a></td><td><a href="#rendertexturecontents"><code>RenderTextureContents</code></a></td><td><a href="#rendertextureoptions"><code>RenderTextureOptions</code></a></td>
+<td><a href="#pack2x16snorm"><code>pack2x16snorm</code></a></td><td><a href="#pack2x16unorm"><code>pack2x16unorm</code></a></td><td><a href="#pack4x8snorm"><code>pack4x8snorm</code></a></td><td><a href="#pack4x8unorm"><code>pack4x8unorm</code></a></td>
 </tr><tr>
-<td><a href="#resolvedstoragebuffertexture"><code>ResolvedStorageBufferTexture</code></a></td><td><a href="#return"><code>Return</code></a></td><td><a href="#reinhardtonemapping"><code>reinhardToneMapping</code></a></td><td><a href="#renderoutput"><code>renderOutput</code></a></td>
+<td><a href="#positionclip"><code>positionClip</code></a></td><td><a href="#pow"><code>pow</code></a></td><td><a href="#recordaccessor"><code>RecordAccessor</code></a></td><td><a href="#renderoutputoptions"><code>RenderOutputOptions</code></a></td>
 </tr><tr>
-<td><a href="#rendertexture"><code>renderTexture</code></a></td><td><a href="#reversebits"><code>reverseBits</code></a></td><td><a href="#rgb"><code>rgb</code></a></td><td><a href="#samplertype"><code>SamplerType</code></a></td>
+<td><a href="#rendertexturecontents"><code>RenderTextureContents</code></a></td><td><a href="#rendertextureoptions"><code>RenderTextureOptions</code></a></td><td><a href="#resolvedstoragebuffertexture"><code>ResolvedStorageBufferTexture</code></a></td><td><a href="#return"><code>Return</code></a></td>
 </tr><tr>
-<td><a href="#samplingmode"><code>SamplingMode</code></a></td><td><a href="#scalarresultdesc"><code>ScalarResultDesc</code></a></td><td><a href="#scalartype"><code>ScalarType</code></a></td><td><a href="#shiftamount"><code>ShiftAmount</code></a></td>
+<td><a href="#reinhardtonemapping"><code>reinhardToneMapping</code></a></td><td><a href="#renderoutput"><code>renderOutput</code></a></td><td><a href="#rendertexture"><code>renderTexture</code></a></td><td><a href="#reversebits"><code>reverseBits</code></a></td>
 </tr><tr>
-<td><a href="#storagebuffertexturesource"><code>StorageBufferTextureSource</code></a></td><td><a href="#storagecoord"><code>StorageCoord</code></a></td><td><a href="#storagesampledof"><code>StorageSampledOf</code></a></td><td><a href="#storagevalue"><code>StorageValue</code></a></td>
+<td><a href="#rgb"><code>rgb</code></a></td><td><a href="#samplertype"><code>SamplerType</code></a></td><td><a href="#samplingmode"><code>SamplingMode</code></a></td><td><a href="#scalarresultdesc"><code>ScalarResultDesc</code></a></td>
 </tr><tr>
-<td><a href="#structdef"><code>StructDef</code></a></td><td><a href="#structinstance"><code>StructInstance</code></a></td><td><a href="#structmember"><code>StructMember</code></a></td><td><a href="#sampler"><code>sampler</code></a></td>
+<td><a href="#scalartype"><code>ScalarType</code></a></td><td><a href="#shiftamount"><code>ShiftAmount</code></a></td><td><a href="#storagebuffertexturesource"><code>StorageBufferTextureSource</code></a></td><td><a href="#storagecoord"><code>StorageCoord</code></a></td>
 </tr><tr>
-<td><a href="#screencoordinate"><code>screenCoordinate</code></a></td><td><a href="#screensize"><code>screenSize</code></a></td><td><a href="#screenuv"><code>screenUV</code></a></td><td><a href="#select"><code>select</code></a></td>
+<td><a href="#storagesampledof"><code>StorageSampledOf</code></a></td><td><a href="#storagevalue"><code>StorageValue</code></a></td><td><a href="#structdef"><code>StructDef</code></a></td><td><a href="#structinstance"><code>StructInstance</code></a></td>
 </tr><tr>
-<td><a href="#shiftleft"><code>shiftLeft</code></a></td><td><a href="#shiftright"><code>shiftRight</code></a></td><td><a href="#sign"><code>sign</code></a></td><td><a href="#sin"><code>sin</code></a></td>
+<td><a href="#structmember"><code>StructMember</code></a></td><td><a href="#sampler"><code>sampler</code></a></td><td><a href="#screencoordinate"><code>screenCoordinate</code></a></td><td><a href="#screensize"><code>screenSize</code></a></td>
 </tr><tr>
-<td><a href="#smoothstep"><code>smoothstep</code></a></td><td><a href="#sqrt"><code>sqrt</code></a></td><td><a href="#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td><td><a href="#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td>
+<td><a href="#screenuv"><code>screenUV</code></a></td><td><a href="#select"><code>select</code></a></td><td><a href="#shiftleft"><code>shiftLeft</code></a></td><td><a href="#shiftright"><code>shiftRight</code></a></td>
 </tr><tr>
-<td><a href="#step"><code>step</code></a></td><td><a href="#storage"><code>storage</code></a></td><td><a href="#storagebarrier"><code>storageBarrier</code></a></td><td><a href="#storagetexture"><code>storageTexture</code></a></td>
+<td><a href="#sign"><code>sign</code></a></td><td><a href="#sin"><code>sin</code></a></td><td><a href="#smoothstep"><code>smoothstep</code></a></td><td><a href="#sqrt"><code>sqrt</code></a></td>
 </tr><tr>
-<td><a href="#struct"><code>struct</code></a></td><td><a href="#sub"><code>sub</code></a></td><td><a href="#texturetype"><code>TextureType</code></a></td><td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td>
+<td><a href="#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td><td><a href="#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td><td><a href="#step"><code>step</code></a></td><td><a href="#storage"><code>storage</code></a></td>
 </tr><tr>
-<td><a href="#transformfeedbackcallback"><code>TransformFeedbackCallback</code></a></td><td><a href="#transformfeedbacklayout"><code>TransformFeedbackLayout</code></a></td><td><a href="#tan"><code>tan</code></a></td><td><a href="#targetcolor"><code>targetColor</code></a></td>
+<td><a href="#storagebarrier"><code>storageBarrier</code></a></td><td><a href="#storagetexture"><code>storageTexture</code></a></td><td><a href="#struct"><code>struct</code></a></td><td><a href="#sub"><code>sub</code></a></td>
 </tr><tr>
-<td><a href="#targetdepth"><code>targetDepth</code></a></td><td><a href="#texture"><code>texture</code></a></td><td><a href="#texturebarrier"><code>textureBarrier</code></a></td><td><a href="#texturebinding"><code>textureBinding</code></a></td>
+<td><a href="#texturetype"><code>TextureType</code></a></td><td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td><td><a href="#transformfeedbackcallback"><code>TransformFeedbackCallback</code></a></td><td><a href="#transformfeedbacklayout"><code>TransformFeedbackLayout</code></a></td>
 </tr><tr>
-<td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td><td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td><td><a href="#textureload"><code>textureLoad</code></a></td>
+<td><a href="#tan"><code>tan</code></a></td><td><a href="#targetcolor"><code>targetColor</code></a></td><td><a href="#targetdepth"><code>targetDepth</code></a></td><td><a href="#texture"><code>texture</code></a></td>
 </tr><tr>
-<td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td><td><a href="#texturesample"><code>textureSample</code></a></td><td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td>
+<td><a href="#texturebarrier"><code>textureBarrier</code></a></td><td><a href="#texturebinding"><code>textureBinding</code></a></td><td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td>
 </tr><tr>
-<td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td><td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td>
+<td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td><td><a href="#textureload"><code>textureLoad</code></a></td><td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td>
 </tr><tr>
-<td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transformfeedback"><code>transformFeedback</code></a></td><td><a href="#transpose"><code>transpose</code></a></td><td><a href="#u32"><code>u32</code></a></td>
+<td><a href="#texturesample"><code>textureSample</code></a></td><td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td>
 </tr><tr>
-<td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td><td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td><td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td>
+<td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transformfeedback"><code>transformFeedback</code></a></td>
 </tr><tr>
-<td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td><td><a href="#var"><code>Var</code></a></td><td><a href="#vec2type"><code>Vec2Type</code></a></td>
+<td><a href="#transpose"><code>transpose</code></a></td><td><a href="#u32"><code>u32</code></a></td><td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td>
 </tr><tr>
-<td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td><td><a href="#vectype"><code>VecType</code></a></td><td><a href="#varying"><code>varying</code></a></td>
+<td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td><td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td><td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td>
 </tr><tr>
-<td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td><td><a href="#vec2f"><code>vec2f</code></a></td><td><a href="#vec2h"><code>vec2h</code></a></td>
+<td><a href="#var"><code>Var</code></a></td><td><a href="#vec2type"><code>Vec2Type</code></a></td><td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td>
 </tr><tr>
-<td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td><td><a href="#vec3"><code>vec3</code></a></td><td><a href="#vec3b"><code>vec3b</code></a></td>
+<td><a href="#vectype"><code>VecType</code></a></td><td><a href="#varying"><code>varying</code></a></td><td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td>
 </tr><tr>
-<td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td><td><a href="#vec3i"><code>vec3i</code></a></td><td><a href="#vec3u"><code>vec3u</code></a></td>
+<td><a href="#vec2f"><code>vec2f</code></a></td><td><a href="#vec2h"><code>vec2h</code></a></td><td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td>
 </tr><tr>
-<td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td><td><a href="#vec4f"><code>vec4f</code></a></td><td><a href="#vec4h"><code>vec4h</code></a></td>
+<td><a href="#vec3"><code>vec3</code></a></td><td><a href="#vec3b"><code>vec3b</code></a></td><td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td>
 </tr><tr>
-<td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td><td><a href="#vertexindex"><code>vertexIndex</code></a></td><td><a href="#wgslfncallable"><code>WgslFnCallable</code></a></td>
+<td><a href="#vec3i"><code>vec3i</code></a></td><td><a href="#vec3u"><code>vec3u</code></a></td><td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td>
 </tr><tr>
-<td><a href="#wgslfncallabletyped"><code>WgslFnCallableTyped</code></a></td><td><a href="#wgslfncallableuntyped"><code>WgslFnCallableUntyped</code></a></td><td><a href="#wgslfnlayout"><code>WgslFnLayout</code></a></td><td><a href="#wgslfunctionnoderef"><code>WgslFunctionNodeRef</code></a></td>
+<td><a href="#vec4f"><code>vec4f</code></a></td><td><a href="#vec4h"><code>vec4h</code></a></td><td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td>
 </tr><tr>
-<td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunction-2"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgslnodefunctioninput-2"><code>WgslNodeFunctionInput</code></a></td>
+<td><a href="#vertexindex"><code>vertexIndex</code></a></td><td><a href="#wgslfncallable"><code>WgslFnCallable</code></a></td><td><a href="#wgslfncallabletyped"><code>WgslFnCallableTyped</code></a></td><td><a href="#wgslfncallableuntyped"><code>WgslFnCallableUntyped</code></a></td>
 </tr><tr>
-<td><a href="#wgsltype"><code>WgslType</code></a></td><td><a href="#while"><code>While</code></a></td><td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td><td><a href="#wgsl"><code>wgsl</code></a></td>
+<td><a href="#wgslfnlayout"><code>WgslFnLayout</code></a></td><td><a href="#wgslfunctionnoderef"><code>WgslFunctionNodeRef</code></a></td><td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunction-2"><code>WgslNodeFunction</code></a></td>
 </tr><tr>
-<td><a href="#wgslfn"><code>wgslFn</code></a></td><td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td><td><a href="#workgroupid"><code>workgroupId</code></a></td><td></td>
+<td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgslnodefunctioninput-2"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgsltype"><code>WgslType</code></a></td><td><a href="#while"><code>While</code></a></td>
+</tr><tr>
+<td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td><td><a href="#wgsl"><code>wgsl</code></a></td><td><a href="#wgslfn"><code>wgslFn</code></a></td><td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td>
+</tr><tr>
+<td><a href="#workgroupid"><code>workgroupId</code></a></td><td></td><td></td><td></td>
 </tr></table>
 
 ### Renderer
@@ -533,9 +537,9 @@ Drive the GPU: create a renderer, build pipelines, render to the canvas or a tar
 </tr><tr>
 <td><a href="#createcanvastarget"><code>createCanvasTarget</code></a></td><td><a href="#readoptions"><code>ReadOptions</code></a></td><td><a href="#read"><code>read</code></a></td><td><a href="#rendertargetoptions"><code>RenderTargetOptions</code></a></td>
 </tr><tr>
-<td><a href="#rendertargettexture"><code>RenderTargetTexture</code></a></td><td><a href="#rendertarget"><code>RenderTarget</code></a></td><td><a href="#createrendertarget"><code>createRenderTarget</code></a></td><td><a href="#deadattachment"><code>deadAttachment</code></a></td>
+<td><a href="#rendertargettexture"><code>RenderTargetTexture</code></a></td><td><a href="#rendertarget"><code>RenderTarget</code></a></td><td><a href="#createrendertarget"><code>createRenderTarget</code></a></td><td><a href="#assertsubresource"><code>assertSubresource</code></a></td>
 </tr><tr>
-<td><a href="#cuberendertargetoptions"><code>CubeRenderTargetOptions</code></a></td><td><a href="#cuberendertarget"><code>CubeRenderTarget</code></a></td><td><a href="#createcuberendertarget"><code>createCubeRenderTarget</code></a></td><td></td>
+<td><a href="#deadattachment"><code>deadAttachment</code></a></td><td><a href="#cuberendertargetoptions"><code>CubeRenderTargetOptions</code></a></td><td><a href="#cuberendertarget"><code>CubeRenderTarget</code></a></td><td><a href="#createcuberendertarget"><code>createCubeRenderTarget</code></a></td>
 </tr></table>
 
 ### Scene & objects
@@ -613,19 +617,21 @@ Declarative, data-oriented resources: buffers, uniforms, materials, and textures
 <table><tr>
 <td><a href="#wrapmode"><code>WrapMode</code></a></td><td><a href="#filtermode"><code>FilterMode</code></a></td><td><a href="#mipmapfiltermode"><code>MipmapFilterMode</code></a></td><td><a href="#textureoptions"><code>TextureOptions</code></a></td>
 </tr><tr>
-<td><a href="#texture-2"><code>Texture</code></a></td><td><a href="#createtexture"><code>createTexture</code></a></td><td><a href="#imagesize"><code>ImageSize</code></a></td><td><a href="#datatextureimage"><code>DataTextureImage</code></a></td>
+<td><a href="#formatsampletype"><code>formatSampleType</code></a></td><td><a href="#assertsamesampletype"><code>assertSameSampleType</code></a></td><td><a href="#texture-2"><code>Texture</code></a></td><td><a href="#createtexture"><code>createTexture</code></a></td>
 </tr><tr>
-<td><a href="#sourcedata"><code>SourceData</code></a></td><td><a href="#source"><code>Source</code></a></td><td><a href="#createsource"><code>createSource</code></a></td><td><a href="#canvastexture"><code>CanvasTexture</code></a></td>
+<td><a href="#imagesize"><code>ImageSize</code></a></td><td><a href="#datatextureimage"><code>DataTextureImage</code></a></td><td><a href="#sourcedata"><code>SourceData</code></a></td><td><a href="#source"><code>Source</code></a></td>
 </tr><tr>
-<td><a href="#createcanvastexture"><code>createCanvasTexture</code></a></td><td><a href="#cubetexturemapping"><code>CubeTextureMapping</code></a></td><td><a href="#cubetextureoptions"><code>CubeTextureOptions</code></a></td><td><a href="#cubetexture-2"><code>CubeTexture</code></a></td>
+<td><a href="#createsource"><code>createSource</code></a></td><td><a href="#canvastexture"><code>CanvasTexture</code></a></td><td><a href="#createcanvastexture"><code>createCanvasTexture</code></a></td><td><a href="#cubetexturemapping"><code>CubeTextureMapping</code></a></td>
 </tr><tr>
-<td><a href="#createcubetexture"><code>createCubeTexture</code></a></td><td><a href="#depthtextureformat"><code>DepthTextureFormat</code></a></td><td><a href="#depthtexture-2"><code>DepthTexture</code></a></td><td><a href="#createdepthtexture"><code>createDepthTexture</code></a></td>
+<td><a href="#cubetextureoptions"><code>CubeTextureOptions</code></a></td><td><a href="#cubetexture-2"><code>CubeTexture</code></a></td><td><a href="#createcubetexture"><code>createCubeTexture</code></a></td><td><a href="#depthtextureformat"><code>DepthTextureFormat</code></a></td>
 </tr><tr>
-<td><a href="#arraytextureimage"><code>ArrayTextureImage</code></a></td><td><a href="#arraytexture-2"><code>ArrayTexture</code></a></td><td><a href="#createarraytexture"><code>createArrayTexture</code></a></td><td><a href="#datatexturedata"><code>DataTextureData</code></a></td>
+<td><a href="#depthtexture-2"><code>DepthTexture</code></a></td><td><a href="#createdepthtexture"><code>createDepthTexture</code></a></td><td><a href="#arraytextureimage"><code>ArrayTextureImage</code></a></td><td><a href="#arraytexture-2"><code>ArrayTexture</code></a></td>
 </tr><tr>
-<td><a href="#structvalue"><code>StructValue</code></a></td><td><a href="#datatexture"><code>DataTexture</code></a></td><td><a href="#createstructtexture"><code>createStructTexture</code></a></td><td><a href="#createdatatexture"><code>createDataTexture</code></a></td>
+<td><a href="#createarraytexture"><code>createArrayTexture</code></a></td><td><a href="#datatexturedata"><code>DataTextureData</code></a></td><td><a href="#structvalue"><code>StructValue</code></a></td><td><a href="#datatexture"><code>DataTexture</code></a></td>
 </tr><tr>
-<td><a href="#texture3dimage"><code>Texture3DImage</code></a></td><td><a href="#data3dtexture"><code>Data3DTexture</code></a></td><td><a href="#createdata3dtexture"><code>createData3DTexture</code></a></td><td></td>
+<td><a href="#createstructtexture"><code>createStructTexture</code></a></td><td><a href="#createdatatexture"><code>createDataTexture</code></a></td><td><a href="#texture3dimage"><code>Texture3DImage</code></a></td><td><a href="#data3dtexture"><code>Data3DTexture</code></a></td>
+</tr><tr>
+<td><a href="#createdata3dtexture"><code>createData3DTexture</code></a></td><td></td><td></td><td></td>
 </tr></table>
 
 ### Compilation
@@ -900,6 +906,12 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
     get isDepth(): boolean;
     /** Is all source data ready for upload? */
     get isComplete(): boolean;
+    /**
+     * A view of part of this texture, as `GPUTexture.createView` makes: a mip range, a layer range, a dimension or an
+     * aspect. Omitted counts cover the rest of the texture. A storage binding sees one mip, so a texture with mips is
+     * bound for storage through `view({ baseMipLevel, mipLevelCount: 1 })`.
+     */
+    view(range?: TextureViewRangeInit): GpuTextureView<D>;
     dispose(): void;
 }
 ```
@@ -980,6 +992,74 @@ export type OptionsCubeArray = BaseOptions & {
 ```ts
 /** View dimension from schema type (for GPUTextureView) */
 export type ViewDimensionOf<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d ? '1d' : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d | d.textureStorage2d ? '2d' : D extends d.texture2dArray | d.textureDepth2dArray | d.textureStorage2dArray ? '2d-array' : D extends d.textureCube | d.textureDepthCube ? 'cube' : D extends d.textureCubeArray | d.textureDepthCubeArray ? 'cube-array' : D extends d.texture3d | d.textureStorage3d ? '3d' : '2d';
+```
+
+#### `GpuTextureView`
+
+```ts
+/**
+ * A view of a texture: the texture and the part of it a binding sees, as a `GPUTextureView` is. Made with
+ * {@link GpuTexture.view}; a plain value, so views of the same range of one texture are the same binding whichever
+ * object carries them. Make the views a frame needs once and keep them to make nothing per frame.
+ */
+export class GpuTextureView<D extends d.Texture = d.Texture> {
+    readonly isGpuTextureView = true;
+    readonly texture: GpuTexture<D>;
+    readonly range: TextureViewRange;
+    constructor(texture: GpuTexture<D>, range: TextureViewRange);
+}
+```
+
+#### `TextureSource`
+
+```ts
+/** A texture or a view of one: what a texture binding binds. A texture means its default view, the whole of it. */
+export type TextureSource<D extends d.Texture = d.Texture> = GpuTexture<D> | GpuTextureView<D>;
+```
+
+#### `TextureViewRange`
+
+```ts
+/**
+ * A view's range, normalised. `key` names it: two ranges with the same key are the same range, and the whole texture's
+ * key is ''. Counts stay unresolved, so a range covering "the rest" still does after the texture is resized.
+ */
+export class TextureViewRange {
+    readonly baseMipLevel: number;
+    readonly mipLevelCount: number | undefined;
+    readonly baseArrayLayer: number;
+    readonly arrayLayerCount: number | undefined;
+    readonly dimension: GPUTextureViewDimension | undefined;
+    readonly aspect: GPUTextureAspect;
+    readonly key: string;
+    /** how the range reads in a binding's name, e.g. `_mip3`; '' for the whole texture */
+    readonly nameSuffix: string;
+    constructor(init: TextureViewRangeInit);
+}
+```
+
+#### `TextureViewRangeInit`
+
+```ts
+/**
+ * Which part of a texture a view covers, as `GPUTextureViewDescriptor` says it. An omitted count covers the rest of the
+ * texture from the base, and an omitted dimension is the one the binding declares.
+ */
+export type TextureViewRangeInit = {
+    baseMipLevel?: number;
+    mipLevelCount?: number;
+    baseArrayLayer?: number;
+    arrayLayerCount?: number;
+    dimension?: GPUTextureViewDimension;
+    aspect?: GPUTextureAspect;
+};
+```
+
+#### `WHOLE_TEXTURE`
+
+```ts
+/** The range covering the whole texture: a texture's default view. */
+export const WHOLE_TEXTURE: TextureViewRange;
 ```
 
 #### `REGION_CAP`
@@ -2018,7 +2098,7 @@ export const DrawIndirect: import("./core").StructDef<{
  * const shadow = depthTexture(gpuDepthTex, gpuSampler);
  */
 export function depthTexture(tex: DepthTexture): DepthTextureNode;
-export function depthTexture(gpuTex: GpuTexture<FlatDepthTexture>, gpuSampler: GpuSampler): DepthTextureNode;
+export function depthTexture(source: TextureSource<FlatDepthTexture>, gpuSampler?: GpuSampler): DepthTextureNode;
 ```
 
 #### `div`
@@ -2459,6 +2539,22 @@ export const index: <N extends Node<Any>>(array: N, idx: Node<Any>) => Node<d.El
 export const instanceIndex: BuiltinNode<d.u32>;
 ```
 
+#### `invariant`
+
+```ts
+/**
+ * Marks `position` invariant when it is a material's `vertex`: two programs computing it from the same data the same
+ * way write the same bits, which a pass testing depth for equality against another's needs (`depthCompare: 'equal'`
+ * after a depth prepass). Both programs must mark it. As a value anywhere else, it is `position`.
+ *
+ * @example
+ * const clipPos = invariant(cameraProjectionMatrix.mul(viewPosition));
+ * const prepass = new Material({ vertex: clipPos, fragment: cutout });
+ * const lit = new Material({ vertex: clipPos, fragment: colour, depthWrite: false, depthCompare: 'equal' });
+ */
+export function invariant(position: Node<d.vec4f>): InvariantNode;
+```
+
 #### `inverseSqrt`
 
 ```ts
@@ -2492,8 +2588,15 @@ export type LoopParam = Node<Any> | number | {
     start?: Node<Any> | number;
     end?: Node<Any> | number;
     type?: d.Scalar;
+    /** inferred as three.js TSL infers it: '>=' when a numeric `start` is above a numeric `end`, else '<' */
     condition?: '<' | '<=' | '>' | '>=';
-    update?: Node<Any> | number | string | ((...args: unknown[]) => void);
+    /**
+     * How the loop variable steps, after three.js TSL's `Loop`: a number or a node adds itself (subtracts, with a
+     * '>' or '>=' condition), a string follows the variable as written (`'+= 2'`, `'*= 2'`), and a function is
+     * the step's own statement, given the loop variable as the body is. Left out, `++` (`--` counting down), or
+     * `+= 1.0` for a float. A for header holds one statement, so a function makes exactly one.
+     */
+    update?: Node<Any> | number | string | ((vars: LoopVars) => void);
     name?: string;
 };
 ```
@@ -2910,7 +3013,8 @@ export enum NodeKind {
     RenderTexture = 40,
     Inspector = 41,
     SubBuild = 42,
-    Node = 43
+    Invariant = 43,
+    Node = 44
 }
 ```
 
@@ -3511,12 +3615,17 @@ export function storageBarrier(): void;
 
 ```ts
 /**
- * storageTexture - bind a GpuTexture as a storage texture for compute writes/reads.
+ * storageTexture - a storage texture binding for compute writes and reads.
  *
- * @param gpuTex - a storage GpuTexture (e.g. from `createStorageTexture(...)`)
+ * Bound by value to a texture, or a view of one mip of one:
+ * `storageTexture(pyramid.view({ baseMipLevel: 2, mipLevelCount: 1 }), 'write')`.
+ * Or named, filled by each dispatch: `storageTexture('destination', d.textureStorage2d('r32float'), 'write')` with
+ * `dispatch(node, counts, { textures: { destination: view } })`, so one kernel runs over many mips or layers.
+ *
  * @param access - 'write' (default), 'read', or 'read_write'
  */
-export function storageTexture<D extends d.StorageTexture>(gpuTex: GpuTexture<D>, access?: d.StorageTextureAccess): StorageTextureBindingNode<D>;
+export function storageTexture<D extends d.StorageTexture>(source: TextureSource<D>, access?: d.StorageTextureAccess): StorageTextureBindingNode<D>;
+export function storageTexture<D extends d.StorageTexture>(slot: string, schema: D, access?: d.StorageTextureAccess): StorageTextureBindingNode<D>;
 ```
 
 #### `struct`
@@ -3601,7 +3710,9 @@ export function targetDepth(target: RenderTarget): DepthTextureNode;
  *
  * Accepts either:
  * - A high-level Texture, DataTexture or Data3DTexture (auto-creates sampler from texture settings)
- * - A GpuTexture + GpuSampler pair (low-level)
+ * - A GpuTexture, or a view of part of one, with the GpuSampler it is sampled with. With no sampler it can only be
+ *   read with `.load()`, which needs none.
+ * - A slot name and the sampled type, filled by each dispatch with `textures: { [slot]: view }`. Read with `.load()`.
  *
  * @example
  * // From high-level Texture
@@ -3609,6 +3720,10 @@ export function targetDepth(target: RenderTarget): DepthTextureNode;
  *
  * // From GpuTexture + GpuSampler (low-level)
  * const albedo = texture(gpuTex, gpuSampler);
+ *
+ * // A depth pyramid, every mip, read texel by texel
+ * const pyramid = texture(pyramidTex);
+ * pyramid.load(coords, mip)
  *
  * // Sampling methods
  * albedo.sample(customUv)              // textureSample with custom UVs
@@ -3621,8 +3736,9 @@ export function targetDepth(target: RenderTarget): DepthTextureNode;
 export function texture(tex: Texture): TextureNode<d.texture2d>;
 export function texture(dataTex: DataTexture): TextureNode<d.texture2d>;
 export function texture(tex3d: Data3DTexture): TextureNode<d.texture3d>;
-export function texture<D extends FlatSampledTexture>(gpuTex: GpuTexture<D>, gpuSampler: GpuSampler): TextureNode<D>;
-export function texture<S extends d.StorageTexture>(storageTex: GpuTexture<S>, gpuSampler: GpuSampler): TextureNode<StorageSampledOf<S>>;
+export function texture<D extends FlatSampledTexture>(source: TextureSource<D>, gpuSampler?: GpuSampler): TextureNode<D>;
+export function texture<S extends d.StorageTexture>(storageSource: TextureSource<S>, gpuSampler?: GpuSampler): TextureNode<StorageSampledOf<S>>;
+export function texture<D extends FlatSampledTexture>(slot: string, schema: D): TextureNode<D>;
 ```
 
 #### `textureBarrier`
@@ -3655,6 +3771,8 @@ export const textureBinding: <D extends d.Texture>(tex: {
  * textureDimensions - Get texture dimensions.
  */
 export function textureDimensions(t: TextureBindingNode, level?: Node<d.u32>): CallNode<d.vec2u>;
+/** A storage binding's size: the size of the one mip its view sees. */
+export function textureDimensions(t: StorageTextureBindingNode): CallNode<d.vec2u>;
 ```
 
 #### `textureGather`
@@ -4476,9 +4594,10 @@ export type PassDesc = {
     storeDepth?: boolean;
     /** `storeDepth` for the stencil. */
     storeStencil?: boolean;
-    /** Cube face, 0..5 = +X, -X, +Y, -Y, +Z, -Z. Only a `CubeRenderTarget` can select one. */
+    /** The layer of the target to draw into: an array layer, a cube face (0..5 = +X, -X, +Y, -Y, +Z, -Z), or a 3D
+     *  target's depth slice. Default 0; a cube pass names its face. */
     layer?: number;
-    /** Mip level to render into. Only a `CubeRenderTarget` allocates a chain to select from. */
+    /** The mip level of the target to draw into. Default 0. */
     mipLevel?: number;
     mrt?: MRTNode;
     viewport?: ViewportRect;
@@ -4587,6 +4706,16 @@ export type PassEntry = DrawRecord | BundleRecord | CameraRecord | ViewportRecor
 ```ts
 export type ComputePassDesc = {
     label?: string;
+    /**
+     * The camera and pixel size the pass's dispatches read render-scope uniforms with (the camera's matrices and
+     * position, `screenSize`), as a render pass of that camera into a target that size would. Without one, a dispatch
+     * reading them gets whatever the last render pass left.
+     */
+    view?: {
+        camera: View;
+        width: number;
+        height: number;
+    };
 };
 ```
 
@@ -4596,6 +4725,11 @@ export type ComputePassDesc = {
 export type DispatchOptions = {
     /** Rebinds the node's named `storage()` refs for this dispatch alone, so no pipeline is recompiled. */
     buffers?: Record<string, GpuBuffer<Any>>;
+    /** Fills the node's named texture slots (`texture(slot, …)`, `storageTexture(slot, …)`) for this dispatch alone:
+     *  a texture, a view of part of one, or what holds one (a render target's attachment), as a copy takes. */
+    textures?: Record<string, TextureSource | {
+        readonly _gpuTexture: GpuTexture;
+    }>;
 };
 ```
 
@@ -4998,11 +5132,15 @@ export type RenderTargetOptions = {
      */
     label?: string;
     /**
-     * Default format applied to every color attachment at construction.
-     * For per-attachment formats (MRT with mixed formats), mutate `rt.textures[i].format` after construction.
-     * Default: 'rgba16float'.
+     * Default format applied to every color attachment at construction. Default: 'rgba16float'.
      */
     colorFormat?: GPUTextureFormat;
+    /**
+     * Each colour attachment's format, for MRT with mixed formats (an integer attachment beside a float one, say),
+     * in place of `colorFormat`. Its length is the attachment count; `count`, if given too, has to match. Given at
+     * construction because a texture's sample type follows its format there.
+     */
+    colorFormats?: GPUTextureFormat[];
     /** Whether to allocate a depth attachment. Default: true. */
     depthBuffer?: boolean;
     /** Format of the auto-allocated DepthTexture. Default: 'depth24plus' ('depth24plus-stencil8' when `stencilBuffer`). Ignored if `depthTexture` is provided or `depthBuffer` is false. */
@@ -5025,13 +5163,33 @@ export type RenderTargetOptions = {
     samples?: number;
     /** Number of color attachments (MRT). Default: 1. */
     count?: number;
+    /**
+     * The attachments' dimension, as `GPUTextureDimension`. A `'3d'` target draws a pass into one depth slice of its
+     * colour textures, and has no depth attachment, since depth formats cannot be 3D. Default `'2d'`.
+     */
+    dimension?: '2d' | '3d';
+    /** Array layers of a `'2d'` target, or depth slices of a `'3d'` one. A pass draws into one. Default 1. */
+    layers?: number;
+    /**
+     * Mip levels of every attachment. A pass draws into one. `'full'` is the whole chain, recomputed when the target is
+     * resized. Default 1.
+     */
+    mipLevelCount?: number | 'full';
+    /**
+     * Whether compute may also write the colour attachments, as storage textures. WebGPU can't store to an sRGB format,
+     * so an sRGB attachment is allocated in its linear twin and drawn and sampled through an sRGB view: a storage
+     * binding of it takes the linear format, and a shader storing to it encodes sRGB itself. Single-sampled only.
+     * Default false; WebGL has no storage textures and ignores it.
+     */
+    storage?: boolean;
 };
 ```
 
 #### `RenderTargetTexture`
 
 ```ts
-export type RenderTargetTexture = Texture | CubeTexture;
+/** A render target's colour attachment: a 2D texture, an array of them, a 3D texture, or a cube's faces. */
+export type RenderTargetTexture = Texture | ArrayTexture | Data3DTexture | CubeTexture;
 ```
 
 #### `RenderTarget`
@@ -5054,11 +5212,20 @@ export class RenderTarget {
     height: number;
     /** The MSAA sample count of the render target */
     readonly samples: number;
+    /** See `RenderTargetOptions.storage`. */
+    readonly storage: boolean;
     /** See `RenderTargetOptions.label`. Read when the attachments are allocated. */
     label: string | undefined;
+    /** See `RenderTargetOptions.dimension`. */
+    readonly dimension: '2d' | '3d';
+    /** Array layers, or a 3D target's depth slices. See `RenderTargetOptions.layers`. */
+    readonly layers: number;
+    /** The mip levels asked for; {@link mipLevelCount} is how many that is at the current size. */
+    readonly mipLevels: number | 'full';
     /**
      * Array of color attachment textures.
-     * Each has its own mutable `.format` (per-attachment formats supported by mutating `textures[i].format`).
+     * Their formats come from `colorFormats` or `colorFormat` at construction; one can change after only to a format of
+     * the same sample type.
      * Each has a `.name` for MRT mapping; the first texture is also accessible via the `texture` getter.
      */
     textures: RenderTargetTexture[];
@@ -5082,6 +5249,8 @@ export class RenderTarget {
     depthSampled: boolean;
     /** Constructs a new render target */
     constructor(width: number, height: number, opts?: RenderTargetOptions);
+    /** Mip levels of every attachment at the current size. */
+    get mipLevelCount(): number;
     /** The first color attachment texture, or undefined when count=0 (depth-only target). */
     get texture(): RenderTargetTexture | undefined;
     set texture(value: RenderTargetTexture | undefined);
@@ -5113,6 +5282,16 @@ export class RenderTarget {
 ```ts
 /** Holds no device: the backend allocates the textures on first use. */
 export function createRenderTarget(width: number, height: number, opts?: RenderTargetOptions): RenderTarget;
+```
+
+#### `assertSubresource`
+
+```ts
+/**
+ * Throws unless mip `mipLevel` and layer `layer` are in `renderTarget`'s layout: a mip it has, and a layer it has, or
+ * for a `'3d'` target a slice of that mip. `what` names the caller in the message.
+ */
+export function assertSubresource(renderTarget: RenderTarget, mipLevel: number, layer: number, what: string): void;
 ```
 
 #### `deadAttachment`
@@ -5160,9 +5339,8 @@ export type CubeRenderTargetOptions = {
  * Usually driven by a `CubeCamera`, which sets up the six face cameras and loops
  * the faces for you.
  *
- * Extends `RenderTarget`: the inherited 2D color texture carries the face format
- * for pipeline creation, and the inherited 2D depth texture is reused across all
- * six faces. Each pass names the face and level it writes.
+ * Its layout is six layers, and a full mip chain when it generates mips: the depth
+ * has a layer per face. Each pass names the face and level it writes.
  */
 export class CubeRenderTarget extends RenderTarget {
     readonly isCubeRenderTarget = true;
@@ -6563,6 +6741,25 @@ export type TextureOptions = {
 };
 ```
 
+#### `formatSampleType`
+
+```ts
+/**
+ * The shader-facing sample type of a texture format: integer formats (...uint/...sint) are typed u32/i32, so the GLSL
+ * emitter declares usampler/isampler and a load returns uvec4/ivec4, and WGSL declares texture_*<u32>/<i32>; every
+ * other format is float-sampled. Fixed at construction, so a texture takes its format there.
+ */
+export function formatSampleType(format: GPUTextureFormat | undefined): d.u32 | d.i32 | d.f32;
+```
+
+#### `assertSameSampleType`
+
+```ts
+/** Throws where a texture's format would change its sample type: its shaders were typed by the old one, so they would
+ *  no longer bind it. A format of another type is given at construction (a render target's `colorFormats`). */
+export function assertSameSampleType(from: GPUTextureFormat, to: GPUTextureFormat): void;
+```
+
 #### `Texture`
 
 ```ts
@@ -6633,7 +6830,7 @@ export class Texture<out T extends SourceData = SourceData> {
     /** Anisotropic filtering level. */
     get anisotropy(): number;
     set anisotropy(v: number);
-    /** WebGPU texture format. */
+    /** WebGPU texture format. Its sample type is the constructor's format's (see {@link formatSampleType}). */
     get format(): GPUTextureFormat;
     set format(v: GPUTextureFormat);
     /** Whether to auto-generate mipmaps. */
@@ -6927,12 +7124,15 @@ export class DepthTexture {
      * @param width - The width of the texture
      * @param height - The height of the texture
      * @param format - The depth format (default: 'depth24plus')
+     * @param layers - Array layers: more than one makes it a 2D-array depth, a layer a pass (default: 1)
      */
-    constructor(width: number, height: number, format?: DepthTextureFormat);
+    constructor(width: number, height: number, format?: DepthTextureFormat, layers?: number);
     get id(): number;
     get width(): number;
     get height(): number;
     get format(): DepthTextureFormat;
+    /** Array layers; 1 for a plain 2D depth. */
+    get layers(): number;
     get compareFunction(): GPUCompareFunction | undefined;
     set compareFunction(v: GPUCompareFunction | undefined);
     /** Version for dirty tracking. */
@@ -6950,7 +7150,7 @@ export class DepthTexture {
 
 ```ts
 /** The factory form; the contents are written by the GPU, so there is no data argument. */
-export function createDepthTexture(width: number, height: number, format?: DepthTextureFormat): DepthTexture;
+export function createDepthTexture(width: number, height: number, format?: DepthTextureFormat, layers?: number): DepthTexture;
 ```
 
 #### `ArrayTextureImage`
@@ -7716,6 +7916,9 @@ export type Discovery = {
     updateBeforeNodes: UpdateBeforeNode[];
     updateAfterNodes: UpdateAfterNode[];
     updateNodes: UpdateNode[];
+    /** The builtins read inside `Fn` bodies, by kind, to their WGSL type. A WGSL function can't reach its entry point's
+     *  inputs, so it reads module-scope copies the entry point assigns. */
+    fnBuiltins: Map<string, string>;
 };
 ```
 

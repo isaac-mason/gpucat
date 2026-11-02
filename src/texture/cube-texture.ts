@@ -3,6 +3,7 @@ import { GpuTexture } from '../core/gpu-texture';
 import type { TextureRectInit, TextureRegionInit } from '../core/texture-region';
 import * as d from '../schema/schema';
 import { Source, type SourceData } from './source';
+import { assertSameSampleType } from './texture';
 
 /**
  * Cube texture mapping modes.
@@ -205,6 +206,7 @@ export class CubeTexture {
         return this._gpuTexture.format;
     }
     set format(v: GPUTextureFormat) {
+        assertSameSampleType(this._gpuTexture.format, v);
         this._gpuTexture.format = v;
     }
 

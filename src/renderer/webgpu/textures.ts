@@ -13,6 +13,7 @@
  * 5. Updates version tracking (textureData.version = texture.version)
  */
 
+import type { TextureViewRange } from '../../core/gpu-texture-view';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
 import type { Source } from '../../texture/source';
@@ -45,7 +46,7 @@ export type TextureData = {
     bindGroups?: Set<BindGroupData>;
     /** What this entry currently contributes to `TextureCache.tally`. */
     allocation: Allocation;
-    /** `msaaTexture`'s contribution, made with the first one. */
+    /** `msaaTextures`' contribution, made with the first. */
     msaaAllocation: Allocation | null;
     /**
      * Cached default render-attachment view (render target color/depth).
@@ -54,14 +55,103 @@ export type TextureData = {
      */
     view?: GPUTextureView | null;
     /**
-     * Multisampled color texture for an MSAA render target. When present, `texture`
-     * is the single-sample resolve target (the one sampled by shaders) and the pass
-     * renders into `msaaTexture`, resolving into `texture`. Undefined for non-MSAA.
+     * A multisampled render target's multisampled textures, one per layer: a multisampled texture has one layer and
+     * one mip. A pass on a layer draws into its own, so one that keeps what was drawn loads that layer's samples. A
+     * colour attachment resolves each into its layer of `texture`, which shaders sample; a depth attachment is never
+     * resolved, and its `texture` is the first of them. Undefined for a single-sampled target.
      */
-    msaaTexture?: GPUTexture | null;
-    /** Cached view of `msaaTexture` (see `view`). */
-    msaaView?: GPUTextureView | null;
+    msaaTextures?: GPUTexture[] | null;
+    /** the format a render target allocated in its linear twin is drawn and sampled in (`RenderTargetOptions.storage`);
+     *  undefined where views take the texture's own */
+    viewFormat?: GPUTextureFormat;
+    /** Each of `msaaTextures`' views, made with it. */
+    msaaViews?: GPUTextureView[] | null;
+    /** The views bindings take of `texture`, by range, dimension and aspect; made for `rangeViewsOf`, and dropped when
+     *  `texture` is another allocation. */
+    rangeViews?: Map<string, GPUTextureView>;
+    rangeViewsOf?: GPUTexture;
 };
+
+/**
+ * The view a binding takes of `range` of `data`'s texture, made once per range and allocation. `dimension` is the
+ * binding's; `depthOnly` binds a combined depth-stencil texture's depth, which is all a sampled binding may see of it.
+ */
+export function rangeView(
+    data: TextureData,
+    range: TextureViewRange,
+    dimension: GPUTextureViewDimension,
+    depthOnly: boolean,
+    storage = false,
+): GPUTextureView {
+    if (data.rangeViewsOf !== data.texture) {
+        data.rangeViews = new Map();
+        data.rangeViewsOf = data.texture;
+    }
+    const aspect: GPUTextureAspect = range.aspect !== 'all' ? range.aspect : depthOnly ? 'depth-only' : 'all';
+    const dimensionUsed = range.dimension ?? dimension;
+    // a storage binding takes the allocation's own format; anything else the format it is drawn in
+    const format = storage ? undefined : data.viewFormat;
+    const key = `${range.key}|${dimensionUsed}|${aspect}|${format ?? ''}`;
+    let view = data.rangeViews!.get(key);
+    if (view === undefined) {
+        view = data.texture.createView({
+            format,
+            usage: viewUsage(format),
+            dimension: dimensionUsed,
+            aspect,
+            baseMipLevel: range.baseMipLevel,
+            mipLevelCount: range.mipLevelCount,
+            baseArrayLayer: range.baseArrayLayer,
+            arrayLayerCount: range.arrayLayerCount,
+        });
+        data.rangeViews!.set(key, view);
+    }
+    return view;
+}
+
+/**
+ * What a view in `format` is used for: undefined, the texture's every usage, for a view in the texture's own format;
+ * only drawing and sampling for a render target's sRGB view of its linear storage allocation, which storage can't use.
+ */
+export function viewUsage(format: GPUTextureFormat | undefined): GPUTextureUsageFlags | undefined {
+    return format === undefined ? undefined : GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
+}
+
+/**
+ * The view a pass attaches of `data`'s texture: mip `mipLevel` of layer `layer`, or of a 3D texture the whole mip, whose
+ * slice the attachment's `depthSlice` picks. Made once per mip and layer and allocation, in the views bindings take.
+ */
+export function attachmentView(data: TextureData, mipLevel: number, layer: number, is3d: boolean): GPUTextureView {
+    if (data.rangeViewsOf !== data.texture) {
+        data.rangeViews = new Map();
+        data.rangeViewsOf = data.texture;
+    }
+    const key = is3d ? `attach:${mipLevel}` : `attach:${mipLevel}:${layer}`;
+    let view = data.rangeViews!.get(key);
+    if (view === undefined) {
+        view = data.texture.createView(
+            is3d
+                ? {
+                      format: data.viewFormat,
+                      usage: viewUsage(data.viewFormat),
+                      dimension: '3d',
+                      baseMipLevel: mipLevel,
+                      mipLevelCount: 1,
+                  }
+                : {
+                      format: data.viewFormat,
+                      usage: viewUsage(data.viewFormat),
+                      dimension: '2d',
+                      baseMipLevel: mipLevel,
+                      mipLevelCount: 1,
+                      baseArrayLayer: layer,
+                      arrayLayerCount: 1,
+                  },
+        );
+        data.rangeViews!.set(key, view);
+    }
+    return view;
+}
 
 /** Cache for textures. Samplers live in `samplers.ts`, their own resource module. */
 export type TextureCache = {
@@ -103,7 +193,7 @@ export function setupTextureDispose(cache: TextureCache, texture: GpuTexture): v
         const data = cache.textureMap.get(texture);
         if (data && !data.isDefaultTexture) {
             data.texture.destroy();
-            data.msaaTexture?.destroy();
+            if (data.msaaTextures) for (const msaa of data.msaaTextures) if (msaa !== data.texture) msaa.destroy();
         }
         if (data?.bindGroups) {
             for (const group of data.bindGroups) clearBindGroupVariants(group);

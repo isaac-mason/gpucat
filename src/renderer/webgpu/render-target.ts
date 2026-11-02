@@ -10,12 +10,11 @@
  * sibling is paired with its resolve target, and how a cube target's six faces are allocated.
  */
 
-import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
 import { clearAllocation, createAllocation, setAllocation } from '../core/info';
-import { estimatedBytesPerTexel, mipLevelCountFor } from '../core/texture-size';
-import { setupTextureDispose, type TextureCache, type TextureData, textureAllocations } from './textures';
+import { estimatedBytesPerTexel } from '../core/texture-size';
+import { setupTextureDispose, type TextureCache, type TextureData, textureAllocations, viewUsage } from './textures';
 
 /** What the device was asked for: every layer and mip level, times the sample count. */
 export function allocatedBytes(gpu: GPUTexture): number {
@@ -31,19 +30,22 @@ function isDepthFormat(format: GPUTextureFormat): boolean {
     return format.startsWith('depth') || format.startsWith('stencil');
 }
 
-/** A target's attachments, filed as `depth` or `render-target`, and its MSAA sibling as `msaa`. */
+/**
+ * A target's attachments, filed as `depth` or `render-target`, and a colour attachment's multisampled textures as
+ * `msaa`. A multisampled depth is only its multisampled textures, filed as `depth`.
+ */
 function tallyAttachments(cache: TextureCache, data: TextureData): void {
     const gpu = data.texture;
-    setAllocation(
-        cache.tally,
-        data.allocation,
-        allocatedBytes(gpu),
-        isDepthFormat(gpu.format) ? 'depth' : 'render-target',
-        gpu.format,
-    );
-    if (data.msaaTexture) {
+    const msaa = data.msaaTextures ?? null;
+    const msaaBytes = msaa === null ? 0 : msaa.reduce((bytes, texture) => bytes + allocatedBytes(texture), 0);
+    if (isDepthFormat(gpu.format)) {
+        setAllocation(cache.tally, data.allocation, msaa === null ? allocatedBytes(gpu) : msaaBytes, 'depth', gpu.format);
+        return;
+    }
+    setAllocation(cache.tally, data.allocation, allocatedBytes(gpu), 'render-target', gpu.format);
+    if (msaa !== null) {
         data.msaaAllocation ??= createAllocation('texture', 'msaa', data.allocation.label);
-        setAllocation(cache.tally, data.msaaAllocation, allocatedBytes(data.msaaTexture), 'msaa', gpu.format);
+        setAllocation(cache.tally, data.msaaAllocation, msaaBytes, 'msaa', gpu.format);
     } else if (data.msaaAllocation) clearAllocation(cache.tally, data.msaaAllocation);
 }
 
@@ -55,21 +57,17 @@ function tallyAttachments(cache: TextureCache, data: TextureData): void {
  */
 export function getRenderTargetView(data: TextureData): GPUTextureView {
     if (!data.view) {
-        data.view = data.texture.createView();
+        data.view = data.texture.createView({ format: data.viewFormat, usage: viewUsage(data.viewFormat) });
     }
     return data.view;
 }
 
-/**
- * Cached view of the multisampled color texture for an MSAA render target.
- * Returns null when the target is not multisampled.
- */
-export function getRenderTargetMsaaView(data: TextureData): GPUTextureView | null {
-    if (!data.msaaTexture) return null;
-    if (!data.msaaView) {
-        data.msaaView = data.msaaTexture.createView();
-    }
-    return data.msaaView;
+/** The view of layer `layer`'s multisampled texture, or null for a single-sampled target. */
+export function getRenderTargetMsaaView(data: TextureData, layer: number): GPUTextureView | null {
+    const msaa = data.msaaTextures;
+    if (!msaa) return null;
+    data.msaaViews ??= msaa.map((texture) => texture.createView());
+    return data.msaaViews[layer]!;
 }
 
 /**
@@ -83,7 +81,7 @@ export function setRenderTargetTexture(
     cache: TextureCache,
     texture: GpuTexture,
     gpuTextureResource: GPUTexture,
-    msaaTexture: GPUTexture | null = null,
+    msaaTextures: GPUTexture[] | null = null,
 ): void {
     const existing = cache.textureMap.get(texture);
 
@@ -91,14 +89,16 @@ export function setRenderTargetTexture(
         if (existing.texture !== gpuTextureResource && !existing.isDefaultTexture) {
             existing.texture.destroy();
         }
-        if (existing.msaaTexture && existing.msaaTexture !== msaaTexture) {
-            existing.msaaTexture.destroy();
+        if (existing.msaaTextures) {
+            for (const msaa of existing.msaaTextures) {
+                if (msaa !== existing.texture && !msaaTextures?.includes(msaa)) msaa.destroy();
+            }
         }
         // Update existing entry with new GPU texture (e.g., after resize)
         existing.texture = gpuTextureResource;
-        existing.msaaTexture = msaaTexture;
+        existing.msaaTextures = msaaTextures;
         existing.view = null; // cached attachment views belong to the old textures
-        existing.msaaView = null;
+        existing.msaaViews = null;
         existing.generation++;
         existing.version = texture.version;
         existing.initialized = true;
@@ -108,7 +108,7 @@ export function setRenderTargetTexture(
     } else {
         const entry: TextureData = {
             texture: gpuTextureResource,
-            msaaTexture,
+            msaaTextures,
             version: texture.version,
             generation: 1,
             initialized: true,
@@ -123,91 +123,113 @@ export function setRenderTargetTexture(
     setupTextureDispose(cache, texture);
 }
 
-function hasRenderTargetTextureAllocation(
-    cache: TextureCache,
-    texture: GpuTexture,
-    width: number,
-    height: number,
-    format: GPUTextureFormat,
-    sampleCount: number,
-    mipLevelCount: number,
-): boolean {
+/** `format`'s linear twin where it is sRGB, which a storage binding can take; `format` itself otherwise */
+function storageFormatOf(format: GPUTextureFormat): GPUTextureFormat {
+    return format.endsWith('-srgb') ? (format.slice(0, -'-srgb'.length) as GPUTextureFormat) : format;
+}
+
+/**
+ * The allocation an attachment of `renderTarget` takes: its texture's layout, and the target's sample count. A storage
+ * target's colour is allocated in the format a storage binding takes, `viewFormat` the one it is drawn and sampled in.
+ */
+function attachmentShape(renderTarget: RenderTarget, texture: GpuTexture, isDepth: boolean) {
+    const storage = renderTarget.storage && !isDepth;
+    return {
+        width: renderTarget.width,
+        height: renderTarget.height,
+        layers: texture.depthOrArrayLayers,
+        dimension: texture.dimension as GPUTextureDimension,
+        // the target's layout sets it on each attachment; a texture's `generateMipmaps` is for sampling, not this
+        mipLevelCount: Math.max(1, texture.mipLevelCount),
+        format: storage ? storageFormatOf(texture.format) : texture.format,
+        viewFormat: texture.format,
+        storage,
+        samples: renderTarget.samples > 1 ? renderTarget.samples : 1,
+    };
+}
+
+/** Whether `texture` holds the allocation its target's layout asks for now. */
+function isAllocated(cache: TextureCache, renderTarget: RenderTarget, texture: GpuTexture, isDepth: boolean): boolean {
     // A disposed wrapper's cache entry still points at a destroyed GPUTexture whose
     // .width/.height/etc. read back stale-but-present; force reallocation so we never
     // build an attachment/view from a destroyed texture (dispose-then-reuse path).
     if (texture.disposed) return false;
-
     const data = cache.textureMap.get(texture);
     if (!data || data.isDefaultTexture) return false;
-
+    const shape = attachmentShape(renderTarget, texture, isDepth);
+    const multisampled = shape.samples > 1;
+    const msaa = data.msaaTextures;
+    if (multisampled !== !!msaa) return false;
+    if (msaa && (msaa.length !== shape.layers || msaa[0]!.width !== shape.width || msaa[0]!.height !== shape.height)) {
+        return false;
+    }
+    if (msaa && msaa[0]!.sampleCount !== shape.samples) return false;
+    // a multisampled depth is only its multisampled textures
+    if (multisampled && isDepth) return msaa![0]!.format === shape.format;
     const gpu = data.texture;
     return (
-        gpu.width === width &&
-        gpu.height === height &&
-        gpu.format === format &&
-        gpu.sampleCount === sampleCount &&
-        gpu.mipLevelCount === mipLevelCount
+        gpu.width === shape.width &&
+        gpu.height === shape.height &&
+        gpu.depthOrArrayLayers === shape.layers &&
+        gpu.dimension === shape.dimension &&
+        gpu.format === shape.format &&
+        gpu.sampleCount === 1 &&
+        gpu.mipLevelCount === shape.mipLevelCount
     );
 }
 
-/**
- * Check the multisampled sibling of a render-target color texture matches the
- * desired sample count: present and sized correctly when `sampleCount > 1`,
- * absent when the target is single-sample.
- */
-function hasMatchingMsaaAllocation(
+/** Allocates `texture` as an attachment of `renderTarget`: its layout, and a multisampled texture per layer. */
+function allocateAttachment(
     cache: TextureCache,
+    device: GPUDevice,
+    renderTarget: RenderTarget,
     texture: GpuTexture,
-    width: number,
-    height: number,
-    format: GPUTextureFormat,
-    sampleCount: number,
-): boolean {
-    const msaa = cache.textureMap.get(texture)?.msaaTexture;
-    if (sampleCount <= 1) return !msaa;
-    return !!msaa && msaa.width === width && msaa.height === height && msaa.format === format && msaa.sampleCount === sampleCount;
+    isDepth: boolean,
+): void {
+    const shape = attachmentShape(renderTarget, texture, isDepth);
+    const msaaTextures =
+        shape.samples > 1
+            ? Array.from({ length: shape.layers }, () =>
+                  device.createTexture({
+                      size: [shape.width, shape.height],
+                      format: shape.format,
+                      // a multisampled depth stays readable as `texture_depth_multisampled_2d`
+                      usage: isDepth
+                          ? GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+                          : GPUTextureUsage.RENDER_ATTACHMENT,
+                      sampleCount: shape.samples,
+                  }),
+              )
+            : null;
+    // A multisampled depth is never resolved, so its multisampled textures are all there is of it.
+    const gpu =
+        msaaTextures !== null && isDepth
+            ? msaaTextures[0]!
+            : device.createTexture({
+                  dimension: shape.dimension,
+                  size: [shape.width, shape.height, shape.layers],
+                  format: shape.format,
+                  usage: isDepth
+                      ? GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+                      : GPUTextureUsage.RENDER_ATTACHMENT |
+                        GPUTextureUsage.TEXTURE_BINDING |
+                        GPUTextureUsage.COPY_SRC |
+                        GPUTextureUsage.COPY_DST |
+                        (shape.storage ? GPUTextureUsage.STORAGE_BINDING : 0),
+                  viewFormats: shape.viewFormat !== shape.format ? [shape.viewFormat] : [],
+                  mipLevelCount: shape.mipLevelCount,
+                  sampleCount: 1,
+              });
+    setRenderTargetTexture(cache, texture, gpu, msaaTextures);
+    // drawn and sampled through its sRGB view; a storage binding takes the allocation's own format
+    cache.textureMap.get(texture)!.viewFormat = shape.viewFormat !== shape.format ? shape.viewFormat : undefined;
 }
 
+/**
+ * Allocates every attachment of `renderTarget` its layout asks for and doesn't hold. Each attachment is checked on its
+ * own: a cube's colour and depth, or a target whose depth is shared with another, reallocate apart.
+ */
 export function ensureRenderTargetTexturesAllocated(cache: TextureCache, device: GPUDevice, renderTarget: RenderTarget): void {
-    if (renderTarget.isCubeRenderTarget) {
-        ensureCubeRenderTargetTexturesAllocated(cache, device, renderTarget as CubeRenderTarget);
-        return;
-    }
-
-    const { width, height } = renderTarget;
-    const sampleCount = renderTarget.samples > 1 ? renderTarget.samples : 1;
-
-    // Color attachments are sampled by shaders, so the cached `texture` is always the
-    // single-sample resolve target; MSAA adds a multisampled sibling rendered into and
-    // resolved from. Depth is kept at the pass sample count (all attachments must match).
-    // NB: don't seed this from `textures.length === 0` — a depth-only target (count: 0)
-    // has no color textures yet is fully allocated via its depth texture; seeding true
-    // there would reallocate the depth every frame and destroy the one just rendered into.
-    let needsAllocation = false;
-    for (const tex of renderTarget.textures) {
-        if (
-            !hasRenderTargetTextureAllocation(cache, tex._gpuTexture, width, height, tex.format, 1, 1) ||
-            !hasMatchingMsaaAllocation(cache, tex._gpuTexture, width, height, tex.format, sampleCount)
-        ) {
-            needsAllocation = true;
-            break;
-        }
-    }
-
-    if (!needsAllocation && renderTarget._depthAttachment) {
-        needsAllocation = !hasRenderTargetTextureAllocation(
-            cache,
-            renderTarget._depthAttachment._gpuTexture,
-            width,
-            height,
-            renderTarget._depthAttachment.format,
-            sampleCount,
-            1,
-        );
-    }
-
-    if (!needsAllocation) return;
-
     // Don't release (delete) the cache entries here: setRenderTargetTexture()
     // destroys the old GPU texture and bumps `generation` monotonically, which is
     // what bind-group change detection relies on to rebuild views. Deleting the
@@ -215,97 +237,12 @@ export function ensureRenderTargetTexturesAllocated(cache: TextureCache, device:
     // target would keep a view of the destroyed texture (-> "destroyed texture
     // used in a submit").
     for (const tex of renderTarget.textures) {
-        const resolveTexture = device.createTexture({
-            size: [width, height],
-            format: tex.format,
-            usage:
-                GPUTextureUsage.RENDER_ATTACHMENT |
-                GPUTextureUsage.TEXTURE_BINDING |
-                GPUTextureUsage.COPY_SRC |
-                GPUTextureUsage.COPY_DST,
-            sampleCount: 1,
-        });
-
-        // RENDER_ATTACHMENT-only multisampled texture; it is rendered into and resolved
-        // into resolveTexture, never sampled, so it needs no TEXTURE_BINDING/COPY_SRC.
-        const msaaTexture =
-            sampleCount > 1
-                ? device.createTexture({
-                      size: [width, height],
-                      format: tex.format,
-                      usage: GPUTextureUsage.RENDER_ATTACHMENT,
-                      sampleCount,
-                      mipLevelCount: 1,
-                  })
-                : null;
-
-        setRenderTargetTexture(cache, tex._gpuTexture, resolveTexture, msaaTexture);
+        if (!isAllocated(cache, renderTarget, tex._gpuTexture, false)) {
+            allocateAttachment(cache, device, renderTarget, tex._gpuTexture, false);
+        }
     }
-
-    if (renderTarget._depthAttachment) {
-        const gpuDepthTexture = device.createTexture({
-            size: [width, height],
-            format: renderTarget._depthAttachment.format,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-            sampleCount,
-        });
-        setRenderTargetTexture(cache, renderTarget._depthAttachment._gpuTexture, gpuDepthTexture);
-    }
-}
-
-function ensureCubeRenderTargetTexturesAllocated(cache: TextureCache, device: GPUDevice, renderTarget: CubeRenderTarget): void {
-    // `mipLevelCountFor`, not the live `generateMipmaps`: `CubeCamera` flips that off mid-render, and
-    // asking for one level while the texture holds a chain reallocates it under the open frame.
-    const cubeMipCount = mipLevelCountFor(renderTarget.texture._gpuTexture);
-
-    const cubeReady = hasRenderTargetTextureAllocation(
-        cache,
-        renderTarget.texture._gpuTexture,
-        renderTarget.size,
-        renderTarget.size,
-        renderTarget.texture.format,
-        1,
-        cubeMipCount,
-    );
-
-    const depthReady =
-        !renderTarget._depthAttachment ||
-        hasRenderTargetTextureAllocation(
-            cache,
-            renderTarget._depthAttachment._gpuTexture,
-            renderTarget.size,
-            renderTarget.size,
-            renderTarget._depthAttachment.format,
-            1,
-            1,
-        );
-
-    if (cubeReady && depthReady) return;
-
-    // See note in ensureRenderTargetTexturesAllocated: let setRenderTargetTexture()
-    // destroy the old GPU texture and bump generation rather than releasing the
-    // cache entry, so bind groups sampling this target are rebuilt on realloc.
-    const colorTex = device.createTexture({
-        dimension: '2d',
-        size: [renderTarget.size, renderTarget.size, 6],
-        format: renderTarget.texture.format,
-        usage:
-            GPUTextureUsage.RENDER_ATTACHMENT |
-            GPUTextureUsage.TEXTURE_BINDING |
-            GPUTextureUsage.COPY_SRC |
-            GPUTextureUsage.COPY_DST,
-        mipLevelCount: cubeMipCount,
-        sampleCount: 1,
-    });
-    setRenderTargetTexture(cache, renderTarget.texture._gpuTexture, colorTex);
-
-    if (renderTarget._depthAttachment) {
-        const depthTex = device.createTexture({
-            size: [renderTarget.size, renderTarget.size],
-            format: renderTarget._depthAttachment.format,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-            sampleCount: 1,
-        });
-        setRenderTargetTexture(cache, renderTarget._depthAttachment._gpuTexture, depthTex);
+    const depth = renderTarget._depthAttachment;
+    if (depth && !isAllocated(cache, renderTarget, depth._gpuTexture, true)) {
+        allocateAttachment(cache, device, renderTarget, depth._gpuTexture, true);
     }
 }

@@ -98,7 +98,7 @@ describe('frame encoder ownership', () => {
     });
 
     /** A plain render target is allocated at one level, so its `generateMipmaps` has nothing to build. */
-    test('only a cube render target carries a mip chain', async () => {
+    test("a target's mips are its layout's, not its colour texture's generateMipmaps", async () => {
         const { renderer } = await makeRenderer();
         const camera = makeCamera();
 
@@ -116,8 +116,8 @@ describe('frame encoder ownership', () => {
 
         const levels = (t: RenderTarget) =>
             getTextureData(renderer.backend.textures, t.textures[0]!._gpuTexture)?.texture.mipLevelCount;
-        expect(levels(plain), 'a plain target ignores the flag').toBe(1);
-        expect(levels(cube), 'a cube target honours it').toBeGreaterThan(1);
+        expect(levels(plain), 'a target asking for one mip has one').toBe(1);
+        expect(levels(cube), 'a mipmapped cube asks for the whole chain').toBeGreaterThan(1);
     });
 
     /** The pipeline is built with a layout per group; the draw loop skipped one by advancing its slot. */
@@ -734,6 +734,7 @@ describe('read is an operation on the gpu, not a method on the target', () => {
     test('its options name the attachment and layer rather than positional indices', async () => {
         const { renderer } = await makeRenderer();
         const target = createRenderTarget(64, 64);
+        const layered = createRenderTarget(64, 64, { layers: 5 });
         const seen: [number, number][] = [];
 
         const spy = {
@@ -751,7 +752,7 @@ describe('read is an operation on the gpu, not a method on the target', () => {
         const spyRenderer = spy as unknown as Renderer;
         await read(spyRenderer, target);
         await read(spyRenderer, target, { attachment: 2 });
-        await read(spyRenderer, target, { layer: 4 });
+        await read(spyRenderer, layered, { layer: 4 });
 
         expect(seen).toEqual([
             [0, 0],

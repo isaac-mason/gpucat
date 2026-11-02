@@ -12,6 +12,7 @@
  * 4. Uploads image data if source.dataReady
  * 5. Updates version tracking (textureData.version = texture.version)
  */
+import type { TextureViewRange } from '../../core/gpu-texture-view';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
 import { type Allocation, type MemoryTally } from '../core/info';
@@ -33,7 +34,7 @@ export type TextureData = {
     bindGroups?: Set<BindGroupData>;
     /** What this entry currently contributes to `TextureCache.tally`. */
     allocation: Allocation;
-    /** `msaaTexture`'s contribution, made with the first one. */
+    /** `msaaTextures`' contribution, made with the first. */
     msaaAllocation: Allocation | null;
     /**
      * Cached default render-attachment view (render target color/depth).
@@ -42,14 +43,37 @@ export type TextureData = {
      */
     view?: GPUTextureView | null;
     /**
-     * Multisampled color texture for an MSAA render target. When present, `texture`
-     * is the single-sample resolve target (the one sampled by shaders) and the pass
-     * renders into `msaaTexture`, resolving into `texture`. Undefined for non-MSAA.
+     * A multisampled render target's multisampled textures, one per layer: a multisampled texture has one layer and
+     * one mip. A pass on a layer draws into its own, so one that keeps what was drawn loads that layer's samples. A
+     * colour attachment resolves each into its layer of `texture`, which shaders sample; a depth attachment is never
+     * resolved, and its `texture` is the first of them. Undefined for a single-sampled target.
      */
-    msaaTexture?: GPUTexture | null;
-    /** Cached view of `msaaTexture` (see `view`). */
-    msaaView?: GPUTextureView | null;
+    msaaTextures?: GPUTexture[] | null;
+    /** the format a render target allocated in its linear twin is drawn and sampled in (`RenderTargetOptions.storage`);
+     *  undefined where views take the texture's own */
+    viewFormat?: GPUTextureFormat;
+    /** Each of `msaaTextures`' views, made with it. */
+    msaaViews?: GPUTextureView[] | null;
+    /** The views bindings take of `texture`, by range, dimension and aspect; made for `rangeViewsOf`, and dropped when
+     *  `texture` is another allocation. */
+    rangeViews?: Map<string, GPUTextureView>;
+    rangeViewsOf?: GPUTexture;
 };
+/**
+ * The view a binding takes of `range` of `data`'s texture, made once per range and allocation. `dimension` is the
+ * binding's; `depthOnly` binds a combined depth-stencil texture's depth, which is all a sampled binding may see of it.
+ */
+export declare function rangeView(data: TextureData, range: TextureViewRange, dimension: GPUTextureViewDimension, depthOnly: boolean, storage?: boolean): GPUTextureView;
+/**
+ * What a view in `format` is used for: undefined, the texture's every usage, for a view in the texture's own format;
+ * only drawing and sampling for a render target's sRGB view of its linear storage allocation, which storage can't use.
+ */
+export declare function viewUsage(format: GPUTextureFormat | undefined): GPUTextureUsageFlags | undefined;
+/**
+ * The view a pass attaches of `data`'s texture: mip `mipLevel` of layer `layer`, or of a 3D texture the whole mip, whose
+ * slice the attachment's `depthSlice` picks. Made once per mip and layer and allocation, in the views bindings take.
+ */
+export declare function attachmentView(data: TextureData, mipLevel: number, layer: number, is3d: boolean): GPUTextureView;
 /** Cache for textures. Samplers live in `samplers.ts`, their own resource module. */
 export type TextureCache = {
     /** Texture data keyed by GpuTexture object */

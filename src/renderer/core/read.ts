@@ -1,4 +1,4 @@
-import type { RenderTarget } from '../../core/render-target';
+import { assertSubresource, type RenderTarget } from '../../core/render-target';
 import { isFrameOpen } from './frame';
 import type { Renderer } from './renderer';
 
@@ -20,5 +20,8 @@ export function read(renderer: Renderer, target: RenderTarget, opts: ReadOptions
     if (isFrameOpen(renderer._frameState)) {
         return Promise.reject(new Error('[read] reading while a frame is open gives stale pixels; submit() first.'));
     }
-    return renderer.backend.readPixels(target, opts.attachment ?? 0, opts.layer ?? 0, opts.mipLevel ?? 0);
+    const layer = opts.layer ?? 0;
+    const mipLevel = opts.mipLevel ?? 0;
+    assertSubresource(target, mipLevel, layer, 'read');
+    return renderer.backend.readPixels(target, opts.attachment ?? 0, layer, mipLevel);
 }

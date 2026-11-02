@@ -6,6 +6,7 @@ import {
     bundle,
     CubeCamera,
     CubeTexture,
+    cameraPosition,
     cameraProjectionMatrix,
     cameraViewMatrix,
     compile,
@@ -16,7 +17,9 @@ import {
     createRenderTarget,
     cubeTexture,
     DataTexture,
+    DepthTexture,
     d,
+    Discard,
     depthTexture,
     drawScene,
     Fn,
@@ -28,14 +31,18 @@ import {
     GpuTexture,
     globalId,
     i32,
+    If,
     index,
     init,
+    invariant,
     LineMaterial,
     LineSegments,
     LineSegmentsGeometry,
     Material,
     Mesh,
     modelWorldMatrix,
+    max,
+    min,
     mrt,
     mul,
     type Node,
@@ -50,20 +57,25 @@ import {
     screenUV,
     select,
     storage,
+    storageTexture,
     struct,
     type Texture,
     texture,
     textureDimensions,
+    textureLoad,
+    textureStore,
     Uniform,
     u32,
     uniform,
     varying,
     vec2f,
     vec2i,
+    vec2u,
     vec3,
     vec3i,
     vec3u,
     vec4,
+    vec4f,
     type WebGPUBackend,
     webgpu,
     writeBuffer,
@@ -277,6 +289,52 @@ async function caseMrt(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     return { name: 'mrt', pixel, expected: [u8(0.2), u8(0.5), u8(0.9), 255], note: 'attachment 1, not 0' };
 }
 
+/**
+ * mrt-integer: a blended colour attachment beside an rg32uint one, written in one pass. The integer output is written
+ * as its own vec2u, not padded to a float vec4, and takes no blend; a second pass reads its words back and shows green
+ * where both arrived intact.
+ */
+async function caseMrtInteger(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormats: ['rgba8unorm', 'rg32uint'] });
+    target.textures[0].name = 'output';
+    target.textures[1].name = 'words';
+    const checked = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const position = attribute('position', d.vec3f);
+    const geometry = fullscreenTriangle();
+
+    const outputs = mrt({ output: vec4(1, 0, 0, 0.5), words: vec2u(u32(0x9abcdef1), u32(7)) });
+    const drawn = new Mesh(
+        geometry,
+        new Material({ vertex: vec4(position, f32(1)), fragment: outputs, depthTest: false, transparent: true }),
+    );
+    // a Texture's static type is float-sampled whatever its format; at run time an rg32uint target's load is u32
+    const words = texture(target.textures[1]! as Texture).load(vec2i(i32(screenCoordinate.x), i32(screenCoordinate.y)), i32(0));
+    const intact = u32(words.x)
+        .equal(u32(0x9abcdef1))
+        .and(u32(words.y).equal(u32(7)));
+    const check = new Mesh(
+        geometry,
+        new Material({
+            vertex: vec4(position, f32(1)),
+            fragment: select(vec4(1, 0, 0, 1), vec4(0, 1, 0, 1), intact),
+            depthTest: false,
+        }),
+    );
+    for (const mesh of [drawn, check]) mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const pass = f.pass({ target, mrt: outputs, clear: [0, 0, 0, 1] });
+    pass.draw(drawn);
+    pass.end();
+    const checkPass = f.pass({ target: checked, clear: [0, 0, 1, 1] });
+    checkPass.draw(check);
+    checkPass.end();
+    f.submit();
+
+    const pixel = centerPixel(await read(gpu, checked));
+    return { name: 'mrt-integer', pixel, expected: [0, 255, 0, 255], note: 'the rg32uint words read back intact' };
+}
+
 /** cube-layer: `PassDesc.layer` picks the face, so six passes on one frame fill six different faces. */
 async function caseCubeLayer(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     const target = createCubeRenderTarget(SIZE, { colorFormat: 'rgba8unorm' });
@@ -288,6 +346,168 @@ async function caseCubeLayer(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> 
 
     const pixel = centerPixel(await read(gpu, target, { layer: 3 }));
     return { name: 'cube-layer', pixel, expected: [u8(3 / 8), 0, 0, 255], note: 'face 3 of 6, one frame' };
+}
+
+/** The texel at (x, y) of a tightly-packed, top-to-bottom RGBA8 readback `width` texels wide. */
+function texelOf(pixels: Uint8Array, width: number, x: number, y: number): [number, number, number, number] {
+    const i = (y * width + x) * 4;
+    return [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]];
+}
+
+/**
+ * rt-mip-depth: a pass draws into mip 2 of a mipped target with depth. Its depth is mipped too, so the attachments are
+ * the same size; a depth left at mip 0 would be refused. A triangle in front draws over one behind it.
+ */
+async function caseRtMipDepth(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(32, 32, { colorFormat: 'rgba8unorm', mipLevelCount: 3 });
+    const at = (z: number, colour: [number, number, number]) => {
+        const mesh = new Mesh(
+            fullscreenTriangle(),
+            new Material({ vertex: vec4(attribute('position', d.vec3f).xy, f32(z), f32(1)), fragment: vec4(...colour, 1) }),
+        );
+        mesh.updateWorldMatrix();
+        return mesh;
+    };
+    const f = frame(gpu);
+    const pass = f.pass({ target, mipLevel: 2, clear: [0, 0, 0, 1], clearDepth: 1 });
+    pass.draw(at(0.25, [0, 1, 0]));
+    pass.draw(at(0.75, [1, 0, 0]));
+    pass.end();
+    f.submit();
+    const pixel = texelOf(await read(gpu, target, { mipLevel: 2 }), 8, 4, 4);
+    return { name: 'rt-mip-depth', pixel, expected: [0, 255, 0, 255], note: 'red means the depth test failed at mip 2' };
+}
+
+/**
+ * rt-array-layer: a pass per layer of a 4-layer target, layer n cleared to n/8 red, then a draw reads layer 3 through
+ * `arrayTexture` (red) and through a view of that one layer (green), and layer 0 through the array (blue, 0).
+ */
+async function caseRtArrayLayer(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const layered = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', layers: 4, depthBuffer: false });
+    const f = frame(gpu);
+    for (let layer = 0; layer < 4; layer++) f.pass({ target: layered, layer, clear: [layer / 8, 0, 0, 1] }).end();
+
+    const sampler = new GpuSampler({});
+    const array = layered.texture as ArrayTexture;
+    const layer3 = texture(array._gpuTexture.view({ baseArrayLayer: 3, arrayLayerCount: 1, dimension: '2d' }), sampler);
+    const shown = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const show = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(
+                arrayTexture(array, i32(3)).sample(screenUV).x,
+                layer3.sample(screenUV).x,
+                arrayTexture(array, i32(0)).sample(screenUV).x,
+                f32(1),
+            ),
+            depthTest: false,
+        }),
+    );
+    show.updateWorldMatrix();
+    const pass = f.pass({ target: shown, clear: [0, 0, 0, 1] });
+    pass.draw(show);
+    pass.end();
+    f.submit();
+    const pixel = centerPixel(await read(gpu, shown));
+    return {
+        name: 'rt-array-layer',
+        pixel,
+        expected: [u8(3 / 8), u8(3 / 8), 0, 255],
+        note: 'red: layer 3 by array; green: layer 3 by view; blue: layer 0',
+    };
+}
+
+/** rt-3d-slice: a pass per slice of a 4-slice 3D target, slice n cleared to n/8 green, then slice 2 read back. */
+async function caseRt3dSlice(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const volume = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', dimension: '3d', layers: 4, depthBuffer: false });
+    const f = frame(gpu);
+    for (let slice = 0; slice < 4; slice++) f.pass({ target: volume, layer: slice, clear: [0, slice / 8, 0, 1] }).end();
+    f.submit();
+    const pixel = centerPixel(await read(gpu, volume, { layer: 2 }));
+    return { name: 'rt-3d-slice', pixel, expected: [0, u8(2 / 8), 0, 255], note: 'slice 2 of 4' };
+}
+
+/**
+ * rt-msaa-layers: a multisampled 2-layer target. Layer 0 is cleared red, layer 1 blue, then a pass on layer 0 that
+ * keeps what was drawn draws nothing. It loads layer 0's own samples, so layer 0 stays red; a multisampled texture
+ * shared by the layers would hold layer 1's blue.
+ */
+async function caseRtMsaaLayers(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', layers: 2, samples: 4 });
+    const f = frame(gpu);
+    f.pass({ target, layer: 0, clear: [1, 0, 0, 1] }).end();
+    f.pass({ target, layer: 1, clear: [0, 0, 1, 1] }).end();
+    f.pass({ target, layer: 0, clear: false }).end();
+    f.submit();
+    const pixel = centerPixel(await read(gpu, target, { layer: 0 }));
+    return { name: 'rt-msaa-layers', pixel, expected: [255, 0, 0, 255], note: 'blue means the layers shared their samples' };
+}
+
+/**
+ * invariant-prepass-equal: a depth prepass then a colour pass testing depth for equality, as a cutout surface is drawn
+ * so its lighting runs once a pixel. A box turned so its faces slope in depth, seen in perspective: the prepass drops
+ * where world x < 0 and writes depth, and the colour pass draws green with no discard, depth compare 'equal' and no
+ * depth write, both through one position marked invariant. The kept half must be green at every pixel (a speckle is
+ * a depth that differed between the two programs), and the dropped half the clear red.
+ */
+async function caseInvariantPrepassEqual(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const position = attribute('position', d.vec3f);
+    const world = modelWorldMatrix.mul(vec4(position, f32(1)));
+    const clip = invariant(cameraProjectionMatrix.mul(cameraViewMatrix.mul(world)));
+    const worldX = varying(world.x, 'worldX');
+    // in a pass with a colour attachment the prepass declares the colour target too, its writes masked off
+    const cutout = Fn(
+        (x) => {
+            If(x.lessThan(f32(0)), () => {
+                Discard();
+            });
+            return vec4(0, 0, 0, 1);
+        },
+        { name: 'cutout', return: d.vec4f, params: [{ name: 'x', type: d.f32 }] },
+    );
+    const geometry = createBoxGeometry(2, 2, 2);
+    const prepass = new Mesh(
+        geometry,
+        new Material({ name: 'prepass', vertex: clip, fragment: cutout(worldX), colorWrite: false }),
+    );
+    const colour = new Mesh(
+        geometry,
+        new Material({ name: 'colour', vertex: clip, fragment: vec4(0, 1, 0, 1), depthWrite: false, depthCompare: 'equal' }),
+    );
+    for (const mesh of [prepass, colour]) {
+        mesh.quaternion = [0.0725, 0.1814, 0.0364, 0.9801];
+        mesh.updateWorldMatrix();
+    }
+    const camera = new PerspectiveCamera();
+    camera.position[2] = 4;
+    camera.updateWorldMatrix();
+    camera.updateViewMatrix();
+    const f = frame(gpu);
+    const pass = f.pass({ target, camera, clear: [1, 0, 0, 1], clearDepth: 1 });
+    pass.draw(prepass);
+    pass.draw(colour);
+    pass.end();
+    f.submit();
+    const pixels = await read(gpu, target);
+    let keptGreen = 0;
+    let droppedRed = 0;
+    for (let y = CENTER - 6; y <= CENTER + 6; y++) {
+        for (let x = 2; x <= 10; x++) {
+            const kept = texelOf(pixels, SIZE, CENTER + x, y);
+            if (kept[1] === 255 && kept[0] === 0) keptGreen++;
+            const dropped = texelOf(pixels, SIZE, CENTER - x, y);
+            if (dropped[0] === 255 && dropped[1] === 0) droppedRed++;
+        }
+    }
+    const ok = keptGreen === 117 && droppedRed === 117;
+    return {
+        name: 'invariant-prepass-equal',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `kept green ${keptGreen}/117, dropped red ${droppedRed}/117`,
+    };
 }
 
 /** msaa: a multisampled target resolves into its single-sampled texture at pass end. */
@@ -488,6 +708,235 @@ async function caseComputeTextureLoad(gpu: Renderer<WebGPUBackend>): Promise<Cas
         pixel,
         expected: [u8(0.25), 128, 0, 255],
         note: 'red is the depth compute loaded, green the colour texel',
+    };
+}
+
+/**
+ * storage-target-srgb: an rgba8unorm-srgb target compute may write. Before any pass uses it, a dispatch fills its
+ * `textures` slot with the target's texture and stores 0.5 red, unencoded, through the linear storage view: byte 128.
+ * A draw then samples it through the sRGB view, which decodes 128 to 0.216 (byte 55), and a pass that keeps what was
+ * stored draws 0.5 green over its left half through the sRGB attachment, which encodes it to byte 188.
+ */
+async function caseStorageTargetSrgb(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm-srgb', storage: true, depthBuffer: false });
+    const out = storageTexture('out', d.textureStorage2d('rgba8unorm'), 'write');
+    const fill = Fn(() => {
+        textureStore(out, globalId.xy, vec4f(f32(0.5), f32(0), f32(0), f32(1)));
+    }).compute({ workgroupSize: [8, 8, 1] });
+
+    const position = attribute('position', d.vec3f);
+    const shown = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const show = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(position, f32(1)),
+            fragment: texture(target.texture as Texture).sample(screenUV),
+            depthTest: false,
+        }),
+    );
+    const leftHalf = Fn(
+        () => {
+            If(screenCoordinate.x.greaterThan(f32(SIZE / 2)), () => {
+                Discard();
+            });
+            return vec4(0, 0.5, 0, 1);
+        },
+        { name: 'leftHalf', return: d.vec4f, params: [] },
+    );
+    const draw = new Mesh(
+        fullscreenTriangle(),
+        new Material({ vertex: vec4(position, f32(1)), fragment: leftHalf(), depthTest: false }),
+    );
+    for (const mesh of [show, draw]) mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const compute = f.compute({ label: 'fill' });
+    compute.dispatch(fill, [SIZE / 8, SIZE / 8, 1], { textures: { out: target.texture! } });
+    compute.end();
+    const showPass = f.pass({ target: shown, clear: [0, 0, 0, 1] });
+    showPass.draw(show);
+    showPass.end();
+    const drawPass = f.pass({ target, clear: false });
+    drawPass.draw(draw);
+    drawPass.end();
+    f.submit();
+
+    const stored = await read(gpu, target);
+    const drawn = pixelAt(stored, CENTER - 8, CENTER);
+    const kept = pixelAt(stored, CENTER + 8, CENTER);
+    const sampled = centerPixel(await read(gpu, shown));
+    const near = (got: number[], want: number[]): boolean => got.every((v, i) => Math.abs(v - want[i]!) <= 1);
+    const ok = near(kept, [128, 0, 0, 255]) && near(drawn, [0, 188, 0, 255]) && near(sampled, [55, 0, 0, 255]);
+    return {
+        name: 'storage-target-srgb',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `stored ${kept.join(',')} (want 128,0,0,255), drawn ${drawn.join(',')} (want 0,188,0,255), sampled ${sampled.join(',')} (want 55,0,0,255)`,
+    };
+}
+
+/**
+ * compute-view: a pass with camera B draws `screenSize.x` and B's position into a 64-wide target, then a compute pass
+ * with a `view` of camera A at 40x24 stores `screenSize` and A's position, and a draw shows what it stored. Each must
+ * read its own camera and size: the compute B's or 64, or the earlier pass A's or 40, is a scope that leaked.
+ */
+async function caseComputeView(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const cameraA = new PerspectiveCamera();
+    const cameraB = new PerspectiveCamera();
+    for (const [camera, at] of [
+        [cameraA, [20, 30, 40]],
+        [cameraB, [90, 100, 110]],
+    ] as const) {
+        camera.position[0] = at[0];
+        camera.position[1] = at[1];
+        camera.position[2] = at[2];
+        camera.updateWorldMatrix();
+        camera.updateViewMatrix();
+    }
+
+    const position = attribute('position', d.vec3f);
+    const before = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const beforeMesh = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(position, f32(1)),
+            fragment: vec4(screenSize.x.div(f32(255)), cameraPosition.x.div(f32(255)), cameraPosition.y.div(f32(255)), f32(1)),
+            depthTest: false,
+        }),
+    );
+
+    const values = createStorageBuffer(d.array(d.f32), new Float32Array(4));
+    const gather = Fn(() => {
+        const out = storage('values', d.array(d.f32), 'read_write');
+        index(out, u32(0)).assign(screenSize.x);
+        index(out, u32(1)).assign(screenSize.y);
+        index(out, u32(2)).assign(cameraPosition.x);
+        index(out, u32(3)).assign(cameraPosition.y);
+    }).compute({ workgroupSize: [1, 1, 1] });
+
+    const shown = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const stored = storage(values, 'read');
+    const show = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(position, f32(1)),
+            fragment: vec4(
+                index(stored, u32(0)).div(f32(255)),
+                index(stored, u32(1)).div(f32(255)),
+                index(stored, u32(2)).div(f32(255)),
+                index(stored, u32(3)).div(f32(255)),
+            ),
+            depthTest: false,
+        }),
+    );
+    for (const mesh of [beforeMesh, show]) mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const beforePass = f.pass({ target: before, camera: cameraB, clear: [0, 0, 0, 1] });
+    beforePass.draw(beforeMesh);
+    beforePass.end();
+    const compute = f.compute({ label: 'gather', view: { camera: cameraA, width: 40, height: 24 } });
+    compute.dispatch(gather, [1, 1, 1], { buffers: { values } });
+    compute.end();
+    const showPass = f.pass({ target: shown, clear: [0, 0, 0, 0] });
+    showPass.draw(show);
+    showPass.end();
+    f.submit();
+
+    const fromCompute = centerPixel(await read(gpu, shown));
+    const fromBefore = centerPixel(await read(gpu, before));
+    const ok =
+        fromCompute.every((v, i) => v === [40, 24, 20, 30][i]) && fromBefore.every((v, i) => v === [SIZE, 90, 100, 255][i]);
+    return {
+        name: 'compute-view',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `compute ${fromCompute.join(',')} (want 40,24,20,30), pass before ${fromBefore.join(',')} (want ${SIZE},90,100,255)`,
+    };
+}
+
+/**
+ * storage-mip-reduce: a depth pyramid's reduction. A 4x4 r32float texture with three mips: compute writes mip 0
+ * (texel x + 4y) through a view of it, a reduce named by slots writes mip 1 as the max of each 2x2 of mip 0, filled
+ * per dispatch, and a reduce bound by value to two views of the one texture writes mip 2 from mip 1. A texture node
+ * with no sampler then reads the chain by `load` at each level. Red is mip 1 at (0, 0), max(0, 1, 4, 5) = 5; green
+ * mip 1 at (1, 1), max(10, 11, 14, 15) = 15; blue mip 2, 15; each over 15.
+ */
+async function caseStorageMipReduce(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const pyramid = new GpuTexture(d.textureStorage2d('r32float'), {
+        width: 4,
+        height: 4,
+        mipLevelCount: 3,
+        mipmapsAutoUpdate: false,
+        cpu: false,
+        label: 'pyramid',
+    });
+    const mips = [0, 1, 2].map((mip) => pyramid.view({ baseMipLevel: mip, mipLevelCount: 1 }));
+
+    const mip0 = storageTexture(mips[0]!, 'write');
+    const fill = Fn(() => {
+        const texel = globalId.xy;
+        textureStore(mip0, texel, vec4f(f32(texel.x.add(texel.y.mul(u32(4)))), f32(0), f32(0), f32(0)));
+    }).compute({ workgroupSize: [4, 4, 1] });
+
+    const reduceBy = (source: ReturnType<typeof storageTexture>, target: ReturnType<typeof storageTexture>, label: string) =>
+        Fn(() => {
+            const texel = globalId.xy;
+            const last = textureDimensions(source).sub(vec2u(1, 1));
+            const at = (dx: number, dy: number) => textureLoad(source, min(texel.mul(u32(2)).add(vec2u(dx, dy)), last)).x;
+            textureStore(target, texel, vec4f(max(max(at(0, 0), at(1, 0)), max(at(0, 1), at(1, 1))), f32(0), f32(0), f32(0)));
+        }).compute({ workgroupSize: [2, 2, 1], name: label });
+    const reduceSlots = reduceBy(
+        storageTexture('source', d.textureStorage2d('r32float'), 'read'),
+        storageTexture('target', d.textureStorage2d('r32float'), 'write'),
+        'reduce-slots',
+    );
+    const reduceViews = reduceBy(storageTexture(mips[1]!, 'read'), storageTexture(mips[2]!, 'write'), 'reduce-views');
+
+    const chain = texture(pyramid);
+    const values = createStorageBuffer(d.array(d.f32), new Float32Array(3));
+    const gather = Fn(() => {
+        const out = storage('values', d.array(d.f32), 'read_write');
+        index(out, u32(0)).assign(chain.load(vec2i(i32(0), i32(0)), i32(1)).x);
+        index(out, u32(1)).assign(chain.load(vec2i(i32(1), i32(1)), i32(1)).x);
+        index(out, u32(2)).assign(chain.load(vec2i(i32(0), i32(0)), i32(2)).x);
+    }).compute({ workgroupSize: [1, 1, 1] });
+
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const shown = storage(values, 'read');
+    const show = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(
+                index(shown, u32(0)).div(f32(15)),
+                index(shown, u32(1)).div(f32(15)),
+                index(shown, u32(2)).div(f32(15)),
+                f32(1),
+            ),
+            depthTest: false,
+        }),
+    );
+    show.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const compute = f.compute({ label: 'pyramid' });
+    compute.dispatch(fill, [1, 1, 1]);
+    compute.dispatch(reduceSlots, [1, 1, 1], { textures: { source: mips[0]!, target: mips[1]! } });
+    compute.dispatch(reduceViews, [1, 1, 1]);
+    compute.dispatch(gather, [1, 1, 1], { buffers: { values } });
+    compute.end();
+    const pass = f.pass({ target, clear: [0, 0, 0, 1] });
+    pass.draw(show);
+    pass.end();
+    f.submit();
+
+    const pixel = centerPixel(await read(gpu, target));
+    return {
+        name: 'storage-mip-reduce',
+        pixel,
+        expected: [u8(5 / 15), 255, 255, 255],
+        note: 'mip 1 at (0,0) and (1,1), then mip 2, each over 15',
     };
 }
 
@@ -2500,6 +2949,93 @@ async function caseIntegerTexture(gpu: Renderer<WebGPUBackend>): Promise<CaseRes
     };
 }
 
+/**
+ * A visibility buffer's frame, as the WebGL case of the same name: an r32uint target cleared to ID 5, drawn with ID
+ * 0x9ABCDEF1 and stencil 3 over its left half, then resolved into a colour target sharing its depth-stencil by draws
+ * testing stencil equal 3 and equal 0, and a draw over the drawn half behind its depth that the shared depth rejects.
+ */
+async function caseIntegerTargetSharedDepth(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const depthStencil = new DepthTexture(SIZE, SIZE, 'depth24plus-stencil8');
+    const ids = createRenderTarget(SIZE, SIZE, { colorFormat: 'r32uint', depthTexture: depthStencil });
+    const lit = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthTexture: depthStencil });
+    const position = attribute('position', d.vec3f);
+    const geometry = fullscreenTriangle();
+
+    const drawnId = 0x9abcdef1;
+    const leftHalf = Fn(
+        () => {
+            If(screenCoordinate.x.greaterThan(f32(SIZE / 2)), () => {
+                Discard();
+            });
+            return u32(drawnId);
+        },
+        { name: 'leftHalf', return: d.u32, params: [] },
+    );
+    const visibility = new Mesh(
+        geometry,
+        new Material({
+            name: 'visibility',
+            vertex: vec4(position.x, position.y, f32(0), f32(1)),
+            fragment: leftHalf(),
+            stencilTest: true,
+            stencilZPass: 'replace',
+            stencilRef: 3,
+        }),
+    );
+    // a Texture's static type is float-sampled whatever its format; at run time an r32uint target's load is u32
+    const id = u32(texture(ids.texture! as Texture).load(vec2i(i32(screenCoordinate.x), i32(screenCoordinate.y)), i32(0)).x);
+    const resolve = (stencilRef: number, expected: number): Mesh =>
+        new Mesh(
+            geometry,
+            new Material({
+                name: `resolve-${stencilRef}`,
+                vertex: vec4(position, f32(1)),
+                fragment: select(vec4(1, 0, 0, 1), vec4(0, 1, 0, 1), id.equal(u32(expected))),
+                depthTest: false,
+                depthWrite: false,
+                stencilTest: true,
+                stencilFunc: 'equal',
+                stencilRef,
+            }),
+        );
+    const behind = new Mesh(
+        geometry,
+        new Material({
+            name: 'behind',
+            vertex: vec4(position.x, position.y, f32(0.5), f32(1)),
+            fragment: vec4(0, 0, 1, 1),
+            depthWrite: false,
+            stencilTest: true,
+            stencilFunc: 'equal',
+            stencilRef: 3,
+        }),
+    );
+    for (const mesh of [visibility, behind]) mesh.updateWorldMatrix();
+    const camera = new PerspectiveCamera();
+
+    const f = frame(gpu);
+    const visibilityPass = f.pass({ target: ids, camera, clear: [5, 0, 0, 0], clearDepth: 1, clearStencil: 0 });
+    visibilityPass.draw(visibility);
+    visibilityPass.end();
+    const resolvePass = f.pass({ target: lit, camera, clear: [0, 0, 0, 1], clearDepth: false, clearStencil: false });
+    resolvePass.draw(resolve(3, drawnId));
+    resolvePass.draw(resolve(0, 5));
+    resolvePass.draw(behind);
+    resolvePass.end();
+    f.submit();
+
+    const pixels = await read(gpu, lit);
+    const left = pixelAt(pixels, CENTER - 8, CENTER);
+    const right = pixelAt(pixels, CENTER + 8, CENTER);
+    const isGreen = (c: number[]): boolean => c[1] === 255 && c[0] === 0 && c[2] === 0;
+    return {
+        name: 'integer-target-shared-depth',
+        pixel: isGreen(left) && isGreen(right) ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `left (drawn id) ${left.join(',')}, right (cleared id) ${right.join(',')}`,
+    };
+}
+
 async function caseCompilePrewarm(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
     const mesh = new Mesh(
@@ -2972,7 +3508,13 @@ const CASES: Record<string, Case> = {
     'two-passes': caseTwoPasses,
     'viewport-scissor': caseScissor,
     mrt: caseMrt,
+    'mrt-integer': caseMrtInteger,
     'cube-layer': caseCubeLayer,
+    'rt-mip-depth': caseRtMipDepth,
+    'rt-array-layer': caseRtArrayLayer,
+    'rt-3d-slice': caseRt3dSlice,
+    'rt-msaa-layers': caseRtMsaaLayers,
+    'invariant-prepass-equal': caseInvariantPrepassEqual,
     'cube-mips': caseCubeMips,
     'cube-face-partial': caseCubeFacePartial,
     'array-layer-partial': caseArrayLayerPartial,
@@ -2983,6 +3525,7 @@ const CASES: Record<string, Case> = {
     'cube-camera': caseCubeCamera,
     'cube-camera-mips': caseCubeCameraMips,
     'integer-texture': caseIntegerTexture,
+    'integer-target-shared-depth': caseIntegerTargetSharedDepth,
     'compile-prewarm': caseCompilePrewarm,
     'frame-done': caseFrameDone,
     'transparent-default-blend': caseTransparentDefaultBlend,
@@ -3011,6 +3554,9 @@ const CASES: Record<string, Case> = {
     'write-texture-cube': caseWriteTextureCube,
     'cpu-less-index': caseCpuLessIndex,
     'compute-texture-load': caseComputeTextureLoad,
+    'storage-target-srgb': caseStorageTargetSrgb,
+    'compute-view': caseComputeView,
+    'storage-mip-reduce': caseStorageMipReduce,
     'compute-uniform-per-dispatch': caseComputeUniformPerDispatch,
     'compute-uniform-within-pass': caseComputeUniformWithinPass,
     'draw-uniform-within-pass': caseDrawUniformWithinPass,

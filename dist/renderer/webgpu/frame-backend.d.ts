@@ -55,6 +55,8 @@ type OpenComputePass = {
     skipped: boolean;
     resolved: Compute.ResolvedDispatch[];
     count: number;
+    /** the render scope a pass with a `view` opened inside, restored when it closes */
+    previousRenderId: number;
 };
 export declare function createWebGPUFrameBackendState(renderer: Renderer<DeviceBackend>, backend: WebGPUBackend): WebGPUFrameBackendState;
 export declare function beginFrame(s: WebGPUFrameBackendState): void;

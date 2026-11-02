@@ -5,7 +5,14 @@ import type { StructDef } from '../nodes/lib/core';
 import { packTo, packToView, structFieldLayout } from '../schema/pack';
 import * as d from '../schema/schema';
 import { type DataTextureImage, Source } from './source';
-import { type FilterMode, formatSampleType, type MipmapFilterMode, type TextureOptions, type WrapMode } from './texture';
+import {
+    assertSameSampleType,
+    type FilterMode,
+    formatSampleType,
+    type MipmapFilterMode,
+    type TextureOptions,
+    type WrapMode,
+} from './texture';
 
 /** Valid typed array types for DataTexture */
 export type DataTextureData = Uint8Array | Uint8ClampedArray | Uint16Array | Uint32Array | Float32Array;
@@ -163,6 +170,7 @@ export class DataTexture {
         return this._gpuTexture.format;
     }
     set format(v: GPUTextureFormat) {
+        assertSameSampleType(this._gpuTexture.format, v);
         this._gpuTexture.format = v;
     }
 

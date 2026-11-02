@@ -4,7 +4,7 @@ import { type TextureRegionInit } from '../core/texture-region';
 import type { StructDef } from '../nodes/lib/core';
 import * as d from '../schema/schema';
 import { type DataTextureImage, Source } from './source';
-import type { FilterMode, MipmapFilterMode, TextureOptions, WrapMode } from './texture';
+import { type FilterMode, type MipmapFilterMode, type TextureOptions, type WrapMode } from './texture';
 /** Valid typed array types for DataTexture */
 export type DataTextureData = Uint8Array | Uint8ClampedArray | Uint16Array | Uint32Array | Float32Array;
 /** JS value shape for writing a struct record: each field mapped to its inferred value type. */

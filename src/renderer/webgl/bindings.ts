@@ -240,5 +240,5 @@ function captureInto(
 export type RecordCapture = { uniforms: UniformCapture[]; uniformCount: number; textures: TextureCapture };
 
 export function createRecordCapture(): RecordCapture {
-    return { uniforms: [], uniformCount: 0, textures: { textures: [], samplers: [] } };
+    return { uniforms: [], uniformCount: 0, textures: { textures: [], ranges: [], samplers: [] } };
 }

@@ -22,6 +22,15 @@ export type TextureOptions = {
     premultiplyAlpha?: boolean;
 };
 /**
+ * The shader-facing sample type of a texture format: integer formats (...uint/...sint) are typed u32/i32, so the GLSL
+ * emitter declares usampler/isampler and a load returns uvec4/ivec4, and WGSL declares texture_*<u32>/<i32>; every
+ * other format is float-sampled. Fixed at construction, so a texture takes its format there.
+ */
+export declare function formatSampleType(format: GPUTextureFormat | undefined): d.u32 | d.i32 | d.f32;
+/** Throws where a texture's format would change its sample type: its shaders were typed by the old one, so they would
+ *  no longer bind it. A format of another type is given at construction (a render target's `colorFormats`). */
+export declare function assertSameSampleType(from: GPUTextureFormat, to: GPUTextureFormat): void;
+/**
  * High-level 2D texture class.
  *
  * Holds sampling parameters and references a Source for image data.
@@ -92,7 +101,7 @@ export declare class Texture<out T extends SourceData = SourceData> {
     /** Anisotropic filtering level. */
     get anisotropy(): number;
     set anisotropy(v: number);
-    /** WebGPU texture format. */
+    /** WebGPU texture format. Its sample type is the constructor's format's (see {@link formatSampleType}). */
     get format(): GPUTextureFormat;
     set format(v: GPUTextureFormat);
     /** Whether to auto-generate mipmaps. */

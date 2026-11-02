@@ -285,4 +285,7 @@ export type Discovery = {
     updateBeforeNodes: UpdateBeforeNode[];
     updateAfterNodes: UpdateAfterNode[];
     updateNodes: UpdateNode[];
+    /** The builtins read inside `Fn` bodies, by kind, to their WGSL type. A WGSL function can't reach its entry point's
+     *  inputs, so it reads module-scope copies the entry point assigns. */
+    fnBuiltins: Map<string, string>;
 };

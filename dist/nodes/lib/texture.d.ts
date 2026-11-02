@@ -1,6 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
+import { type TextureSource, type TextureViewRange } from '../../core/gpu-texture-view';
 import type { RenderTarget } from '../../core/render-target';
 import type { Any, CubeSampledTexture, FlatDepthTexture, FlatSampledTexture } from '../../schema/schema';
 import * as d from '../../schema/schema';
@@ -127,11 +128,20 @@ export declare class TextureBindingNode<D extends d.Texture = d.Texture> extends
         textureName: string;
         previous: boolean;
     } | null;
-    /** Unique ID for this texture binding (e.g. 'tAlbedo', 'tShadowMap'). */
+    /** The part of `value` the binding sees: the whole texture unless bound through a view. */
+    range: TextureViewRange;
+    /** For a named binding, the slot a dispatch fills with `textures: { [slot]: view }`; `value` is then unused. */
+    readonly slot: string | null;
+    /** The binding's identity: its texture and range, or its slot. Two nodes with the same id are one binding. */
     readonly textureId: string;
     /** Uniform group, determines @group index. */
     group: UniformGroup;
-    constructor(desc: D, textureId: string, group?: UniformGroup);
+    constructor(desc: D, textureId: string, group?: UniformGroup, slot?: string | null);
+    /**
+     * Binds `source` (a texture, or a view of part of one) in place of what the binding bound. A storage texture binds
+     * as it is sampled, as `texture()` binds one.
+     */
+    bind(source: TextureSource<D> | TextureSource<d.StorageTexture>): this;
 }
 /**
  * StorageTextureBindingNode - a module-scope storage texture binding, i.e.
@@ -139,39 +149,46 @@ export declare class TextureBindingNode<D extends d.Texture = d.Texture> extends
  * and read via `textureLoad` (no sampler).
  *
  * Format + dimension come from the GpuTexture's descriptor; `access` is a
- * per-binding property (default `'write'`), so the same GpuTexture can be bound
- * `write` in one shader and `read` in another (ping-pong). `mipLevel` selects the
- * mip the binding view targets (for manual mip-pyramid writes).
+ * per-binding property (default `'write'`), as in the binding layout. The view it
+ * binds sees one mip, so a texture with mips is bound through a view of one, and
+ * one shader can read one mip of a texture while writing another.
  */
 export declare class StorageTextureBindingNode<D extends d.StorageTexture = d.StorageTexture> extends Node<D> {
     readonly kind = NodeKind.StorageTextureBinding;
     /** The GpuTexture */
     value: GpuTexture<D> | null;
-    /** Unique ID for this texture binding (e.g. 'st3'). */
+    /** The part of `value` the binding sees: the whole texture unless bound through a view. */
+    range: TextureViewRange;
+    /** For a named binding, the slot a dispatch fills with `textures: { [slot]: view }`; `value` is then unused. */
+    readonly slot: string | null;
+    /** The binding's identity: its texture, range and access, or its slot. Two nodes with the same id are one binding. */
     readonly textureId: string;
     /** Uniform group, determines @group index. */
     group: UniformGroup;
     /** WGSL access mode for THIS binding (overrides the descriptor default). */
-    access: d.StorageTextureAccess;
-    /** Mip level the binding view targets. */
-    mipLevel: number;
-    constructor(desc: D, textureId: string, access: d.StorageTextureAccess, group?: UniformGroup);
+    readonly access: d.StorageTextureAccess;
+    constructor(desc: D, textureId: string, access: d.StorageTextureAccess, group?: UniformGroup, slot?: string | null);
+    /** Binds `source` (a texture, or a view of one mip of one) in place of what the binding bound. */
+    bind(source: TextureSource<D>): this;
     /** The storage texel format (from the descriptor). */
     get format(): d.StorageTextureFormat;
     /** The WGSL storage dimension tag ('1d' | '2d' | '2d_array' | '3d'). */
     get dim(): D['dim'];
     /** The composed WGSL binding type, e.g. `texture_storage_2d<rgba8unorm, write>`. */
     get wgslBindingType(): string;
-    /** Set the mip level this binding view targets (for manual mip writes). */
-    setMipLevel(level: number): this;
 }
 /**
- * storageTexture - bind a GpuTexture as a storage texture for compute writes/reads.
+ * storageTexture - a storage texture binding for compute writes and reads.
  *
- * @param gpuTex - a storage GpuTexture (e.g. from `createStorageTexture(...)`)
+ * Bound by value to a texture, or a view of one mip of one:
+ * `storageTexture(pyramid.view({ baseMipLevel: 2, mipLevelCount: 1 }), 'write')`.
+ * Or named, filled by each dispatch: `storageTexture('destination', d.textureStorage2d('r32float'), 'write')` with
+ * `dispatch(node, counts, { textures: { destination: view } })`, so one kernel runs over many mips or layers.
+ *
  * @param access - 'write' (default), 'read', or 'read_write'
  */
-export declare function storageTexture<D extends d.StorageTexture>(gpuTex: GpuTexture<D>, access?: d.StorageTextureAccess): StorageTextureBindingNode<D>;
+export declare function storageTexture<D extends d.StorageTexture>(source: TextureSource<D>, access?: d.StorageTextureAccess): StorageTextureBindingNode<D>;
+export declare function storageTexture<D extends d.StorageTexture>(slot: string, schema: D, access?: d.StorageTextureAccess): StorageTextureBindingNode<D>;
 /**
  * Sampling mode for texture operations.
  * Determines which WGSL function to emit.
@@ -312,7 +329,9 @@ export type StorageSampledOf<S extends d.StorageTexture> = S extends d.textureSt
  *
  * Accepts either:
  * - A high-level Texture, DataTexture or Data3DTexture (auto-creates sampler from texture settings)
- * - A GpuTexture + GpuSampler pair (low-level)
+ * - A GpuTexture, or a view of part of one, with the GpuSampler it is sampled with. With no sampler it can only be
+ *   read with `.load()`, which needs none.
+ * - A slot name and the sampled type, filled by each dispatch with `textures: { [slot]: view }`. Read with `.load()`.
  *
  * @example
  * // From high-level Texture
@@ -320,6 +339,10 @@ export type StorageSampledOf<S extends d.StorageTexture> = S extends d.textureSt
  *
  * // From GpuTexture + GpuSampler (low-level)
  * const albedo = texture(gpuTex, gpuSampler);
+ *
+ * // A depth pyramid, every mip, read texel by texel
+ * const pyramid = texture(pyramidTex);
+ * pyramid.load(coords, mip)
  *
  * // Sampling methods
  * albedo.sample(customUv)              // textureSample with custom UVs
@@ -332,8 +355,9 @@ export type StorageSampledOf<S extends d.StorageTexture> = S extends d.textureSt
 export declare function texture(tex: Texture): TextureNode<d.texture2d>;
 export declare function texture(dataTex: DataTexture): TextureNode<d.texture2d>;
 export declare function texture(tex3d: Data3DTexture): TextureNode<d.texture3d>;
-export declare function texture<D extends FlatSampledTexture>(gpuTex: GpuTexture<D>, gpuSampler: GpuSampler): TextureNode<D>;
-export declare function texture<S extends d.StorageTexture>(storageTex: GpuTexture<S>, gpuSampler: GpuSampler): TextureNode<StorageSampledOf<S>>;
+export declare function texture<D extends FlatSampledTexture>(source: TextureSource<D>, gpuSampler?: GpuSampler): TextureNode<D>;
+export declare function texture<S extends d.StorageTexture>(storageSource: TextureSource<S>, gpuSampler?: GpuSampler): TextureNode<StorageSampledOf<S>>;
+export declare function texture<D extends FlatSampledTexture>(slot: string, schema: D): TextureNode<D>;
 /**
  * Create a standalone texture binding node.
  *
@@ -524,7 +548,7 @@ export declare class DepthTextureNode extends Node<d.f32> {
  * const shadow = depthTexture(gpuDepthTex, gpuSampler);
  */
 export declare function depthTexture(tex: DepthTexture): DepthTextureNode;
-export declare function depthTexture(gpuTex: GpuTexture<FlatDepthTexture>, gpuSampler: GpuSampler): DepthTextureNode;
+export declare function depthTexture(source: TextureSource<FlatDepthTexture>, gpuSampler?: GpuSampler): DepthTextureNode;
 /**
  * Sampling mode for array texture operations.
  * Array textures support all the same modes as 2D textures.
@@ -688,6 +712,8 @@ export declare function textureStore<D extends d.StorageTexture>(t: StorageTextu
  * textureDimensions - Get texture dimensions.
  */
 export declare function textureDimensions(t: TextureBindingNode, level?: Node<d.u32>): CallNode<d.vec2u>;
+/** A storage binding's size: the size of the one mip its view sees. */
+export declare function textureDimensions(t: StorageTextureBindingNode): CallNode<d.vec2u>;
 /**
  * textureNumLevels - Get number of mip levels.
  */
@@ -697,9 +723,14 @@ export declare function textureNumLevels(t: TextureBindingNode): CallNode<d.u32>
  */
 export declare function textureNumLayers(t: Node<Any>): CallNode<d.u32>;
 /**
- * textureGather - Gather a single component from 4 texels.
+ * textureGather - Gather 4 texels: one component of each from a sampled texture, or the depth of each from a depth
+ * texture, which takes no component (WGSL's forms). A depth array texture takes the layer after the coords. WGSL has
+ * no gather on a multisampled texture. A depth texture's sampler must be non-filtering (all-nearest filters), or
+ * WebGPU rejects the pipeline.
  */
 export declare function textureGather<D extends FlatSampledTexture>(component: Node<d.i32>, t: TextureBindingNode<D>, s: AnySamplerNode, coords: Node<d.vec2f>, offset?: Node<d.vec2i>): CallNode<d.TextureSampleResultOf<D>>;
+export declare function textureGather(t: TextureBindingNode<FlatDepthTexture>, s: AnySamplerNode, coords: Node<d.vec2f>, offset?: Node<d.vec2i>): CallNode<d.vec4f>;
+export declare function textureGather(t: TextureBindingNode<FlatDepthTexture>, s: AnySamplerNode, coords: Node<d.vec2f>, arrayIndex: Node<d.i32> | Node<d.u32>, offset?: Node<d.vec2i>): CallNode<d.vec4f>;
 /**
  * textureGatherCompare - Gather compare results from 4 texels.
  * Requires sampler_comparison.

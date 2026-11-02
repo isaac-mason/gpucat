@@ -21,11 +21,8 @@ export declare function allocatedBytes(gpu: GPUTexture): number;
  * a fresh GPUTextureView every frame.
  */
 export declare function getRenderTargetView(data: TextureData): GPUTextureView;
-/**
- * Cached view of the multisampled color texture for an MSAA render target.
- * Returns null when the target is not multisampled.
- */
-export declare function getRenderTargetMsaaView(data: TextureData): GPUTextureView | null;
+/** The view of layer `layer`'s multisampled texture, or null for a single-sampled target. */
+export declare function getRenderTargetMsaaView(data: TextureData, layer: number): GPUTextureView | null;
 /**
  * Set the GPU texture resource for a render target texture.
  * Called by the renderer when creating/resizing render targets.
@@ -33,5 +30,9 @@ export declare function getRenderTargetMsaaView(data: TextureData): GPUTextureVi
  * Unlike regular textures which upload source data, render target textures
  * have their GPUTexture created externally and registered here.
  */
-export declare function setRenderTargetTexture(cache: TextureCache, texture: GpuTexture, gpuTextureResource: GPUTexture, msaaTexture?: GPUTexture | null): void;
+export declare function setRenderTargetTexture(cache: TextureCache, texture: GpuTexture, gpuTextureResource: GPUTexture, msaaTextures?: GPUTexture[] | null): void;
+/**
+ * Allocates every attachment of `renderTarget` its layout asks for and doesn't hold. Each attachment is checked on its
+ * own: a cube's colour and depth, or a target whose depth is shared with another, reallocate apart.
+ */
 export declare function ensureRenderTargetTexturesAllocated(cache: TextureCache, device: GPUDevice, renderTarget: RenderTarget): void;

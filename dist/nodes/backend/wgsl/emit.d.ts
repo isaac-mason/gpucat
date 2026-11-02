@@ -49,6 +49,10 @@ export type BuildContext = {
         vertexExpr: string;
     }>;
     builtins: Set<string>;
+    /** see {@link Discovery.fnBuiltins} */
+    fnBuiltins: Map<string, string>;
+    /** emitting a `Fn` body, which reads builtins through their module-scope copies */
+    inFunction: boolean;
     privateVars: Map<number, PrivateVarNode<d.Any>>;
     workgroupVars: Map<number, WorkgroupVarNode<d.Any>>;
     structs: Map<string, StructNode>;

@@ -27,7 +27,6 @@
  * un-antialiased result) with a one-time warning.
  */
 
-import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { RenderTarget } from '../../core/render-target';
 import {
     type Allocation,
@@ -40,11 +39,11 @@ import {
 } from '../core/info';
 import { formatHasStencil } from '../core/render-types';
 import { estimatedBytesPerTexel } from '../core/texture-size';
-import { getTextureData, type TextureCache, updateTexture } from './textures';
+import { type GlTextureData, getTextureData, type TextureCache, updateTexture } from './textures';
 import type { WebGLBackend } from './webgl-backend';
 
 /** Per-RenderTarget GL framebuffer + the color-texture generations it was built against. */
-type FboData = {
+export type FboData = {
     /** The GL framebuffer object (the resolve/texture FBO — its color attachments are the target's textures). */
     fbo: WebGLFramebuffer;
     /**
@@ -53,8 +52,8 @@ type FboData = {
      * more broadly FBO-complete (three.js parity). Null when depth is a sampled texture, or no depth.
      */
     depthRenderbuffer: WebGLRenderbuffer | null;
-    /** Whether the depth was built as a sampled texture (vs a renderbuffer); a change forces a rebuild. */
-    depthSampled: boolean;
+    /** Whether the depth was built as a texture (vs a renderbuffer); a change forces a rebuild. */
+    depthAsTexture: boolean;
     /** Color-attachment texture generations at last (re)build — a change forces a rebuild. */
     colorGenerations: number[];
     /** Depth-attachment texture generation at last rebuild (or -1 for renderbuffer/none). */
@@ -62,11 +61,11 @@ type FboData = {
     /** Last-built size (width, height) — a resize forces a renderbuffer reallocation. */
     width: number;
     height: number;
-    /** For a cube target: which face the color attachment currently points at (-1 = not a cube / unset). */
-    attachedFace: number;
+    /** The mip and layer the attachments point at; -1 until a pass first attaches them. */
     attachedMip: number;
-    /** MSAA render FBO (multisample renderbuffers). Non-null only for a supported `samples > 1` target. */
-    msaa: MsaaData | null;
+    attachedLayer: number;
+    /** MSAA render FBOs (multisample renderbuffers), one per layer. Non-null only for a supported `samples > 1` target. */
+    msaa: MsaaData[] | null;
 };
 
 /** MSAA render-side resources: the multisample FBO + its color/depth renderbuffers. */
@@ -185,19 +184,25 @@ function ensureColorRenderable(gl: WebGL2RenderingContext, format: string): void
     );
 }
 
-/** Whether a render target is a cube render target. */
-function isCube(rt: RenderTarget): rt is CubeRenderTarget {
-    return rt.isCubeRenderTarget === true;
+/**
+ * Whether the target's depth is a texture rather than a renderbuffer: when it is sampled, or when its layout has more
+ * than one mip or layer, which a renderbuffer cannot hold.
+ */
+function depthAsTexture(rt: RenderTarget): boolean {
+    const depth = rt._depthAttachment;
+    if (!depth) return false;
+    const texture = depth._gpuTexture;
+    return rt.depthSampled || texture.depthOrArrayLayers > 1 || texture.mipLevelCount > 1;
 }
 
 /**
  * Get (or create/rebuild) and bind the FBO for a render target, then return whether it carries a
  * stencil aspect (so the pass knows whether to clear stencil). Allocates the color + depth textures,
- * attaches them, sets `drawBuffers` for MRT, and leaves the FBO bound as `FRAMEBUFFER`.
+ * attaches mip `mipLevel` of layer `layer` of each, sets `drawBuffers` for MRT, and leaves the FBO bound as
+ * `FRAMEBUFFER`.
  *
- * For an MSAA target the bound FBO is the multisample render FBO (drawn into); its result is resolved
- * into the texture FBO at pass end by `resolveActiveRenderTarget`. For a cube target the selected
- * `activeFace` is attached as the color attachment (re-attached cheaply when the face changes).
+ * For an MSAA target the bound FBO is the layer's multisample render FBO (drawn into); its result is resolved into
+ * the texture FBO at pass end by `resolveActiveRenderTarget`.
  */
 export function bindRenderTargetFramebuffer(
     gl: WebGL2RenderingContext,
@@ -213,18 +218,18 @@ export function bindRenderTargetFramebuffer(
         colorGenerations.push(data.generation);
     }
 
-    // Ensure the depth texture's GL storage exists ONLY when depth is sampled (attached as a texture).
-    // Unsampled depth uses a renderbuffer (allocated in rebuildFbo), so skip the depth texture entirely;
-    // leaner on the weaker devices the WebGL fallback runs on.
+    // The depth texture's GL storage exists only when depth is a texture; a renderbuffer depth is
+    // allocated in rebuildFbo. Leaner on the weaker devices the WebGL fallback runs on.
     let depthGeneration = -1;
-    if (renderTarget._depthAttachment && renderTarget.depthSampled) {
-        const data = updateTexture(gl, b.textures, renderTarget._depthAttachment._gpuTexture);
+    const depthTexture = depthAsTexture(renderTarget);
+    if (depthTexture) {
+        const data = updateTexture(gl, b.textures, renderTarget._depthAttachment!._gpuTexture);
         depthGeneration = data.generation;
     }
 
     let fboData = b.renderTargets.data.get(renderTarget);
     const sizeChanged = fboData ? fboData.width !== renderTarget.width || fboData.height !== renderTarget.height : true;
-    const depthModeChanged = fboData ? fboData.depthSampled !== renderTarget.depthSampled : false;
+    const depthModeChanged = fboData ? fboData.depthAsTexture !== depthTexture : false;
     const generationsChanged =
         fboData &&
         (fboData.depthGeneration !== depthGeneration ||
@@ -235,16 +240,16 @@ export function bindRenderTargetFramebuffer(
         fboData = rebuildFbo(gl, b.renderTargets, b.textures, renderTarget, fboData, colorGenerations, depthGeneration);
     }
 
-    // A level change needs the same re-attach as a face change: the level is baked into the attachment.
-    if (isCube(renderTarget) && (fboData.attachedFace !== layer || fboData.attachedMip !== mipLevel)) {
-        attachCubeFace(gl, b.textures, renderTarget, fboData, layer, mipLevel);
+    // The mip and layer are baked into the attachments: a change re-attaches them.
+    if (fboData.attachedMip !== mipLevel || fboData.attachedLayer !== layer) {
+        attachSubresource(gl, b.textures, renderTarget, fboData, mipLevel, layer);
     }
 
     const hasStencil = formatHasStencil(renderTarget._depthAttachment?.format);
 
-    // MSAA: render into the multisample FBO; remember the target so pass end resolves it.
+    // MSAA: render into the layer's multisample FBO; remember the target so pass end resolves it.
     if (fboData.msaa) {
-        gl.bindFramebuffer(gl.FRAMEBUFFER, fboData.msaa.fbo);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fboData.msaa[layer]!.fbo);
         b.renderTargets.pendingResolve = renderTarget;
     } else {
         gl.bindFramebuffer(gl.FRAMEBUFFER, fboData.fbo);
@@ -254,28 +259,46 @@ export function bindRenderTargetFramebuffer(
     return { hasStencil };
 }
 
-/** Attach one face at one level as the FBO's `COLOR_ATTACHMENT0`. */
-function attachCubeFace(
+/** Attaches mip `mipLevel` of layer `layer` of the GL texture `data` at `point` of the bound framebuffer. */
+function attachTexture(gl: WebGL2RenderingContext, point: number, data: GlTextureData, mipLevel: number, layer: number): void {
+    if (data.target === gl.TEXTURE_CUBE_MAP) {
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, point, gl.TEXTURE_CUBE_MAP_POSITIVE_X + layer, data.texture, mipLevel);
+    } else if (data.target === gl.TEXTURE_2D_ARRAY || data.target === gl.TEXTURE_3D) {
+        gl.framebufferTextureLayer(gl.FRAMEBUFFER, point, data.texture, mipLevel, layer);
+    } else {
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, point, gl.TEXTURE_2D, data.texture, mipLevel);
+    }
+}
+
+/**
+ * Points the texture FBO's attachments at mip `mipLevel` of layer `layer`: a cube's face, an array's layer or a 3D
+ * texture's slice, or a 2D texture's mip. A depth renderbuffer stays attached as it is. Then checks the FBO is
+ * complete, and leaves it bound as `FRAMEBUFFER`.
+ */
+export function attachSubresource(
     gl: WebGL2RenderingContext,
     textures: TextureCache,
-    renderTarget: CubeRenderTarget,
+    renderTarget: RenderTarget,
     fboData: FboData,
-    layer: number,
     mipLevel: number,
+    layer: number,
 ): void {
-    const data = getTextureData(textures, renderTarget.texture._gpuTexture);
-    if (!data) return;
     gl.bindFramebuffer(gl.FRAMEBUFFER, fboData.fbo);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X + layer, data.texture, mipLevel);
-    fboData.attachedFace = layer;
-    fboData.attachedMip = mipLevel;
-    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
-    if (status !== gl.FRAMEBUFFER_COMPLETE) {
-        throw new Error(
-            `[webgl] cube framebuffer is incomplete (face ${layer} level ${mipLevel}, status 0x${status.toString(16)}); ` +
-                `rendering into an incomplete framebuffer is not supported on the WebGL2 backend.`,
-        );
+    renderTarget.textures.forEach((tex, i) => {
+        const data = getTextureData(textures, tex._gpuTexture);
+        if (data) attachTexture(gl, gl.COLOR_ATTACHMENT0 + i, data, mipLevel, layer);
+    });
+    const depth = renderTarget._depthAttachment;
+    if (depth && fboData.depthAsTexture) {
+        const data = getTextureData(textures, depth._gpuTexture);
+        if (data) {
+            const point = formatHasStencil(depth.format) ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
+            attachTexture(gl, point, data, mipLevel, layer);
+        }
     }
+    fboData.attachedMip = mipLevel;
+    fboData.attachedLayer = layer;
+    assertFramebufferComplete(gl, textures, renderTarget, fboData, mipLevel, layer);
 }
 
 /** (Re)build the FBO for a render target: attach color textures, drawBuffers, and depth. */
@@ -298,18 +321,12 @@ function rebuildFbo(
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
 
-    const cube = isCube(renderTarget);
-
-    // Color attachments.
+    // Color attachments: the textures are attached by `attachSubresource`, at the mip and layer a pass names; the
+    // sentinels below make it run.
     const drawBuffers: number[] = [];
     renderTarget.textures.forEach((tex, i) => {
-        const data = getTextureData(textures, tex._gpuTexture);
-        if (!data) return;
         ensureColorRenderable(gl, tex.format);
-        const attachment = gl.COLOR_ATTACHMENT0 + i;
-        // A cube's colour attachment is `attachCubeFace`'s, and the sentinels below make it run.
-        if (!cube) gl.framebufferTexture2D(gl.FRAMEBUFFER, attachment, gl.TEXTURE_2D, data.texture, 0);
-        drawBuffers.push(attachment);
+        drawBuffers.push(gl.COLOR_ATTACHMENT0 + i);
     });
     if (drawBuffers.length > 0) {
         gl.drawBuffers(drawBuffers);
@@ -318,9 +335,9 @@ function rebuildFbo(
         gl.drawBuffers([gl.NONE]);
     }
 
-    // Depth attachment (shared across cube faces). A sampled depth is attached as a texture; an
-    // unsampled depth uses a renderbuffer (leaner and more broadly FBO-complete, three.js parity); no
-    // depthTexture at all means the caller opted out (depthBuffer:false).
+    // Depth attachment. A depth texture (sampled, or of more than one mip or layer) is attached by
+    // `attachSubresource`; an unsampled one-mip, one-layer depth uses a renderbuffer (leaner and more broadly
+    // FBO-complete, three.js parity); no depthTexture at all means the caller opted out (depthBuffer:false).
     let depthRenderbuffer = existing?.depthRenderbuffer ?? null;
     const freeDepthRenderbuffer = () => {
         if (depthRenderbuffer) {
@@ -328,15 +345,8 @@ function rebuildFbo(
             depthRenderbuffer = null;
         }
     };
-    if (renderTarget._depthAttachment && renderTarget.depthSampled) {
-        // Sampleable depth texture (e.g. shadow maps, depth-of-field, scene-depth occlusion).
+    if (depthAsTexture(renderTarget)) {
         freeDepthRenderbuffer();
-        const data = getTextureData(textures, renderTarget._depthAttachment._gpuTexture);
-        if (data) {
-            const stencil = formatHasStencil(renderTarget._depthAttachment.format);
-            const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
-            gl.framebufferTexture2D(gl.FRAMEBUFFER, attachment, gl.TEXTURE_2D, data.texture, 0);
-        }
     } else if (renderTarget._depthAttachment) {
         // Unsampled depth uses a renderbuffer (reused across rebuilds; re-specified at the current size).
         const stencil = formatHasStencil(renderTarget._depthAttachment.format);
@@ -364,6 +374,56 @@ function rebuildFbo(
         freeDepthRenderbuffer();
     }
 
+    // MSAA render FBOs (multisample renderbuffers), one per layer. Rebuilt whenever the texture FBO is; a cube
+    // target never carries one (CubeRenderTarget forces samples:1).
+    if (existing?.msaa) for (const layerMsaa of existing.msaa) deleteMsaa(gl, state, layerMsaa);
+    let msaa: MsaaData[] | null = null;
+    if (renderTarget.samples > 1) {
+        msaa = [];
+        for (let layer = 0; layer < renderTarget.layers; layer++) {
+            const layerMsaa = buildMsaaFbo(gl, state, textures, renderTarget);
+            if (layerMsaa === null) {
+                for (const built of msaa) deleteMsaa(gl, state, built);
+                msaa = null;
+                break;
+            }
+            msaa.push(layerMsaa);
+        }
+    }
+
+    const fboData: FboData = {
+        fbo,
+        depthRenderbuffer,
+        depthAsTexture: depthAsTexture(renderTarget),
+        colorGenerations,
+        depthGeneration,
+        width: renderTarget.width,
+        height: renderTarget.height,
+        attachedMip: -1,
+        attachedLayer: -1,
+        msaa,
+    };
+    if (!existing) {
+        renderTarget._onDispose = () => {
+            const data = state.data.get(renderTarget);
+            if (!data) return;
+            deleteFbo(gl, state, data);
+            state.data.delete(renderTarget);
+        };
+    }
+    state.data.set(renderTarget, fboData);
+    return fboData;
+}
+
+/** Throws, naming each attachment and what GL holds for it, unless the bound framebuffer is complete. */
+function assertFramebufferComplete(
+    gl: WebGL2RenderingContext,
+    textures: TextureCache,
+    renderTarget: RenderTarget,
+    fboData: FboData,
+    mipLevel: number,
+    layer: number,
+): void {
     // Validate. A lost context makes every GL query return null/default and reports the framebuffer
     // as UNSUPPORTED (0x8cdd), so check for loss FIRST, or a dead context masquerades as a format bug.
     if (gl.isContextLost()) {
@@ -393,7 +453,7 @@ function rebuildFbo(
         const dbg = gl.getExtension('WEBGL_debug_renderer_info');
         const rendererStr = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
         const glErr = gl.getError();
-        const depthMode = !renderTarget._depthAttachment ? 'none' : renderTarget.depthSampled ? 'texture' : 'renderbuffer';
+        const depthMode = !renderTarget._depthAttachment ? 'none' : fboData.depthAsTexture ? 'texture' : 'renderbuffer';
         const TYPE_NAME: Record<number, string> = { [gl.NONE]: 'none', [gl.TEXTURE]: 'tex', [gl.RENDERBUFFER]: 'rbo' };
         const liveAttachment = (label: string, point: number): string => {
             const type = gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, point, gl.FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE);
@@ -404,7 +464,7 @@ function rebuildFbo(
             return `${label}=${TYPE_NAME[type as number] ?? type}(${bits})`;
         };
         const parts = [
-            `target=${renderTarget.width}x${renderTarget.height}`,
+            `target=${renderTarget.width}x${renderTarget.height} mip=${mipLevel} layer=${layer}`,
             ...renderTarget.textures.map((t, i) => describe(`color[${i}]`, t)),
             `depth[${depthMode}]: ${describe('', renderTarget._depthAttachment)}`,
             `renderer=${rendererStr}`,
@@ -417,48 +477,14 @@ function rebuildFbo(
                 `${parts.join(' | ')}`,
         );
     }
-
-    // MSAA render FBO (multisample renderbuffers). Rebuilt whenever the texture FBO is; a cube target
-    // never carries one (CubeRenderTarget forces samples:1).
-    let msaa = existing?.msaa ?? null;
-    if (msaa) {
-        deleteMsaa(gl, state, msaa);
-        msaa = null;
-    }
-    if (renderTarget.samples > 1 && !cube) {
-        msaa = buildMsaaFbo(gl, state, textures, renderTarget);
-    }
-
-    const fboData: FboData = {
-        fbo,
-        depthRenderbuffer,
-        depthSampled: renderTarget.depthSampled,
-        colorGenerations,
-        depthGeneration,
-        width: renderTarget.width,
-        height: renderTarget.height,
-        attachedFace: -1,
-        attachedMip: -1,
-        msaa,
-    };
-    if (!existing) {
-        renderTarget._onDispose = () => {
-            const data = state.data.get(renderTarget);
-            if (!data) return;
-            deleteFbo(gl, state, data);
-            state.data.delete(renderTarget);
-        };
-    }
-    state.data.set(renderTarget, fboData);
-    return fboData;
 }
 
-/** A target's framebuffer, its depth renderbuffer and its MSAA set. */
+/** A target's framebuffer, its depth renderbuffer and its MSAA sets. */
 function deleteFbo(gl: WebGL2RenderingContext, state: GlRenderTargetsState, data: FboData): void {
     gl.deleteFramebuffer(data.fbo);
     state.fbos.delete(data.fbo);
     if (data.depthRenderbuffer) deleteRenderbuffer(gl, state, data.depthRenderbuffer);
-    if (data.msaa) deleteMsaa(gl, state, data.msaa);
+    if (data.msaa) for (const layerMsaa of data.msaa) deleteMsaa(gl, state, layerMsaa);
 }
 
 /**
@@ -580,11 +606,13 @@ export function resolveActiveRenderTarget(gl: WebGL2RenderingContext, state: GlR
     const fboData = state.data.get(rt);
     if (!fboData || !fboData.msaa) return;
 
+    // the layer the pass drew, whose texture layer the texture FBO points at
+    const msaa = fboData.msaa[fboData.attachedLayer]!;
     const w = fboData.width;
     const h = fboData.height;
-    const count = fboData.msaa.colorRenderbuffers.length;
+    const count = msaa.colorRenderbuffers.length;
 
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fboData.msaa.fbo);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, msaa.fbo);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fboData.fbo);
 
     // blitFramebuffer is subject to the scissor test (the only fragment op besides pixel-ownership

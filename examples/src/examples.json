@@ -395,6 +395,39 @@
         "backend": "webgl",
         "category": "lighting"
     },
+    "example-webgl-cascaded-shadow-maps": {
+        "title": "Cascaded Shadow Maps (WebGL)",
+        "description": "A sun's shadows out to 160 units: four cascades, split between even and logarithmic, as quadrants of one depth target.",
+        "tags": [
+            "shadows",
+            "depth-texture",
+            "viewports"
+        ],
+        "backend": "webgl",
+        "category": "lighting"
+    },
+    "example-webgl-warped-shadow-map": {
+        "title": "Warped Shadow Map (WebGL)",
+        "description": "A sun's shadows out to 160 units in one map, its texels drawn toward the camera as Minecraft shader packs do.",
+        "tags": [
+            "shadows",
+            "depth-texture"
+        ],
+        "backend": "webgl",
+        "category": "lighting"
+    },
+    "example-webgl-deferred-voxel-lights": {
+        "title": "Deferred Voxel Lights (WebGL)",
+        "description": "Many shadowed point lights over a block world, forward or deferred after HypeHype: a 32-bit G-buffer, tiled lights, voxel-traced shadows per pixel or per 2 x 2 quad.",
+        "tags": [
+            "deferred",
+            "lighting",
+            "shadows",
+            "voxels"
+        ],
+        "backend": "webgl",
+        "category": "lighting"
+    },
     "example-webgl-instanced-mesh": {
         "title": "Instanced Mesh (WebGL)",
         "description": "30 instanced boxes with per-instance transforms and colors via instanced vertex attributes.",

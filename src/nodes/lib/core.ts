@@ -293,6 +293,7 @@ export enum NodeKind {
     // misc
     Inspector,
     SubBuild,
+    Invariant,
     // base sentinel (the bare `Node` void placeholder; subclasses always override)
     Node,
 }

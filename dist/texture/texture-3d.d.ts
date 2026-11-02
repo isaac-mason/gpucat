@@ -3,7 +3,7 @@ import { GpuTexture } from '../core/gpu-texture';
 import type { TextureRegionInit } from '../core/texture-region';
 import * as d from '../schema/schema';
 import { type DataTextureImage, Source } from './source';
-import type { FilterMode, MipmapFilterMode, TextureOptions, WrapMode } from './texture';
+import { type FilterMode, type MipmapFilterMode, type TextureOptions, type WrapMode } from './texture';
 /** Data format for 3D textures - typed array with width, height, and depth */
 export type Texture3DImage = DataTextureImage & {
     depth: number;

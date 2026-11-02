@@ -81,12 +81,15 @@ export function resolveDispatch(
     const pipelineEntry = Pipelines.getForCompute(b.pipelines, b.device, nodes, entry.node, computeContext);
     const { nodeBuilderState } = pipelineEntry;
 
-    // Track written storage textures (with mips + auto-update) for post-submit mip regen.
+    // Track written storage textures (with mips + auto-update) for post-submit mip regen: a write to mip 0 leaves the
+    // chain below it stale, a write to any other mip is the chain being made by hand.
     for (const bg of nodeBuilderState.bindings) {
         for (const binding of bg.bindings) {
             if (binding.kind !== 'storageTexture' || binding.entry.access === 'read') continue;
-            const tex = binding.entry.node.value;
-            if (tex && tex.mipmapsAutoUpdate && tex.mipLevelCount > 1) mipDirty.add(tex);
+            const { texture, range } = Bindings.resolveTextureBinding(binding.entry.node, entry);
+            if (texture?.mipmapsAutoUpdate && texture.mipLevelCount > 1 && range.baseMipLevel === 0) {
+                mipDirty.add(texture as GpuTexture<d.StorageTexture>);
+            }
         }
     }
 
@@ -94,7 +97,7 @@ export function resolveDispatch(
     NodeManager.updateForCompute(nodes, entry.node);
     if (inspector) inspector.perf.end('updateForCompute');
 
-    Bindings.updateComputeBindings(b, nodeBuilderState, nodes.nodeFrame, entry.buffers ?? null, out.bindings);
+    Bindings.updateComputeBindings(b, nodeBuilderState, nodes.nodeFrame, entry, out.bindings);
     out.node = entry.node;
     out.pipeline = pipelineEntry.pipeline;
     if (entry.indirect) {

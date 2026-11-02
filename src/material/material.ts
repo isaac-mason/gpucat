@@ -1,4 +1,5 @@
 import type { Uniform } from '../core/uniform';
+import { isInvariantPosition } from '../nodes/lib/invariant';
 import type { Node } from '../nodes/nodes';
 import type { Any } from '../schema/schema';
 
@@ -195,6 +196,13 @@ export class Material {
         this.depthTest = opts.depthTest ?? true;
         this.depthWrite = opts.depthWrite ?? !this.transparent;
         this.depthCompare = opts.depthCompare ?? 'less';
+        if ((this.depthCompare === 'equal' || this.depthCompare === 'not-equal') && !isInvariantPosition(this.vertex)) {
+            console.warn(
+                `[gpucat] material '${this.name}' tests depth for ${this.depthCompare === 'equal' ? 'equality' : 'inequality'} ` +
+                    `but its position is not invariant: another program's depth can differ in its last bits. Mark both ` +
+                    `programs' position with invariant().`,
+            );
+        }
         this.cullMode = opts.cullMode ?? 'back';
         this.alphaToCoverage = opts.alphaToCoverage ?? false;
         this.depthBias = opts.depthBias ?? 0;

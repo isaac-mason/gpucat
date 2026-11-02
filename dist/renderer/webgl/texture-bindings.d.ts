@@ -14,6 +14,7 @@
  */
 import type { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
+import type { TextureViewRange } from '../../core/gpu-texture-view';
 import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
 import { type RenderObject } from '../core/render-object';
 import type { ProgramInfo } from './programs';
@@ -25,6 +26,8 @@ import type { WebGLBackend } from './webgl-backend';
  */
 export type TextureCapture = {
     textures: (GpuTexture | null)[];
+    /** the range of each texture its binding sees */
+    ranges: TextureViewRange[];
     samplers: (GpuSampler | null)[];
 };
 /** Captures what `renderObject`'s texture bindings hold now, so its draw binds the values set before it. */
