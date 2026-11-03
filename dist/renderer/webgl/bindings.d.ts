@@ -89,7 +89,21 @@ export declare function captureStandaloneUniformGroup(b: WebGLBackend, block: Un
  * Uploads a captured group if its bytes differ from what its UBO holds, then binds the UBO to its
  * binding point. Runs as the pass executes, draw by draw, which GL orders for us.
  */
-export declare function uploadAndBindCapture(gl: WebGL2RenderingContext, b: WebGLBackend, capture: UniformCapture, material: Material | null): void;
+export declare function uploadAndBindCapture(gl: WebGL2RenderingContext, b: WebGLBackend, capture: UniformCapture, material: Material | null, bound: BoundUniforms): void;
+/**
+ * What a pass has bound at each uniform buffer binding point, so a draw binds only what differs, as three.js's
+ * `WebGLState` keeps its UBO bindings: a pass starts with none known and each binding point is set once until another
+ * buffer or range takes it.
+ */
+export type BoundUniforms = {
+    buffers: (WebGLBuffer | null)[];
+    offsets: number[];
+};
+export declare function createBoundUniforms(): BoundUniforms;
+/** Nothing known bound, as a pass begins. Emptied in place, its arrays' length and packing kept. */
+export declare function resetBoundUniforms(bound: BoundUniforms): void;
+/** Binds `buffer` at `point`, whole for an `offset` of -1, else its `size` bytes from `offset`; skipped if bound so. */
+export declare function bindUniformBuffer(gl: WebGL2RenderingContext, bound: BoundUniforms, point: number, buffer: WebGLBuffer, offset: number, size: number): void;
 /**
  * What one recorded draw (or transform-feedback dispatch) binds, captured at the call that recorded it:
  * its uniform groups' bytes and the texture and sampler values it samples. Pooled per record.

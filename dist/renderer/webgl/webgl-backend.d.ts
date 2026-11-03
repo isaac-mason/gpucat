@@ -1,4 +1,4 @@
-import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { GpuBuffer, GpuTypedArray } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
 import type { TextureOrigin, TextureRegion } from '../../core/texture-region';
@@ -12,11 +12,13 @@ import { type RenderPassParams } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
 import * as Bindings from './bindings';
 import * as Buffers from './buffers';
+import * as DrawBases from './draw-bases';
 import * as Geometries from './geometries';
 import * as Programs from './programs';
 import { type RenderObjectGlCache } from './render-object-gl';
 import * as RenderTargets from './render-target';
 import * as Samplers from './samplers';
+import * as State from './state';
 import * as Textures from './textures';
 import * as TransformFeedback from './transform-feedback';
 export type WebGLBackendOptions = {
@@ -37,6 +39,12 @@ export type WebGLBackendOptions = {
      * WGSL has no precision qualifier, so this is a GLSL-only (WebGL-backend-only) concern. Default: 'highp'.
      */
     precision?: 'highp' | 'mediump' | 'lowp';
+    /**
+     * Whether a mesh's draw list (`mesh.draws`, `DrawOptions.draws`) draws as one WEBGL_multi_draw call where the
+     * context has the extension, rather than one draw per entry. Default true; false is for a driver that mishandles
+     * it. Programs compile for one or the other, so it is fixed for the backend's life.
+     */
+    multiDraw?: boolean;
 };
 /** WebGL2's device half. Immediate mode: no command encoder and no swapchain, so a pass encodes as it ends. */
 export declare class WebGLBackend implements DeviceBackend {
@@ -66,6 +74,8 @@ export declare class WebGLBackend implements DeviceBackend {
     readonly memoryTally: Info.MemoryTally;
     /** Per-GpuTexture GL texture cache (upload + allocation). @internal */
     textures: Textures.TextureCache;
+    /** What the context holds of each fixed-function state. @internal */
+    glState: State.GlState;
     /** Per-GpuSampler GL sampler-object cache. @internal */
     samplers: Samplers.SamplerCache;
     /** Per-RenderTarget GL framebuffer (FBO) cache. @internal */
@@ -85,6 +95,8 @@ export declare class WebGLBackend implements DeviceBackend {
     /** Cached `gl.MAX_TEXTURE_SIZE`, read once at init. Threaded into the storage() lowering's grid-width
      *  pick (bigger buffers tile into a device-sized grid). @internal */
     _maxTextureSize: number | undefined;
+    /** The multi-draw state, null without WEBGL_multi_draw or with `multiDraw: false`. @internal */
+    _drawBases: DrawBases.DrawBases | null;
     constructor(opts: WebGLBackendOptions);
     private _frame;
     /** Acquire the WebGL2 context and set the initial viewport. Async to match the WebGPU contract. */
@@ -109,6 +121,11 @@ export declare class WebGLBackend implements DeviceBackend {
     compileObjects(objects: RenderObject[], _params: RenderPassParams): Promise<void>;
     /** @internal */
     releaseUniformBlock(key: object): void;
+    /**
+     * Puts the context back to GL's defaults for everything gpucat sets or reads through, and forgets its records of it.
+     * @internal
+     */
+    resetState(): void;
     /**
      * GL-only counts go under `memory.backend` in GL's own vocabulary rather than a WebGPU-shaped field.
      * VAOs and per-RenderObject payloads are absent because WeakMaps cannot be counted.
@@ -145,21 +162,13 @@ export declare class WebGLBackend implements DeviceBackend {
      */
     /**
      * The plain GL buffer backing a GpuBuffer within the transform-feedback state, or null if the
-     * buffer was never bound by a transform-feedback pass. Used by tests (and Phase 3
-     * `readBufferAsync`) to read a TF output buffer back. @internal
+     * buffer was never bound by a transform-feedback pass. Used by tests to read a TF output buffer back. @internal
      */
     getTransformFeedbackGlBuffer(buffer: GpuBuffer): WebGLBuffer | null;
-    /**
-     * Honest native CPU readback of a GpuBuffer (e.g. a transform-feedback output) into a typed array.
-     *
-     * The fence is polled across event-loop ticks rather than spun on: a synchronous busy-loop never
-     * signals on a single-threaded GL backend. The buffer must have been through a transform-feedback
-     * pass, which is what allocates its GL buffer.
-     */
-    readBufferAsync(buffer: GpuBuffer): Promise<Float32Array | Int32Array | Uint32Array>;
+    readBuffer(buffer: GpuBuffer, offset: number, count: number): Promise<GpuTypedArray>;
     /**
      * WebGL2 has no queue to ask, so this fences the command stream and polls across event-loop ticks.
-     * A synchronous spin never signals on a single-threaded backend, which `readBufferAsync` found first.
+     * A synchronous spin never signals on a single-threaded backend, which `readBuffer` found first.
      */
     awaitCompletion(): Promise<void>;
     /** writes the mirror texture of a storage buffer and the GL buffer of any other usage, or of one transform feedback made. */

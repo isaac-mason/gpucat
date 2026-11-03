@@ -1,4 +1,4 @@
-import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { GpuBuffer, GpuTypedArray } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
 import type { TextureOrigin, TextureRegion } from '../../core/texture-region';
@@ -25,6 +25,8 @@ export interface DeviceBackend extends FrameBackend {
     /** Warm compute pipelines. WebGL2 implements it by refusing: it has no compute shaders. */
     /** @internal */ compileCompute(nodes: readonly ComputeNode[]): Promise<void>;
     /** @internal */ readPixels(target: RenderTarget, attachmentIndex: number, layer: number, mipLevel: number): Promise<Uint8Array>;
+    /** `count` elements of `buffer` from element `offset`, as its typed array; bounds already checked. */
+    /** @internal */ readBuffer(buffer: GpuBuffer, offset: number, count: number): Promise<GpuTypedArray>;
     /** copies `byteSize` bytes of `data` into a `cpu: false` buffer at `byteOffset` before returning; bounds already checked. */
     /** @internal */ writeBuffer(buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void;
     /** copies packed `data` into one box of a `cpu: false` texture before returning; region and size already checked. */
@@ -40,6 +42,8 @@ export interface DeviceBackend extends FrameBackend {
     /** @internal */ readMemoryStats(memory: MemoryInfo): void;
     /** Destroy the uniform block `key` names. Its owner calls this when it dies; a key with no block is a no-op. */
     /** @internal */ releaseUniformBlock(key: object): void;
+    /** Forgets what the backend assumes the device holds, for after other code used it. See `Renderer.resetState`. */
+    /** @internal */ resetState(): void;
     /** Every GPU allocation this backend holds, adjusted at each create, resize and destroy. */
     /** @internal */ readonly memoryTally: MemoryTally;
 }

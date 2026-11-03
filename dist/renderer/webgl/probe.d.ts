@@ -15,12 +15,15 @@
  */
 import type { NodeFrame } from '../core/node-frame';
 import { type RenderObject } from '../core/render-object';
-import type { TextureUniforms } from './programs';
+import { type TextureUniforms } from './programs';
+import { type TextureCache } from './textures';
 import type { WebGLBackend } from './webgl-backend';
 /** A cached probe program: the linked GL program + its UBO binding points, plus the 1×1 readback FBO. */
 type ProbeGl = {
     program: WebGLProgram;
     uboBindingPoints: Map<string, number>;
+    /** whether the instance index reads the multi-draw base table */
+    drawBases: boolean;
     textureUniforms: Map<string, TextureUniforms>;
     fbo: WebGLFramebuffer;
     colorTex: WebGLTexture;
@@ -33,7 +36,7 @@ export type ProbeState = {
     gl: ProbeGl | null;
 };
 export declare function createProbeState(): ProbeState;
-export declare function disposeProbeState(gl: WebGL2RenderingContext | null, state: ProbeState): void;
+export declare function disposeProbeState(gl: WebGL2RenderingContext | null, textures: TextureCache, state: ProbeState): void;
 /**
  * Render the RenderObject with the patched fragment into the 1×1 FBO and read back the pixel.
  *

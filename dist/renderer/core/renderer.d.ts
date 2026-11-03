@@ -40,6 +40,13 @@ export declare class Renderer<B extends DeviceBackend = DeviceBackend> implement
     get inspector(): InspectorBase | null;
     set inspector(next: InspectorBase | null);
     init(): Promise<this>;
+    /**
+     * Puts the device back as gpucat leaves it and forgets what it assumed the device holds. Call it after other code
+     * has drawn with the same WebGL context (another library, a hand-written pass), before gpucat draws again, as
+     * three.js's `resetState` and Babylon's `wipeCaches` are used: gpucat skips setting a state it believes is set, so
+     * a change it did not make would otherwise stand. On WebGPU there is nothing to reset.
+     */
+    resetState(): void;
     dispose(): void;
     /** @internal */
     _beginInfoFrame(): void;

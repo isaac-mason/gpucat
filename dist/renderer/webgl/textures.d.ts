@@ -103,7 +103,36 @@ export type TextureCache = {
     maxTextureUnits?: number;
     /** The read framebuffer copies attach their source to, made on the first copy. */
     copyFramebuffer?: WebGLFramebuffer;
+    /** What the context has bound on its texture units; every texture and sampler bind goes through it. */
+    units: TextureUnits;
 };
+/**
+ * The context's texture unit state: the active unit, each unit's texture per target, each unit's sampler. A bind that
+ * would change nothing is skipped and `activeTexture` is only called for a bind that happens, as three.js's
+ * `WebGLState`, PlayCanvas's `textureUnits` and Babylon's `_boundTexturesCache` keep theirs. It holds only while every
+ * bind on the context goes through it, uploads included.
+ */
+export type TextureUnits = {
+    active: number;
+    /** by `unit * TARGETS + target slot`; null holds nothing, undefined is not known (other code used the context) */
+    textures: (WebGLTexture | null | undefined)[];
+    samplers: (WebGLSampler | null | undefined)[];
+};
+/** Binds `texture` on `unit` for a draw to sample, leaving the active unit alone when it is bound there already. */
+export declare function bindTextureUnit(gl: WebGL2RenderingContext, state: TextureCache, unit: number, target: number, texture: WebGLTexture): void;
+/**
+ * Binds `texture` on the active unit for a call that acts on the bound texture (an upload, a mip build, a parameter):
+ * the upload unit, or for a draw's texture its own `unit`, which must then hold it.
+ */
+export declare function bindUploadTexture(gl: WebGL2RenderingContext, state: TextureCache, target: number, texture: WebGLTexture, unit?: number): void;
+export declare function bindSamplerUnit(gl: WebGL2RenderingContext, state: TextureCache, unit: number, sampler: WebGLSampler | null): void;
+/**
+ * Forgets what every unit holds, for after other code has used the context: unit 0 is made active, as GL's default, and
+ * each unit's next bind happens.
+ */
+export declare function forgetTextureUnits(gl: WebGL2RenderingContext, state: TextureCache): void;
+/** Deletes a GL texture this cache made, which GL unbinds from every unit: the record forgets it too. */
+export declare function deleteGlTexture(gl: WebGL2RenderingContext, state: TextureCache, texture: WebGLTexture): void;
 /** Create an empty textures state. */
 export declare function createTextureCache(tally: MemoryTally): TextureCache;
 /**

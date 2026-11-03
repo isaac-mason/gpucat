@@ -6,7 +6,7 @@
  * to the WebGPU `readPixels`, so an offline/headless bake gets the same bytes on either backend.
  *
  * The read goes into a pixel-pack buffer, which only queues the copy, and the bytes are fetched once a
- * fence says the GPU has written them, polled across event-loop ticks like `readBufferAsync`. A plain
+ * fence says the GPU has written them, polled across event-loop ticks like `readBuffer`. A plain
  * `readPixels` into client memory would stall the thread until everything before it has drawn.
  *
  * GL `readPixels` returns rows bottom-to-top (GL's origin is lower-left), so the rows are flipped to

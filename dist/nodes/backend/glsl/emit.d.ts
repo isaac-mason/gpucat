@@ -85,6 +85,9 @@ export type GlslBuildContext = {
         vertexExpr: string;
     }>;
     builtins: Set<string>;
+    /** Whether the instance index reads its draw's base from `u_drawBases[gl_DrawID]` (WEBGL_multi_draw) rather
+     *  than from `u_drawBase`, set per draw. */
+    multiDraw: boolean;
     nodeVars: Map<number, string>;
     /** node.id -> binding strength of the expression string generateExpr() produced for it. */
     precOf: Map<number, Prec>;

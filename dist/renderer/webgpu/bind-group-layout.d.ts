@@ -41,6 +41,9 @@ export declare function createBindGroupLayoutCache(): BindGroupLayoutCache;
  * Get or create a bind group layout for the given entries.
  * Uses a stable hash of the entries as the cache key.
  */
+/** `layouts` with the @group indices nothing sits at given the empty layout: a pipeline layout has no holes, and an
+ *  empty group needs no bind group set at draw */
+export declare function fillEmptyLayouts(cache: BindGroupLayoutCache, device: GPUDevice, layouts: (GPUBindGroupLayout | undefined)[]): GPUBindGroupLayout[];
 export declare function getBindGroupLayout(cache: BindGroupLayoutCache, device: GPUDevice, entries: GPUBindGroupLayoutEntry[]): GPUBindGroupLayout;
 /**
  * Build bind group layouts from NodeBuilderState bindings for compute pipelines.
@@ -48,7 +51,7 @@ export declare function getBindGroupLayout(cache: BindGroupLayoutCache, device: 
  * @param device - The GPU device
  * @param bindings - The bindings from NodeBuilderState
  * @param layoutCache - Cache for bind group layouts
- * @returns Array of GPUBindGroupLayout in group index order
+ * @returns each group's layout at its @group index, the empty layout where the shader has none
  */
 export declare function buildComputeBindGroupLayouts(device: GPUDevice, bindings: NodeBindGroup[], layoutCache: BindGroupLayoutCache): GPUBindGroupLayout[];
 /** Drop every cached layout (called on renderer dispose; `device.destroy()` frees the GPU side). */

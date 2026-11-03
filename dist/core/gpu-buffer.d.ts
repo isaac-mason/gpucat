@@ -53,6 +53,8 @@ export type GpuBufferOptions<T extends Any = Any> = {
     /** An index buffer's format. Read off the array when there is one, and required for a `cpu: false` one. */
     indexFormat?: IndexFormat;
 };
+/** The typed array a `count`-allocated buffer of `schema` holds: the element's for an array, f32 for a struct. */
+export declare function schemaArrayCtor(schema: Any): typeof Float32Array | typeof Int32Array | typeof Uint32Array;
 /**
  * Unified buffer class for vertex attributes, storage buffers, index buffers, etc.
  *

@@ -35,6 +35,8 @@ export type ProgramInfo = {
      * loop sets it per sub-draw (`firstInstance`); the single-draw path resets it to 0.
      */
     drawBaseLocation?: WebGLUniformLocation | null;
+    /** Whether the instance index reads the multi-draw base table (`DrawBases`, at {@link DRAW_BASES_BINDING}). */
+    drawBases?: boolean;
     /**
      * Location of the fragCoord Y-flip height uniform (`u_fragCoordFlipHeight`), or `null` when the
      * program doesn't use `@builtin(position)` (so the uniform isn't declared). The draw path sets it
@@ -89,6 +91,19 @@ export declare function getProgram(gl: WebGL2RenderingContext, cache: ProgramCac
  * @param uniformGroups the compiled uniform groups, used to resolve + bind each UBO block index
  */
 export declare function createTransformFeedbackProgram(gl: WebGL2RenderingContext, vertex: string, fragment: string, feedbackVaryings: string[], uniformGroups: UniformGroupBlock[]): ProgramInfo;
+/**
+ * Where the multi-draw base table binds: WebGL2 guarantees 24 uniform buffer binding points, and the groups take the
+ * ones below this.
+ */
+export declare const DRAW_BASES_BINDING = 23;
+/**
+ * Binds each std140 group block of `program` at its group's index, the same point in every program, as WebGPU's fixed
+ * @group indices and PlayCanvas's WebGL bind groups: a block shared across programs (the frame's, the view's) stays
+ * bound across a program switch. A block optimised out of the program is skipped.
+ */
+export declare function bindUniformBlocks(gl: WebGL2RenderingContext, program: WebGLProgram, uniformGroups: UniformGroupBlock[]): Map<string, number>;
+/** Binds the multi-draw base table of `program` at {@link DRAW_BASES_BINDING}; whether the program reads one. */
+export declare function bindDrawBases(gl: WebGL2RenderingContext, program: WebGLProgram): boolean;
 /** Delete all cached programs (called on renderer dispose). */
 export declare function disposePrograms(gl: WebGL2RenderingContext, cache: ProgramCache): void;
 /** Number of linked GL programs currently cached. */

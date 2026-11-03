@@ -35,6 +35,8 @@ export type RenderPassParams = {
     storesDepth: boolean;
     /** False discards the stencil at the pass's end instead of storing it. */
     storesStencil: boolean;
+    /** The depth and stencil attached read-only, so the pass may sample them. */
+    readOnlyDepth: boolean;
     clearsStencil: boolean;
     clearStencilValue: number;
     /** Whether the swapchain depth format carries a stencil aspect (used only when renderTarget is null). */

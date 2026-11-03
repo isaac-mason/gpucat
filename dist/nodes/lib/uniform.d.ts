@@ -1,4 +1,4 @@
-import { frameGroup, objectGroup, renderGroup, Uniform, UniformGroup, UniformUpdateType, type UniformValue } from '../../core/uniform';
+import { frameGroup, materialGroup, objectGroup, renderGroup, Uniform, UniformGroup, UniformUpdateType, type UniformValue } from '../../core/uniform';
 import type { NodeFrame } from '../../renderer/core/node-frame';
 import type { Any, StructSchema } from '../../schema/schema';
 import { type ConstructNode, type LiteralNode, Node, NodeKind, type StructDef, type StructInstance } from './core';
@@ -39,10 +39,15 @@ export declare class UniformNode<D extends Any> extends Node<D> {
     onFrameUpdate(callback: (frame: NodeFrame) => unknown): this;
     /** Register an update callback for RENDER update type. */
     onRenderUpdate(callback: (frame: NodeFrame) => unknown): this;
+    /**
+     * Which of the drawn object's matrices this uniform is, for gpucat's model built-ins: the renderer copies it in at
+     * each draw that packs the block, and it holds while the object's `worldMatrixVersion` does. Null for any other.
+     */
+    objectMatrix: 'matrixWorld' | 'normalMatrix' | null;
     /** Register an update callback for OBJECT update type. */
     onObjectUpdate(callback: (frame: NodeFrame) => unknown): this;
 }
-export { Uniform, UniformGroup, UniformUpdateType, objectGroup, renderGroup, frameGroup };
+export { Uniform, UniformGroup, UniformUpdateType, materialGroup, objectGroup, renderGroup, frameGroup };
 /**
  * Declare a material uniform.
  *

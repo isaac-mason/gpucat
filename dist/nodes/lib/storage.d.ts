@@ -33,7 +33,7 @@ export declare class StorageNode<D extends Any> extends Node<D> {
     readonly access: 'read' | 'read_write';
     /** Whether the node is atomic or not. */
     isAtomic: boolean;
-    /** Uniform group, determines @group index. Defaults to objectGroup. */
+    /** Uniform group, determines @group index. Defaults to materialGroup. */
     group: UniformGroup;
     constructor(schema: D, nameOrBuffer: string | GpuBuffer<D>, access?: 'read' | 'read_write', group?: UniformGroup);
     /** Whether this is a named reference (resolved from geometry.buffers) */

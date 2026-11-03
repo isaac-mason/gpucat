@@ -1,4 +1,4 @@
-import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { GpuBuffer, GpuTypedArray } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
 import type { TextureOrigin, TextureRegion } from '../../core/texture-region';
@@ -26,6 +26,12 @@ export type WebGPUBackendOptions = {
     powerPreference?: GPUPowerPreference;
     /** GPUDeviceDescriptor forwarded to adapter.requestDevice(). */
     deviceDescriptor?: GPUDeviceDescriptor;
+    /**
+     * Limits to request past WebGPU's defaults, worked out from the adapter's (`adapterLimits`), which no request may
+     * exceed: e.g. `(limits) => ({ maxStorageBuffersPerShaderStage: limits.maxStorageBuffersPerShaderStage })`. Merged
+     * over `deviceDescriptor.requiredLimits`.
+     */
+    requiredLimits?: (adapterLimits: GPUSupportedLimits) => Record<string, number>;
     /** Pre-created GPUDevice. When provided, skips navigator.gpu initialization. */
     device?: GPUDevice;
     /** Pre-created GPUAdapter. Required when `device` is provided. */
@@ -117,6 +123,7 @@ export declare class WebGPUBackend implements DeviceBackend {
     /** @internal */
     compileObjects(objects: RenderObject[], params: RenderPassParams): Promise<void>;
     readPixels(renderTarget: RenderTarget, attachmentIndex: number, layer: number, mipLevel: number): Promise<Uint8Array>;
+    readBuffer(buffer: GpuBuffer, offset: number, count: number): Promise<GpuTypedArray>;
     writeBuffer(buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void;
     writeTexture(texture: GpuTexture, region: TextureRegion, data: ArrayBufferView): void;
     copyBuffer(source: GpuBuffer, sourceByteOffset: number, destination: GpuBuffer, destinationByteOffset: number, byteSize: number): void;
@@ -127,6 +134,9 @@ export declare class WebGPUBackend implements DeviceBackend {
     readMemoryStats(memory: Info.MemoryInfo): void;
     /** @internal */
     releaseUniformBlock(key: object): void;
+    /** Nothing to forget: a WebGPU pass starts from no state, and other users of the device cannot reach its encoders. */
+    /** @internal */
+    resetState(): void;
     /** Map `buffer` for reading, held in `_readbacks` until the map settles. @internal */
     mapForRead(buffer: GPUBuffer, offset?: number, size?: number): Promise<void>;
     dispose(): void;

@@ -6,6 +6,7 @@ import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext, ScissorValue, ViewportValue } from '../core/pass-context';
 import { type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
 import { type DrawBindings } from './bindings';
+import { type PassState } from './pass-state';
 import type { WebGPUBackend } from './webgpu-backend';
 /**
  * Get (or lazily create + configure) the WebGPU canvas context for a canvas target. Safe to call
@@ -136,11 +137,9 @@ export declare function resolveDrawBindings(b: WebGPUBackend, nodes: NodeManager
 /** The per-canvas attachments this module allocated; the caches are each module's own to tear down. */
 export declare function disposeSwapchain(b: WebGPUBackend): void;
 type CurrentSets = {
-    bindGroups: GPUBindGroup[];
-    dynamicOffsets: number[];
+    pass: PassState;
     attributes: (GPUBuffer | null)[];
     index: GPUBuffer | null;
-    pipeline: GPURenderPipeline | null;
     stencilRef: number | null;
 };
 export {};

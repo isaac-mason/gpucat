@@ -1,5 +1,6 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
+import type { Material } from '../../material/material';
 import type { SamplerEntry, StorageEntry, StorageTextureEntry, TextureEntry, UniformGroupBlock } from '../../nodes/builder';
 import type { NodeFrame } from './node-frame';
 /**
@@ -43,6 +44,12 @@ export type UniformBinding = {
      */
     currentBuffer: ArrayBuffer | null;
     scratchBuffer: ArrayBuffer | null;
+    /**
+     * The versions of what `currentBuffer` was packed from (see {@link readBlockStamp}), when a per-object block's
+     * members all have one; empty otherwise. While a draw's versions match, its bytes are the same, so it is not
+     * packed again.
+     */
+    stamp: number[];
 };
 /** Storage buffer binding (SSBO) */
 export type StorageBinding = {
@@ -115,6 +122,15 @@ export declare function createResourceBindGroup(name: string, groupIndex: number
  * Used for non-shared groups that need per-RenderObject instances.
  */
 export declare function cloneBindGroup(source: BindGroup): BindGroup;
+/**
+ * The versions a per-object block's bytes follow, into `out`: each member's `Uniform.version`, the material's uniform's
+ * for a member read from the material, or the drawn object's `worldMatrixVersion` for one of its matrices. False when
+ * a member has an object callback: what it reads has no version, so the block is packed at every use. Frame and render
+ * callbacks run first, at most once a frame or render as ever, so their uniforms' versions are current.
+ */
+export declare function readBlockStamp(block: UniformGroupBlock, frame: NodeFrame, material: Material | null, out: number[]): boolean;
+/** Whether two stamps are the same versions. An empty one, a block with no stamp, never matches. */
+export declare function sameStamp(a: readonly number[], b: readonly number[]): boolean;
 /**
  * Run the update callbacks for a uniform group's members.
  *

@@ -28,6 +28,7 @@
  */
 import type { RenderTarget } from '../../core/render-target';
 import { type Allocation, type MemoryTally } from '../core/info';
+import { type GlState } from './state';
 import { type TextureCache } from './textures';
 import type { WebGLBackend } from './webgl-backend';
 /** Per-RenderTarget GL framebuffer + the color-texture generations it was built against. */
@@ -104,7 +105,7 @@ export declare function attachSubresource(gl: WebGL2RenderingContext, textures: 
  * NEAREST)`), so the sampleable texture carries the antialiased result. A no-op when the last-bound
  * target wasn't MSAA. Clears `pendingResolve`.
  */
-export declare function resolveActiveRenderTarget(gl: WebGL2RenderingContext, state: GlRenderTargetsState): void;
+export declare function resolveActiveRenderTarget(gl: WebGL2RenderingContext, state: GlRenderTargetsState, glState: GlState): void;
 /** Delete all FBOs + depth renderbuffers (called on renderer dispose). */
 export declare function disposeGlRenderTargets(gl: WebGL2RenderingContext, state: GlRenderTargetsState): void;
 /** Framebuffer + depth-renderbuffer counts for the render-target cache. */

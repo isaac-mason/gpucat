@@ -15,7 +15,12 @@ export declare class Object3D {
     matrix: mat4.Mat4;
     matrixWorld: mat4.Mat4;
     normalMatrix: mat3.Mat3;
-    matrixVersion: number;
+    /**
+     * Moves when `matrixWorld` (and `normalMatrix` with it) changes, which only `updateWorldMatrix` writes: an object
+     * recomputed every frame without moving keeps its version, so its draws' per-object uniforms are not packed again.
+     * As Babylon Lite's `worldMatrixVersion`.
+     */
+    worldMatrixVersion: number;
     add(child: Object3D): this;
     remove(child: Object3D): this;
     removeFromParent(): this;

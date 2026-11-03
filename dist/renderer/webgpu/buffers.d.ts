@@ -3,6 +3,7 @@ import type { Geometry } from '../../geometry/geometry';
 import type { StorageNode } from '../../nodes/nodes';
 import type { Any } from '../../schema/schema';
 import { type Allocation, type MemoryTally, type RendererInfo } from '../core/info';
+import { type DrawArena, type SharedGroup } from './draw-arena';
 type CacheEntry = {
     buf: GPUBuffer;
     version: number;
@@ -28,6 +29,8 @@ export type BufferCache = {
     info: RendererInfo;
     /** Allocations for uniform uses that cannot read their block's own buffer. See `allocDynamicUniform`. */
     dynamicUniforms: DynamicUniformBuffers;
+    /** Where each render object's and dispatch's own uniform block lives. See `draw-arena.ts`. */
+    drawArena: DrawArena;
 };
 /**
  * PlayCanvas's `DynamicBuffers`. A uniform block used again in a frame with different bytes cannot rewrite
@@ -53,6 +56,11 @@ export type DynamicUniformBuffers = {
     /** CPU copies created. */
     cpuStagingCount: number;
     nextBufferId: number;
+    /**
+     * Bind groups over each GPU buffer, by its id, for a group whose one binding is a uniform block: every use with an
+     * allocation there binds the same one at its own offset, as PlayCanvas's `DynamicBuffer.getBindGroup`.
+     */
+    bindGroups: SharedGroup[][];
     destroyed: boolean;
 };
 /** `id` is what a binding records, so neutral code never holds a GPU type. */
@@ -166,6 +174,8 @@ export declare function getDynamicUniformStats(cache: BufferCache): {
 };
 /** The GPU buffer a binding recorded by id, for building the bind group that addresses it. */
 export declare function dynamicUniformBuffer(cache: BufferCache, id: number): GPUBuffer;
+/** The bind group binding `size` bytes of dynamic uniform buffer `bufferId` at `binding`, over `layout`. */
+export declare function ringGroup(cache: BufferCache, device: GPUDevice, bufferId: number, layout: GPUBindGroupLayout, binding: number, size: number): GPUBindGroup;
 /**
  * Unmaps every staging buffer filled since the last submit and records their copies into their GPU
  * buffers, in a command buffer the frame submits ahead of its own. Returns null when nothing was written.

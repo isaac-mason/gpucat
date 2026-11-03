@@ -12,6 +12,8 @@ import type { TransformFeedbackNode } from './lib/transform-feedback';
 import type { UniformGroup, UniformNode } from './lib/uniform';
 import type { InterpolationSampling, InterpolationType } from './lib/varying';
 import type { WgslFunctionNode } from './lib/wgsl-fn';
+/** Entries in the multi-draw base table: a 16 KB block, WebGL2's guaranteed `MAX_UNIFORM_BLOCK_SIZE`. */
+export declare const DRAW_BASES_ENTRIES = 4096;
 export declare function compileWgsl(slots: CompileSlots): CompileResult;
 /**
  * GLSL ES 3.00 sibling of {@link compile}. Reuses the shared, backend-neutral {@link discover} pass
@@ -40,6 +42,12 @@ export type CompileGlslOptions = {
      * shapes the texture and never the emitted GLSL.
      */
     maxTextureSize?: number;
+    /**
+     * Whether the context has WEBGL_multi_draw: the instance index then reads each draw's base from a table indexed
+     * by `gl_DrawID`, so a list of draws is one call. Undefined → false, the emitted GLSL byte-identical to the golden
+     * snapshots. Transform feedback shaders never take it: they draw once.
+     */
+    multiDraw?: boolean;
 };
 export declare function compileGlsl(slots: CompileSlots, opts?: CompileGlslOptions): CompileResult;
 export declare function compileComputeWgsl(node: ComputeNode): ComputeCompileResult;

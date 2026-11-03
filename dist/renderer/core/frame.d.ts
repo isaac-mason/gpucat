@@ -37,6 +37,11 @@ export type PassDesc = {
     storeDepth?: boolean;
     /** `storeDepth` for the stencil. */
     storeStencil?: boolean;
+    /**
+     * The depth (and stencil) attached read-only: tested against, never cleared, written or stored, so the pass's own
+     * shaders may sample it. Its materials must not write depth or stencil.
+     */
+    readOnlyDepth?: boolean;
     /** The layer of the target to draw into: an array layer, a cube face (0..5 = +X, -X, +Y, -Y, +Z, -Z), or a 3D
      *  target's depth slice. Default 0; a cube pass names its face. */
     layer?: number;

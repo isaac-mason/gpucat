@@ -151,11 +151,27 @@ export type MemoryInfo = {
      */
     backend: Record<string, number>;
 };
+/**
+ * A frame's pipeline and bind group sets: those sent to the encoder, and those dropped because the same was already
+ * bound; and the bind groups made this frame and held. WebGL, which has no such objects, leaves those at zero.
+ * `created` settles at zero once a scene's resources are bound, as Babylon's counters should. `packed` and `kept`
+ * count uniform blocks on both backends: a per-object block can be kept, a shared one packs at every use.
+ */
+export type StateInfo = {
+    set: number;
+    skipped: number;
+    created: number;
+    held: number;
+    /** uniform blocks packed this frame, and per-object blocks kept because none of their values' versions moved */
+    packed: number;
+    kept: number;
+};
 export type RendererInfo = {
     render: RenderInfo;
     compute: ComputeInfo;
     buffers: BufferInfo;
     memory: MemoryInfo;
+    state: StateInfo;
 };
 export declare function createRendererInfo(): RendererInfo;
 /**
@@ -178,11 +194,11 @@ type BufferUsageCategory = 'storage' | 'index' | 'vertex' | 'uniform' | 'indirec
 export declare function recordBufferWrite(info: RendererInfo, bytes: number, usage: string, full: boolean, label?: string, material?: string, updateType?: string, changedBytes?: number): void;
 export type AllocationKind = 'buffer' | 'texture';
 /**
- * What an allocation is for. Buffers take their primary usage, or `uniform-ring` for the dynamic uniform
- * pool. Textures: `sampled` (a `GpuTexture`), `render-target` and `depth` (a target's attachments), `msaa`
+ * What an allocation is for. Buffers take their primary usage, `uniform-ring` for the dynamic uniform
+ * pool, or `uniform-arena` for the pages per-draw uniform blocks live in. Textures: `sampled` (a `GpuTexture`), `render-target` and `depth` (a target's attachments), `msaa`
  * (a multisampled attachment), `storage-backing` (WebGL's texture lowering of a storage buffer).
  */
-export type AllocationCategory = 'vertex' | 'index' | 'storage' | 'indirect' | 'uniform' | 'uniform-ring' | 'other' | 'sampled' | 'render-target' | 'depth' | 'msaa' | 'storage-backing';
+export type AllocationCategory = 'vertex' | 'index' | 'storage' | 'indirect' | 'uniform' | 'uniform-ring' | 'uniform-arena' | 'other' | 'sampled' | 'render-target' | 'depth' | 'msaa' | 'storage-backing';
 /**
  * One GPU allocation's contribution to the tally, held on the cache entry that owns the GPU object so a
  * resize moves exactly the bytes it added, rather than recomputing a size the object no longer has.

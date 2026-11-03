@@ -97,9 +97,8 @@ export declare function emitModuleScopeVars(ctx: BuildContext): string;
 /**
  * Emit all bindings (uniforms, storage, textures, samplers).
  *
- * - Each named group (render, object, etc.) gets its own @group(N) index
- * - Groups are sorted by UniformGroup.order
- * - The @group(N) index is the SORTED ARRAY POSITION, not the order value directly
+ * - Each named group (frame, render, object) is @group(N) at its UniformGroup.order, the same N in every shader; the
+ *   indices a shader skips are empty in its pipeline layout and bound to nothing
  * - Within each group, bindings get sequential @binding(M) indices starting from 0
  */
 /** `stages` is what each render stage reads, for a binding's visibility; a compute shader passes null, and every

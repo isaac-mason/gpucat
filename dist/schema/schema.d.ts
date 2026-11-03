@@ -723,6 +723,8 @@ export declare function textureDimension(desc: Texture): GPUTextureDimension;
 export declare function textureViewDimension(desc: Texture): GPUTextureViewDimension;
 export declare function isSamplerDesc(desc: Any): desc is sampler;
 export declare function isSamplerComparisonDesc(desc: Any): desc is samplerComparison;
+/** A texture or sampler: a handle to a binding, which a shader names directly and never holds in a local. */
+export declare function isHandleDesc(desc: Any): boolean;
 export declare function isMatDesc(desc: Any): desc is Mat;
 export declare function isVecDesc(desc: Any): desc is Vec;
 export declare function isStructDef(desc: Any): desc is StructDesc;

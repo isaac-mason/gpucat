@@ -23,9 +23,13 @@ export declare class UniformGroup {
     readonly updateType: UniformUpdateType;
     constructor(name: string, shared: boolean, order: number, updateType?: UniformUpdateType);
 }
-/** Create a per-object (non-shared) uniform group. */
+/**
+ * Create a per-object (non-shared) uniform group. `order` is its @group index in every shader that uses it, as Godot's
+ * and Bevy's fixed sets are: a pipeline switch keeps the groups below that change no more often. Two groups a shader
+ * uses must not share an order.
+ */
 export declare const uniformGroup: (name: string, order?: number, updateType?: UniformUpdateType) => UniformGroup;
-/** Create a shared uniform group. */
+/** Create a shared uniform group, its `order` its fixed @group index as `uniformGroup`'s. */
 export declare const sharedUniformGroup: (name: string, order?: number, updateType?: UniformUpdateType) => UniformGroup;
 /**
  * frameGroup, shared uniforms updated once per frame.
@@ -35,13 +39,19 @@ export declare const frameGroup: UniformGroup;
 /**
  * renderGroup, shared uniforms updated per render() call.
  * Contains camera uniforms (projection, view, position, near, far).
- * Maps to @group(0) with RENDER update type.
+ * Maps to @group(1) with RENDER update type.
  */
 export declare const renderGroup: UniformGroup;
 /**
+ * materialGroup, what a material binds: its textures, samplers and storage buffers, by default. Two draws binding the
+ * same resources bind the same group, so it changes with the material rather than with each draw.
+ * Maps to @group(2) with OBJECT update type.
+ */
+export declare const materialGroup: UniformGroup;
+/**
  * objectGroup, per-object uniforms updated per draw call.
- * Contains mesh matrices (modelWorldMatrix, modelNormalMatrix) and user material uniforms.
- * Maps to @group(1) with OBJECT update type.
+ * Contains mesh matrices (modelWorldMatrix, modelNormalMatrix) and user uniforms, by default.
+ * Maps to @group(3) with OBJECT update type.
  */
 export declare const objectGroup: UniformGroup;
 /**
@@ -74,6 +84,12 @@ export declare class Uniform<T extends Any = Any> {
      */
     label: string | undefined;
     private _value;
+    /**
+     * Moves on every write: assigning `value`, or `needsUpdate = true` after changing the value in place. A per-object
+     * block whose members' versions all hold is not packed again. A write into the value that is neither (a typed array
+     * the uniform holds, changed without `needsUpdate`) is not seen, as `GpuBuffer`'s data is not.
+     */
+    version: number;
     /** The array plain arrays are packed into, reused while their length holds. Never one the caller passed. */
     private _packed;
     constructor(schema: T, initialValue?: UniformValue<T>, group?: UniformGroup, label?: string);
@@ -84,6 +100,8 @@ export declare class Uniform<T extends Any = Any> {
      * allocates nothing, and a `value` read earlier sees the later writes.
      */
     set value(next: UniformValue<T> | null);
+    /** The uniform's value was changed in place (a typed array it holds, a struct's field): it is read again. */
+    set needsUpdate(_: true);
 }
 /** The factory form, matching `uniformGroup` and the other value constructors. */
 export declare function createUniform<T extends Any>(schema: T, initialValue?: UniformValue<T>, group?: UniformGroup): Uniform<T>;

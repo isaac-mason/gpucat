@@ -7,7 +7,7 @@ import type { ComputePassDesc, DispatchRecord, DrawOptions, PassDesc, PassEntry 
 import type { RenderContext } from '../core/pass-context';
 import { type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
-import type { DrawBindings } from './bindings';
+import { type DrawBindings } from './bindings';
 import * as Compute from './compute';
 import * as RenderPass from './render-pass';
 import type { WebGPUBackend } from './webgpu-backend';
