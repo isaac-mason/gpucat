@@ -19,18 +19,25 @@ import type { NodeFrame } from '../core/node-frame';
 import { getBindings, type RenderObject } from '../core/render-object';
 import * as Bindings from './bindings';
 import { FRAGMENT_STAGE_MARKER } from './constants';
+import * as DrawBases from './draw-bases';
 import * as Geometries from './geometries';
-import type { ProgramInfo, TextureUniforms } from './programs';
+import { bindDrawBases, bindUniformBlocks, type ProgramInfo, type TextureUniforms } from './programs';
+import * as State from './state';
 import { bindTextures } from './texture-bindings';
+import { bindUploadTexture, deleteGlTexture, type TextureCache } from './textures';
 import type { WebGLBackend } from './webgl-backend';
 
 /** The probe uploads each group as soon as it captures it, so one slot serves every group. */
 const _probeCaptures: Bindings.UniformCapture[] = [];
+/** The probe binds outside any pass, so nothing is known bound: reset before each probe. */
+const _probeBound = /*@__PURE__*/ Bindings.createBoundUniforms();
 
 /** A cached probe program: the linked GL program + its UBO binding points, plus the 1×1 readback FBO. */
 type ProbeGl = {
     program: WebGLProgram;
     uboBindingPoints: Map<string, number>;
+    /** whether the instance index reads the multi-draw base table */
+    drawBases: boolean;
     textureUniforms: Map<string, TextureUniforms>;
     fbo: WebGLFramebuffer;
     colorTex: WebGLTexture;
@@ -64,9 +71,15 @@ function compileShader(gl: WebGL2RenderingContext, type: number, source: string)
  * VERTEX GLSL with the caller's patched FRAGMENT GLSL, resolving the same std140 UBO binding points
  * the normal program does (so the object's uniform groups bind correctly).
  */
-function buildProbeGl(gl: WebGL2RenderingContext, ro: RenderObject, patchedFragment: string, previous: ProbeGl | null): ProbeGl {
+function buildProbeGl(
+    gl: WebGL2RenderingContext,
+    textures: TextureCache,
+    ro: RenderObject,
+    patchedFragment: string,
+    previous: ProbeGl | null,
+): ProbeGl {
     if (previous && previous.fragmentSrc === patchedFragment) return previous;
-    if (previous) disposeProbeGl(gl, previous);
+    if (previous) disposeProbeGl(gl, textures, previous);
 
     const nodeState = ro.nodeBuilderState;
     if (!nodeState || !nodeState.vertexCode) {
@@ -90,22 +103,13 @@ function buildProbeGl(gl: WebGL2RenderingContext, ro: RenderObject, patchedFragm
         throw new Error(`[webgl] program link failed:\n${log}`);
     }
 
-    // Resolve + bind each std140 UBO block to a fresh binding point (same scheme as programs.ts).
-    const uboBindingPoints = new Map<string, number>();
-    let nextBindingPoint = 0;
-    for (const group of nodeState.uniformGroups) {
-        if (group.members.length === 0) continue;
-        if (uboBindingPoints.has(group.groupName)) continue;
-        const blockIndex = gl.getUniformBlockIndex(program, `Uniforms_${group.groupName}`);
-        if (blockIndex === gl.INVALID_INDEX) continue;
-        const bindingPoint = nextBindingPoint++;
-        gl.uniformBlockBinding(program, blockIndex, bindingPoint);
-        uboBindingPoints.set(group.groupName, bindingPoint);
-    }
+    // the same binding points as the program the main draw uses
+    const uboBindingPoints = bindUniformBlocks(gl, program, nodeState.uniformGroups);
+    const drawBases = bindDrawBases(gl, program);
 
     // 1×1 RGBA8 color texture + depth renderbuffer FBO for the readback.
     const colorTex = gl.createTexture()!;
-    gl.bindTexture(gl.TEXTURE_2D, colorTex);
+    bindUploadTexture(gl, textures, gl.TEXTURE_2D, colorTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
@@ -123,6 +127,7 @@ function buildProbeGl(gl: WebGL2RenderingContext, ro: RenderObject, patchedFragm
     return {
         program,
         uboBindingPoints,
+        drawBases,
         textureUniforms: new Map(),
         fbo,
         colorTex,
@@ -132,10 +137,10 @@ function buildProbeGl(gl: WebGL2RenderingContext, ro: RenderObject, patchedFragm
 }
 
 /** Free all GL resources of a probe program. */
-function disposeProbeGl(gl: WebGL2RenderingContext, p: ProbeGl): void {
+function disposeProbeGl(gl: WebGL2RenderingContext, textures: TextureCache, p: ProbeGl): void {
     gl.deleteProgram(p.program);
     gl.deleteFramebuffer(p.fbo);
-    gl.deleteTexture(p.colorTex);
+    deleteGlTexture(gl, textures, p.colorTex);
     gl.deleteRenderbuffer(p.depthRb);
 }
 
@@ -148,8 +153,8 @@ export function createProbeState(): ProbeState {
     return { gl: null };
 }
 
-export function disposeProbeState(gl: WebGL2RenderingContext | null, state: ProbeState): void {
-    if (gl && state.gl) disposeProbeGl(gl, state.gl);
+export function disposeProbeState(gl: WebGL2RenderingContext | null, textures: TextureCache, state: ProbeState): void {
+    if (gl && state.gl) disposeProbeGl(gl, textures, state.gl);
     state.gl = null;
 }
 
@@ -176,7 +181,7 @@ export function renderProbe(
     const geometry: Geometry = ro.geometry;
 
     // Build / reuse the probe program (compile errors surface as a thrown Error to the caller).
-    const p = buildProbeGl(gl, ro, patchedFragment, state.gl);
+    const p = buildProbeGl(gl, caches.textures, ro, patchedFragment, state.gl);
     state.gl = p;
 
     // Wrap the program in a ProgramInfo so the shared texture-binding path can reuse its texture-uniform
@@ -189,21 +194,24 @@ export function renderProbe(
 
     // Bind the probe FBO + a 1×1 viewport and clear.
     gl.bindFramebuffer(gl.FRAMEBUFFER, p.fbo);
-    gl.viewport(0, 0, 1, 1);
-    gl.disable(gl.SCISSOR_TEST);
-    gl.clearColor(0, 0, 0, 1);
-    gl.clearDepth(1.0);
-    gl.depthMask(true);
-    gl.colorMask(true, true, true, true);
+    const glState = caches.glState;
+    State.setViewport(gl, glState, 0, 0, 1, 1);
+    State.setCapability(gl, glState, 'scissorTest', false);
+    State.setClearColor(gl, glState, 0, 0, 0, 1);
+    State.setClearDepth(gl, glState, 1);
+    State.setDepthMask(gl, glState, true);
+    State.setColorMask(gl, glState, true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     // Depth test on, no culling (probe should show the value at the fragment under the mesh center).
-    gl.enable(gl.DEPTH_TEST);
-    gl.depthFunc(gl.LESS);
-    gl.disable(gl.CULL_FACE);
-    gl.disable(gl.BLEND);
+    State.setCapability(gl, glState, 'depthTest', true);
+    State.setDepthFunc(gl, glState, gl.LESS);
+    State.setCapability(gl, glState, 'cullFace', false);
+    State.setCapability(gl, glState, 'blend', false);
+    State.setCapability(gl, glState, 'rasterizerDiscard', false);
 
     gl.useProgram(p.program);
+    Bindings.resetBoundUniforms(_probeBound);
 
     // Capture + upload + bind each uniform group's std140 UBO as the normal draw does, but at once: the
     // probe draws now rather than in a recorded pass. The groups were already updated this frame by the
@@ -215,9 +223,11 @@ export function renderProbe(
             const bindingPoint = p.uboBindingPoints.get(binding.block.groupName);
             if (bindingPoint === undefined) continue;
             Bindings.captureUniformGroup(caches, binding, frame, bindingPoint, ro.material, _probeCaptures, 0);
-            Bindings.uploadAndBindCapture(gl, caches, _probeCaptures[0], ro.material);
+            Bindings.uploadAndBindCapture(gl, caches, _probeCaptures[0], ro.material, _probeBound);
         }
     }
+
+    if (caches._drawBases !== null && p.drawBases) DrawBases.bindZeroTable(gl, caches._drawBases, _probeBound);
 
     // Textures + samplers → GL units + combined-sampler uniforms.
     bindTextures(gl, caches, ro, programInfo, null);

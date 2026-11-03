@@ -1,5 +1,5 @@
-import type * as d from '../../schema/schema';
 import type { SamplerEntry, TextureEntry, UniformGroupBlock } from '../../nodes/builder';
+import type * as d from '../../schema/schema';
 import type { BindGroup as NodeBindGroup } from '../core/bind-group';
 
 /**
@@ -111,6 +111,17 @@ export function createBindGroupLayoutCache(): BindGroupLayoutCache {
  * Get or create a bind group layout for the given entries.
  * Uses a stable hash of the entries as the cache key.
  */
+/** `layouts` with the @group indices nothing sits at given the empty layout: a pipeline layout has no holes, and an
+ *  empty group needs no bind group set at draw */
+export function fillEmptyLayouts(
+    cache: BindGroupLayoutCache,
+    device: GPUDevice,
+    layouts: (GPUBindGroupLayout | undefined)[],
+): GPUBindGroupLayout[] {
+    for (let i = 0; i < layouts.length; i++) layouts[i] ??= getBindGroupLayout(cache, device, []);
+    return layouts as GPUBindGroupLayout[];
+}
+
 export function getBindGroupLayout(
     cache: BindGroupLayoutCache,
     device: GPUDevice,
@@ -154,7 +165,7 @@ function hashString(str: string): string {
  * @param device - The GPU device
  * @param bindings - The bindings from NodeBuilderState
  * @param layoutCache - Cache for bind group layouts
- * @returns Array of GPUBindGroupLayout in group index order
+ * @returns each group's layout at its @group index, the empty layout where the shader has none
  */
 export function buildComputeBindGroupLayouts(
     device: GPUDevice,
@@ -164,9 +175,8 @@ export function buildComputeBindGroupLayouts(
     const vis = GPUShaderStage.COMPUTE;
     const float32Filterable = device.features.has('float32-filterable');
 
-    // Sort bindings by group index
     const sortedBindings = [...bindings].sort((a, b) => a.groupIndex - b.groupIndex);
-    const layouts: GPUBindGroupLayout[] = [];
+    const layouts: (GPUBindGroupLayout | undefined)[] = [];
 
     for (const bindGroup of sortedBindings) {
         const entries: GPUBindGroupLayoutEntry[] = [];
@@ -238,10 +248,10 @@ export function buildComputeBindGroupLayouts(
 
         // Sort entries by binding index for consistent cache keys
         entries.sort((a, b) => a.binding - b.binding);
-        layouts.push(getBindGroupLayout(layoutCache, device, entries));
+        layouts[bindGroup.groupIndex] = getBindGroupLayout(layoutCache, device, entries);
     }
 
-    return layouts;
+    return fillEmptyLayouts(layoutCache, device, layouts);
 }
 
 /** Drop every cached layout (called on renderer dispose; `device.destroy()` frees the GPU side). */

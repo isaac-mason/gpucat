@@ -22,15 +22,18 @@ const EARNED_PAIRS: Record<string, string> = {
 const EARNED_SOLO: Record<string, string> = {
     'webgl/constants.ts': 'GL enum numbers; WebGPU spells the same states as string literals',
     'webgl/context.ts': 'getContext plus extension probing has no WebGPU counterpart',
+    'webgl/draw-bases.ts':
+        'WEBGL_multi_draw has no base instance, so entries read theirs from a table; WebGPU draws carry firstInstance',
     'webgl/probe.ts': 'the inspector value probe re-renders through GL; the WebGPU path is in inspector.ts',
     'webgl/state.ts': 'fixed-function state is live on the context; WebGPU bakes it into the pipeline',
     'webgl/texture-bindings.ts': 'combined-sampler uniforms and texture units; WebGPU binds through a bind group',
     'webgl/transform-feedback.ts': 'WebGL2-only API, the mirror of compute being WebGPU-only',
-    'webgl/transform-feedback-api.ts':
-        'the public free functions for it; separate from transform-feedback.ts because they name the backend, which imports it',
     'webgpu/bind-group-layout.ts': 'WebGPU-only object; WebGL2 has no bind-group concept',
     'webgpu/compute.ts': 'WebGPU-only; WebGL2 has no compute shaders',
+    'webgpu/draw-arena.ts':
+        'WebGPU queues writes ahead of the submit; GL runs draws as issued, so pages it rewrote mid-frame cost 8 ms of Mac GPU time',
     'webgpu/mipmap-utils.ts': 'mips are a render pass per level; GL has generateMipmap',
+    'webgpu/pass-state.ts': 'WebGPU-only: a pass encoder passes every set through; GL keeps its own bound state',
     'webgpu/render-objects.ts': 'RULE 4 VIOLATION, recorded: decomposition, not API. WebGL keeps this in prepare.ts',
 };
 

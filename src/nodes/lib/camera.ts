@@ -4,18 +4,21 @@ import * as d from '../../schema/schema';
 import { CallNode, type Node } from './core';
 import { renderGroup, Uniform, UniformNode } from './uniform';
 
+/** what a camera matrix reads in a pass with no camera: the view block is in every shader that reads any of it */
+const IDENTITY = /*@__PURE__*/ mat4.create();
+
 /** Projection matrix of the scene camera. In renderGroup. */
 
 export const cameraProjectionMatrix = /*@__PURE__*/ new UniformNode(
     new Uniform(d.mat4x4f, undefined, renderGroup),
     'cameraProjectionMatrix',
-).onRenderUpdate((frame) => frame.camera!.projectionMatrix);
+).onRenderUpdate((frame) => frame.camera?.projectionMatrix ?? IDENTITY);
 
 /** View (world-to-camera) matrix. In renderGroup. */
 export const cameraViewMatrix = /*@__PURE__*/ new UniformNode(
     new Uniform(d.mat4x4f, undefined, renderGroup),
     'cameraViewMatrix',
-).onRenderUpdate((frame) => frame.camera!.matrixWorldInverse);
+).onRenderUpdate((frame) => frame.camera?.matrixWorldInverse ?? IDENTITY);
 
 /**
  * Camera world-space position. In renderGroup.
@@ -36,16 +39,18 @@ const _cameraWorldPosition = /*@__PURE__*/ vec3.create();
 export const cameraPosition = /*@__PURE__*/ new UniformNode(
     new Uniform(d.vec3f, undefined, renderGroup),
     'cameraPosition',
-).onRenderUpdate((frame) => mat4.getTranslation(_cameraWorldPosition, frame.camera!.matrixWorld));
+).onRenderUpdate((frame) =>
+    frame.camera ? mat4.getTranslation(_cameraWorldPosition, frame.camera.matrixWorld) : _cameraWorldPosition,
+);
 
 /** Camera near plane distance. In renderGroup. */
 export const cameraNear = /*@__PURE__*/ new UniformNode(new Uniform(d.f32, undefined, renderGroup), 'cameraNear').onRenderUpdate(
-    (frame) => frame.camera!.near,
+    (frame) => frame.camera?.near ?? 0,
 );
 
 /** Camera far plane distance. In renderGroup. */
 export const cameraFar = /*@__PURE__*/ new UniformNode(new Uniform(d.f32, undefined, renderGroup), 'cameraFar').onRenderUpdate(
-    (frame) => frame.camera!.far,
+    (frame) => frame.camera?.far ?? 0,
 );
 
 /**

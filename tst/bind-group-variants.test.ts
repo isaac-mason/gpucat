@@ -14,6 +14,7 @@ import { createRenderTarget } from '../src/core/render-target';
 import { Fn, f32, globalId, index, storage, texture, u32, vec2 } from '../src/nodes/nodes';
 import { fullscreen } from '../src/objects/fullscreen';
 import { frame } from '../src/renderer/core/frame';
+import { getBindings } from '../src/renderer/core/render-object';
 import { Renderer } from '../src/renderer/core/renderer';
 import { WebGPUBackend } from '../src/renderer/webgpu/webgpu-backend';
 import * as d from '../src/schema/schema';
@@ -82,7 +83,7 @@ test('every resource set bound is kept', async () => {
 });
 
 /** A disposed texture's GPU texture is destroyed, so no group that bound it may keep a bind group over it. */
-test('a disposed texture clears the variants of every group that bound it', async () => {
+test('a disposed texture clears the bind groups of every group that bound it', async () => {
     const { renderer } = await make();
     const source = createRenderTarget(32, 32, { colorFormat: 'rgba8unorm' });
     // A render target's texture types as a cube-or-2d union; this one is 2d by construction.
@@ -99,7 +100,73 @@ test('a disposed texture clears the variants of every group that bound it', asyn
 
     const groups = [...(renderer.backend.textures.textureMap.get(flat)?.bindGroups ?? [])];
     expect(groups.length).toBeGreaterThan(0);
-    expect(groups.every((group) => group.variants.size > 0)).toBe(true);
+    expect(groups.every((group) => group.current !== null)).toBe(true);
     source.dispose();
-    expect(groups.every((group) => group.variants.size === 0 && group.needsUpdate)).toBe(true);
+    expect(groups.every((group) => group.current === null && group.needsUpdate)).toBe(true);
+});
+
+/** Draws over one texture and sampler, two materials, three meshes: one textured, one fullscreen draw per material. */
+function texturedScene() {
+    const source = createRenderTarget(32, 32, { colorFormat: 'rgba8unorm' });
+    const flat = source.texture!._gpuTexture as unknown as GpuTexture<d.texture2d<d.TextureSampleType>>;
+    const sampler = new GpuSampler({});
+    const sampled = () => fullscreen(texture(flat, sampler).sample(vec2(f32(0.5), f32(0.5))));
+    const meshes = [sampled(), sampled(), sampled()];
+    for (const mesh of meshes) mesh.updateWorldMatrix();
+    return meshes;
+}
+
+async function drawFrame(renderer: Renderer<WebGPUBackend>, meshes: ReturnType<typeof texturedScene>) {
+    const target = createRenderTarget(64, 64, { colorFormat: 'rgba8unorm' });
+    const f = frame(renderer);
+    const pass = f.pass({ target });
+    for (const mesh of meshes) pass.draw(mesh);
+    pass.end();
+    f.submit();
+    await f.done;
+}
+
+/** The material's group is keyed by what it binds, not by who binds it: three materials over one texture share one. */
+test('materials binding the same texture and sampler share one bind group for them', async () => {
+    const { renderer } = await make();
+    const meshes = texturedScene();
+    await drawFrame(renderer, meshes);
+    const textureGroups = new Set(
+        meshes.map((mesh) => {
+            const bindings = getBindings(renderer._renderObjects.renderObjects.values().find((ro) => ro.mesh === mesh)!);
+            const group = bindings.find((g) => g.bindings.some((binding) => binding.kind === 'texture'))!;
+            return renderer.backend.bindings.data.get(group)!.current;
+        }),
+    );
+    expect(textureGroups.size).toBe(1);
+});
+
+/** Once a scene's resources are bound, a frame makes no bind group: what Babylon's created counter should read. */
+test('a static scene creates no bind group after its first frame, and counts what it holds', async () => {
+    const { renderer } = await make();
+    const meshes = texturedScene();
+    await drawFrame(renderer, meshes);
+    const firstCreated = renderer.info.state.created;
+    await drawFrame(renderer, meshes);
+    expect(firstCreated).toBeGreaterThan(0);
+    expect(renderer.info.state.created).toBe(0);
+    expect(renderer.info.state.held).toBeGreaterThan(0);
+});
+
+/**
+ * An entry no draw binds for long enough is dropped; one bound again is built again. Sweeps run every keep period, so an
+ * entry goes between one and two periods after its last use.
+ */
+test('an entry unused for its keep frames is dropped, and a later use builds it again', async () => {
+    const { stub, renderer, node, buffer } = await make();
+    const kept = buffer();
+    const left = buffer();
+    await dispatchEach(renderer, node, [kept, left]);
+    const held = renderer.info.state.held;
+    for (let i = 0; i < 600; i++) await dispatchEach(renderer, node, [kept]);
+    expect(renderer.info.state.held).toBe(held - 1);
+
+    stub.stats.reset();
+    await dispatchEach(renderer, node, [left]);
+    expect(stub.stats.bindGroupCreations).toBe(1);
 });

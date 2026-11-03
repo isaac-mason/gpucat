@@ -307,11 +307,127 @@ export type TextureCache = {
     maxTextureUnits?: number;
     /** The read framebuffer copies attach their source to, made on the first copy. */
     copyFramebuffer?: WebGLFramebuffer;
+    /** What the context has bound on its texture units; every texture and sampler bind goes through it. */
+    units: TextureUnits;
 };
+
+/**
+ * The context's texture unit state: the active unit, each unit's texture per target, each unit's sampler. A bind that
+ * would change nothing is skipped and `activeTexture` is only called for a bind that happens, as three.js's
+ * `WebGLState`, PlayCanvas's `textureUnits` and Babylon's `_boundTexturesCache` keep theirs. It holds only while every
+ * bind on the context goes through it, uploads included.
+ */
+export type TextureUnits = {
+    active: number;
+    /** by `unit * TARGETS + target slot`; null holds nothing, undefined is not known (other code used the context) */
+    textures: (WebGLTexture | null | undefined)[];
+    samplers: (WebGLSampler | null | undefined)[];
+};
+
+/** Units tracked from the start: WebGL2's guaranteed `MAX_COMBINED_TEXTURE_IMAGE_UNITS`. A higher one grows them. */
+const TRACKED_UNITS = 32;
+
+/** The unit uploads bind on, so an upload leaves the units draws sample from as they are, as three.js and Babylon do. */
+const UPLOAD_UNIT = TRACKED_UNITS - 1;
+
+/** Texture targets a unit holds one of each. */
+const TARGETS = 4;
+
+function createTextureUnits(): TextureUnits {
+    const units: TextureUnits = { active: 0, textures: [], samplers: [] };
+    growUnits(units, TRACKED_UNITS);
+    return units;
+}
+
+/** `units` tracking at least `count` units, every slot filled so the arrays stay packed. */
+function growUnits(units: TextureUnits, count: number): void {
+    while (units.samplers.length < count) {
+        units.samplers.push(null);
+        for (let target = 0; target < TARGETS; target++) units.textures.push(null);
+    }
+}
+
+function targetSlot(gl: WebGL2RenderingContext, target: number): number {
+    if (target === gl.TEXTURE_2D) return 0;
+    if (target === gl.TEXTURE_2D_ARRAY) return 1;
+    if (target === gl.TEXTURE_3D) return 2;
+    return 3;
+}
+
+function activateUnit(gl: WebGL2RenderingContext, units: TextureUnits, unit: number): void {
+    if (units.active === unit) return;
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    units.active = unit;
+}
+
+/** Binds `texture` on `unit` for a draw to sample, leaving the active unit alone when it is bound there already. */
+export function bindTextureUnit(
+    gl: WebGL2RenderingContext,
+    state: TextureCache,
+    unit: number,
+    target: number,
+    texture: WebGLTexture,
+): void {
+    const units = state.units;
+    if (unit >= units.samplers.length) growUnits(units, unit + 1);
+    const slot = unit * TARGETS + targetSlot(gl, target);
+    if (units.textures[slot] === texture) return;
+    activateUnit(gl, units, unit);
+    gl.bindTexture(target, texture);
+    units.textures[slot] = texture;
+}
+
+/**
+ * Binds `texture` on the active unit for a call that acts on the bound texture (an upload, a mip build, a parameter):
+ * the upload unit, or for a draw's texture its own `unit`, which must then hold it.
+ */
+export function bindUploadTexture(
+    gl: WebGL2RenderingContext,
+    state: TextureCache,
+    target: number,
+    texture: WebGLTexture,
+    unit = UPLOAD_UNIT,
+): void {
+    activateUnit(gl, state.units, unit);
+    bindTextureUnit(gl, state, unit, target, texture);
+}
+
+export function bindSamplerUnit(
+    gl: WebGL2RenderingContext,
+    state: TextureCache,
+    unit: number,
+    sampler: WebGLSampler | null,
+): void {
+    const units = state.units;
+    if (unit >= units.samplers.length) growUnits(units, unit + 1);
+    if (units.samplers[unit] === sampler) return;
+    gl.bindSampler(unit, sampler);
+    units.samplers[unit] = sampler;
+}
+
+/**
+ * Forgets what every unit holds, for after other code has used the context: unit 0 is made active, as GL's default, and
+ * each unit's next bind happens.
+ */
+export function forgetTextureUnits(gl: WebGL2RenderingContext, state: TextureCache): void {
+    const units = state.units;
+    gl.activeTexture(gl.TEXTURE0);
+    units.active = 0;
+    for (let slot = 0; slot < units.textures.length; slot++) units.textures[slot] = undefined;
+    for (let unit = 0; unit < units.samplers.length; unit++) units.samplers[unit] = undefined;
+}
+
+/** Deletes a GL texture this cache made, which GL unbinds from every unit: the record forgets it too. */
+export function deleteGlTexture(gl: WebGL2RenderingContext, state: TextureCache, texture: WebGLTexture): void {
+    gl.deleteTexture(texture);
+    state.all.delete(texture);
+    const textures = state.units.textures;
+    for (let slot = 0; slot < textures.length; slot++) if (textures[slot] === texture) textures[slot] = null;
+}
 
 /** Create an empty textures state. */
 export function createTextureCache(tally: MemoryTally): TextureCache {
-    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set(), tally };
+    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set(), tally, units: createTextureUnits() };
 }
 
 /** The storage-backing texture a storage buffer's reads go through, sized as the grid it is allocated as. */
@@ -412,8 +528,7 @@ function setupStorageTextureDispose(gl: WebGL2RenderingContext, state: TextureCa
         previous?.();
         const data = state.bufferData.get(buffer);
         if (!data) return;
-        gl.deleteTexture(data.texture);
-        state.all.delete(data.texture);
+        deleteGlTexture(gl, state, data.texture);
         clearAllocation(state.tally, data.allocation);
         state.bufferData.delete(buffer);
     };
@@ -434,8 +549,7 @@ function setupTextureDispose(gl: WebGL2RenderingContext, state: TextureCache, te
     texture._onDispose = (): void => {
         const data = state.data.get(texture);
         if (!data) return;
-        gl.deleteTexture(data.texture);
-        state.all.delete(data.texture);
+        deleteGlTexture(gl, state, data.texture);
         clearAllocation(state.tally, data.allocation);
         state.data.delete(texture);
     };
@@ -488,7 +602,7 @@ export function updateStorageBufferTexture(
         const texture = gl.createTexture();
         if (!texture) throw new Error('[webgl] gl.createTexture returned null (storage buffer texture).');
         state.all.add(texture);
-        gl.bindTexture(gl.TEXTURE_2D, texture);
+        bindUploadTexture(gl, state, gl.TEXTURE_2D, texture);
         // Allocate the full (possibly padded) grid, then fill from the buffer's bytes.
         gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
         // Integer textures are never filterable — NEAREST, clamp; sampled only via texelFetch.
@@ -516,7 +630,7 @@ export function updateStorageBufferTexture(
         return data.texture;
     }
 
-    gl.bindTexture(gl.TEXTURE_2D, data.texture);
+    bindUploadTexture(gl, state, gl.TEXTURE_2D, data.texture);
     if (sizeChanged) {
         // Grow/shrink → re-specify the whole mutable texture at the new size (queued ranges are moot).
         gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
@@ -593,7 +707,7 @@ function ensureCpuLessStorageTexture(
     const texture = gl.createTexture();
     if (!texture) throw new Error('[webgl] gl.createTexture returned null (storage buffer texture).');
     state.all.add(texture);
-    gl.bindTexture(gl.TEXTURE_2D, texture);
+    bindUploadTexture(gl, state, gl.TEXTURE_2D, texture);
     gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
     setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
     const data: GlBufferTextureData = {
@@ -623,7 +737,7 @@ export function writeStorageTexture(
     const bytesPerTexel = storageMirrorBytesPerTexel(storageElement(buffer));
     assertTexelSpan('writeBuffer', buffer, bytesPerTexel, byteOffset, byteSize);
     const mirror = ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel);
-    gl.bindTexture(gl.TEXTURE_2D, mirror.texture);
+    bindUploadTexture(gl, state, gl.TEXTURE_2D, mirror.texture);
     const { glFormat } = storageTexelFormat(gl, bytesPerTexel);
     const texelStart = byteOffset / bytesPerTexel;
     const texelCount = byteSize / bytesPerTexel;
@@ -1016,7 +1130,7 @@ export function updateTexture(gl: WebGL2RenderingContext, state: TextureCache, t
         data.allocD === texture.depthOrArrayLayers
     ) {
         if (withinPartialBudget(texture, texture.updateRegions)) {
-            gl.bindTexture(data.target, data.texture);
+            bindUploadTexture(gl, state, data.target, data.texture);
             for (const r of texture.updateRegions) uploadPartialRegion(gl, texture, data, r);
             resetUnpackWindow(gl);
             // Auto-generated mips go stale the moment level 0 moves. (An explicit chain instead gets
@@ -1042,8 +1156,7 @@ export function updateTexture(gl: WebGL2RenderingContext, state: TextureCache, t
     // drivers). Delete the stale GL texture and mint a fresh one so the new storage is specified cleanly.
     // (This is the path a resized RenderTextureNode render target — e.g. a 4× rgba16float MRT pass — takes.)
     if (data.allocated) {
-        gl.deleteTexture(data.texture);
-        state.all.delete(data.texture);
+        deleteGlTexture(gl, state, data.texture);
         const fresh = gl.createTexture();
         if (!fresh) throw new Error('[webgl] gl.createTexture returned null.');
         state.all.add(fresh);
@@ -1055,7 +1168,7 @@ export function updateTexture(gl: WebGL2RenderingContext, state: TextureCache, t
     data.fmt = glFormat(gl, texture.format);
     data.target = glTarget(gl, texture);
 
-    gl.bindTexture(data.target, data.texture);
+    bindUploadTexture(gl, state, data.target, data.texture);
     setDefaultMinFilter(gl, data.target, texture.generateMipmaps, isNonFilterableFormat(gl, texture.format));
 
     const dim = texture.viewDimension;
@@ -1156,7 +1269,7 @@ export function writeTextureRegion(
     const target = updateTexture(gl, state, texture);
     const { format, type } = target.fmt;
     const { x, y, z, width, height, depth, level } = region;
-    gl.bindTexture(target.target, target.texture);
+    bindUploadTexture(gl, state, target.target, target.texture);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     if (target.target === gl.TEXTURE_2D_ARRAY || target.target === gl.TEXTURE_3D) {
         gl.texSubImage3D(target.target, level, x, y, z, width, height, depth, format, type, data);
@@ -1199,7 +1312,7 @@ export function copyStorageTextureSpan(
     }
     withCopyFramebuffer(gl, state, () => {
         gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, from.texture, 0);
-        gl.bindTexture(gl.TEXTURE_2D, to.texture);
+        bindUploadTexture(gl, state, gl.TEXTURE_2D, to.texture);
         forEachTexelRun(
             sourceByteOffset / bytesPerTexel,
             destinationByteOffset / bytesPerTexel,
@@ -1233,7 +1346,7 @@ export function unpackStorageTextureSpan(
     assertTexelSpan('copyBuffer', destination, bytesPerTexel, destinationByteOffset, byteSize);
     const to = ensureCpuLessStorageTexture(gl, state, destination, bytesPerTexel);
     const { glFormat } = storageTexelFormat(gl, bytesPerTexel);
-    gl.bindTexture(gl.TEXTURE_2D, to.texture);
+    bindUploadTexture(gl, state, gl.TEXTURE_2D, to.texture);
     gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, source);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     const firstTexel = destinationByteOffset / bytesPerTexel;
@@ -1328,7 +1441,7 @@ export function generateTextureMipmaps(gl: WebGL2RenderingContext, state: Textur
     if (!canGenerateMipmap(gl, texture.format)) return;
     const data = state.data.get(texture);
     if (!data || !data.allocated) return;
-    gl.bindTexture(data.target, data.texture);
+    bindUploadTexture(gl, state, data.target, data.texture);
     gl.generateMipmap(data.target);
 }
 
@@ -1336,6 +1449,7 @@ export function generateTextureMipmaps(gl: WebGL2RenderingContext, state: Textur
 export function disposeTextureCache(gl: WebGL2RenderingContext, state: TextureCache): void {
     for (const tex of state.all) gl.deleteTexture(tex);
     state.all.clear();
+    state.units = createTextureUnits();
     if (state.copyFramebuffer) gl.deleteFramebuffer(state.copyFramebuffer);
     state.copyFramebuffer = undefined;
     // the tally is the backend's, shared with buffers, and reset by the backend's own dispose

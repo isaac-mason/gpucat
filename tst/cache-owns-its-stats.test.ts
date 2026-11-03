@@ -15,6 +15,7 @@ const BACKENDS = ['src/renderer/webgl', 'src/renderer/webgpu'];
 const NOT_A_RESOURCE_CACHE = new Set([
     'frame-backend.ts',
     'mipmap-utils.ts',
+    'pass-state.ts',
     'probe.ts',
     'render-pass.ts',
     'state.ts',

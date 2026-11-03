@@ -32,9 +32,9 @@ import {
     type FnNode,
     type IfNode,
     isNode,
-    loopRange,
     type LetNode,
     type LoopNode,
+    loopRange,
     type Node,
     NodeKind,
     type ParameterNode,
@@ -45,6 +45,7 @@ import {
     type VarNode,
     type WorkgroupVarNode,
 } from '../../lib/core';
+import { isInvariantPosition } from '../../lib/invariant';
 import type { MRTNode } from '../../lib/mrt';
 import type { StorageNode } from '../../lib/storage';
 import {
@@ -57,8 +58,8 @@ import {
     type TextureNode,
 } from '../../lib/texture';
 import type { UniformGroup, UniformNode } from '../../lib/uniform';
-import { isInvariantPosition } from '../../lib/invariant';
 import type { VaryingNode } from '../../lib/varying';
+import { fixedMembers } from '../../lib/view';
 import type { WgslFunctionNode } from '../../lib/wgsl-fn';
 import { constLiteral } from '../../wgsl-utils';
 import { isVoidFragment } from '../fragment';
@@ -604,6 +605,8 @@ function isTrivialExpr(ctx: BuildContext, node: Node<d.Any>): boolean {
 /** Check if a node's type cannot be copied into a let binding, or it is a place the shader writes */
 function isNonCopyable(node: Node<d.Any>): boolean {
     if (containsAtomics(node.type)) return true;
+    // a `let` of a storage texture is an error on some WGSL compilers (Tint in Chrome 142), and no handle needs one
+    if (d.isHandleDesc(node.type)) return true;
     if (isPlaceAccess(node)) return true;
     return false;
 }
@@ -1415,9 +1418,8 @@ type BindingGroupData = {
 /**
  * Emit all bindings (uniforms, storage, textures, samplers).
  *
- * - Each named group (render, object, etc.) gets its own @group(N) index
- * - Groups are sorted by UniformGroup.order
- * - The @group(N) index is the SORTED ARRAY POSITION, not the order value directly
+ * - Each named group (frame, render, object) is @group(N) at its UniformGroup.order, the same N in every shader; the
+ *   indices a shader skips are empty in its pipeline layout and bound to nothing
  * - Within each group, bindings get sequential @binding(M) indices starting from 0
  */
 /** `stages` is what each render stage reads, for a binding's visibility; a compute shader passes null, and every
@@ -1479,13 +1481,16 @@ export function emitAllBindings(
     }
 
     // step 2: sort groups by their order, then assign sequential group indices
-    // @group(N) is the sorted array position
+    // @group(N) is the group's order: fixed across shaders, so a pipeline switch leaves the lower groups bound
     const sortedGroups = [...groupsByName.values()].sort((a, b) => a.group.order - b.group.order);
-
-    // Reassign groupIndex to be the sorted array position
-    for (let i = 0; i < sortedGroups.length; i++) {
-        sortedGroups[i].groupIndex = i;
+    for (let i = 1; i < sortedGroups.length; i++) {
+        if (sortedGroups[i].group.order === sortedGroups[i - 1].group.order) {
+            throw new Error(
+                `[wgsl] groups '${sortedGroups[i - 1].group.name}' and '${sortedGroups[i].group.name}' share @group(${sortedGroups[i].group.order}); give each its own order`,
+            );
+        }
     }
+    for (const group of sortedGroups) group.groupIndex = group.group.order;
 
     // step 3: emit WGSL and build result arrays
     const lines: string[] = [];
@@ -1521,15 +1526,17 @@ export function emitAllBindings(
             const members: UniformMember[] = [];
             let offset = 0;
 
-            // A shared group backs one buffer reused across materials and is cached by its
-            // uniform set (order-independent), so its byte layout must be deterministic for a
-            // given set no matter the per-material graph traversal order; otherwise the cached
-            // block mismatches a material compiled in a different order. Order by stable node id
-            // (mirrors three.js NodeBuilder._getBindGroup). Non-shared groups are per-object and
-            // cloned, so their declaration order is fine.
-            const orderedUniforms = bindGroup.group.shared
-                ? [...bindGroup.uniforms].sort((a, b) => a.id - b.id)
-                : bindGroup.uniforms;
+            // A fixed group (the view's) is its declared members in their declared order, in every shader. Another
+            // shared group backs one buffer reused across materials and is cached by its uniform set, so its layout
+            // must be deterministic for a set whatever the traversal order: by stable node id (as three.js does).
+            // Non-shared groups are per-object and cloned, so their declaration order is fine.
+            const fixed = fixedMembers(bindGroup.group);
+            const orderedUniforms =
+                fixed !== null
+                    ? [...bindGroup.uniforms].sort((a, b) => fixed.indexOf(a) - fixed.indexOf(b))
+                    : bindGroup.group.shared
+                      ? [...bindGroup.uniforms].sort((a, b) => a.id - b.id)
+                      : bindGroup.uniforms;
 
             // This block wrapper is gpucat's, not the user's, so gpucat owns its uniform-address-space
             // layout: a struct/array member (and any member following one) starts on a 16-byte boundary,

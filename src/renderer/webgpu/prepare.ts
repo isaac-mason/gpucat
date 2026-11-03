@@ -3,7 +3,7 @@ import { compileWgsl } from '../../nodes/builder';
 import type { NodeFrame } from '../core/node-frame';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderObject } from '../core/render-object';
-import { type DrawBindings, updateRenderBindings } from './bindings';
+import { createDrawBindings, type DrawBindings, updateRenderBindings } from './bindings';
 import * as Buffers from './buffers';
 import * as RenderObjectGpu from './render-object-gpu';
 import * as RenderObjects from './render-objects';
@@ -90,4 +90,4 @@ export function uploadRenderObjectResources(
 }
 
 /** The pre-warm builds bind groups ahead of any draw, so what they resolve to has no draw to go to. */
-const _prewarmBindings: DrawBindings = { groups: [], offsets: [] };
+const _prewarmBindings: DrawBindings = createDrawBindings();

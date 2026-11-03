@@ -1,7 +1,7 @@
 /// <reference types="@webgpu/types" />
 
-import { Renderer } from '../src/renderer/core/renderer';
 import { beforeAll, beforeEach, describe, expect, test } from 'vitest';
+import { Renderer } from '../src/renderer/core/renderer';
 import { createStubGPU, installWebGPUPolyfills, type StubGPUResult } from './stub-gpu';
 
 // Install WebGPU polyfills for Node environment
@@ -14,13 +14,13 @@ import { createBoxGeometry } from '../src/geometry/geometry-helpers';
 import { Material } from '../src/material/material';
 import {
     attribute,
+    cameraFar,
     cameraProjectionMatrix,
     cameraViewMatrix,
     f32,
     modelWorldMatrix,
     mul,
     objectGroup,
-    renderGroup,
     Uniform,
     UniformNode,
     uniform,
@@ -28,11 +28,12 @@ import {
 } from '../src/nodes/nodes';
 import { Mesh } from '../src/objects/mesh';
 import { type CanvasTarget, createCanvasTarget } from '../src/renderer/core/canvas-target';
+import { frame } from '../src/renderer/core/frame';
+import { getDrawArenaStats } from '../src/renderer/webgpu/draw-arena';
 import { WebGPUBackend } from '../src/renderer/webgpu/webgpu-backend';
 import { drawScene } from '../src/scene/draw-scene';
 import { Scene } from '../src/scene/scene';
 import * as d from '../src/schema/schema';
-import { frame } from '../src/renderer/core/frame';
 
 /**
  * Test suite for uniform group deduplication.
@@ -101,12 +102,10 @@ describe('uniform group deduplication', () => {
         const viewPosition = mul(cameraViewMatrix, worldPosition);
         const clipPosition = mul(cameraProjectionMatrix, viewPosition);
 
-        // Shared uniform - should only be written once regardless of mesh count
-        const sharedValue = new UniformNode(new Uniform(d.f32, 1.0, renderGroup), 'sharedTestValue');
-
+        // the view block is the render group's: written once per pass, whatever the mesh count
         return new Material({
             vertex: clipPosition,
-            fragment: vec4(sharedValue, f32(0), f32(0), f32(1)),
+            fragment: vec4(cameraFar, f32(0), f32(0), f32(1)),
         });
     }
 
@@ -159,11 +158,14 @@ describe('uniform group deduplication', () => {
 
             renderScene(renderer, view, scene, camera);
 
-            // @group(0) is render scope: one allocation for the pass, so one bind. @group(1) is object
-            // scope: an allocation per draw, bound per draw.
+            // @group(1) is render scope: one allocation for the pass, so one bind. @group(3) is object
+            // scope: an allocation per draw, bound per draw. Nothing uses the frame scope's @group(0) or binds a
+            // material resource at @group(2).
             expect(stub.stats.drawCalls).toBe(5);
-            expect(stub.stats.bindGroupSetsByIndex[0]).toBe(1);
-            expect(stub.stats.bindGroupSetsByIndex[1]).toBe(5);
+            expect(stub.stats.bindGroupSetsByIndex[0]).toBeUndefined();
+            expect(stub.stats.bindGroupSetsByIndex[1]).toBe(1);
+            expect(stub.stats.bindGroupSetsByIndex[2]).toBeUndefined();
+            expect(stub.stats.bindGroupSetsByIndex[3]).toBe(5);
         });
     });
 
@@ -188,6 +190,33 @@ describe('uniform group deduplication', () => {
             // Should have draw calls for each mesh
             expect(stub.stats.drawCalls).toBeGreaterThanOrEqual(5);
         });
+
+        test("meshes' own blocks share one draw arena page: one bind group, one write, an offset per draw", async () => {
+            const geometry = createBoxGeometry(1, 1, 1);
+            const material = createBasicMaterial();
+            for (let i = 0; i < 5; i++) {
+                const mesh = new Mesh(geometry, material);
+                mesh.position[0] = -1.5 + i * 0.75;
+                scene.add(mesh);
+                mesh.updateWorldMatrix();
+            }
+
+            renderScene(renderer, view, scene, camera);
+
+            // the view block's group and the page's: none per mesh
+            expect(stub.stats.bindGroupCreations).toBe(2);
+            // the box's vertices and indices, the five slots side by side in one range of one page, and the dynamic
+            // uniform ring's buffer and staging, which the view block is packed into: as many buffers and writes as a
+            // single mesh takes
+            expect(stub.stats.bufferCreations).toBe(5);
+            expect(stub.stats.bufferWrites).toBe(3);
+            expect(stub.stats.bufferCopies).toBe(1);
+            expect(stub.stats.bindGroupSetsByIndex[3]).toBe(5);
+            expect(getDrawArenaStats(renderer.backend.buffers.drawArena)).toEqual({ pages: 1, slots: 5 });
+
+            material.dispose();
+            expect(getDrawArenaStats(renderer.backend.buffers.drawArena)).toEqual({ pages: 1, slots: 0 });
+        });
     });
 
     describe('version bumping', () => {
@@ -200,9 +229,10 @@ describe('uniform group deduplication', () => {
             stub.stats.reset();
             renderScene(renderer, view, scene, camera);
 
+            // only the view block uploads, packed into the ring at every pass
             expect(stub.stats.drawCalls).toBe(1);
             expect(stub.stats.bufferWrites).toBe(0);
-            expect(stub.stats.bufferCopies).toBe(0);
+            expect(stub.stats.bufferCopies).toBe(1);
         });
 
         test('a member whose value goes unset keeps its last one rather than reading as a change', async () => {

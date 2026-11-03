@@ -156,6 +156,40 @@ function isAllocated(cache: TextureCache, renderTarget: RenderTarget, texture: G
     if (texture.disposed) return false;
     const data = cache.textureMap.get(texture);
     if (!data || data.isDefaultTexture) return false;
+    // the layout last checked against, as three.js keeps a target's last size: a draw sampling the target compares
+    // a few fields rather than re-deriving the attachment's whole shape
+    const last = data.allocatedLayout;
+    if (
+        last !== undefined &&
+        last.texture === data.texture &&
+        last.width === renderTarget.width &&
+        last.height === renderTarget.height &&
+        last.samples === renderTarget.samples &&
+        last.storage === renderTarget.storage &&
+        last.layers === texture.depthOrArrayLayers &&
+        last.mipLevelCount === texture.mipLevelCount &&
+        last.format === texture.format &&
+        last.dimension === texture.dimension
+    ) {
+        return true;
+    }
+    if (!shapeAllocated(data, renderTarget, texture, isDepth)) return false;
+    data.allocatedLayout = {
+        texture: data.texture,
+        width: renderTarget.width,
+        height: renderTarget.height,
+        samples: renderTarget.samples,
+        storage: renderTarget.storage,
+        layers: texture.depthOrArrayLayers,
+        mipLevelCount: texture.mipLevelCount,
+        format: texture.format,
+        dimension: texture.dimension,
+    };
+    return true;
+}
+
+/** Whether the GPU textures `data` holds have the shape `renderTarget`'s layout asks of `texture` now. */
+function shapeAllocated(data: TextureData, renderTarget: RenderTarget, texture: GpuTexture, isDepth: boolean): boolean {
     const shape = attachmentShape(renderTarget, texture, isDepth);
     const multisampled = shape.samples > 1;
     const msaa = data.msaaTextures;

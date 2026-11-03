@@ -68,12 +68,16 @@ const EXPECTED: Record<string, string[]> = {
         'compileObjects',
         'compileCompute',
         'readPixels',
+        // the buffer counterpart of readPixels: a copy into memory the CPU maps, on either backend
+        'readBuffer',
         'writeBuffer',
         'writeTexture',
         'copyBuffer',
         'copyTexture',
         'readMemoryStats',
         'releaseUniformBlock',
+        // forgets what the backend assumes the device holds: WebGL resets its context, WebGPU has nothing to forget
+        'resetState',
         'memoryTally',
     ],
     Renderer: [
@@ -92,6 +96,7 @@ const EXPECTED: Record<string, string[]> = {
         'api',
         'init',
         'dispose',
+        'resetState',
         '_assertInitialized',
         '_beginInfoFrame',
     ],

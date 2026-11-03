@@ -13,6 +13,7 @@ import type {
     VaryingEntry,
     VertexBufferGroup,
 } from '../../nodes/builder';
+import { fixedMembers } from '../../nodes/lib/view';
 import { type BindGroup, cloneBindGroup, createResourceBindGroup, createUniformBindGroup } from './bind-group';
 import type { ComputeContext, RenderContext } from './pass-context';
 
@@ -278,12 +279,16 @@ function buildTemplateBindGroups(
         ) {
             // uniform-only group
             if (shared) {
-                // Shared group: use cache
-                // Build cache key from sorted uniform node IDs
-                const members = [...uniformGroup.members].sort((a, b) => a.node.id - b.node.id);
-                const cacheKeyString = members.map((m) => m.node.id).join(',');
+                // One bind group for a fixed group (its block is the same in every shader); otherwise one for each
+                // set of members a shader reads
+                const cacheKeyString =
+                    fixedMembers(uniformGroup.group) !== null
+                        ? `fixed:${uniformGroup.groupName}`
+                        : [...uniformGroup.members]
+                              .sort((a, b) => a.node.id - b.node.id)
+                              .map((m) => m.node.id)
+                              .join(',');
                 const cacheKey = hashString(cacheKeyString);
-
                 let bindGroup = contextCache.get(cacheKey);
                 if (bindGroup === undefined) {
                     bindGroup = createUniformBindGroup(uniformGroup);

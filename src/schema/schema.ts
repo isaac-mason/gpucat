@@ -1004,6 +1004,11 @@ export function isSamplerComparisonDesc(desc: Any): desc is samplerComparison {
     return desc.type === 'sampler_comparison';
 }
 
+/** A texture or sampler: a handle to a binding, which a shader names directly and never holds in a local. */
+export function isHandleDesc(desc: Any): boolean {
+    return isAnyTextureDesc(desc) || isSamplerDesc(desc) || isSamplerComparisonDesc(desc);
+}
+
 export function isMatDesc(desc: Any): desc is Mat {
     return desc.wgslType.startsWith('mat');
 }

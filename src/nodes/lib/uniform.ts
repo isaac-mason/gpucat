@@ -1,5 +1,6 @@
 import {
     frameGroup,
+    materialGroup,
     objectGroup,
     renderGroup,
     Uniform,
@@ -92,6 +93,12 @@ export class UniformNode<D extends Any> extends Node<D> {
         return this.onUpdate(callback, UniformUpdateType.RENDER);
     }
 
+    /**
+     * Which of the drawn object's matrices this uniform is, for gpucat's model built-ins: the renderer copies it in at
+     * each draw that packs the block, and it holds while the object's `worldMatrixVersion` does. Null for any other.
+     */
+    objectMatrix: 'matrixWorld' | 'normalMatrix' | null = null;
+
     /** Register an update callback for OBJECT update type. */
     onObjectUpdate(callback: (frame: NodeFrame) => unknown): this {
         return this.onUpdate(callback, UniformUpdateType.OBJECT);
@@ -99,7 +106,7 @@ export class UniformNode<D extends Any> extends Node<D> {
 }
 
 // Re-export from core for convenience
-export { Uniform, UniformGroup, UniformUpdateType, objectGroup, renderGroup, frameGroup };
+export { Uniform, UniformGroup, UniformUpdateType, materialGroup, objectGroup, renderGroup, frameGroup };
 
 /**
  * Declare a material uniform.

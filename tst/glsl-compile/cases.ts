@@ -1,6 +1,5 @@
 import {
     ArrayTexture,
-    invariant,
     acesToneMapping,
     array,
     arrayTexture,
@@ -23,6 +22,7 @@ import {
     If,
     i32,
     instanceIndex,
+    invariant,
     inverseSqrt,
     Let,
     Loop,
@@ -474,6 +474,20 @@ export const cases: Case[] = [
             fragment: vec4(acesToneMapping(sRGBTransferOETF(vec3(0.5, 0.2, 0.8))), f32(1)),
             depth: undefined,
         }),
+    },
+    {
+        // The WebGL backend's multi-draw lowering: the instance index reads each draw's base from the DrawBases
+        // table by gl_DrawID, under GL_ANGLE_multi_draw, which the harness enables on its context.
+        name: 'multi-draw instance index (DrawBases by gl_DrawID)',
+        opts: { multiDraw: true },
+        build: () => {
+            const id = varying(vertexIndex.add(instanceIndex), 'vId');
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: vec4(id.toF32().mul(f32(0.001)), f32(0), f32(0), f32(1)),
+                depth: undefined,
+            };
+        },
     },
     {
         // Proves the WebGL-backend `precision` option: compileGlsl(slots, { precision: 'mediump' })

@@ -10,6 +10,7 @@ import {
     createAllocation,
     type MemoryTally,
     type RendererInfo,
+    type StateInfo,
     setAllocation,
 } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
@@ -21,6 +22,7 @@ import type { View } from '../core/view';
 import { type DrawBindings, updateRenderBindings } from './bindings';
 import * as Buffers from './buffers';
 import * as Geometries from './geometries';
+import { createPassState, type PassState, resetPassState, setBindGroups, takesPipeline } from './pass-state';
 import * as Pipelines from './pipelines';
 import * as RenderObjectGpu from './render-object-gpu';
 import * as RenderTargets from './render-target';
@@ -293,15 +295,23 @@ function resolveRenderTargetAttachments(
             // Omitting it instead turns the depth test off for the pass, which reads as a sorting bug.
             throw new Error('[webgpu] this render target has a depth attachment that was never allocated.');
         }
-        depthAttachment = {
-            view:
-                RenderTargets.getRenderTargetMsaaView(depthTextureData, layer) ??
-                Textures.attachmentView(depthTextureData, mipLevel, layer, false),
-            depthClearValue: params.clearDepthValue,
-            depthLoadOp: params.clearsDepth ? 'clear' : 'load',
-            depthStoreOp: params.storesDepth ? 'store' : 'discard',
-            ...stencilAttachmentOps(renderTarget._depthAttachment.format, params),
-        };
+        const view =
+            RenderTargets.getRenderTargetMsaaView(depthTextureData, layer) ??
+            Textures.attachmentView(depthTextureData, mipLevel, layer, false);
+        // a read-only aspect takes no load or store op
+        depthAttachment = params.readOnlyDepth
+            ? {
+                  view,
+                  depthReadOnly: true,
+                  ...(formatHasStencil(renderTarget._depthAttachment.format) ? { stencilReadOnly: true } : {}),
+              }
+            : {
+                  view,
+                  depthClearValue: params.clearDepthValue,
+                  depthLoadOp: params.clearsDepth ? 'clear' : 'load',
+                  depthStoreOp: params.storesDepth ? 'store' : 'discard',
+                  ...stencilAttachmentOps(renderTarget._depthAttachment.format, params),
+              };
     }
 
     return { colorAttachments, depthAttachment };
@@ -415,7 +425,7 @@ export function beginPass(b: WebGPUBackend, params: RenderPassParams): PassScope
     // starts with the whole target as both its viewport and scissor; each segment sets its own when they differ.
     return {
         gpuPass,
-        currentSets: createCurrentSets(),
+        currentSets: createCurrentSets(b.renderer.info.state),
         viewport: { x: 0, y: 0, width: params.width, height: params.height, minDepth: 0, maxDepth: 1 },
         scissor: { x: 0, y: 0, width: params.width, height: params.height },
     };
@@ -568,7 +578,7 @@ function getOrRecordBundle(
         depthStencilFormat: Pipelines.getRenderContextDepthFormat(passCtx) ?? undefined,
         sampleCount: passCtx.sampleCount,
     });
-    encodeDrawRange(ctx, from, to, { gpuPass: encoder, currentSets: createCurrentSets() });
+    encodeDrawRange(ctx, from, to, { gpuPass: encoder, currentSets: createCurrentSets(ctx.info.state) });
     const recorded: RecordedBundle = {
         gpu: encoder.finish({ label: bundle.label }),
         version: bundle.version,
@@ -603,7 +613,10 @@ function forEachDrawnBinding(
 ): void {
     for (let index = from; index < to; index++) {
         const { groups, offsets } = ctx.bindings[index];
-        for (let group = 0; group < groups.length; group++) visit(groups[group], offsets[group]);
+        for (let group = 0; group < groups.length; group++) {
+            const bound = groups[group];
+            if (bound !== undefined) visit(bound, offsets[group]!);
+        }
     }
 }
 
@@ -645,9 +658,8 @@ function encodeDrawRange(ctx: EncodeContext, from: number, to: number, { gpuPass
 
         const gpu = RenderObjectGpu.getRenderObjectGpu(b.renderObjectGpu, renderObject);
 
-        if (gpu.pipeline !== currentSets.pipeline) {
+        if (takesPipeline(currentSets.pass, gpu.pipeline!)) {
             passSetPipeline(gpuPass, inspector, gpu.pipeline!, pipelineLabel(mesh, material));
-            currentSets.pipeline = gpu.pipeline;
         }
 
         // The stencil reference is dynamic pass state (not baked into the pipeline); set it when a
@@ -662,15 +674,13 @@ function encodeDrawRange(ctx: EncodeContext, from: number, to: number, { gpuPass
         }
 
         const { groups: bindGroups, offsets: dynamicOffsets } = ctx.bindings[index];
-        for (let i = 0; i < bindGroups.length; i++) {
-            const bindGroup = bindGroups[i];
-            const dynamicOffset = dynamicOffsets[i];
-            if (currentSets.bindGroups[i] !== bindGroup || currentSets.dynamicOffsets[i] !== dynamicOffset) {
-                passSetBindGroup(gpuPass, inspector, i, bindGroup, dynamicOffset, mesh.name || '');
-                currentSets.bindGroups[i] = bindGroup;
-                currentSets.dynamicOffsets[i] = dynamicOffset;
-            }
-        }
+        setBindGroups(
+            currentSets.pass,
+            gpuPass,
+            bindGroups,
+            dynamicOffsets,
+            inspector === null ? null : (groupIndex) => inspector.setBindGroup(groupIndex, mesh.name || ''),
+        );
 
         Geometries.resolveVertexBuffers(b.geometries, gpu, renderObject);
         const { vertexBuffers, vertexBufferNames } = gpu;
@@ -773,27 +783,24 @@ function releaseCanvasTarget(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, 
     sc.targets.delete(target);
 }
 
-/** tracks currently set GPU state to avoid redundant setBindGroup/setVertexBuffer/setIndexBuffer calls */
-function createCurrentSets(): CurrentSets {
-    return { bindGroups: [], dynamicOffsets: [], attributes: [], index: null, pipeline: null, stencilRef: null };
+/** what the encoder has set, so a draw sets only what changed: the pipeline and bind groups as every pass keeps
+ *  them, and a render pass's vertex and index buffers and stencil reference */
+function createCurrentSets(info: StateInfo): CurrentSets {
+    return { pass: createPassState(info), attributes: [], index: null, stencilRef: null };
 }
 
 /** After a bundle replays, nothing the pass had set still holds. */
 function resetCurrentSets(sets: CurrentSets): void {
-    sets.bindGroups.length = 0;
-    sets.dynamicOffsets.length = 0;
+    resetPassState(sets.pass);
     sets.attributes.length = 0;
     sets.index = null;
-    sets.pipeline = null;
     sets.stencilRef = null;
 }
 
 type CurrentSets = {
-    bindGroups: GPUBindGroup[];
-    dynamicOffsets: number[];
+    pass: PassState;
     attributes: (GPUBuffer | null)[];
     index: GPUBuffer | null;
-    pipeline: GPURenderPipeline | null;
     stencilRef: number | null;
 };
 
@@ -804,27 +811,6 @@ type CurrentSets = {
 function passSetPipeline(pass: DrawEncoder, inspector: InspectorBase | null, pipeline: GPURenderPipeline, label: string): void {
     pass.setPipeline(pipeline);
     if (inspector) inspector.setPipeline(label);
-}
-
-/** One dynamic offset, reused so binding a transient block allocates nothing. */
-const _dynamicOffset = /*@__PURE__*/ new Uint32Array(1);
-
-/** `dynamicOffset` is -1 for a group with no transient uniform block. */
-function passSetBindGroup(
-    pass: DrawEncoder,
-    inspector: InspectorBase | null,
-    index: number,
-    bindGroup: GPUBindGroup,
-    dynamicOffset: number,
-    label: string,
-): void {
-    if (dynamicOffset < 0) {
-        pass.setBindGroup(index, bindGroup);
-    } else {
-        _dynamicOffset[0] = dynamicOffset;
-        pass.setBindGroup(index, bindGroup, _dynamicOffset, 0, 1);
-    }
-    if (inspector) inspector.setBindGroup(index, label);
 }
 
 function passSetVertexBuffer(pass: DrawEncoder, inspector: InspectorBase | null, slot: number, buffer: GPUBuffer): void {

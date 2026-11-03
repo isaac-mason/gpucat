@@ -76,30 +76,30 @@ function renderPasses(ctx: Setup, passes: number, step: number): void {
 /** Lets a resolved `mapAsync` hand its staging buffer back, as the browser's event loop would. */
 const turnEventLoop = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-test('a use after an earlier pass read different bytes takes a dynamic allocation, still in one submit', async () => {
+test("every pass's view block takes a dynamic allocation, still in one submit", async () => {
     const ctx = await setup();
     renderPasses(ctx, 1, 0);
     ctx.stub.stats.reset();
 
     renderPasses(ctx, 3, 1);
 
-    // The camera block conflicts in the second and third passes; the box's own block never changes.
-    expect(ctx.renderer.info.buffers.dynamicAllocations).toBe(2);
+    // One view block a pass; the box's own block lives in the draw arena, not the ring.
+    expect(ctx.renderer.info.buffers.dynamicAllocations).toBe(3);
     expect(ctx.stub.stats.submits).toBe(1);
     expect(ctx.stub.stats.encoderCreations, 'the frame encoder, and the uniform copies ahead of it').toBe(2);
     expect(ctx.stub.stats.bufferCopies).toBe(1);
 });
 
-test('passes that read the same bytes share the block buffer: no allocation and no copies', async () => {
+test("a still camera's passes pack their view blocks all the same: nothing is compared", async () => {
     const ctx = await setup();
     renderPasses(ctx, 1, 0);
     ctx.stub.stats.reset();
 
     renderPasses(ctx, 3, 0);
 
-    expect(ctx.renderer.info.buffers.dynamicAllocations).toBe(0);
-    expect(ctx.stub.stats.encoderCreations).toBe(1);
-    expect(ctx.stub.stats.bufferCopies).toBe(0);
+    expect(ctx.renderer.info.buffers.dynamicAllocations).toBe(3);
+    expect(ctx.stub.stats.bufferCopies).toBe(1);
+    expect(ctx.stub.stats.bufferWrites).toBe(0);
 });
 
 test('allocations past one dynamic buffer move to another', async () => {
@@ -108,7 +108,7 @@ test('allocations past one dynamic buffer move to another', async () => {
     // A camera block is one 256-byte slot, so 100 KB holds 400: this frame needs two buffers.
     renderPasses(ctx, 450, 0.01);
 
-    expect(ctx.renderer.info.buffers.dynamicAllocations).toBe(449);
+    expect(ctx.renderer.info.buffers.dynamicAllocations).toBe(450);
     expect(ctx.dynamicUniforms().gpuBuffers.length).toBe(2);
     expect(ctx.stub.stats.bufferCopies).toBe(2);
 });
@@ -202,10 +202,11 @@ test('a pipeline binding more changing uniform groups than the device allows is 
     const ctx = await setup();
     const limit = ctx.stub.device.limits.maxDynamicUniformBuffersPerPipelineLayout;
 
-    // One group per uniform, each able to change between draws, one past the limit.
+    // One group per uniform, each able to change between draws, one past the limit; each its own @group, above the
+    // object group's
     let colour: Node<d.f32> = f32(0);
     for (let index = 0; index <= limit; index++) {
-        const group = uniformGroup(`perDraw${index}`, index + 1, 'object');
+        const group = uniformGroup(`perDraw${index}`, index + 4, 'object');
         colour = colour.add(new UniformNode(new Uniform(d.f32, 0, group), `perDrawValue${index}`)) as Node<d.f32>;
     }
     const worldPosition = mul(modelWorldMatrix, vec4(attribute('position', d.vec3f), f32(1)));

@@ -62,7 +62,10 @@ function runCase(gl: WebGL2RenderingContext, c: Case): CaseResult {
         code = result.code;
         // For a case requesting a non-highp precision, assert the emitted fragment header reflects it.
         if (c.opts?.precision && c.opts.precision !== 'highp' && !code.includes(`precision ${c.opts.precision} float;`)) {
-            return { name: c.name, emitError: `expected 'precision ${c.opts.precision} float;' in emitted GLSL, but it was missing` };
+            return {
+                name: c.name,
+                emitError: `expected 'precision ${c.opts.precision} float;' in emitted GLSL, but it was missing`,
+            };
         }
     } catch (err) {
         return { name: c.name, emitError: err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err) };
@@ -215,8 +218,13 @@ export function run(): RunResult {
     canvas.height = 16;
     const gl = canvas.getContext('webgl2');
     if (!gl) {
-        return { contextError: 'canvas.getContext("webgl2") returned null — WebGL2 unavailable in this browser context.', results: [] };
+        return {
+            contextError: 'canvas.getContext("webgl2") returned null — WebGL2 unavailable in this browser context.',
+            results: [],
+        };
     }
+    // a shader naming GL_ANGLE_multi_draw compiles only once the context has the extension, as the backend asks
+    gl.getExtension('WEBGL_multi_draw');
     const results = [
         ...cases.map((c) => runCase(gl, c)),
         ...probeCases.map((c) => runProbeCase(gl, c)),

@@ -38,6 +38,8 @@ export type ProgramInfo = {
      * loop sets it per sub-draw (`firstInstance`); the single-draw path resets it to 0.
      */
     drawBaseLocation?: WebGLUniformLocation | null;
+    /** Whether the instance index reads the multi-draw base table (`DrawBases`, at {@link DRAW_BASES_BINDING}). */
+    drawBases?: boolean;
     /**
      * Location of the fragCoord Y-flip height uniform (`u_fragCoordFlipHeight`), or `null` when the
      * program doesn't use `@builtin(position)` (so the uniform isn't declared). The draw path sets it
@@ -142,24 +144,8 @@ export function getProgram(
         throw new Error(`[webgl] program link failed:\n${log}`);
     }
 
-    // Resolve each std140 UBO block and assign it a unique binding point. The GLSL emitter always
-    // writes `binding: 0` on every group (it never emits explicit binding qualifiers), so we can't
-    // reuse that — assign a fresh binding point per distinct group name instead.
-    const uboBindingPoints = new Map<string, number>();
-    let nextBindingPoint = 0;
-    for (const group of uniformGroups) {
-        if (group.members.length === 0) continue;
-        if (uboBindingPoints.has(group.groupName)) continue;
-
-        const blockName = `Uniforms_${group.groupName}`;
-        const blockIndex = gl.getUniformBlockIndex(program, blockName);
-        // INVALID_INDEX (0xffffffff) means the block was optimized out (all members unused). Skip it.
-        if (blockIndex === gl.INVALID_INDEX) continue;
-
-        const bindingPoint = nextBindingPoint++;
-        gl.uniformBlockBinding(program, blockIndex, bindingPoint);
-        uboBindingPoints.set(group.groupName, bindingPoint);
-    }
+    const uboBindingPoints = bindUniformBlocks(gl, program, uniformGroups);
+    const drawBases = bindDrawBases(gl, program);
 
     // Batched-draw base uniform. `getUniformLocation` returns null when u_drawBase isn't declared
     // (program doesn't use instanceIndex) — that null is the draw path's "no batched base" sentinel.
@@ -174,6 +160,7 @@ export function getProgram(
         uboBindingPoints,
         textureUniforms: new Map(),
         drawBaseLocation,
+        drawBases,
         fragCoordFlipHeightLocation,
     };
     cache.programs.set(code, info);
@@ -225,23 +212,50 @@ export function createTransformFeedbackProgram(
         throw new Error(`[webgl] transform-feedback program link failed:\n${log}`);
     }
 
-    // Same std140 UBO binding-point resolution as getProgram, so kernels using uniform() work.
-    const uboBindingPoints = new Map<string, number>();
-    let nextBindingPoint = 0;
-    for (const group of uniformGroups) {
-        if (group.members.length === 0) continue;
-        if (uboBindingPoints.has(group.groupName)) continue;
-
-        const blockName = `Uniforms_${group.groupName}`;
-        const blockIndex = gl.getUniformBlockIndex(program, blockName);
-        if (blockIndex === gl.INVALID_INDEX) continue;
-
-        const bindingPoint = nextBindingPoint++;
-        gl.uniformBlockBinding(program, blockIndex, bindingPoint);
-        uboBindingPoints.set(group.groupName, bindingPoint);
-    }
+    // Same std140 UBO binding points as getProgram, so kernels using uniform() work.
+    const uboBindingPoints = bindUniformBlocks(gl, program, uniformGroups);
 
     return { program, uboBindingPoints, textureUniforms: new Map() };
+}
+
+/**
+ * Where the multi-draw base table binds: WebGL2 guarantees 24 uniform buffer binding points, and the groups take the
+ * ones below this.
+ */
+export const DRAW_BASES_BINDING = 23;
+
+/**
+ * Binds each std140 group block of `program` at its group's index, the same point in every program, as WebGPU's fixed
+ * @group indices and PlayCanvas's WebGL bind groups: a block shared across programs (the frame's, the view's) stays
+ * bound across a program switch. A block optimised out of the program is skipped.
+ */
+export function bindUniformBlocks(
+    gl: WebGL2RenderingContext,
+    program: WebGLProgram,
+    uniformGroups: UniformGroupBlock[],
+): Map<string, number> {
+    const bindingPoints = new Map<string, number>();
+    for (const group of uniformGroups) {
+        if (group.members.length === 0 || bindingPoints.has(group.groupName)) continue;
+        if (group.groupIndex >= DRAW_BASES_BINDING) {
+            throw new Error(
+                `[webgl] uniform group '${group.groupName}' is at @group(${group.groupIndex}); WebGL binds groups below ${DRAW_BASES_BINDING}`,
+            );
+        }
+        const blockIndex = gl.getUniformBlockIndex(program, `Uniforms_${group.groupName}`);
+        if (blockIndex === gl.INVALID_INDEX) continue;
+        gl.uniformBlockBinding(program, blockIndex, group.groupIndex);
+        bindingPoints.set(group.groupName, group.groupIndex);
+    }
+    return bindingPoints;
+}
+
+/** Binds the multi-draw base table of `program` at {@link DRAW_BASES_BINDING}; whether the program reads one. */
+export function bindDrawBases(gl: WebGL2RenderingContext, program: WebGLProgram): boolean {
+    const blockIndex = gl.getUniformBlockIndex(program, 'DrawBases');
+    if (blockIndex === gl.INVALID_INDEX) return false;
+    gl.uniformBlockBinding(program, blockIndex, DRAW_BASES_BINDING);
+    return true;
 }
 
 /** Delete all cached programs (called on renderer dispose). */

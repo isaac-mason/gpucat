@@ -130,8 +130,8 @@ exports[`golden WGSL — compute path > atomic histogram: storage atomics + inde
     "global_invocation_id",
   ],
   "code": "// Bindings (uniforms, storage, textures, samplers)
-@group(0) @binding(0) var<storage, read_write> storage0: array<atomic<u32>>;
-@group(0) @binding(1) var<storage, read_write> storage1: array<u32>;
+@group(2) @binding(0) var<storage, read_write> storage0: array<atomic<u32>>;
+@group(2) @binding(1) var<storage, read_write> storage1: array<u32>;
 
 // Compute Shader
 @compute @workgroup_size(64, 1, 1)
@@ -147,14 +147,14 @@ fn cs_main(
     {
       "access": "read_write",
       "binding": 0,
-      "group": 0,
+      "group": 2,
       "name": "storage0",
       "type": "array<atomic<u32>>",
     },
     {
       "access": "read_write",
       "binding": 1,
-      "group": 0,
+      "group": 2,
       "name": "storage1",
       "type": "array<u32>",
     },
@@ -178,7 +178,7 @@ struct Particle {
     life: f32,
 }
 
-@group(0) @binding(0) var<storage, read_write> storage0: array<Particle>;
+@group(2) @binding(0) var<storage, read_write> storage0: array<Particle>;
 
 // Compute Shader
 @compute @workgroup_size(64, 1, 1)
@@ -202,7 +202,7 @@ fn cs_main(
     {
       "access": "read_write",
       "binding": 0,
-      "group": 0,
+      "group": 2,
       "name": "storage0",
       "type": "array<Particle>",
     },
@@ -221,7 +221,7 @@ exports[`golden WGSL — compute path > workgroup atomic + barriers 1`] = `
     "local_invocation_id",
   ],
   "code": "// Bindings (uniforms, storage, textures, samplers)
-@group(0) @binding(0) var<storage, read_write> storage0: array<u32>;
+@group(2) @binding(0) var<storage, read_write> storage0: array<u32>;
 
 // Module-scope variables
 var<workgroup> wgCount: atomic<u32>;
@@ -245,7 +245,7 @@ fn cs_main(
     {
       "access": "read_write",
       "binding": 0,
-      "group": 0,
+      "group": 2,
       "name": "storage0",
       "type": "array<u32>",
     },
@@ -265,9 +265,14 @@ exports[`golden WGSL — render path > conditional + inline wgsl in fragment 1`]
   ],
   "code": "// Bindings (uniforms, storage, textures, samplers)
 struct Uniforms_render {
+    @align(16) @size(64) cameraProjectionMatrix: mat4x4f,
+    @align(16) @size(64) cameraViewMatrix: mat4x4f,
+    @align(16) @size(12) cameraPosition: vec3f,
+    @align(4) @size(4) cameraNear: f32,
+    @align(4) @size(4) cameraFar: f32,
     @align(8) @size(8) screenSize: vec2f,
 }
-@group(0) @binding(0) var<uniform> uniforms_render: Uniforms_render;
+@group(1) @binding(0) var<uniform> uniforms_render: Uniforms_render;
 
 // Vertex Shader
 struct VertexInput {
@@ -308,14 +313,18 @@ exports[`golden WGSL — render path > lit mesh: attributes, camera/model unifor
 struct Uniforms_render {
     @align(16) @size(64) cameraProjectionMatrix: mat4x4f,
     @align(16) @size(64) cameraViewMatrix: mat4x4f,
+    @align(16) @size(12) cameraPosition: vec3f,
+    @align(4) @size(4) cameraNear: f32,
+    @align(4) @size(4) cameraFar: f32,
+    @align(8) @size(8) screenSize: vec2f,
 }
-@group(0) @binding(0) var<uniform> uniforms_render: Uniforms_render;
+@group(1) @binding(0) var<uniform> uniforms_render: Uniforms_render;
 
 struct Uniforms_object {
     @align(16) @size(64) modelWorldMatrix: mat4x4f,
     @align(16) @size(48) modelNormalMatrix: mat3x3f,
 }
-@group(1) @binding(0) var<uniform> uniforms_object: Uniforms_object;
+@group(3) @binding(0) var<uniform> uniforms_object: Uniforms_object;
 
 // Vertex Shader
 struct VertexInput {
@@ -364,12 +373,17 @@ exports[`golden WGSL — render path > textured: sampled texture binding + sampl
   ],
   "code": "// Bindings (uniforms, storage, textures, samplers)
 struct Uniforms_render {
+    @align(16) @size(64) cameraProjectionMatrix: mat4x4f,
+    @align(16) @size(64) cameraViewMatrix: mat4x4f,
+    @align(16) @size(12) cameraPosition: vec3f,
+    @align(4) @size(4) cameraNear: f32,
+    @align(4) @size(4) cameraFar: f32,
     @align(8) @size(8) screenSize: vec2f,
 }
-@group(0) @binding(0) var<uniform> uniforms_render: Uniforms_render;
+@group(1) @binding(0) var<uniform> uniforms_render: Uniforms_render;
 
-@group(1) @binding(0) var t0: texture_2d<f32>;
-@group(1) @binding(1) var linearSampler: sampler;
+@group(2) @binding(0) var t0: texture_2d<f32>;
+@group(2) @binding(1) var linearSampler: sampler;
 
 // Vertex Shader
 struct VertexInput {

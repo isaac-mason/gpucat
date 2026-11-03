@@ -156,17 +156,35 @@ export type MemoryInfo = {
     backend: Record<string, number>;
 };
 
+/**
+ * A frame's pipeline and bind group sets: those sent to the encoder, and those dropped because the same was already
+ * bound; and the bind groups made this frame and held. WebGL, which has no such objects, leaves those at zero.
+ * `created` settles at zero once a scene's resources are bound, as Babylon's counters should. `packed` and `kept`
+ * count uniform blocks on both backends: a per-object block can be kept, a shared one packs at every use.
+ */
+export type StateInfo = {
+    set: number;
+    skipped: number;
+    created: number;
+    held: number;
+    /** uniform blocks packed this frame, and per-object blocks kept because none of their values' versions moved */
+    packed: number;
+    kept: number;
+};
+
 export type RendererInfo = {
     render: RenderInfo;
     compute: ComputeInfo;
     buffers: BufferInfo;
     memory: MemoryInfo;
+    state: StateInfo;
 };
 
 export function createRendererInfo(): RendererInfo {
     return {
         render: { calls: 0, frameCalls: 0, drawCalls: 0, triangles: 0 },
         compute: { calls: 0, frameCalls: 0 },
+        state: { set: 0, skipped: 0, created: 0, held: 0, packed: 0, kept: 0 },
         buffers: {
             writeCalls: 0,
             writeBytes: 0,
@@ -200,6 +218,11 @@ export function beginInfoFrame(info: RendererInfo): void {
     info.render.drawCalls = 0;
     info.render.triangles = 0;
     info.compute.frameCalls = 0;
+    info.state.set = 0;
+    info.state.skipped = 0;
+    info.state.created = 0;
+    info.state.packed = 0;
+    info.state.kept = 0;
     info.buffers.writeCalls = 0;
     info.buffers.writeBytes = 0;
     info.buffers.dynamicAllocations = 0;
@@ -268,8 +291,8 @@ export function recordBufferWrite(
 export type AllocationKind = 'buffer' | 'texture';
 
 /**
- * What an allocation is for. Buffers take their primary usage, or `uniform-ring` for the dynamic uniform
- * pool. Textures: `sampled` (a `GpuTexture`), `render-target` and `depth` (a target's attachments), `msaa`
+ * What an allocation is for. Buffers take their primary usage, `uniform-ring` for the dynamic uniform
+ * pool, or `uniform-arena` for the pages per-draw uniform blocks live in. Textures: `sampled` (a `GpuTexture`), `render-target` and `depth` (a target's attachments), `msaa`
  * (a multisampled attachment), `storage-backing` (WebGL's texture lowering of a storage buffer).
  */
 export type AllocationCategory =
@@ -279,6 +302,7 @@ export type AllocationCategory =
     | 'indirect'
     | 'uniform'
     | 'uniform-ring'
+    | 'uniform-arena'
     | 'other'
     | 'sampled'
     | 'render-target'

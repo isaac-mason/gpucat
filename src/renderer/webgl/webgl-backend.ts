@@ -1,4 +1,4 @@
-import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { GpuBuffer, GpuTypedArray } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
 import type { TextureOrigin, TextureRegion } from '../../core/texture-region';
@@ -22,15 +22,18 @@ import * as Bindings from './bindings';
 import * as Buffers from './buffers';
 import { createContext } from './context';
 import * as CopyTexture from './copy-texture';
+import * as DrawBases from './draw-bases';
 import * as FrameBackend from './frame-backend';
 import * as Geometries from './geometries';
 import * as Prepare from './prepare';
 import * as Probe from './probe';
 import * as Programs from './programs';
+import * as ReadBuffer from './read-buffer';
 import * as ReadPixels from './read-pixels';
 import { createRenderObjectGlCache, type RenderObjectGlCache } from './render-object-gl';
 import * as RenderTargets from './render-target';
 import * as Samplers from './samplers';
+import * as State from './state';
 import * as Textures from './textures';
 import * as TransformFeedback from './transform-feedback';
 
@@ -58,6 +61,12 @@ export type WebGLBackendOptions = {
      * WGSL has no precision qualifier, so this is a GLSL-only (WebGL-backend-only) concern. Default: 'highp'.
      */
     precision?: 'highp' | 'mediump' | 'lowp';
+    /**
+     * Whether a mesh's draw list (`mesh.draws`, `DrawOptions.draws`) draws as one WEBGL_multi_draw call where the
+     * context has the extension, rather than one draw per entry. Default true; false is for a driver that mishandles
+     * it. Programs compile for one or the other, so it is fixed for the backend's life.
+     */
+    multiDraw?: boolean;
 };
 
 /** WebGL2's device half. Immediate mode: no command encoder and no swapchain, so a pass encodes as it ends. */
@@ -103,6 +112,8 @@ export class WebGLBackend implements DeviceBackend {
     readonly memoryTally: Info.MemoryTally = Info.createMemoryTally();
     /** Per-GpuTexture GL texture cache (upload + allocation). @internal */
     textures: Textures.TextureCache = Textures.createTextureCache(this.memoryTally);
+    /** What the context holds of each fixed-function state. @internal */
+    glState: State.GlState = State.createGlState();
     /** Per-GpuSampler GL sampler-object cache. @internal */
     samplers: Samplers.SamplerCache = Samplers.createSamplerCache();
     /** Per-RenderTarget GL framebuffer (FBO) cache. @internal */
@@ -129,6 +140,8 @@ export class WebGLBackend implements DeviceBackend {
     /** Cached `gl.MAX_TEXTURE_SIZE`, read once at init. Threaded into the storage() lowering's grid-width
      *  pick (bigger buffers tile into a device-sized grid). @internal */
     _maxTextureSize: number | undefined;
+    /** The multi-draw state, null without WEBGL_multi_draw or with `multiDraw: false`. @internal */
+    _drawBases: DrawBases.DrawBases | null = null;
 
     constructor(opts: WebGLBackendOptions) {
         this._opts = opts;
@@ -157,12 +170,13 @@ export class WebGLBackend implements DeviceBackend {
             preserveDrawingBuffer: this._opts.preserveDrawingBuffer ?? false,
             failIfMajorPerformanceCaveat: this._opts.failIfMajorPerformanceCaveat ?? false,
         });
-        this.gl.viewport(0, 0, this._width, this._height);
+        State.setViewport(this.gl, this.glState, 0, 0, this._width, this._height);
 
         // Read MAX_TEXTURE_SIZE once. It caps the storage() read-lowering's texel-grid width so large
         // read-only storage buffers tile into a grid this device can allocate (guaranteed ≥ 2048).
         const maxTex = this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE) as number;
         this._maxTextureSize = typeof maxTex === 'number' && maxTex > 0 ? maxTex : undefined;
+        this._drawBases = this._opts.multiDraw === false ? null : DrawBases.createDrawBases(this.gl);
 
         // WebGL's parallel to WebGPU's `device.lost`: the canvas fires `webglcontextlost` when the
         // driver drops the context (GPU reset, tab backgrounding, `WEBGL_lose_context`). Preventing
@@ -254,7 +268,11 @@ export class WebGLBackend implements DeviceBackend {
     /** WebGL2 has no async link, so this only moves the stall off the first frame and onto load. */
     /** @internal */
     async compileObjects(objects: RenderObject[], _params: RenderPassParams): Promise<void> {
-        const opts = { precision: this._opts.precision, maxTextureSize: this._maxTextureSize };
+        const opts = {
+            precision: this._opts.precision,
+            maxTextureSize: this._maxTextureSize,
+            multiDraw: this._drawBases !== null,
+        };
         for (const renderObject of objects) {
             Prepare.prepareRenderObject(this.gl!, this, this.renderer._nodes, renderObject, opts);
             await yieldToMain();
@@ -264,6 +282,40 @@ export class WebGLBackend implements DeviceBackend {
     /** @internal */
     releaseUniformBlock(key: object): void {
         if (this.gl) Buffers.releaseUniformBlock(this.gl, this.buffers, key);
+    }
+
+    /**
+     * Puts the context back to GL's defaults for everything gpucat sets or reads through, and forgets its records of it.
+     * @internal
+     */
+    resetState(): void {
+        const gl = this.gl;
+        if (!gl) return;
+        State.resetGlState(gl, this.glState, gl.drawingBufferWidth, gl.drawingBufferHeight);
+        Textures.forgetTextureUnits(gl, this.textures);
+        gl.useProgram(null);
+        gl.bindVertexArray(null);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        gl.bindBuffer(gl.UNIFORM_BUFFER, null);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
+        gl.bindBuffer(gl.COPY_READ_BUFFER, null);
+        gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
+        gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, null);
+        gl.pixelStorei(gl.PACK_ALIGNMENT, 4);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+        gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+        gl.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, 0);
+        gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+        gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+        gl.pixelStorei(gl.UNPACK_SKIP_IMAGES, 0);
+        gl.pixelStorei(gl.PACK_ROW_LENGTH, 0);
+        gl.pixelStorei(gl.PACK_SKIP_PIXELS, 0);
+        gl.pixelStorei(gl.PACK_SKIP_ROWS, 0);
     }
 
     /**
@@ -306,7 +358,7 @@ export class WebGLBackend implements DeviceBackend {
 
     /** Release the shader-probe GL resources. @internal */
     clearProbe(): void {
-        Probe.disposeProbeState(this.gl, this._probe);
+        Probe.disposeProbeState(this.gl, this.textures, this._probe);
     }
 
     /**
@@ -324,30 +376,19 @@ export class WebGLBackend implements DeviceBackend {
      */
     /**
      * The plain GL buffer backing a GpuBuffer within the transform-feedback state, or null if the
-     * buffer was never bound by a transform-feedback pass. Used by tests (and Phase 3
-     * `readBufferAsync`) to read a TF output buffer back. @internal
+     * buffer was never bound by a transform-feedback pass. Used by tests to read a TF output buffer back. @internal
      */
     getTransformFeedbackGlBuffer(buffer: GpuBuffer): WebGLBuffer | null {
         return TransformFeedback.getGlBufferFor(this.buffers, buffer);
     }
 
-    /**
-     * Honest native CPU readback of a GpuBuffer (e.g. a transform-feedback output) into a typed array.
-     *
-     * The fence is polled across event-loop ticks rather than spun on: a synchronous busy-loop never
-     * signals on a single-threaded GL backend. The buffer must have been through a transform-feedback
-     * pass, which is what allocates its GL buffer.
-     */
-    readBufferAsync(buffer: GpuBuffer): Promise<Float32Array | Int32Array | Uint32Array> {
-        if (!this.renderer._initialized || !this.gl) {
-            return Promise.reject(new Error('[webgl] readBufferAsync() called before init(). Await renderer.init() first.'));
-        }
-        return TransformFeedback.readBufferAsync(this.gl, this.buffers, buffer);
+    readBuffer(buffer: GpuBuffer, offset: number, count: number): Promise<GpuTypedArray> {
+        return ReadBuffer.readBuffer(this.gl!, this.buffers, buffer, offset, count);
     }
 
     /**
      * WebGL2 has no queue to ask, so this fences the command stream and polls across event-loop ticks.
-     * A synchronous spin never signals on a single-threaded backend, which `readBufferAsync` found first.
+     * A synchronous spin never signals on a single-threaded backend, which `readBuffer` found first.
      */
     awaitCompletion(): Promise<void> {
         const gl = this.gl;
@@ -466,8 +507,10 @@ export class WebGLBackend implements DeviceBackend {
         this._onContextRestored = null;
 
         if (this.gl) {
-            Probe.disposeProbeState(this.gl, this._probe);
+            Probe.disposeProbeState(this.gl, this.textures, this._probe);
             Programs.disposePrograms(this.gl, this.programs);
+            if (this._drawBases !== null) DrawBases.disposeDrawBases(this.gl, this._drawBases);
+            this._drawBases = null;
             Textures.disposeTextureCache(this.gl, this.textures);
             Samplers.disposeSamplerCache(this.gl, this.samplers);
             RenderTargets.disposeGlRenderTargets(this.gl, this.renderTargets);

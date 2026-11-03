@@ -8,7 +8,7 @@ const d = g.d;
 // `transformFeedback(kernel, { inputs, outputs })` is the literal WebGL2 transform-feedback primitive:
 // per-element attributes in, captured varyings out, own-index (gl_VertexID) only. It is NOT a faked
 // storage()/compute() — there is no hidden dual buffer, no auto-swap, no PBO mirror. You hold the
-// buffers, you ping-pong them yourself, and you read results back with the native `readBufferAsync`.
+// buffers, you ping-pong them yourself, and you read results back with `readBuffer`.
 //
 // The per-element physics lives in a shared `particleStep` Fn (below). The SAME Fn would feed a WebGPU
 // `compute()` kernel — `Fn(() => { index(out, i).assign(particleStep(index(pos, i), index(vel, i), dt)); })`
@@ -85,7 +85,7 @@ const velBuf = new g.GpuBuffer(d.vec4f, { data: velData });
 
 // The render pass draws from its own instanced attribute buffer. Because transform feedback and the
 // render path keep independent GL buffers, we read the simulated positions back with the honest native
-// `readBufferAsync` and upload them here — the CPU round-trip is explicit, not hidden.
+// `readBuffer` and upload them here — the CPU round-trip is explicit, not hidden.
 const renderPos = new g.GpuBuffer(d.vec4f, { count: N, usage: 'vertex' });
 
 // `dt` uniform, driven from the frame loop (the renderer reads no wall clock of its own).

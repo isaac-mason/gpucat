@@ -10,6 +10,7 @@ import type { ComputeContext } from '../core/pass-context';
 import type { DrawBindings } from './bindings';
 import * as Bindings from './bindings';
 import * as Buffers from './buffers';
+import { createPassState, resetPassState, setBindGroups, takesPipeline } from './pass-state';
 import * as Pipelines from './pipelines';
 import * as Textures from './textures';
 import type { WebGPUBackend } from './webgpu-backend';
@@ -39,9 +40,6 @@ export function compileComputePipeline(
     Pipelines.getForCompute(pipelines, device, nodes, computeNode, computeContext, promises);
 }
 
-/** One dynamic offset, reused so binding a uniform block at its offset allocates nothing. */
-const _dynamicOffset = /*@__PURE__*/ new Uint32Array(1);
-
 /** A recorded dispatch as it resolved when recorded: what it runs, what it binds, and how many workgroups. */
 export type ResolvedDispatch = {
     node: ComputeNode;
@@ -58,7 +56,7 @@ export function createResolvedDispatch(node: ComputeNode): ResolvedDispatch {
     return {
         node,
         pipeline: null,
-        bindings: { groups: [], offsets: [] },
+        bindings: Bindings.createDrawBindings(),
         workgroups: [0, 0, 0],
         indirect: null,
         indirectOffset: 0,
@@ -122,7 +120,7 @@ export function encodeDispatches(
 ): void {
     const { device, buffers } = b;
     const sharedPass = inspector === null ? encoder.beginComputePass({ label }) : null;
-    let currentPipeline: GPUComputePipeline | null = null;
+    const state = createPassState(b.renderer.info.state);
 
     for (let i = 0; i < count; i++) {
         const { node, pipeline, bindings, workgroups, indirect } = resolved[i];
@@ -140,24 +138,11 @@ export function encodeDispatches(
         let computePass = sharedPass;
         if (computePass === null) {
             computePass = encoder.beginComputePass({ label, timestampWrites });
-            currentPipeline = null;
+            resetPassState(state);
         }
 
-        if (currentPipeline !== pipeline) {
-            currentPipeline = pipeline!;
-            computePass.setPipeline(currentPipeline);
-        }
-
-        const { groups, offsets } = bindings;
-        for (let group = 0; group < groups.length; group++) {
-            const dynamicOffset = offsets[group];
-            if (dynamicOffset < 0) {
-                computePass.setBindGroup(group, groups[group]);
-            } else {
-                _dynamicOffset[0] = dynamicOffset;
-                computePass.setBindGroup(group, groups[group], _dynamicOffset, 0, 1);
-            }
-        }
+        if (takesPipeline(state, pipeline!)) computePass.setPipeline(pipeline!);
+        setBindGroups(state, computePass, bindings.groups, bindings.offsets, null);
 
         if (indirect !== null) {
             const gpuBuf = Buffers.ensureUploaded(buffers, device, indirect, 'indirect');

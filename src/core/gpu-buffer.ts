@@ -165,7 +165,7 @@ function schemaItemSize(schema: Any): number {
 }
 
 /** The typed array a `count`-allocated buffer of `schema` holds: the element's for an array, f32 for a struct. */
-function schemaArrayCtor(schema: Any): typeof Float32Array | typeof Int32Array | typeof Uint32Array {
+export function schemaArrayCtor(schema: Any): typeof Float32Array | typeof Int32Array | typeof Uint32Array {
     if (isArrayDesc(schema) || isSizedArrayDesc(schema)) return schemaArrayCtor((schema as array | sizedArray).element);
     if (isStructDesc(schema)) return Float32Array;
     return typedArrayCtorOf(schema);

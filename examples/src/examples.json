@@ -484,7 +484,7 @@
     },
     "example-webgl-transform-feedback-particles": {
         "title": "Transform Feedback Particles (WebGL)",
-        "description": "GPU-simulated particles via WebGL2 transform feedback: a shared step() Fn, explicit ping-pong buffers, and native readBufferAsync.",
+        "description": "GPU-simulated particles via WebGL2 transform feedback: a shared step() Fn, explicit ping-pong buffers, and readBuffer.",
         "tags": [
             "transform-feedback",
             "particles",

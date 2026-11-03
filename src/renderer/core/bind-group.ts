@@ -1,5 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
+import { UniformUpdateType } from '../../core/uniform';
+import type { Material } from '../../material/material';
 import type { SamplerEntry, StorageEntry, StorageTextureEntry, TextureEntry, UniformGroupBlock } from '../../nodes/builder';
 import type { NodeFrame } from './node-frame';
 
@@ -47,6 +49,12 @@ export type UniformBinding = {
      */
     currentBuffer: ArrayBuffer | null;
     scratchBuffer: ArrayBuffer | null;
+    /**
+     * The versions of what `currentBuffer` was packed from (see {@link readBlockStamp}), when a per-object block's
+     * members all have one; empty otherwise. While a draw's versions match, its bytes are the same, so it is not
+     * packed again.
+     */
+    stamp: number[];
 };
 
 /** Storage buffer binding (SSBO) */
@@ -134,6 +142,7 @@ export function createUniformBindGroup(block: UniformGroupBlock): BindGroup {
         sliceOffset: 0,
         currentBuffer: null,
         scratchBuffer: null,
+        stamp: [],
     };
 
     return {
@@ -203,6 +212,7 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
                     sliceOffset: 0,
                     currentBuffer: null,
                     scratchBuffer: null,
+                    stamp: [],
                 };
             case 'storage':
                 return {
@@ -246,6 +256,38 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
 }
 
 /**
+ * The versions a per-object block's bytes follow, into `out`: each member's `Uniform.version`, the material's uniform's
+ * for a member read from the material, or the drawn object's `worldMatrixVersion` for one of its matrices. False when
+ * a member has an object callback: what it reads has no version, so the block is packed at every use. Frame and render
+ * callbacks run first, at most once a frame or render as ever, so their uniforms' versions are current.
+ */
+export function readBlockStamp(block: UniformGroupBlock, frame: NodeFrame, material: Material | null, out: number[]): boolean {
+    let count = 0;
+    for (const m of block.members) {
+        const node = m.node;
+        if (node.objectMatrix !== null) {
+            out[count++] = frame.object!.worldMatrixVersion;
+            continue;
+        }
+        if (node.update) {
+            if (node.updateType === UniformUpdateType.OBJECT) return false;
+            frame.updateNode(node as unknown as Parameters<typeof frame.updateNode>[0]);
+        }
+        const uniform = node.uniform;
+        out[count++] = uniform.value !== null ? uniform.version : (material?.uniforms.get(node.name)?.version ?? 0);
+    }
+    out.length = count;
+    return true;
+}
+
+/** Whether two stamps are the same versions. An empty one, a block with no stamp, never matches. */
+export function sameStamp(a: readonly number[], b: readonly number[]): boolean {
+    if (a.length === 0 || a.length !== b.length) return false;
+    for (let index = 0; index < a.length; index++) if (a[index] !== b[index]) return false;
+    return true;
+}
+
+/**
  * Run the update callbacks for a uniform group's members.
  *
  * Neutral on purpose: it walks the group's members and defers to `NodeFrame.updateNode`, which owns
@@ -256,12 +298,16 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
 export function invokeUniformGroupCallbacks(block: UniformGroupBlock, frame: NodeFrame): void {
     for (const m of block.members) {
         const node = m.node;
+        if (node.objectMatrix !== null) {
+            node.uniform.value = frame.object![node.objectMatrix];
+            continue;
+        }
         if (node.update) {
             // Use NodeFrame's updateNode which respects updateType and deduplicates:
             // - FRAME: runs once per frameId
             // - RENDER: runs once per renderId
             // - OBJECT: runs every time (per mesh)
-            // The callback itself assigns node.value and bumps node.version (see UniformNode.onUpdate)
+            // The callback itself assigns the uniform's value (see UniformNode.onUpdate)
             frame.updateNode(node as unknown as Parameters<typeof frame.updateNode>[0]);
         }
     }

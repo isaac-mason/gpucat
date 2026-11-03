@@ -55,7 +55,7 @@ export function initRenderObject(
     // and its vertex and index buffers upload as the draw binds them, so neither repeats here every draw.
     if (!gpu.pipeline || stale) {
         initRenderBindings(bindingsState, renderObject, device);
-        const bindGroupLayouts = getRenderBindGroupLayouts(bindingsState, renderObject);
+        const bindGroupLayouts = getRenderBindGroupLayouts(bindingsState, renderObject, device);
         assertDynamicUniformLimit(device, getBindings(renderObject), pipelineName(renderObject));
         // Create pipeline using the unified pipelines system (sync)
         const entry = pipelines.getForRender(
@@ -94,7 +94,7 @@ export function initRenderObjectWithPromises(
     initRenderBindings(bindingsState, renderObject, device);
 
     // Get bind group layouts for pipeline creation
-    const bindGroupLayouts = getRenderBindGroupLayouts(bindingsState, renderObject);
+    const bindGroupLayouts = getRenderBindGroupLayouts(bindingsState, renderObject, device);
 
     // Check if we need to create/update pipeline
     const gpu = getRenderObjectGpu(renderObjectGpuCache, renderObject);

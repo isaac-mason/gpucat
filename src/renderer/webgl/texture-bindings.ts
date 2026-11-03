@@ -22,6 +22,9 @@ import { getBindings, type RenderObject } from '../core/render-object';
 import type { ProgramInfo, TextureUniforms } from './programs';
 import { getSampler } from './samplers';
 import {
+    bindSamplerUnit,
+    bindTextureUnit,
+    bindUploadTexture,
     type GlTextureData,
     getTextureData,
     isIntegerTextureFormat,
@@ -182,6 +185,8 @@ export type TextureCapture = {
  */
 function applyLevelRange(
     gl: WebGL2RenderingContext,
+    textures: TextureCache,
+    unit: number,
     texData: GlTextureData,
     gpuTexture: GpuTexture,
     range: TextureViewRange,
@@ -199,6 +204,8 @@ function applyLevelRange(
     }
     if ((texData.levelRange ?? '') === range.key) return;
     texData.levelRange = range.key;
+    // the parameters set the texture the active unit holds: `unit`, which the draw bound it on
+    bindUploadTexture(gl, textures, texData.target, texData.texture, unit);
     const last = range.mipLevelCount === undefined ? 1000 : range.baseMipLevel + range.mipLevelCount - 1;
     gl.texParameteri(texData.target, gl.TEXTURE_BASE_LEVEL, range.baseMipLevel);
     gl.texParameteri(texData.target, gl.TEXTURE_MAX_LEVEL, last);
@@ -290,23 +297,15 @@ export function bindTextures(
             // storage() read-lowering: the binding is a read-only storage GpuBuffer reinterpreted AS an
             // rgba32uint texture (WebGL2 has no SSBO). Resolve the per-buffer GL texture (version-synced),
             // bind it sampler-less (integer texelFetch needs no sampler), and set its combined-sampler uniform.
-            // Select this binding's unit FIRST: `updateTexture` / `updateStorageBufferTexture` bind the GL
-            // texture to the currently-active unit to upload it, so selecting the target unit up front
-            // makes that upload-bind land on the right unit. Otherwise the next binding's upload would
-            // clobber the texture we just bound to a still-active earlier unit (e.g. a storage integer
-            // texture at unit 0 being overwritten by a regular texture's upload, giving a
-            // usampler2D/sampler2D format mismatch at draw).
-            gl.activeTexture(gl.TEXTURE0 + unit);
-
+            // Uploads bind on their own unit, so none disturbs a unit a draw samples from.
             const storageSource = entry.node.storageBufferSource;
             if (storageSource) {
                 // Name-based sources (`storage('slot','read')` + `geometry.setBuffer('slot',…)`) resolve
                 // their buffer from THIS render object's geometry now; value-based already carry it.
                 const resolved = resolveStorageSource(gl, b.textures, renderObject, storageSource);
                 const glTexture = updateStorageBufferTexture(gl, b.textures, resolved);
-                gl.activeTexture(gl.TEXTURE0 + unit); // updateStorageBufferTexture may have left another unit active
-                gl.bindTexture(gl.TEXTURE_2D, glTexture);
-                gl.bindSampler(unit, null);
+                bindTextureUnit(gl, b.textures, unit, gl.TEXTURE_2D, glTexture);
+                bindSamplerUnit(gl, b.textures, unit, null);
                 setSamplerUnit(gl, textureUniformsOf(gl, programInfo, entry.shaderName), unit);
                 continue;
             }
@@ -326,9 +325,8 @@ export function bindTextures(
             }
             if (!texData) continue;
 
-            gl.activeTexture(gl.TEXTURE0 + unit); // updateTexture may have left another unit active
-            gl.bindTexture(texData.target, texData.texture);
-            applyLevelRange(gl, texData, gpuTexture, range);
+            bindTextureUnit(gl, b.textures, unit, texData.target, texData.texture);
+            applyLevelRange(gl, b.textures, unit, texData, gpuTexture, range);
 
             // Find the sampler assigned to this same unit and bind its GL sampler object.
             const gpuSampler = capture === null ? findSamplerForUnit(bindGroups, unit) : capture.samplers[capturedIndex];
@@ -339,11 +337,11 @@ export function bindTextures(
             if (gpuSampler) {
                 const hasMips = gpuTexture.generateMipmaps;
                 const glSampler = getSampler(gl, b.samplers, gpuSampler, hasMips);
-                gl.bindSampler(unit, glSampler);
+                bindSamplerUnit(gl, b.textures, unit, glSampler);
             } else {
                 // No paired sampler (bare texture handle): clear any stale sampler on the unit so the
                 // texture's own parameters apply.
-                gl.bindSampler(unit, null);
+                bindSamplerUnit(gl, b.textures, unit, null);
             }
 
             // Set the combined-sampler uniform to this texture unit.
@@ -415,9 +413,8 @@ export function bindStandaloneTextures(
         }
         if (!texData) continue;
 
-        gl.activeTexture(gl.TEXTURE0 + unit);
-        gl.bindTexture(texData.target, texData.texture);
-        applyLevelRange(gl, texData, gpuTexture, capture.ranges[index]!);
+        bindTextureUnit(gl, b.textures, unit, texData.target, texData.texture);
+        applyLevelRange(gl, b.textures, unit, texData, gpuTexture, capture.ranges[index]!);
 
         const gpuSampler = capture.samplers[index];
         assertFloatLinearFilterable(gl, gpuTexture.format, gpuSampler);
@@ -425,9 +422,9 @@ export function bindStandaloneTextures(
         if (gpuSampler) {
             const hasMips = gpuTexture.generateMipmaps;
             const glSampler = getSampler(gl, b.samplers, gpuSampler, hasMips);
-            gl.bindSampler(unit, glSampler);
+            bindSamplerUnit(gl, b.textures, unit, glSampler);
         } else {
-            gl.bindSampler(unit, null);
+            bindSamplerUnit(gl, b.textures, unit, null);
         }
 
         setSamplerUnit(gl, textureUniformsOf(gl, programInfo, entry.shaderName), unit);

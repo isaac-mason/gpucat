@@ -13,8 +13,8 @@
  * 5. Updates version tracking (textureData.version = texture.version)
  */
 
-import type { TextureViewRange } from '../../core/gpu-texture-view';
 import type { GpuTexture } from '../../core/gpu-texture';
+import type { TextureViewRange } from '../../core/gpu-texture-view';
 import type { TextureRegion } from '../../core/texture-region';
 import type { Source } from '../../texture/source';
 import {
@@ -31,6 +31,19 @@ import { type BindGroupData, clearBindGroupVariants } from './bindings';
 import { createMipmapState, disposeMipmapState, generateMipmaps, type MipmapState } from './mipmap-utils';
 
 /** Data stored per Texture in the cache */
+/** What a render target attachment's allocation was last checked against. */
+export type AllocatedLayout = {
+    texture: GPUTexture;
+    width: number;
+    height: number;
+    samples: number;
+    storage: boolean;
+    layers: number;
+    mipLevelCount: number;
+    format: GPUTextureFormat;
+    dimension: string;
+};
+
 export type TextureData = {
     /** The GPU texture resource */
     texture: GPUTexture;
@@ -38,6 +51,11 @@ export type TextureData = {
     version: number;
     /** Generation, increments when GPU texture object is recreated */
     generation: number;
+    /**
+     * For a render target's attachment, the layout it was last found allocated for, and the GPU texture then: while
+     * both hold, it still is (see render-target.ts `isAllocated`).
+     */
+    allocatedLayout?: AllocatedLayout;
     /** Whether this texture has been initialized */
     initialized: boolean;
     /** Whether this is a default placeholder texture */

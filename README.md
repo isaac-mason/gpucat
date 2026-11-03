@@ -852,6 +852,20 @@ const color = uniform(uColor);   // a node to use in a shader
 uColor.value = [0, 1, 0];        // update anytime; uploaded next frame
 ```
 
+Writes are explicit. Setting `.value` is a write. Changing the value in place is not: a typed array the uniform holds,
+or a field of a struct value. After an in-place change, set `needsUpdate`, as you would on a buffer:
+
+```ts
+const offset = new Uniform(d.vec4f, new Float32Array(4));
+offset.value![0] = 2;            // in place: not seen yet
+offset.needsUpdate = true;       // now it is
+```
+
+gpucat keeps a version per uniform, and a mesh's own uniforms are only packed again when one of their versions moves.
+A mesh's world matrix works the same way. `updateWorldMatrix()` is what writes `matrixWorld`, and it only moves the
+version when the matrix changes. Camera and frame uniforms are packed at every pass; versions save work where there
+are many, per mesh.
+
 You can also resolve a uniform by name from a material, handy when one shader graph is shared across meshes with different values:
 
 ```ts
@@ -1727,7 +1741,7 @@ function update() {
 }
 ```
 
-`f.transformFeedback()` is a pass, the exact mirror of `f.compute()`: both take `.dispatch(...)` and `.end()`, and each refuses on the backend that cannot run it. `readBuffer(renderer, buffer)` is a free function typed on `Renderer<WebGLBackend>`, the buffer counterpart of `read()` for targets. `f.compute()` is the other way round: it exists on every frame and throws on a WebGL2 backend, because the frame API is backend-neutral by construction. Inside the kernel body you can use `uniform()` and `textureLoad()` (an explicit `DataTexture` you bind, for neighbour gather); the element index is `vertexIndex` (or `instanceIndex` when you pass `instanceCount`). Outputs are scalar / vector types; `vec3` wants `vec4f` and struct outputs are not supported (both throw a clear message). Scatter, arbitrary-index writes, and atomics are not part of this model; use `compute()` on WebGPU for those.
+`f.transformFeedback()` is a pass, the exact mirror of `f.compute()`: both take `.dispatch(...)` and `.end()`, and each refuses on the backend that cannot run it. `readBuffer(renderer, buffer)` is the buffer counterpart of `read()` for targets, on either backend: on WebGL2 it reads what a transform feedback wrote. `f.compute()` is the other way round: it exists on every frame and throws on a WebGL2 backend, because the frame API is backend-neutral by construction. Inside the kernel body you can use `uniform()` and `textureLoad()` (an explicit `DataTexture` you bind, for neighbour gather); the element index is `vertexIndex` (or `instanceIndex` when you pass `instanceCount`). Outputs are scalar / vector types; `vec3` wants `vec4f` and struct outputs are not supported (both throw a clear message). Scatter, arbitrary-index writes, and atomics are not part of this model; use `compute()` on WebGPU for those.
 
 ### Sharing the body with `compute()`
 

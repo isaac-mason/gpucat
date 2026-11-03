@@ -72,6 +72,8 @@ export type StubGPUStats = {
     bufferDestroys: number;
     /** setBindGroup calls per group index, on a render pass or a bundle encoder. */
     bindGroupSetsByIndex: number[];
+    /** Each setBindGroup call in order, with the group and its dynamic offsets. */
+    bindGroupSets: { index: number; group: GPUBindGroup; offsets: number[] }[];
     /** Number of createBindGroup calls */
     bindGroupCreations: number;
     /** Number of createBuffer calls */
@@ -148,6 +150,7 @@ export function createStubGPU(): StubGPUResult {
         bufferCopies: 0,
         bufferDestroys: 0,
         bindGroupSetsByIndex: [],
+        bindGroupSets: [],
         bindGroupCreations: 0,
         bufferCreations: 0,
         drawCalls: 0,
@@ -169,6 +172,7 @@ export function createStubGPU(): StubGPUResult {
             this.bufferCopies = 0;
             this.bufferDestroys = 0;
             this.bindGroupSetsByIndex.length = 0;
+            this.bindGroupSets.length = 0;
             this.bindGroupCreations = 0;
             this.bufferCreations = 0;
             this.drawCalls = 0;
@@ -327,8 +331,9 @@ export function createStubGPU(): StubGPUResult {
     const drawRecorder = () => ({
         label: '',
         setPipeline: () => {},
-        setBindGroup: (index: number) => {
+        setBindGroup: (index: number, group: GPUBindGroup, offsets: number[] = []) => {
             stats.bindGroupSetsByIndex[index] = (stats.bindGroupSetsByIndex[index] ?? 0) + 1;
+            stats.bindGroupSets.push({ index, group, offsets: [...offsets] });
         },
         setVertexBuffer: () => {},
         setIndexBuffer: () => {},

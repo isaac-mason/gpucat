@@ -16,6 +16,8 @@ import {
     setAllocation,
 } from '../core/info';
 
+import { createDrawArena, type DrawArena, disposeDrawArena, releaseSlot, type SharedGroup, sharedGroup } from './draw-arena';
+
 type CacheEntry = { buf: GPUBuffer; version: number; allocation: Allocation };
 type RawEntry = { buf: GPUBuffer; allocation: Allocation };
 
@@ -40,6 +42,9 @@ export type BufferCache = {
 
     /** Allocations for uniform uses that cannot read their block's own buffer. See `allocDynamicUniform`. */
     dynamicUniforms: DynamicUniformBuffers;
+
+    /** Where each render object's and dispatch's own uniform block lives. See `draw-arena.ts`. */
+    drawArena: DrawArena;
 };
 
 /**
@@ -66,6 +71,11 @@ export type DynamicUniformBuffers = {
     /** CPU copies created. */
     cpuStagingCount: number;
     nextBufferId: number;
+    /**
+     * Bind groups over each GPU buffer, by its id, for a group whose one binding is a uniform block: every use with an
+     * allocation there binds the same one at its own offset, as PlayCanvas's `DynamicBuffer.getBindGroup`.
+     */
+    bindGroups: SharedGroup[][];
     destroyed: boolean;
 };
 
@@ -96,6 +106,7 @@ function createDynamicUniformBuffers(): DynamicUniformBuffers {
         mappedStagingCount: 0,
         cpuStagingCount: 0,
         nextBufferId: 0,
+        bindGroups: [],
         destroyed: false,
     };
 }
@@ -114,6 +125,7 @@ export function createBufferCache(info: RendererInfo, tally: MemoryTally): Buffe
         tally,
         info,
         dynamicUniforms: createDynamicUniformBuffers(),
+        drawArena: createDrawArena(info, tally),
     };
 }
 
@@ -162,6 +174,15 @@ function deriveGPUUsage(buffer: GpuBuffer): GPUBufferUsageFlags {
  *  bound under different attribute names, so it cannot live on the buffer. */
 export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: GpuBuffer, name: string): GPUBuffer {
     const entry = cache.bufferMap.get(buffer);
+    // uploaded, unchanged and still large enough, as three.js's version check: the common case, every draw
+    if (
+        entry !== undefined &&
+        entry.version === buffer.version &&
+        buffer.updateRangeCount === 0 &&
+        (buffer.array === null || entry.buf.size >= buffer.array.byteLength)
+    ) {
+        return entry.buf;
+    }
     const plan = planBufferUpload(buffer, entry !== undefined, entry?.buf.size ?? 0, entry?.version ?? -1);
 
     if (plan === BufferUpload.Skip) {
@@ -179,7 +200,7 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
         entry?.buf.destroy();
         // 4-byte alignment is a device requirement, so the size is decided here, not in the plan.
         const byteLength = alignTo4(arr?.byteLength ?? buffer.byteLength);
-        const buf = device.createBuffer({ size: byteLength, usage: deriveGPUUsage(buffer) });
+        const buf = device.createBuffer({ label, size: byteLength, usage: deriveGPUUsage(buffer) });
         // Both under the same guard: a reallocation must not count twice, nor hook dispose twice.
         if (!entry) {
             cache.bufferCount++;
@@ -384,6 +405,7 @@ export function getRaw(cache: BufferCache, key: object): GPUBuffer | undefined {
 
 /** Destroy the uniform block `key` names; its owner calls this when it dies. A key with no block is a no-op. */
 export function releaseUniformBlock(cache: BufferCache, key: object): void {
+    releaseSlot(cache.drawArena, key);
     const entry = cache.rawMap.get(key);
     if (!entry) return;
     entry.buf.destroy();
@@ -407,6 +429,7 @@ export function disposeBufferCache(cache: BufferCache): void {
     // A handed-in device outlives the renderer, so these are released here rather than with it.
     destroyDynamicUniforms(cache.dynamicUniforms);
     cache.dynamicUniforms = createDynamicUniformBuffers();
+    disposeDrawArena(cache.drawArena);
 }
 
 /**
@@ -492,6 +515,24 @@ export function dynamicUniformBuffer(cache: BufferCache, id: number): GPUBuffer 
     if (buffers.active?.gpuBuffer.id === id) return buffers.active.gpuBuffer.buffer;
     for (const used of buffers.usedBuffers) if (used.gpuBuffer.id === id) return used.gpuBuffer.buffer;
     throw new Error(`[gpucat] dynamic uniform buffer ${id} is not part of this frame`);
+}
+
+/** The bind group binding `size` bytes of dynamic uniform buffer `bufferId` at `binding`, over `layout`. */
+export function ringGroup(
+    cache: BufferCache,
+    device: GPUDevice,
+    bufferId: number,
+    layout: GPUBindGroupLayout,
+    binding: number,
+    size: number,
+): GPUBindGroup {
+    const buffers = cache.dynamicUniforms;
+    let groups = buffers.bindGroups[bufferId];
+    if (groups === undefined) {
+        groups = [];
+        buffers.bindGroups[bufferId] = groups;
+    }
+    return sharedGroup(device, groups, dynamicUniformBuffer(cache, bufferId), layout, binding, size);
 }
 
 /**

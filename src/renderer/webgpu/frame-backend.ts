@@ -27,9 +27,10 @@ import {
 import type { Renderer } from '../core/renderer';
 import { drawsNothing, prepareRecordedDraw } from '../core/renderer-ops';
 import { renderTargetOf } from '../core/target';
-import type { DrawBindings } from './bindings';
+import { createDrawBindings, type DrawBindings } from './bindings';
 import * as Buffers from './buffers';
 import * as Compute from './compute';
+import { flushDrawArena } from './draw-arena';
 import * as Prepare from './prepare';
 import * as RenderObjectGpu from './render-object-gpu';
 import * as RenderPass from './render-pass';
@@ -370,7 +371,9 @@ export function submitFrame(s: WebGPUFrameBackendState): void {
     Compute.regenerateComputeMips(backend.device, backend.textures, s.mipTextures, backend._currentEncoder!);
     s.mipTextures.clear();
 
-    // The dynamic uniform copies go first in the same submit, so every pass reads its allocation.
+    // The draw arena's writes and the dynamic uniform copies land ahead of the frame's commands, so every pass reads
+    // the bytes it was recorded with.
+    flushDrawArena(backend.buffers.drawArena, backend.device);
     const dynamicUniformCopies = Buffers.submitDynamicUniforms(backend.buffers, backend.device);
 
     backend._openValidationScope();
@@ -458,7 +461,7 @@ function resolvedAt(pool: Compute.ResolvedDispatch[], index: number, node: Compu
 function bindingsAt(pool: DrawBindings[], index: number): DrawBindings {
     let bindings = pool[index];
     if (bindings === undefined) {
-        bindings = { groups: [], offsets: [] };
+        bindings = createDrawBindings();
         pool[index] = bindings;
     }
     return bindings;

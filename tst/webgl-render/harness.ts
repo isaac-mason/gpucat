@@ -1,9 +1,5 @@
 import {
     ArrayTexture,
-    invariant,
-    If,
-    Fn,
-    Discard,
     arrayTexture,
     attribute,
     BlendMode,
@@ -25,10 +21,13 @@ import {
     cubeTexture,
     DataTexture,
     DepthTexture,
+    Discard,
     DrawIndirect,
     d,
     depthTexture,
     drawScene,
+    equal,
+    Fn,
     f32,
     frame,
     fullscreen,
@@ -36,9 +35,11 @@ import {
     GpuBuffer,
     GpuSampler,
     GpuTexture,
+    If,
     i32,
     init,
     instanceIndex,
+    invariant,
     Material,
     Mesh,
     type MRTNode,
@@ -54,6 +55,7 @@ import {
     type Renderer,
     type RenderTarget,
     read,
+    readBuffer,
     renderOutput,
     renderTexture,
     Scene,
@@ -78,6 +80,7 @@ import {
     vec4,
     vertexIndex,
     type WebGLBackend,
+    type WebGLBackendOptions,
     webgl,
     writeBuffer,
     writeTexture,
@@ -285,14 +288,107 @@ async function caseBundleReplay(): Promise<CaseResult> {
     };
 }
 
-async function newRenderer(): Promise<Renderer<WebGLBackend>> {
+async function newRenderer(options: Omit<WebGLBackendOptions, 'target'> = {}): Promise<Renderer<WebGLBackend>> {
     const view = createCanvasTarget(document.createElement('canvas'));
     view.setSize(SIZE, SIZE);
-    const renderer = await init(webgl({ target: view }));
+    const renderer = await init(webgl({ ...options, target: view }));
     activeTarget = null;
     activeClear = [0, 0, 0, 1];
     activeMrt = null;
     return renderer;
+}
+
+/**
+ * draws-list: each entry of a draw list reads its own `firstInstance` as the instance index, and a single draw on the
+ * same kind of program reads 0, whether the list draws as one WEBGL_multi_draw call or as a draw per entry. The list's
+ * last entry is the one seen, behind an entry with no instances, so the table and the call skip that entry together.
+ */
+async function caseDrawsList(multiDraw: boolean): Promise<CaseResult> {
+    const renderer = await newRenderer({ multiDraw });
+    const name = multiDraw ? 'draws-list (multi-draw)' : 'draws-list (a draw per entry)';
+    const instanceIs = (base: number) =>
+        select(vec4(1, 0, 0, 1), vec4(0, 1, 0, 1), equal(varying(instanceIndex, 'vInstance'), u32(base)));
+
+    const listed = fullscreen(instanceIs(7));
+    listed.material.depthTest = false;
+    listed.draws = [
+        { vertexCount: 3, instanceCount: 1, firstVertex: 0, firstInstance: 3 },
+        { vertexCount: 3, instanceCount: 0, firstVertex: 0, firstInstance: 9 },
+        { vertexCount: 3, instanceCount: 1, firstVertex: 0, firstInstance: 7 },
+    ];
+    listed.updateWorldMatrix();
+    const single = fullscreen(instanceIs(0));
+    single.material.depthTest = false;
+    single.updateWorldMatrix();
+
+    const listTarget = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const singleTarget = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const f = frame(renderer);
+    const listPass = f.pass({ target: listTarget, clear: [0, 0, 1, 1] });
+    listPass.draw(listed);
+    listPass.end();
+    const singlePass = f.pass({ target: singleTarget, clear: [0, 0, 1, 1] });
+    singlePass.draw(single);
+    singlePass.end();
+    f.submit();
+    const list = await read(renderer, listTarget);
+    const one = await read(renderer, singleTarget);
+    const used = renderer.backend._drawBases !== null;
+    renderer.dispose();
+
+    const green = (pixel: ArrayLike<number>) => pixel[0] === 0 && pixel[1] === 255 && pixel[2] === 0;
+    return {
+        name,
+        pixel: green(list) && green(one) && used === multiDraw ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `list=${Array.from(list).slice(0, 4).join(',')} single=${Array.from(one).slice(0, 4).join(',')} multi-draw used=${used}`,
+    };
+}
+
+/**
+ * reset-state: other code that changes the context gpucat draws with leaves state gpucat's record does not know of, so
+ * a draw that skips what it believes is set comes out wrong; `renderer.resetState()` puts the context back and the next
+ * draw is right again.
+ */
+async function caseResetState(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const green = fullscreen(vec4(0, 1, 0, 1));
+    green.material.depthTest = false;
+    green.updateWorldMatrix();
+    const draw = async () => {
+        const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+        const f = frame(renderer);
+        const pass = f.pass({ target, clear: [0, 0, 1, 1] });
+        pass.draw(green);
+        pass.end();
+        f.submit();
+        return read(renderer, target);
+    };
+    // the control leaves out the unpack buffer: with it bound, a new texture cannot allocate, so the draw throws
+    const meddle = (unpackBuffer: boolean) => {
+        const gl = renderer.backend.gl!;
+        gl.colorMask(false, false, false, false);
+        gl.enable(gl.SCISSOR_TEST);
+        gl.scissor(0, 0, 0, 0);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.ZERO, gl.ZERO);
+        if (unpackBuffer) gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, gl.createBuffer());
+    };
+    const before = await draw();
+    meddle(false);
+    const unreset = await draw();
+    meddle(true);
+    renderer.resetState();
+    const reset = await draw();
+    renderer.dispose();
+    const isGreen = (pixel: ArrayLike<number>) => pixel[0] === 0 && pixel[1] === 255 && pixel[2] === 0;
+    const ok = isGreen(before) && !isGreen(unreset) && isGreen(reset);
+    return {
+        name: 'reset-state',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `before=${Array.from(before).slice(0, 4).join(',')} meddled=${Array.from(unreset).slice(0, 4).join(',')} reset=${Array.from(reset).slice(0, 4).join(',')}`,
+    };
 }
 
 /** clear: empty scene renders to clearColor. */
@@ -2311,7 +2407,7 @@ async function caseBgra8Unsupported(): Promise<CaseResult> {
 
 // -------------------------------------------------------------------------------------------------
 // Transform feedback (Phase 2). These read the TF OUTPUT buffer back directly via raw
-// gl.getBufferSubData (test-side; readBufferAsync is Phase 3) and assert exact values — the strongest
+// gl.getBufferSubData (test-side; `readBuffer` is the public path) and assert exact values — the strongest
 // proof the kernel actually ran. Pass/fail is encoded as a green/red pixel like the other cases.
 // -------------------------------------------------------------------------------------------------
 
@@ -2428,7 +2524,7 @@ async function caseTransformFeedbackPingPong(): Promise<CaseResult> {
 
 /**
  * tf-readback: run a particles-style kernel (pos' = pos + vel), then read the output buffer back via
- * the PUBLIC async API `renderer.backend.readBufferAsync(outBuf)` (the real Phase-3 copyBufferSubData + fence
+ * the PUBLIC async API `readBuffer(renderer, outBuf)` (the real Phase-3 copyBufferSubData + fence
  * path — NOT raw getBufferSubData). Asserts exact per-component values. Because the fence is polled
  * across event-loop ticks, this also regression-guards the yield: a synchronous busy-loop would time
  * out on SwiftShader and this case would throw/fail rather than pass.
@@ -2462,7 +2558,7 @@ async function caseTransformFeedbackReadbackAsync(): Promise<CaseResult> {
     runTf(renderer, kernel, { inputs: { pos: bufA, vel: velBuf }, outputs: { pos: bufB }, count: N });
 
     // The real async fence path — this is what Phase 3 delivers.
-    const got = await renderer.backend.readBufferAsync(bufB);
+    const got = await readBuffer(renderer, bufB);
     let ok = got instanceof Float32Array && got.length === N * 4;
     let note = '';
     if (!ok) {
@@ -2477,7 +2573,7 @@ async function caseTransformFeedbackReadbackAsync(): Promise<CaseResult> {
             }
         }
     }
-    if (ok) note = `readBufferAsync → [${Array.from(got.slice(0, 4)).join(', ')}] …`;
+    if (ok) note = `readBuffer → [${Array.from(got.slice(0, 4)).join(', ')}] …`;
     renderer.dispose();
     return {
         name: 'tf-readback',
@@ -5276,6 +5372,9 @@ export async function run(): Promise<RunResult> {
             caseDrawOpts,
             caseDrawMaterial,
             caseBundleReplay,
+            () => caseDrawsList(true),
+            () => caseDrawsList(false),
+            caseResetState,
             caseBufferSwap,
             caseClearDepth,
             caseClearDepthOnly,

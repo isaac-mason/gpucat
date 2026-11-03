@@ -10,11 +10,13 @@ import {
     f32,
     GpuSampler,
     globalId,
+    If,
     i32,
     Material,
     screenUV,
     storageTexture,
     texture,
+    textureDimensions,
     textureLoad,
     textureStore,
     u32,
@@ -25,6 +27,25 @@ import {
 import * as d from '../src/schema/schema';
 
 describe('storage textures — WGSL emission', () => {
+    test('a storage texture used twice is named by its binding each time, never held in a let', () => {
+        // Tint in Chrome 142 rejects `let x = <storage texture>`; WGSL has no need of one
+        const scene = storageTexture('scene', d.textureStorage2d('rgba8unorm'), 'write');
+
+        const fn = Fn(() => {
+            const size = textureDimensions(scene);
+            If(globalId.x.lessThan(size.x), () => {
+                textureStore(scene, vec2u(globalId.x, globalId.y), vec4(f32(1), f32(0), f32(0), f32(1)));
+            });
+        });
+
+        const result = compileComputeWgsl(fn.compute({ workgroupSize: [8, 8, 1] }));
+        const binding = /var (\w+): texture_storage_2d<rgba8unorm, write>;/.exec(result.code)?.[1];
+        expect(binding).toBeDefined();
+        expect(result.code).not.toMatch(new RegExp(`let \\w+ = ${binding};`));
+        expect(result.code).toContain(`textureDimensions(${binding})`);
+        expect(result.code).toContain(`textureStore(${binding},`);
+    });
+
     test('2d write: emits texture_storage_2d<rgba8unorm, write> and textureStore statement', () => {
         const tex = createStorageTexture(64, 64); // default rgba8unorm
         const st = storageTexture(tex, 'write');

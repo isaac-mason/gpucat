@@ -183,6 +183,7 @@ function resolveDraw(s: WebGLFrameBackendState, open: OpenRenderPass, entry: Dra
         Prepare.prepareRenderObject(backend.gl!, backend, nodes, object, {
             precision: backend._opts.precision,
             maxTextureSize: backend._maxTextureSize,
+            multiDraw: backend._drawBases !== null,
         }),
     );
     if (drawsNothing(renderObject, entry.opts)) {

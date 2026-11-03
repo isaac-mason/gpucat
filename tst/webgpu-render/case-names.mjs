@@ -10,6 +10,7 @@ export const CASE_NAMES = [
     'viewport-scissor',
     'mrt',
     'mrt-integer',
+    'read-buffer',
     'cube-layer',
     'rt-mip-depth',
     'rt-array-layer',

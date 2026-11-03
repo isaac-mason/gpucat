@@ -39,6 +39,7 @@ import {
 } from '../core/info';
 import { formatHasStencil } from '../core/render-types';
 import { estimatedBytesPerTexel } from '../core/texture-size';
+import { type GlState, setCapability } from './state';
 import { type GlTextureData, getTextureData, type TextureCache, updateTexture } from './textures';
 import type { WebGLBackend } from './webgl-backend';
 
@@ -599,7 +600,7 @@ function deleteMsaa(gl: WebGL2RenderingContext, state: GlRenderTargetsState, msa
  * NEAREST)`), so the sampleable texture carries the antialiased result. A no-op when the last-bound
  * target wasn't MSAA. Clears `pendingResolve`.
  */
-export function resolveActiveRenderTarget(gl: WebGL2RenderingContext, state: GlRenderTargetsState): void {
+export function resolveActiveRenderTarget(gl: WebGL2RenderingContext, state: GlRenderTargetsState, glState: GlState): void {
     const rt = state.pendingResolve;
     state.pendingResolve = null;
     if (!rt) return;
@@ -620,7 +621,7 @@ export function resolveActiveRenderTarget(gl: WebGL2RenderingContext, state: GlR
     // pass (e.g. a studio grid cell), which would clip the resolve to the scissor rect and leave the
     // rest of the texture holding unresolved garbage. Disable it for the resolve; the next pass sets
     // its own scissor state via applyViewportScissor.
-    gl.disable(gl.SCISSOR_TEST);
+    setCapability(gl, glState, 'scissorTest', false);
 
     // Resolve each color attachment independently: a blit resolves READ_BUFFER → the draw FBO's
     // drawBuffers, so point both at attachment i in turn (MRT-safe; single-attachment is the common case).

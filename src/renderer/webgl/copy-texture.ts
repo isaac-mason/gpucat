@@ -1,6 +1,6 @@
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureOrigin, TextureRegion } from '../../core/texture-region';
-import { type TextureCache, updateTexture, withCopyFramebuffer } from './textures';
+import { bindUploadTexture, type TextureCache, updateTexture, withCopyFramebuffer } from './textures';
 
 /**
  * `copyTexture` for WebGL2: the source level and layer attach to a read framebuffer, and
@@ -41,7 +41,7 @@ export function copyTextureRegion(
                 );
             }
             const toZ = origin.z + layer;
-            gl.bindTexture(to.target, to.texture);
+            bindUploadTexture(gl, state, to.target, to.texture);
             const copyRows = (fromRow: number, toRow: number, rows: number) => {
                 if (to.target === gl.TEXTURE_2D_ARRAY || to.target === gl.TEXTURE_3D) {
                     gl.copyTexSubImage3D(to.target, origin.level, origin.x, toRow, toZ, region.x, fromRow, region.width, rows);

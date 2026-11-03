@@ -535,11 +535,13 @@ Drive the GPU: create a renderer, build pipelines, render to the canvas or a tar
 <table><tr>
 <td><a href="#canvasalphamode"><code>CanvasAlphaMode</code></a></td><td><a href="#canvastargetoptions"><code>CanvasTargetOptions</code></a></td><td><a href="#canvasresizeevent"><code>CanvasResizeEvent</code></a></td><td><a href="#canvastarget"><code>CanvasTarget</code></a></td>
 </tr><tr>
-<td><a href="#createcanvastarget"><code>createCanvasTarget</code></a></td><td><a href="#readoptions"><code>ReadOptions</code></a></td><td><a href="#read"><code>read</code></a></td><td><a href="#rendertargetoptions"><code>RenderTargetOptions</code></a></td>
+<td><a href="#createcanvastarget"><code>createCanvasTarget</code></a></td><td><a href="#readoptions"><code>ReadOptions</code></a></td><td><a href="#read"><code>read</code></a></td><td><a href="#readbufferoptions"><code>ReadBufferOptions</code></a></td>
 </tr><tr>
-<td><a href="#rendertargettexture"><code>RenderTargetTexture</code></a></td><td><a href="#rendertarget"><code>RenderTarget</code></a></td><td><a href="#createrendertarget"><code>createRenderTarget</code></a></td><td><a href="#assertsubresource"><code>assertSubresource</code></a></td>
+<td><a href="#readbuffer"><code>readBuffer</code></a></td><td><a href="#rendertargetoptions"><code>RenderTargetOptions</code></a></td><td><a href="#rendertargettexture"><code>RenderTargetTexture</code></a></td><td><a href="#rendertarget"><code>RenderTarget</code></a></td>
 </tr><tr>
-<td><a href="#deadattachment"><code>deadAttachment</code></a></td><td><a href="#cuberendertargetoptions"><code>CubeRenderTargetOptions</code></a></td><td><a href="#cuberendertarget"><code>CubeRenderTarget</code></a></td><td><a href="#createcuberendertarget"><code>createCubeRenderTarget</code></a></td>
+<td><a href="#createrendertarget"><code>createRenderTarget</code></a></td><td><a href="#assertsubresource"><code>assertSubresource</code></a></td><td><a href="#deadattachment"><code>deadAttachment</code></a></td><td><a href="#cuberendertargetoptions"><code>CubeRenderTargetOptions</code></a></td>
+</tr><tr>
+<td><a href="#cuberendertarget"><code>CubeRenderTarget</code></a></td><td><a href="#createcuberendertarget"><code>createCubeRenderTarget</code></a></td><td></td><td></td>
 </tr></table>
 
 ### Scene & objects
@@ -595,15 +597,15 @@ Declarative, data-oriented resources: buffers, uniforms, materials, and textures
 </tr><tr>
 <td><a href="#bufferusage"><code>BufferUsage</code></a></td><td><a href="#indexformat"><code>IndexFormat</code></a></td><td><a href="#getindexformat"><code>getIndexFormat</code></a></td><td><a href="#gpubufferoptions"><code>GpuBufferOptions</code></a></td>
 </tr><tr>
-<td><a href="#gpubuffer"><code>GpuBuffer</code></a></td><td><a href="#createvertexbuffer"><code>createVertexBuffer</code></a></td><td><a href="#createstoragebuffer"><code>createStorageBuffer</code></a></td><td><a href="#createuniformbuffer"><code>createUniformBuffer</code></a></td>
+<td><a href="#schemaarrayctor"><code>schemaArrayCtor</code></a></td><td><a href="#gpubuffer"><code>GpuBuffer</code></a></td><td><a href="#createvertexbuffer"><code>createVertexBuffer</code></a></td><td><a href="#createstoragebuffer"><code>createStorageBuffer</code></a></td>
 </tr><tr>
-<td><a href="#createindirectbuffer"><code>createIndirectBuffer</code></a></td><td><a href="#createindexbuffer"><code>createIndexBuffer</code></a></td><td><a href="#uniformvalue"><code>UniformValue</code></a></td><td><a href="#uniformstored"><code>UniformStored</code></a></td>
+<td><a href="#createuniformbuffer"><code>createUniformBuffer</code></a></td><td><a href="#createindirectbuffer"><code>createIndirectBuffer</code></a></td><td><a href="#createindexbuffer"><code>createIndexBuffer</code></a></td><td><a href="#uniformvalue"><code>UniformValue</code></a></td>
 </tr><tr>
-<td><a href="#uniformupdatetype"><code>UniformUpdateType</code></a></td><td><a href="#uniformgroup"><code>UniformGroup</code></a></td><td><a href="#uniformgroup-2"><code>uniformGroup</code></a></td><td><a href="#shareduniformgroup"><code>sharedUniformGroup</code></a></td>
+<td><a href="#uniformstored"><code>UniformStored</code></a></td><td><a href="#uniformupdatetype"><code>UniformUpdateType</code></a></td><td><a href="#uniformgroup"><code>UniformGroup</code></a></td><td><a href="#uniformgroup-2"><code>uniformGroup</code></a></td>
 </tr><tr>
-<td><a href="#framegroup"><code>frameGroup</code></a></td><td><a href="#rendergroup"><code>renderGroup</code></a></td><td><a href="#objectgroup"><code>objectGroup</code></a></td><td><a href="#uniform-2"><code>Uniform</code></a></td>
+<td><a href="#shareduniformgroup"><code>sharedUniformGroup</code></a></td><td><a href="#framegroup"><code>frameGroup</code></a></td><td><a href="#rendergroup"><code>renderGroup</code></a></td><td><a href="#materialgroup"><code>materialGroup</code></a></td>
 </tr><tr>
-<td><a href="#createuniform"><code>createUniform</code></a></td><td></td><td></td><td></td>
+<td><a href="#objectgroup"><code>objectGroup</code></a></td><td><a href="#uniform-2"><code>Uniform</code></a></td><td><a href="#createuniform"><code>createUniform</code></a></td><td></td>
 </tr></table>
 
 **Materials**
@@ -641,19 +643,19 @@ Turn a node graph into WGSL.
 **Compile**
 
 <table><tr>
-<td><a href="#compilewgsl-2"><code>compileWgsl</code></a></td><td><a href="#compileglsloptions-2"><code>CompileGlslOptions</code></a></td><td><a href="#compileglsl-2"><code>compileGlsl</code></a></td><td><a href="#compilecomputewgsl-2"><code>compileComputeWgsl</code></a></td>
+<td><a href="#draw_bases_entries"><code>DRAW_BASES_ENTRIES</code></a></td><td><a href="#compilewgsl-2"><code>compileWgsl</code></a></td><td><a href="#compileglsloptions-2"><code>CompileGlslOptions</code></a></td><td><a href="#compileglsl-2"><code>compileGlsl</code></a></td>
 </tr><tr>
-<td><a href="#compiletransformfeedback-2"><code>compileTransformFeedback</code></a></td><td><a href="#nodeupdatetype-2"><code>NodeUpdateType</code></a></td><td><a href="#updatebeforenode"><code>UpdateBeforeNode</code></a></td><td><a href="#updateafternode"><code>UpdateAfterNode</code></a></td>
+<td><a href="#compilecomputewgsl-2"><code>compileComputeWgsl</code></a></td><td><a href="#compiletransformfeedback-2"><code>compileTransformFeedback</code></a></td><td><a href="#nodeupdatetype-2"><code>NodeUpdateType</code></a></td><td><a href="#updatebeforenode"><code>UpdateBeforeNode</code></a></td>
 </tr><tr>
-<td><a href="#updatenode"><code>UpdateNode</code></a></td><td><a href="#attributeentry-2"><code>AttributeEntry</code></a></td><td><a href="#vertexbuffergroup-2"><code>VertexBufferGroup</code></a></td><td><a href="#varyingentry-2"><code>VaryingEntry</code></a></td>
+<td><a href="#updateafternode"><code>UpdateAfterNode</code></a></td><td><a href="#updatenode"><code>UpdateNode</code></a></td><td><a href="#attributeentry-2"><code>AttributeEntry</code></a></td><td><a href="#vertexbuffergroup-2"><code>VertexBufferGroup</code></a></td>
 </tr><tr>
-<td><a href="#uniformmember-2"><code>UniformMember</code></a></td><td><a href="#uniformgroupblock-2"><code>UniformGroupBlock</code></a></td><td><a href="#storageentry-2"><code>StorageEntry</code></a></td><td><a href="#textureentry-2"><code>TextureEntry</code></a></td>
+<td><a href="#varyingentry-2"><code>VaryingEntry</code></a></td><td><a href="#uniformmember-2"><code>UniformMember</code></a></td><td><a href="#uniformgroupblock-2"><code>UniformGroupBlock</code></a></td><td><a href="#storageentry-2"><code>StorageEntry</code></a></td>
 </tr><tr>
-<td><a href="#storagetextureentry-2"><code>StorageTextureEntry</code></a></td><td><a href="#samplerentry-2"><code>SamplerEntry</code></a></td><td><a href="#computestorageentry-2"><code>ComputeStorageEntry</code></a></td><td><a href="#nodegraphinfo-2"><code>NodeGraphInfo</code></a></td>
+<td><a href="#textureentry-2"><code>TextureEntry</code></a></td><td><a href="#storagetextureentry-2"><code>StorageTextureEntry</code></a></td><td><a href="#samplerentry-2"><code>SamplerEntry</code></a></td><td><a href="#computestorageentry-2"><code>ComputeStorageEntry</code></a></td>
 </tr><tr>
-<td><a href="#compileslots-2"><code>CompileSlots</code></a></td><td><a href="#compileresult-2"><code>CompileResult</code></a></td><td><a href="#computecompileresult-2"><code>ComputeCompileResult</code></a></td><td><a href="#transformfeedbackinputattribute-2"><code>TransformFeedbackInputAttribute</code></a></td>
+<td><a href="#nodegraphinfo-2"><code>NodeGraphInfo</code></a></td><td><a href="#compileslots-2"><code>CompileSlots</code></a></td><td><a href="#compileresult-2"><code>CompileResult</code></a></td><td><a href="#computecompileresult-2"><code>ComputeCompileResult</code></a></td>
 </tr><tr>
-<td><a href="#transformfeedbackglslresult-2"><code>TransformFeedbackGlslResult</code></a></td><td><a href="#discovery"><code>Discovery</code></a></td><td></td><td></td>
+<td><a href="#transformfeedbackinputattribute-2"><code>TransformFeedbackInputAttribute</code></a></td><td><a href="#transformfeedbackglslresult-2"><code>TransformFeedbackGlslResult</code></a></td><td><a href="#discovery"><code>Discovery</code></a></td><td></td>
 </tr></table>
 
 ### Schema (`d`)
@@ -1183,6 +1185,12 @@ export type CompileGlslOptions = {
      * shapes the texture and never the emitted GLSL.
      */
     maxTextureSize?: number;
+    /**
+     * Whether the context has WEBGL_multi_draw: the instance index then reads each draw's base from a table indexed
+     * by `gl_DrawID`, so a list of draws is one call. Undefined → false, the emitted GLSL byte-identical to the golden
+     * snapshots. Transform feedback shaders never take it: they draw once.
+     */
+    multiDraw?: boolean;
 };
 ```
 
@@ -2915,14 +2923,14 @@ export const mod: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
 #### `modelNormalMatrix`
 
 ```ts
-/** Normal matrix (inverse-transpose of upper-left 3x3 of model matrix). In objectGroup. */
+/** Normal matrix (inverse-transpose of upper-left 3x3 of model matrix): the drawn object's `normalMatrix`. In objectGroup. */
 export const modelNormalMatrix: UniformNode<d.mat3x3f>;
 ```
 
 #### `modelWorldMatrix`
 
 ```ts
-/** Model-to-world transform matrix. */
+/** Model-to-world transform matrix: the drawn object's `matrixWorld`. */
 export const modelWorldMatrix: UniformNode<d.mat4x4f>;
 ```
 
@@ -4523,6 +4531,13 @@ export class Renderer<B extends DeviceBackend = DeviceBackend> implements Render
     get inspector(): InspectorBase | null;
     set inspector(next: InspectorBase | null);
     init(): Promise<this>;
+    /**
+     * Puts the device back as gpucat leaves it and forgets what it assumed the device holds. Call it after other code
+     * has drawn with the same WebGL context (another library, a hand-written pass), before gpucat draws again, as
+     * three.js's `resetState` and Babylon's `wipeCaches` are used: gpucat skips setting a state it believes is set, so
+     * a change it did not make would otherwise stand. On WebGPU there is nothing to reset.
+     */
+    resetState(): void;
     dispose(): void;
 }
 ```
@@ -4594,6 +4609,11 @@ export type PassDesc = {
     storeDepth?: boolean;
     /** `storeDepth` for the stencil. */
     storeStencil?: boolean;
+    /**
+     * The depth (and stencil) attached read-only: tested against, never cleared, written or stored, so the pass's own
+     * shaders may sample it. Its materials must not write depth or stencil.
+     */
+    readOnlyDepth?: boolean;
     /** The layer of the target to draw into: an array layer, a cube face (0..5 = +X, -X, +Y, -Y, +Z, -Z), or a 3D
      *  target's depth slice. Default 0; a cube pass names its face. */
     layer?: number;
@@ -5122,6 +5142,29 @@ export type ReadOptions = {
 export function read(renderer: Renderer, target: RenderTarget, opts?: ReadOptions): Promise<Uint8Array>;
 ```
 
+#### `ReadBufferOptions`
+
+```ts
+export type ReadBufferOptions = {
+    /** The first element read. Defaults to 0. */
+    offset?: number;
+    /** How many elements to read. Defaults to the rest of the buffer. */
+    count?: number;
+};
+```
+
+#### `readBuffer`
+
+```ts
+/**
+ * Reads a buffer back as its own typed array (a struct array's as floats, which a view over the same bytes
+ * reinterprets), the buffer counterpart of `read()` for targets. Call it after the frame that wrote the buffer has
+ * been submitted; reading with one open throws rather than returning stale data. On WebGL2 it reads a buffer a
+ * transform feedback wrote; a storage buffer there lives in a texture and is not read back yet.
+ */
+export function readBuffer<T extends Any>(renderer: Renderer, buffer: GpuBuffer<T>, opts?: ReadBufferOptions): Promise<TypedArrayFor<T>>;
+```
+
 #### `RenderTargetOptions`
 
 ```ts
@@ -5398,7 +5441,12 @@ export class Object3D {
     matrix: mat4.Mat4;
     matrixWorld: mat4.Mat4;
     normalMatrix: mat3.Mat3;
-    matrixVersion: number;
+    /**
+     * Moves when `matrixWorld` (and `normalMatrix` with it) changes, which only `updateWorldMatrix` writes: an object
+     * recomputed every frame without moving keeps its version, so its draws' per-object uniforms are not packed again.
+     * As Babylon Lite's `worldMatrixVersion`.
+     */
+    worldMatrixVersion: number;
     add(child: Object3D): this;
     remove(child: Object3D): this;
     removeFromParent(): this;
@@ -6201,6 +6249,13 @@ export type GpuBufferOptions<T extends Any = Any> = {
 };
 ```
 
+#### `schemaArrayCtor`
+
+```ts
+/** The typed array a `count`-allocated buffer of `schema` holds: the element's for an array, f32 for a struct. */
+export function schemaArrayCtor(schema: Any): typeof Float32Array | typeof Int32Array | typeof Uint32Array;
+```
+
 #### `GpuBuffer`
 
 ```ts
@@ -6434,14 +6489,18 @@ export class UniformGroup {
 #### `uniformGroup`
 
 ```ts
-/** Create a per-object (non-shared) uniform group. */
+/**
+ * Create a per-object (non-shared) uniform group. `order` is its @group index in every shader that uses it, as Godot's
+ * and Bevy's fixed sets are: a pipeline switch keeps the groups below that change no more often. Two groups a shader
+ * uses must not share an order.
+ */
 export const uniformGroup: (name: string, order?: number, updateType?: UniformUpdateType) => UniformGroup;
 ```
 
 #### `sharedUniformGroup`
 
 ```ts
-/** Create a shared uniform group. */
+/** Create a shared uniform group, its `order` its fixed @group index as `uniformGroup`'s. */
 export const sharedUniformGroup: (name: string, order?: number, updateType?: UniformUpdateType) => UniformGroup;
 ```
 
@@ -6461,9 +6520,20 @@ export const frameGroup: UniformGroup;
 /**
  * renderGroup, shared uniforms updated per render() call.
  * Contains camera uniforms (projection, view, position, near, far).
- * Maps to @group(0) with RENDER update type.
+ * Maps to @group(1) with RENDER update type.
  */
 export const renderGroup: UniformGroup;
+```
+
+#### `materialGroup`
+
+```ts
+/**
+ * materialGroup, what a material binds: its textures, samplers and storage buffers, by default. Two draws binding the
+ * same resources bind the same group, so it changes with the material rather than with each draw.
+ * Maps to @group(2) with OBJECT update type.
+ */
+export const materialGroup: UniformGroup;
 ```
 
 #### `objectGroup`
@@ -6471,8 +6541,8 @@ export const renderGroup: UniformGroup;
 ```ts
 /**
  * objectGroup, per-object uniforms updated per draw call.
- * Contains mesh matrices (modelWorldMatrix, modelNormalMatrix) and user material uniforms.
- * Maps to @group(1) with OBJECT update type.
+ * Contains mesh matrices (modelWorldMatrix, modelNormalMatrix) and user uniforms, by default.
+ * Maps to @group(3) with OBJECT update type.
  */
 export const objectGroup: UniformGroup;
 ```
@@ -6509,6 +6579,12 @@ export class Uniform<T extends Any = Any> {
      * … in discovery order — readable, but a label says what the value IS.
      */
     label: string | undefined;
+    /**
+     * Moves on every write: assigning `value`, or `needsUpdate = true` after changing the value in place. A per-object
+     * block whose members' versions all hold is not packed again. A write into the value that is neither (a typed array
+     * the uniform holds, changed without `needsUpdate`) is not seen, as `GpuBuffer`'s data is not.
+     */
+    version: number;
     constructor(schema: T, initialValue?: UniformValue<T>, group?: UniformGroup, label?: string);
     get value(): UniformStored<T> | null;
     /**
@@ -6517,6 +6593,8 @@ export class Uniform<T extends Any = Any> {
      * allocates nothing, and a `value` read earlier sees the later writes.
      */
     set value(next: UniformValue<T> | null);
+    /** The uniform's value was changed in place (a typed array it holds, a struct's field): it is read again. */
+    set needsUpdate(_: true);
 }
 ```
 
@@ -7524,6 +7602,13 @@ export function createData3DTexture(data?: DataTextureImage['data'], width?: num
 
 Turn a node graph into WGSL.
 
+#### `DRAW_BASES_ENTRIES`
+
+```ts
+/** Entries in the multi-draw base table: a 16 KB block, WebGL2's guaranteed `MAX_UNIFORM_BLOCK_SIZE`. */
+export const DRAW_BASES_ENTRIES = 4096;
+```
+
 #### `compileWgsl`
 
 ```ts
@@ -7551,6 +7636,12 @@ export type CompileGlslOptions = {
      * shapes the texture and never the emitted GLSL.
      */
     maxTextureSize?: number;
+    /**
+     * Whether the context has WEBGL_multi_draw: the instance index then reads each draw's base from a table indexed
+     * by `gl_DrawID`, so a list of draws is one call. Undefined → false, the emitted GLSL byte-identical to the golden
+     * snapshots. Transform feedback shaders never take it: they draw once.
+     */
+    multiDraw?: boolean;
 };
 ```
 

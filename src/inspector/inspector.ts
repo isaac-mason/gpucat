@@ -436,7 +436,7 @@ export class Inspector extends RendererInspector {
         console.groupEnd();
 
         // Build probe pipeline: same bind group layouts, patched shader
-        const bindGroupLayouts = Bindings.getRenderBindGroupLayouts(renderer.backend.bindings, sourceRO);
+        const bindGroupLayouts = Bindings.getRenderBindGroupLayouts(renderer.backend.bindings, sourceRO, renderer.backend.device);
         if (bindGroupLayouts.length === 0) {
             this.log.warn(
                 '[gpucat probe] bind group layouts not yet initialised, try clicking again after the first frame renders',

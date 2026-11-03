@@ -29,9 +29,9 @@ import {
     type IfNode,
     type IndexNode,
     isNode,
-    loopRange,
     type LetNode,
     type LoopNode,
+    loopRange,
     type Node,
     NodeKind,
     type ParameterNode,
@@ -42,6 +42,7 @@ import {
     type VarNode,
     type WgslFunctionNodeRef,
 } from '../../lib/core';
+import { isInvariantPosition } from '../../lib/invariant';
 import type { MRTNode } from '../../lib/mrt';
 import {
     type ArrayTextureNode,
@@ -53,8 +54,8 @@ import {
     type TextureNode,
 } from '../../lib/texture';
 import type { UniformGroup, UniformNode } from '../../lib/uniform';
-import { isInvariantPosition } from '../../lib/invariant';
 import type { VaryingNode } from '../../lib/varying';
+import { fixedMembers } from '../../lib/view';
 import { isVoidFragment } from '../fragment';
 import {
     allocName,
@@ -356,6 +357,9 @@ export type GlslBuildContext = {
     attributes: Map<number, { shaderName: string; type: d.Any; location: number; node: AttributeNode<d.Any> }>;
     varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>;
     builtins: Set<string>;
+    /** Whether the instance index reads its draw's base from `u_drawBases[gl_DrawID]` (WEBGL_multi_draw) rather
+     *  than from `u_drawBase`, set per draw. */
+    multiDraw: boolean;
     nodeVars: Map<number, string>;
     /** node.id -> binding strength of the expression string generateExpr() produced for it. */
     precOf: Map<number, Prec>;
@@ -405,6 +409,7 @@ export function createGlslContext(stage: ShaderStage, discovery: Discovery): Gls
         attributes: new Map(),
         varyings: new Map(),
         builtins: new Set(),
+        multiDraw: false,
         nodeVars: new Map(),
         precOf: new Map(),
         names: new Set(globalNames),
@@ -837,7 +842,14 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
 
     // CSE: hoist multi-use, non-trivial expressions into a local.
     const usage = ctx.usageCount.get(node.id) ?? 1;
-    if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr(ctx, node) && !isPlaceAccess(node)) {
+    // a sampler is opaque in GLSL: it cannot be a local, so a handle is always named by its binding
+    if (
+        usage > 1 &&
+        !ctx.nodeVars.has(node.id) &&
+        !isTrivialExpr(ctx, node) &&
+        !isPlaceAccess(node) &&
+        !d.isHandleDesc(node.type)
+    ) {
         const varName = allocName(ctx.names, cseBaseName(node));
         const decl = glslLocalDecl(node.type, varName);
         // A CSE local first materialized inside a nested block (indentLevel > 1) but read again outside
@@ -1086,7 +1098,9 @@ function generateBuiltin(ctx: GlslBuildContext, node: BuiltinNode<d.Any>): strin
             // functions, since a Fn body may read the instance index too) — a draw-scoped uniform
             // set to the sub-draw's firstInstance by the batched draw loop, and left 0 (its GL default)
             // for single draws. The declaration is emitted by generateGlslVertexShader /
-            // generateGlslTransformFeedbackShader whenever this builtin is used.
+            // generateGlslTransformFeedbackShader whenever this builtin is used. Under WEBGL_multi_draw a list of
+            // draws is one call, so each entry's base comes from a table its gl_DrawID indexes, four to a uvec4.
+            if (ctx.multiDraw) return '(u_drawBases[gl_DrawID >> 2][gl_DrawID & 3] + uint(gl_InstanceID))';
             return '(u_drawBase + uint(gl_InstanceID))';
         case 'position':
             // Fragment position; the vertex clip position is written to gl_Position by main().
@@ -1862,11 +1876,16 @@ export function emitGlslUniformBlocks(ctx: GlslBuildContext): { glsl: string; un
         // than the buffer we allocate (e.g. a `{ vec2f }` block: member align 8, but GL wants 16),
         // producing "Buffer for uniform block is smaller than UNIFORM_BLOCK_DATA_SIZE".
         let structAlign = 16;
-        // A shared group backs one buffer reused across materials (cached by its uniform set),
-        // so its layout must be deterministic for a given set no matter the per-material traversal
-        // order. Order by stable node id (mirrors the WGSL emit and three.js). Non-shared groups
-        // keep declaration order.
-        const orderedUniforms = entry.group.shared ? [...entry.uniforms].sort((a, b) => a.id - b.id) : entry.uniforms;
+        // A fixed group (the view's) is its declared members in their declared order, in every program. Another
+        // shared group backs one buffer reused across materials, cached by its uniform set, so it is ordered by stable
+        // node id (as the WGSL emit and three.js). Non-shared groups keep declaration order.
+        const fixed = fixedMembers(entry.group);
+        const orderedUniforms =
+            fixed !== null
+                ? [...entry.uniforms].sort((a, b) => fixed.indexOf(a) - fixed.indexOf(b))
+                : entry.group.shared
+                  ? [...entry.uniforms].sort((a, b) => a.id - b.id)
+                  : entry.uniforms;
         for (const u of orderedUniforms) {
             // std140 offsets/sizes come from pack.ts — the single memory-layout authority.
             const align = layoutAlignOf(u.type, 'std140');

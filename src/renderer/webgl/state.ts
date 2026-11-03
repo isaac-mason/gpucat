@@ -7,79 +7,121 @@
  * directly, and those fields are WebGPU vocabulary (`depthCompare`, `cullMode`, `blend`,
  * `stencilFunc`, `stencilFail`), so there is no second enum set to translate through.
  *
- * A small `GlStateCache` tracks the last-applied values so redundant `gl.enable`/`gl.depthFunc`/…
- * calls are skipped across the draw loop (the WebGPU path gets this for free from pipeline dedup).
+ * `GlState` records what the context holds, field by field, for the context's life, as three.js's `WebGLState`,
+ * PlayCanvas's and Babylon's devices keep theirs: a call that would set what is set is skipped. Every state call gpucat
+ * makes goes through it (draws, clears, rects, the probe, transform feedback); `resetGlState` puts the context back to
+ * GL's defaults and the record with it, for after other code has used the context.
  */
 
 import type { Material } from '../../material/material';
-import * as RenderState from '../core/render-state';
 
-/**
- * Last-applied GL fixed-function state, so the draw loop can skip redundant calls. Reset at the
- * start of each pass (the GL context state is not assumed to carry across passes).
- */
-export type GlStateCache = {
+/** What the context holds of each fixed-function state; null where it is not known. */
+export type GlState = {
     depthTest: boolean | null;
-    depthWrite: boolean | null;
-    depthCompare: GPUCompareFunction | null;
-    cullMode: GPUCullMode | null;
-    blendKey: string | null;
-    colorWrite: boolean | null;
-    stencilKey: string | null;
-    stencilRef: number | null;
-    /** Whether POLYGON_OFFSET_FILL is enabled + the last (slopeScale, units) applied. */
-    polygonOffset: boolean | null;
+    cullFace: boolean | null;
+    blend: boolean | null;
+    stencilTest: boolean | null;
+    polygonOffsetFill: boolean | null;
+    alphaToCoverage: boolean | null;
+    scissorTest: boolean | null;
+    rasterizerDiscard: boolean | null;
+    depthFunc: number | null;
+    depthMask: boolean | null;
+    colorMask: boolean | null;
+    frontFace: number | null;
+    cullFaceMode: number | null;
+    blendSrcColor: number | null;
+    blendDstColor: number | null;
+    blendSrcAlpha: number | null;
+    blendDstAlpha: number | null;
+    blendOpColor: number | null;
+    blendOpAlpha: number | null;
     polygonOffsetFactor: number | null;
     polygonOffsetUnits: number | null;
-    /** Whether SAMPLE_ALPHA_TO_COVERAGE is enabled. */
-    alphaToCoverage: boolean | null;
+    stencilWriteMask: number | null;
+    front: StencilFace;
+    back: StencilFace;
+    viewportX: number | null;
+    viewportY: number | null;
+    viewportWidth: number | null;
+    viewportHeight: number | null;
+    depthNear: number | null;
+    depthFar: number | null;
+    scissorX: number | null;
+    scissorY: number | null;
+    scissorWidth: number | null;
+    scissorHeight: number | null;
+    clearR: number | null;
+    clearG: number | null;
+    clearB: number | null;
+    clearA: number | null;
+    clearDepth: number | null;
+    clearStencil: number | null;
 };
 
-/** Create a fresh (all-unknown) GL state cache. */
-export function createGlStateCache(): GlStateCache {
+/** One face's stencil test and ops; null where not known. */
+type StencilFace = {
+    func: number | null;
+    ref: number | null;
+    readMask: number | null;
+    fail: number | null;
+    zFail: number | null;
+    zPass: number | null;
+};
+
+function unknownFace(): StencilFace {
+    return { func: null, ref: null, readMask: null, fail: null, zFail: null, zPass: null };
+}
+
+/** A record knowing nothing: every first call sets its state. */
+export function createGlState(): GlState {
     return {
         depthTest: null,
-        depthWrite: null,
-        depthCompare: null,
-        cullMode: null,
-        blendKey: null,
-        colorWrite: null,
-        stencilKey: null,
-        stencilRef: null,
-        polygonOffset: null,
+        cullFace: null,
+        blend: null,
+        stencilTest: null,
+        polygonOffsetFill: null,
+        alphaToCoverage: null,
+        scissorTest: null,
+        rasterizerDiscard: null,
+        depthFunc: null,
+        depthMask: null,
+        colorMask: null,
+        frontFace: null,
+        cullFaceMode: null,
+        blendSrcColor: null,
+        blendDstColor: null,
+        blendSrcAlpha: null,
+        blendDstAlpha: null,
+        blendOpColor: null,
+        blendOpAlpha: null,
         polygonOffsetFactor: null,
         polygonOffsetUnits: null,
-        alphaToCoverage: null,
+        stencilWriteMask: null,
+        front: unknownFace(),
+        back: unknownFace(),
+        viewportX: null,
+        viewportY: null,
+        viewportWidth: null,
+        viewportHeight: null,
+        depthNear: null,
+        depthFar: null,
+        scissorX: null,
+        scissorY: null,
+        scissorWidth: null,
+        scissorHeight: null,
+        clearR: null,
+        clearG: null,
+        clearB: null,
+        clearA: null,
+        clearDepth: null,
+        clearStencil: null,
     };
 }
 
-/**
- * Establish the known GL global-state baseline the fresh per-pass `GlStateCache` assumes, called once
- * at the top of each pass's draw section (before the draw loop). This is the WebGL2 backend's tight
- * analogue of three.js `WebGLState.reset()`: the draw loop rebuilds most state per draw (a fresh cache
- * forces `applyMaterialState` to write every field on the first object, and `applyViewportScissor`
- * re-establishes scissor + depthRange every pass), so the ONLY states that need an explicit baseline
- * are the globals `applyMaterialState` does NOT set on every draw and could therefore inherit from a
- * prior pass, a manual clear, or the transform-feedback path:
- *
- *  - `frontFace(CCW)`      — `setCullState` sets winding only inside the cull-ENABLED branch, so a pass
- *                            of only `cullMode:'none'` materials would keep a stale winding. gpucat is
- *                            uniformly CCW; pin it.
- *  - `stencilMask(0xff)`   — `setStencilState` sets the write mask only inside the stencil-ENABLED
- *                            branch, so a `stencilTest:false` pass would inherit whatever mask a prior
- *                            stencil pass / stencil clear left. 0xff matches the stencil-clear mask.
- *  - `disable(RASTERIZER_DISCARD)` — the render draw loop assumes rasterization is on; transform
- *                            feedback is the only path that enables discard. Insurance so a stray
- *                            enabled discard can't silently blank a render pass.
- *
- * Deliberately does NOT touch depth/cull-enable/blend/colorMask/alphaToCoverage/scissor/depthRange:
- * those are already re-established every pass, so re-setting them here would be redundant and could
- * fight the first draw's material state.
- */
-export function establishPassBaseline(gl: WebGL2RenderingContext): void {
-    gl.frontFace(gl.CCW);
-    gl.stencilMask(0xff);
-    gl.disable(gl.RASTERIZER_DISCARD);
+/** Forgets everything `state` records, in place: for when other code may have changed the context. */
+export function forgetGlState(state: GlState): void {
+    Object.assign(state, createGlState());
 }
 
 // Enum → GL constant maps. Keyed by the WebGPU-vocabulary strings gpucat's Material uses.
@@ -206,46 +248,166 @@ function stencilOp(gl: WebGL2RenderingContext, op: GPUStencilOperation): number 
     }
 }
 
-// State setters.
+// State setters: each sets its state on the context only where it differs from the record.
+
+type Capability =
+    | 'depthTest'
+    | 'cullFace'
+    | 'blend'
+    | 'stencilTest'
+    | 'polygonOffsetFill'
+    | 'alphaToCoverage'
+    | 'scissorTest'
+    | 'rasterizerDiscard';
+
+function capabilityEnum(gl: WebGL2RenderingContext, capability: Capability): number {
+    switch (capability) {
+        case 'depthTest':
+            return gl.DEPTH_TEST;
+        case 'cullFace':
+            return gl.CULL_FACE;
+        case 'blend':
+            return gl.BLEND;
+        case 'stencilTest':
+            return gl.STENCIL_TEST;
+        case 'polygonOffsetFill':
+            return gl.POLYGON_OFFSET_FILL;
+        case 'alphaToCoverage':
+            return gl.SAMPLE_ALPHA_TO_COVERAGE;
+        case 'scissorTest':
+            return gl.SCISSOR_TEST;
+        case 'rasterizerDiscard':
+            return gl.RASTERIZER_DISCARD;
+    }
+}
+
+export function setCapability(gl: WebGL2RenderingContext, state: GlState, capability: Capability, on: boolean): void {
+    if (state[capability] === on) return;
+    if (on) gl.enable(capabilityEnum(gl, capability));
+    else gl.disable(capabilityEnum(gl, capability));
+    state[capability] = on;
+}
+
+export function setDepthMask(gl: WebGL2RenderingContext, state: GlState, on: boolean): void {
+    if (state.depthMask === on) return;
+    gl.depthMask(on);
+    state.depthMask = on;
+}
+
+export function setColorMask(gl: WebGL2RenderingContext, state: GlState, on: boolean): void {
+    if (state.colorMask === on) return;
+    gl.colorMask(on, on, on, on);
+    state.colorMask = on;
+}
+
+export function setStencilWriteMask(gl: WebGL2RenderingContext, state: GlState, mask: number): void {
+    if (state.stencilWriteMask === mask) return;
+    gl.stencilMask(mask);
+    state.stencilWriteMask = mask;
+}
+
+export function setFrontFace(gl: WebGL2RenderingContext, state: GlState, face: number): void {
+    if (state.frontFace === face) return;
+    gl.frontFace(face);
+    state.frontFace = face;
+}
+
+export function setViewport(
+    gl: WebGL2RenderingContext,
+    state: GlState,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+): void {
+    if (state.viewportX === x && state.viewportY === y && state.viewportWidth === width && state.viewportHeight === height)
+        return;
+    gl.viewport(x, y, width, height);
+    state.viewportX = x;
+    state.viewportY = y;
+    state.viewportWidth = width;
+    state.viewportHeight = height;
+}
+
+export function setDepthRange(gl: WebGL2RenderingContext, state: GlState, near: number, far: number): void {
+    if (state.depthNear === near && state.depthFar === far) return;
+    gl.depthRange(near, far);
+    state.depthNear = near;
+    state.depthFar = far;
+}
+
+export function setScissor(
+    gl: WebGL2RenderingContext,
+    state: GlState,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+): void {
+    if (state.scissorX === x && state.scissorY === y && state.scissorWidth === width && state.scissorHeight === height) return;
+    gl.scissor(x, y, width, height);
+    state.scissorX = x;
+    state.scissorY = y;
+    state.scissorWidth = width;
+    state.scissorHeight = height;
+}
+
+export function setClearColor(gl: WebGL2RenderingContext, state: GlState, r: number, g: number, b: number, a: number): void {
+    if (state.clearR === r && state.clearG === g && state.clearB === b && state.clearA === a) return;
+    gl.clearColor(r, g, b, a);
+    state.clearR = r;
+    state.clearG = g;
+    state.clearB = b;
+    state.clearA = a;
+}
+
+export function setClearDepth(gl: WebGL2RenderingContext, state: GlState, depth: number): void {
+    if (state.clearDepth === depth) return;
+    gl.clearDepth(depth);
+    state.clearDepth = depth;
+}
+
+export function setClearStencil(gl: WebGL2RenderingContext, state: GlState, value: number): void {
+    if (state.clearStencil === value) return;
+    gl.clearStencil(value);
+    state.clearStencil = value;
+}
+
+export function setDepthFunc(gl: WebGL2RenderingContext, state: GlState, func: number): void {
+    if (state.depthFunc === func) return;
+    gl.depthFunc(func);
+    state.depthFunc = func;
+}
 
 /**
  * Apply depth test + compare. WebGL2 folds "no test" into disabling `DEPTH_TEST`; when the material
  * has `depthTest=false` we mirror WebGPU by keeping the buffer enabled with `depthFunc=ALWAYS` (so
  * depth still writes if `depthWrite` is on).
  */
-function setDepthState(gl: WebGL2RenderingContext, cache: GlStateCache, material: Material): void {
+function setDepthState(gl: WebGL2RenderingContext, state: GlState, material: Material): void {
     // WebGPU semantics: depthTest=false ⇒ compare 'always' (still writes). Depth is a per-pixel test;
     // the depth *buffer* stays enabled so writes happen. We therefore always enable DEPTH_TEST and
     // drive behaviour purely through depthFunc + depthMask.
-    const compare: GPUCompareFunction = material.depthTest ? material.depthCompare : 'always';
-
-    if (cache.depthTest !== true) {
-        gl.enable(gl.DEPTH_TEST);
-        cache.depthTest = true;
-    }
-    if (cache.depthCompare !== compare) {
-        gl.depthFunc(compareFunc(gl, compare));
-        cache.depthCompare = compare;
-    }
-    if (cache.depthWrite !== material.depthWrite) {
-        gl.depthMask(material.depthWrite);
-        cache.depthWrite = material.depthWrite;
-    }
+    setCapability(gl, state, 'depthTest', true);
+    setDepthFunc(gl, state, compareFunc(gl, material.depthTest ? material.depthCompare : 'always'));
+    setDepthMask(gl, state, material.depthWrite);
 }
 
 /** Apply face culling from `material.cullMode` ('none' | 'front' | 'back'). Front face is CCW. */
-function setCullState(gl: WebGL2RenderingContext, cache: GlStateCache, material: Material): void {
+function setCullState(gl: WebGL2RenderingContext, state: GlState, material: Material): void {
     const mode = material.cullMode;
-    if (cache.cullMode === mode) return;
-    cache.cullMode = mode;
-
+    // gpucat's winding is CCW everywhere, culled or not
+    setFrontFace(gl, state, gl.CCW);
     if (mode === 'none' || mode === undefined) {
-        gl.disable(gl.CULL_FACE);
+        setCapability(gl, state, 'cullFace', false);
         return;
     }
-    gl.enable(gl.CULL_FACE);
-    gl.frontFace(gl.CCW);
-    gl.cullFace(mode === 'front' ? gl.FRONT : gl.BACK);
+    setCapability(gl, state, 'cullFace', true);
+    const face = mode === 'front' ? gl.FRONT : gl.BACK;
+    if (state.cullFaceMode !== face) {
+        gl.cullFace(face);
+        state.cullFaceMode = face;
+    }
 }
 
 /**
@@ -254,23 +416,35 @@ function setCullState(gl: WebGL2RenderingContext, cache: GlStateCache, material:
  * `transparent` means; this function only translates the result into GL calls. `undefined` is
  * no-blend.
  */
-function setBlendState(gl: WebGL2RenderingContext, cache: GlStateCache, blend: GPUBlendState | undefined): void {
-    const key = RenderState.blendStateKey(blend);
-    if (cache.blendKey === key) return;
-    cache.blendKey = key;
-
+function setBlendState(gl: WebGL2RenderingContext, state: GlState, blend: GPUBlendState | undefined): void {
     if (!blend) {
-        gl.disable(gl.BLEND);
+        setCapability(gl, state, 'blend', false);
         return;
     }
-    gl.enable(gl.BLEND);
-    gl.blendFuncSeparate(
-        blendFactor(gl, blend.color.srcFactor ?? 'one'),
-        blendFactor(gl, blend.color.dstFactor ?? 'zero'),
-        blendFactor(gl, blend.alpha.srcFactor ?? 'one'),
-        blendFactor(gl, blend.alpha.dstFactor ?? 'zero'),
-    );
-    gl.blendEquationSeparate(blendOp(gl, blend.color.operation ?? 'add'), blendOp(gl, blend.alpha.operation ?? 'add'));
+    setCapability(gl, state, 'blend', true);
+    const srcColor = blendFactor(gl, blend.color.srcFactor ?? 'one');
+    const dstColor = blendFactor(gl, blend.color.dstFactor ?? 'zero');
+    const srcAlpha = blendFactor(gl, blend.alpha.srcFactor ?? 'one');
+    const dstAlpha = blendFactor(gl, blend.alpha.dstFactor ?? 'zero');
+    if (
+        state.blendSrcColor !== srcColor ||
+        state.blendDstColor !== dstColor ||
+        state.blendSrcAlpha !== srcAlpha ||
+        state.blendDstAlpha !== dstAlpha
+    ) {
+        gl.blendFuncSeparate(srcColor, dstColor, srcAlpha, dstAlpha);
+        state.blendSrcColor = srcColor;
+        state.blendDstColor = dstColor;
+        state.blendSrcAlpha = srcAlpha;
+        state.blendDstAlpha = dstAlpha;
+    }
+    const opColor = blendOp(gl, blend.color.operation ?? 'add');
+    const opAlpha = blendOp(gl, blend.alpha.operation ?? 'add');
+    if (state.blendOpColor !== opColor || state.blendOpAlpha !== opAlpha) {
+        gl.blendEquationSeparate(opColor, opAlpha);
+        state.blendOpColor = opColor;
+        state.blendOpAlpha = opAlpha;
+    }
 }
 
 /**
@@ -278,41 +452,42 @@ function setBlendState(gl: WebGL2RenderingContext, cache: GlStateCache, blend: G
  * WebGL's `gl.polygonOffset(factor, units)` maps to WebGPU's (depthBiasSlopeScale, depthBias): factor
  * scales the fragment's depth slope, units is the constant bias.
  */
-function setDepthBiasState(gl: WebGL2RenderingContext, cache: GlStateCache, material: Material): void {
+function setDepthBiasState(gl: WebGL2RenderingContext, state: GlState, material: Material): void {
     const factor = material.depthBiasSlopeScale;
     const units = material.depthBias;
     const enabled = factor !== 0 || units !== 0;
-
-    if (cache.polygonOffset !== enabled) {
-        if (enabled) gl.enable(gl.POLYGON_OFFSET_FILL);
-        else gl.disable(gl.POLYGON_OFFSET_FILL);
-        cache.polygonOffset = enabled;
-    }
-    if (enabled && (cache.polygonOffsetFactor !== factor || cache.polygonOffsetUnits !== units)) {
+    setCapability(gl, state, 'polygonOffsetFill', enabled);
+    if (enabled && (state.polygonOffsetFactor !== factor || state.polygonOffsetUnits !== units)) {
         gl.polygonOffset(factor, units);
-        cache.polygonOffsetFactor = factor;
-        cache.polygonOffsetUnits = units;
+        state.polygonOffsetFactor = factor;
+        state.polygonOffsetUnits = units;
     }
 }
 
-/**
- * Apply alpha-to-coverage from `material.alphaToCoverage`. Only has effect on a multisampled
- * framebuffer; enabling it on a non-MSAA target is a harmless no-op, so it is gated purely on the
- * material flag (mirroring WebGPU's `alphaToCoverageEnabled`).
- */
-function setAlphaToCoverageState(gl: WebGL2RenderingContext, cache: GlStateCache, material: Material): void {
-    if (cache.alphaToCoverage === material.alphaToCoverage) return;
-    cache.alphaToCoverage = material.alphaToCoverage;
-    if (material.alphaToCoverage) gl.enable(gl.SAMPLE_ALPHA_TO_COVERAGE);
-    else gl.disable(gl.SAMPLE_ALPHA_TO_COVERAGE);
-}
-
-/** Apply the color write mask from `material.colorWrite`. */
-function setColorWriteState(gl: WebGL2RenderingContext, cache: GlStateCache, material: Material): void {
-    if (cache.colorWrite === material.colorWrite) return;
-    cache.colorWrite = material.colorWrite;
-    const w = material.colorWrite;
-    gl.colorMask(w, w, w, w);
+/** Sets one face's stencil test and ops, each call only where it differs. */
+function setStencilFace(
+    gl: WebGL2RenderingContext,
+    face: StencilFace,
+    glFace: number,
+    func: number,
+    ref: number,
+    readMask: number,
+    fail: number,
+    zFail: number,
+    zPass: number,
+): void {
+    if (face.func !== func || face.ref !== ref || face.readMask !== readMask) {
+        gl.stencilFuncSeparate(glFace, func, ref, readMask);
+        face.func = func;
+        face.ref = ref;
+        face.readMask = readMask;
+    }
+    if (face.fail !== fail || face.zFail !== zFail || face.zPass !== zPass) {
+        gl.stencilOpSeparate(glFace, fail, zFail, zPass);
+        face.fail = fail;
+        face.zFail = zFail;
+        face.zPass = zPass;
+    }
 }
 
 /**
@@ -321,68 +496,49 @@ function setColorWriteState(gl: WebGL2RenderingContext, cache: GlStateCache, mat
  * WebGPU carries a dynamic stencil reference (set via setStencilReference); here it folds into
  * `gl.stencilFunc`.
  */
-function setStencilState(gl: WebGL2RenderingContext, cache: GlStateCache, material: Material, hasStencil: boolean): void {
-    const enabled = hasStencil && material.stencilTest;
-    const key = enabled
-        ? [
-              material.stencilFunc,
-              material.stencilRef,
-              material.stencilReadMask,
-              material.stencilWriteMask,
-              material.stencilFail,
-              material.stencilZFail,
-              material.stencilZPass,
-              material.stencilBack ? JSON.stringify(material.stencilBack) : 'front',
-          ].join('|')
-        : 'off';
-
-    if (cache.stencilKey === key && cache.stencilRef === material.stencilRef) return;
-    cache.stencilKey = key;
-    cache.stencilRef = material.stencilRef;
-
-    if (!enabled) {
-        gl.disable(gl.STENCIL_TEST);
+function setStencilState(gl: WebGL2RenderingContext, state: GlState, material: Material, hasStencil: boolean): void {
+    if (!hasStencil || !material.stencilTest) {
+        setCapability(gl, state, 'stencilTest', false);
         return;
     }
-
-    gl.enable(gl.STENCIL_TEST);
-    gl.stencilMask(material.stencilWriteMask);
-
-    // Front face.
-    gl.stencilFuncSeparate(gl.FRONT, compareFunc(gl, material.stencilFunc), material.stencilRef, material.stencilReadMask);
-    gl.stencilOpSeparate(
-        gl.FRONT,
-        stencilOp(gl, material.stencilFail),
-        stencilOp(gl, material.stencilZFail),
-        stencilOp(gl, material.stencilZPass),
-    );
-
-    // Back face (defaults to front-face ops unless overridden).
+    setCapability(gl, state, 'stencilTest', true);
+    setStencilWriteMask(gl, state, material.stencilWriteMask);
+    const func = compareFunc(gl, material.stencilFunc);
+    const fail = stencilOp(gl, material.stencilFail);
+    const zFail = stencilOp(gl, material.stencilZFail);
+    const zPass = stencilOp(gl, material.stencilZPass);
+    const ref = material.stencilRef;
+    const readMask = material.stencilReadMask;
+    setStencilFace(gl, state.front, gl.FRONT, func, ref, readMask, fail, zFail, zPass);
+    // the back face takes the front's test and ops unless the material sets its own
     const back = material.stencilBack;
-    gl.stencilFuncSeparate(
+    if (back == null) {
+        setStencilFace(gl, state.back, gl.BACK, func, ref, readMask, fail, zFail, zPass);
+        return;
+    }
+    setStencilFace(
+        gl,
+        state.back,
         gl.BACK,
-        compareFunc(gl, back?.func ?? material.stencilFunc),
-        material.stencilRef,
-        material.stencilReadMask,
-    );
-    gl.stencilOpSeparate(
-        gl.BACK,
-        stencilOp(gl, back?.fail ?? material.stencilFail),
-        stencilOp(gl, back?.zFail ?? material.stencilZFail),
-        stencilOp(gl, back?.zPass ?? material.stencilZPass),
+        back.func === undefined ? func : compareFunc(gl, back.func),
+        ref,
+        readMask,
+        back.fail === undefined ? fail : stencilOp(gl, back.fail),
+        back.zFail === undefined ? zFail : stencilOp(gl, back.zFail),
+        back.zPass === undefined ? zPass : stencilOp(gl, back.zPass),
     );
 }
 
 /**
  * Apply the whole fixed-function GL state for a material in one call: depth, cull, blend, color mask,
- * and (when the framebuffer supports it) stencil. Redundant sub-states are skipped via `cache`.
+ * and (when the framebuffer supports it) stencil. Each state is set only where the context differs.
  *
  * `blend` is the pass's already-resolved blend state (see `core/render-state`), passed in rather than
  * derived here because resolving it needs the pass's MRT context, which is not on the material.
  */
 export function applyMaterialState(
     gl: WebGL2RenderingContext,
-    cache: GlStateCache,
+    state: GlState,
     material: Material,
     hasStencil: boolean,
     blend: GPUBlendState | undefined,
@@ -395,11 +551,48 @@ export function applyMaterialState(
         );
     }
 
-    setDepthState(gl, cache, material);
-    setDepthBiasState(gl, cache, material);
-    setCullState(gl, cache, material);
-    setBlendState(gl, cache, blend);
-    setAlphaToCoverageState(gl, cache, material);
-    setColorWriteState(gl, cache, material);
-    setStencilState(gl, cache, material, hasStencil);
+    // the render loop draws rasterized; transform feedback is the one path that turns it off, and turns it back
+    setCapability(gl, state, 'rasterizerDiscard', false);
+    setDepthState(gl, state, material);
+    setDepthBiasState(gl, state, material);
+    setCullState(gl, state, material);
+    setBlendState(gl, state, blend);
+    setCapability(gl, state, 'alphaToCoverage', material.alphaToCoverage);
+    setColorMask(gl, state, material.colorWrite);
+    setStencilState(gl, state, material, hasStencil);
+}
+
+/**
+ * Puts the context back to GL's defaults for every state gpucat sets, and the record with it: for after other code has
+ * drawn with the context, as three.js's `resetState` does. Reading the context's state back instead would stall it.
+ */
+export function resetGlState(gl: WebGL2RenderingContext, state: GlState, width: number, height: number): void {
+    forgetGlState(state);
+    setCapability(gl, state, 'depthTest', false);
+    setCapability(gl, state, 'cullFace', false);
+    setCapability(gl, state, 'blend', false);
+    setCapability(gl, state, 'stencilTest', false);
+    setCapability(gl, state, 'polygonOffsetFill', false);
+    setCapability(gl, state, 'alphaToCoverage', false);
+    setCapability(gl, state, 'scissorTest', false);
+    setCapability(gl, state, 'rasterizerDiscard', false);
+    setDepthFunc(gl, state, gl.LESS);
+    setDepthMask(gl, state, true);
+    setColorMask(gl, state, true);
+    setFrontFace(gl, state, gl.CCW);
+    gl.cullFace(gl.BACK);
+    state.cullFaceMode = gl.BACK;
+    gl.blendFuncSeparate(gl.ONE, gl.ZERO, gl.ONE, gl.ZERO);
+    gl.blendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD);
+    gl.polygonOffset(0, 0);
+    setStencilWriteMask(gl, state, 0xffffffff);
+    gl.stencilFunc(gl.ALWAYS, 0, 0xffffffff);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+    setViewport(gl, state, 0, 0, width, height);
+    setDepthRange(gl, state, 0, 1);
+    setScissor(gl, state, 0, 0, width, height);
+    setClearColor(gl, state, 0, 0, 0, 0);
+    setClearDepth(gl, state, 1);
+    setClearStencil(gl, state, 0);
+    // the rest is GL's default now, which the record learns as each is next set
 }

@@ -37,7 +37,7 @@ import {
     vec4,
     vec4i,
 } from './core';
-import { objectGroup, type UniformGroup } from './uniform';
+import { materialGroup, type UniformGroup } from './uniform';
 import { varying } from './varying';
 
 /**
@@ -59,7 +59,7 @@ export class SamplerNode<D extends d.sampler | d.samplerComparison = d.sampler> 
     /** Uniform group, determines @group index. */
     group: UniformGroup;
 
-    constructor(desc: D, samplerId: string, group: UniformGroup = objectGroup) {
+    constructor(desc: D, samplerId: string, group: UniformGroup = materialGroup) {
         super(desc);
         this.samplerId = samplerId;
         this.group = group;
@@ -217,7 +217,7 @@ export class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D>
     /** Uniform group, determines @group index. */
     group: UniformGroup;
 
-    constructor(desc: D, textureId: string, group: UniformGroup = objectGroup, slot: string | null = null) {
+    constructor(desc: D, textureId: string, group: UniformGroup = materialGroup, slot: string | null = null) {
         super(desc);
         this.textureId = textureId;
         this.group = group;
@@ -270,7 +270,7 @@ export class StorageTextureBindingNode<D extends d.StorageTexture = d.StorageTex
         desc: D,
         textureId: string,
         access: d.StorageTextureAccess,
-        group: UniformGroup = objectGroup,
+        group: UniformGroup = materialGroup,
         slot: string | null = null,
     ) {
         super(desc);
@@ -341,7 +341,7 @@ export function storageTexture<D extends d.StorageTexture>(
         const schema = schemaOrAccess as D;
         const access = accessArg ?? 'write';
         assertStorageAccess(schema.format, access);
-        return new StorageTextureBindingNode(schema, `slot:${sourceOrSlot}:${access}`, access, objectGroup, sourceOrSlot);
+        return new StorageTextureBindingNode(schema, `slot:${sourceOrSlot}:${access}`, access, materialGroup, sourceOrSlot);
     }
     const { texture, range } = textureSourceParts(sourceOrSlot);
     const access = (schemaOrAccess as d.StorageTextureAccess | undefined) ?? 'write';
@@ -753,7 +753,7 @@ let _samplerIdCounter = 0;
  */
 export function sampler(source: GpuSampler, group?: UniformGroup): SamplerNode<d.sampler>;
 export function sampler(source: HighLevelTexture, group?: UniformGroup): SamplerNode<d.sampler>;
-export function sampler(source: GpuSampler | HighLevelTexture, group: UniformGroup = objectGroup): SamplerNode<d.sampler> {
+export function sampler(source: GpuSampler | HighLevelTexture, group: UniformGroup = materialGroup): SamplerNode<d.sampler> {
     if ('isGpuSampler' in source) {
         const node = new SamplerNode(d.sampler, `s${_samplerIdCounter++}`, group);
         node.value = source;
@@ -793,7 +793,7 @@ export function comparisonSampler(
 export function comparisonSampler(
     source: GpuSampler | HighLevelTexture,
     compare: GPUCompareFunction = 'less',
-    group: UniformGroup = objectGroup,
+    group: UniformGroup = materialGroup,
 ): SamplerNode<d.samplerComparison> {
     const baseSampler = 'isGpuSampler' in source ? source : source._gpuSampler;
     const samplerId = 'isGpuSampler' in source ? `s${_samplerIdCounter++}_cmp` : `s${source.id}_cmp`;
@@ -933,7 +933,7 @@ export function texture(
 ): TextureNode<FlatSampledTexture> {
     if (typeof source === 'string') {
         const schema = samplerOrSchema as FlatSampledTexture;
-        return new TextureNode(new TextureBindingNode(schema, `slot:${source}`, objectGroup, source));
+        return new TextureNode(new TextureBindingNode(schema, `slot:${source}`, materialGroup, source));
     }
     if ('isGpuTexture' in source || 'isGpuTextureView' in source) {
         const { texture: gpuTexture, range } = textureSourceParts(source as TextureSource<FlatSampledTexture | d.StorageTexture>);

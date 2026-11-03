@@ -479,10 +479,11 @@ export {
     type RendererInfo,
     type RenderInfo,
     resetRendererInfo,
+    type StateInfo,
 } from './renderer/core/info';
 export { init } from './renderer/core/init';
 export type { NodeFrame } from './renderer/core/node-frame';
-export { type ReadOptions, read } from './renderer/core/read';
+export { type ReadBufferOptions, type ReadOptions, read, readBuffer } from './renderer/core/read';
 export { type DeviceLostInfo, memoryReport, Renderer } from './renderer/core/renderer';
 export type { RendererBackend } from './renderer/core/renderer-interface';
 export { isRenderTarget, renderTargetOf, type Target } from './renderer/core/target';
@@ -491,7 +492,6 @@ export { writeBuffer } from './renderer/core/write-buffer';
 export { writeTexture } from './renderer/core/write-texture';
 export { webgl } from './renderer/webgl/backend';
 export { glContext } from './renderer/webgl/device-api';
-export { readBuffer } from './renderer/webgl/transform-feedback-api';
 export { WebGLBackend, type WebGLBackendOptions } from './renderer/webgl/webgl-backend';
 export { webgpu } from './renderer/webgpu/backend';
 export { canvasFormat, gpuAdapter, gpuDevice, hasFeature } from './renderer/webgpu/device-api';

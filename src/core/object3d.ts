@@ -1,8 +1,10 @@
 import { mat3, mat4, type Quat, quat, type Vec3, vec3 } from 'math';
+import { nextVersion } from './version';
 
 let objectIdCounter = 0;
 
 const _lookAt_tmp = mat4.create();
+const _world = mat4.create();
 
 export class Object3D {
     readonly isObject3D = true;
@@ -27,7 +29,12 @@ export class Object3D {
     matrixWorld = mat4.create();
     normalMatrix = mat3.create();
 
-    matrixVersion: number = 0;
+    /**
+     * Moves when `matrixWorld` (and `normalMatrix` with it) changes, which only `updateWorldMatrix` writes: an object
+     * recomputed every frame without moving keeps its version, so its draws' per-object uniforms are not packed again.
+     * As Babylon Lite's `worldMatrixVersion`.
+     */
+    worldMatrixVersion: number = nextVersion();
 
     add(child: Object3D): this {
         if (child.parent) child.parent.remove(child);
@@ -62,14 +69,17 @@ export class Object3D {
         mat4.fromRotationTranslationScale(this.matrix, this.quaternion, this.position, this.scale);
 
         if (this.parent) {
-            mat4.multiply(this.matrixWorld, this.parent.matrixWorld, this.matrix);
+            mat4.multiply(_world, this.parent.matrixWorld, this.matrix);
         } else {
-            mat4.copy(this.matrixWorld, this.matrix);
+            mat4.copy(_world, this.matrix);
         }
 
-        mat3.normalFromMat4(this.normalMatrix, this.matrixWorld);
-
-        this.matrixVersion++;
+        // only a different matrix moves the version: a scene recomputed every frame keeps its still objects' versions
+        if (!mat4.exactEquals(_world, this.matrixWorld)) {
+            mat4.copy(this.matrixWorld, _world);
+            mat3.normalFromMat4(this.normalMatrix, this.matrixWorld);
+            this.worldMatrixVersion = nextVersion();
+        }
 
         for (const child of this.children) {
             child.updateWorldMatrix();

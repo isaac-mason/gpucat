@@ -27,16 +27,24 @@ import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { InspectorBase } from '../../inspector/inspector-base';
 import { compileTransformFeedback, type TransformFeedbackGlslResult } from '../../nodes/builder';
 import type { TransformFeedbackNode } from '../../nodes/lib/transform-feedback';
-import { typedArrayCtorOf } from '../../schema/schema';
 import type { NodeFrame } from '../core/node-frame';
-import { captureStandaloneUniformGroup, type RecordCapture, uploadAndBindCapture } from './bindings';
+import {
+    captureStandaloneUniformGroup,
+    createBoundUniforms,
+    type RecordCapture,
+    resetBoundUniforms,
+    uploadAndBindCapture,
+} from './bindings';
 import * as Buffers from './buffers';
 import { attribFormat, glComponentType } from './geometries';
 import type { ProgramInfo } from './programs';
 import { createTransformFeedbackProgram } from './programs';
+import { setCapability } from './state';
 import { bindStandaloneTextures, captureStandaloneTextures } from './texture-bindings';
 import type { WebGLBackend } from './webgl-backend';
 
+/** A dispatch binds outside any pass, so nothing is known bound: reset before each. */
+const _dispatchBound = /*@__PURE__*/ createBoundUniforms();
 /** Per-node cached compile + link. */
 type TfNodeCache = {
     compiled: TransformFeedbackGlslResult;
@@ -85,7 +93,7 @@ export type TransformFeedbackRunOptions = {
  * part: the usage hint and the error messages.
  *
  * Outputs are GPU-written (TF capture) and GPU-consumed (copied to a staging buffer in
- * `readBufferAsync`, then fed back as attributes), so they want DYNAMIC_COPY rather than a `*_READ`
+ * `readBuffer`, then fed back as attributes), so they want DYNAMIC_COPY rather than a `*_READ`
  * hint: READ makes the driver keep a readback shadow copy for a `getBufferSubData` that never comes,
  * discarded on every re-write (perf-warning spam). Inputs feed straight in as attributes.
  */
@@ -237,7 +245,10 @@ export function runTransformFeedback(
     gl.useProgram(programInfo.program);
 
     // Bind the kernel's uniform groups (std140 UBOs) as the dispatch captured them.
-    for (let index = 0; index < capture.uniformCount; index++) uploadAndBindCapture(gl, b, capture.uniforms[index], null);
+    resetBoundUniforms(_dispatchBound);
+    for (let index = 0; index < capture.uniformCount; index++) {
+        uploadAndBindCapture(gl, b, capture.uniforms[index], null, _dispatchBound);
+    }
 
     // Bind any DataTextures the kernel samples via textureLoad() (explicit neighbour gather — the user
     // binds the DataTexture on the texture node; no hidden mirror), as captured. Runs in the vertex stage under TF.
@@ -291,7 +302,7 @@ export function runTransformFeedback(
     // dispatch's timestamps on WebGPU do not cover its equivalents either.
     inspector?.beginGpuWork(inspectorName);
     try {
-        gl.enable(gl.RASTERIZER_DISCARD);
+        setCapability(gl, b.glState, 'rasterizerDiscard', true);
         gl.beginTransformFeedback(gl.POINTS);
         if (instanceCount !== undefined) {
             gl.drawArraysInstanced(gl.POINTS, 0, count, instanceCount);
@@ -299,7 +310,7 @@ export function runTransformFeedback(
             gl.drawArrays(gl.POINTS, 0, count);
         }
         gl.endTransformFeedback();
-        gl.disable(gl.RASTERIZER_DISCARD);
+        setCapability(gl, b.glState, 'rasterizerDiscard', false);
     } finally {
         inspector?.endGpuWork(inspectorName);
     }
@@ -315,7 +326,7 @@ export function runTransformFeedback(
 
 /**
  * Get the plain GL buffer backing a GpuBuffer within this transform-feedback state, if one exists.
- * Used by the test harness (and Phase 3 `readBufferAsync`) to read back a TF output buffer. Returns
+ * Used by the test harness (and `readBuffer`) to read back a TF output buffer. Returns
  * null if the buffer was never bound. @internal
  */
 export function getGlBufferFor(buffers: Buffers.BufferCache, buffer: GpuBuffer): WebGLBuffer | null {
@@ -336,7 +347,7 @@ export function getGlBufferFor(buffers: Buffers.BufferCache, buffer: GpuBuffer):
 export function clientWaitAsync(
     gl: WebGL2RenderingContext,
     sync: WebGLSync,
-    label = 'readBufferAsync',
+    label = 'readBuffer',
     maxPolls = 4000,
 ): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -368,67 +379,6 @@ export function clientWaitAsync(
         };
         poll(gl.SYNC_FLUSH_COMMANDS_BIT);
     });
-}
-
-/**
- * Honest native CPU readback of a GpuBuffer's current GL buffer (e.g. a transform-feedback output).
- *
- * Copies the source buffer into a `STREAM_READ` staging buffer, fences GPU-command completion, polls
- * the fence across event-loop ticks (never a synchronous busy-loop — see `clientWaitAsync`), then
- * `getBufferSubData`s into a typed array whose element type matches the buffer's schema (Float32Array
- * for f32 schemas, Uint32Array for u32, Int32Array for i32). The staging buffer + fence are deleted;
- * bindings are unwound. One GpuBuffer = one GL buffer, so there is no dual-buffer coherence to reason
- * about. See llm/webgl-transform-feedback-plan.md, Phase 3.
- */
-export async function readBufferAsync(
-    gl: WebGL2RenderingContext,
-    buffers: Buffers.BufferCache,
-    buffer: GpuBuffer,
-): Promise<Float32Array | Int32Array | Uint32Array> {
-    const src = Buffers.getUploaded(buffers, buffer) ?? null;
-    if (!src) {
-        throw new Error(
-            '[webgl] readBufferAsync: no GL buffer backs this GpuBuffer — it was never used by a ' +
-                'transformFeedback() call (nothing to read back).',
-        );
-    }
-
-    // Result typed array sized to the buffer's element count × components, typed by the schema.
-    const ArrayCtor = typedArrayCtorOf(buffer.schema);
-    const length = buffer.count * buffer.itemSize;
-    const dst = new ArrayCtor(length);
-    const byteLength = dst.byteLength;
-
-    // Copy source → a fresh STREAM_READ staging buffer (reading back from a buffer bound to a TF
-    // binding point is illegal, and staging keeps the source untouched for continued ping-pong).
-    const staging = gl.createBuffer();
-    if (!staging) throw new Error('[webgl] readBufferAsync: gl.createBuffer returned null (staging).');
-
-    gl.bindBuffer(gl.COPY_READ_BUFFER, src);
-    gl.bindBuffer(gl.COPY_WRITE_BUFFER, staging);
-    gl.bufferData(gl.COPY_WRITE_BUFFER, byteLength, gl.STREAM_READ);
-    gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, 0, 0, byteLength);
-
-    // Fence the copy, flush, then poll to completion across ticks (the load-bearing detail).
-    const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
-    if (!sync) throw new Error('[webgl] readBufferAsync: gl.fenceSync returned null.');
-    gl.flush();
-    try {
-        await clientWaitAsync(gl, sync);
-    } finally {
-        gl.deleteSync(sync);
-    }
-
-    // Pull the staged bytes back into the typed array.
-    gl.bindBuffer(gl.COPY_WRITE_BUFFER, staging);
-    gl.getBufferSubData(gl.COPY_WRITE_BUFFER, 0, dst);
-
-    // Tear down: staging buffer + all copy bindings.
-    gl.deleteBuffer(staging);
-    gl.bindBuffer(gl.COPY_READ_BUFFER, null);
-    gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
-
-    return dst;
 }
 
 /** Release all GL resources owned by the transform-feedback state (called on renderer dispose). */

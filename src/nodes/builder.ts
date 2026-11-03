@@ -13,10 +13,10 @@ import {
     emitGlslStructs,
     emitGlslTextures,
     emitGlslUniformBlocks,
+    type GlslBuildContext,
     generateGlslFragmentShader,
     generateGlslTransformFeedbackShader,
     generateGlslVertexShader,
-    type GlslBuildContext,
     type StorageMirror,
 } from './backend/glsl/emit';
 import { allocName, createNameScope, derivedSamplerName, type NameScope } from './backend/names';
@@ -61,13 +61,22 @@ import {
 import type { TransformFeedbackNode } from './lib/transform-feedback';
 import type { UniformGroup, UniformNode } from './lib/uniform';
 import type { InterpolationSampling, InterpolationType } from './lib/varying';
+import { fixedMembers } from './lib/view';
 import type { WgslFunctionNode } from './lib/wgsl-fn';
 
 /* public apis */
 
-/** `u_drawBase`, which the instance index reads on GLSL, declared once the stage's body and functions have been emitted. */
+/** Entries in the multi-draw base table: a 16 KB block, WebGL2's guaranteed `MAX_UNIFORM_BLOCK_SIZE`. */
+export const DRAW_BASES_ENTRIES = 4096;
+
+/**
+ * What the instance index reads its draw's base from on GLSL, declared once the stage's body and functions have been
+ * emitted: `u_drawBase`, or under multi-draw the `DrawBases` table a list's entries index by `gl_DrawID`.
+ */
 function drawBaseDeclaration(ctx: GlslBuildContext): string {
-    return ctx.builtins.has('instance_index') ? 'uniform highp uint u_drawBase;' : '';
+    if (!ctx.builtins.has('instance_index')) return '';
+    if (ctx.multiDraw) return `layout(std140) uniform DrawBases {\n    uvec4 u_drawBases[${DRAW_BASES_ENTRIES / 4}];\n};`;
+    return 'uniform highp uint u_drawBase;';
 }
 
 export function compileWgsl(slots: CompileSlots): CompileResult {
@@ -234,6 +243,12 @@ export type CompileGlslOptions = {
      * shapes the texture and never the emitted GLSL.
      */
     maxTextureSize?: number;
+    /**
+     * Whether the context has WEBGL_multi_draw: the instance index then reads each draw's base from a table indexed
+     * by `gl_DrawID`, so a list of draws is one call. Undefined → false, the emitted GLSL byte-identical to the golden
+     * snapshots. Transform feedback shaders never take it: they draw once.
+     */
+    multiDraw?: boolean;
 };
 
 /**
@@ -343,6 +358,7 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
     // variant check happens at emit time (a wgslFn with no `glsl` companion throws there).
 
     const vertexCtx = createGlslContext('vertex', discovered);
+    vertexCtx.multiDraw = opts.multiDraw ?? false;
     const fragmentCtx = createGlslContext('fragment', discovered);
     // Both stages share the same storage→mirror mapping so a storage read lowers identically wherever
     // it appears (a vertex shader gathering per-instance data, a fragment shader reading a palette, …).
@@ -448,8 +464,10 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
         { title: '// Module-scope variables', body: moduleScopeVarsGlsl },
     ];
 
+    // `gl_DrawID` is the extension's: its directive goes ahead of everything after the version
+    const multiDrawn = vertexCtx.multiDraw && vertexCtx.builtins.has('instance_index');
     const vertexCode = joinSections([
-        { body: version },
+        { body: multiDrawn ? `${version}\n#extension GL_ANGLE_multi_draw : require` : version },
         ...sharedSections,
         // instanceIndex lowers to `u_drawBase + gl_InstanceID` (base-inclusive, matching WebGPU); the batched draw loop
         // sets it per sub-draw, and it is 0 (the GL default) for single draws
@@ -1354,6 +1372,27 @@ function discover(roots: Node<d.Any>[]): Discovery {
     // it. registerStructDef is keyed by name, so re-registering a binding's struct is a no-op.
     for (const node of nodeIdToNode.values()) {
         walkTypeForStructs(node.type, registerStructDef);
+    }
+
+    // A group with a fixed block (the view's) is all of its members in every shader that reads any of them, so one
+    // buffer and one bind group serve every pipeline, and a pass can bind it once for all its draws
+    const fixedGroups = new Set<UniformGroup>();
+    for (const { node, group } of uniforms.values()) {
+        const fixed = fixedMembers(group);
+        if (fixed === null) continue;
+        if (!fixed.includes(node)) {
+            throw new Error(
+                `[builder] uniform '${node.name}' is in the '${group.name}' group, whose block is gpucat's own; put it in frameGroup or a group of its own`,
+            );
+        }
+        fixedGroups.add(group);
+    }
+    for (const group of fixedGroups) {
+        for (const member of fixedMembers(group)!) {
+            if (uniforms.has(member.name)) continue;
+            uniforms.set(member.name, { node: member, group });
+            walkTypeForStructs(member.type, registerStructDef);
+        }
     }
 
     const { textureNames, samplerNames, uniformNames, bindingNames } = nameBindings(

@@ -200,6 +200,10 @@ exports[`golden GLSL — render path > lit mesh: attributes, camera/model unifor
 layout(std140) uniform Uniforms_render {
     mat4 cameraProjectionMatrix;
     mat4 cameraViewMatrix;
+    vec3 cameraPosition;
+    float cameraNear;
+    float cameraFar;
+    vec2 screenSize;
 } uniforms_render;
 
 layout(std140) uniform Uniforms_object {
@@ -228,6 +232,10 @@ precision highp int;
 layout(std140) uniform Uniforms_render {
     mat4 cameraProjectionMatrix;
     mat4 cameraViewMatrix;
+    vec3 cameraPosition;
+    float cameraNear;
+    float cameraFar;
+    vec2 screenSize;
 } uniforms_render;
 
 layout(std140) uniform Uniforms_object {
@@ -261,8 +269,28 @@ void main() {
           "offset": 64,
           "size": 64,
         },
+        {
+          "id": "cameraPosition",
+          "offset": 128,
+          "size": 12,
+        },
+        {
+          "id": "cameraNear",
+          "offset": 140,
+          "size": 4,
+        },
+        {
+          "id": "cameraFar",
+          "offset": 144,
+          "size": 4,
+        },
+        {
+          "id": "screenSize",
+          "offset": 152,
+          "size": 8,
+        },
       ],
-      "totalBytes": 128,
+      "totalBytes": 160,
     },
     {
       "groupIndex": 1,
@@ -392,6 +420,11 @@ exports[`golden GLSL — render path > textured: combined-sampler uniform + text
 
 // Uniform blocks (std140)
 layout(std140) uniform Uniforms_render {
+    mat4 cameraProjectionMatrix;
+    mat4 cameraViewMatrix;
+    vec3 cameraPosition;
+    float cameraNear;
+    float cameraFar;
     vec2 screenSize;
 } uniforms_render;
 
@@ -416,6 +449,11 @@ precision highp int;
 
 // Uniform blocks (std140)
 layout(std140) uniform Uniforms_render {
+    mat4 cameraProjectionMatrix;
+    mat4 cameraViewMatrix;
+    vec3 cameraPosition;
+    float cameraNear;
+    float cameraFar;
     vec2 screenSize;
 } uniforms_render;
 
@@ -456,12 +494,37 @@ void main() {
       "groupName": "render",
       "members": [
         {
-          "id": "screenSize",
+          "id": "cameraProjectionMatrix",
           "offset": 0,
+          "size": 64,
+        },
+        {
+          "id": "cameraViewMatrix",
+          "offset": 64,
+          "size": 64,
+        },
+        {
+          "id": "cameraPosition",
+          "offset": 128,
+          "size": 12,
+        },
+        {
+          "id": "cameraNear",
+          "offset": 140,
+          "size": 4,
+        },
+        {
+          "id": "cameraFar",
+          "offset": 144,
+          "size": 4,
+        },
+        {
+          "id": "screenSize",
+          "offset": 152,
           "size": 8,
         },
       ],
-      "totalBytes": 16,
+      "totalBytes": 160,
     },
   ],
   "varyings": [],

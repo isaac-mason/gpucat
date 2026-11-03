@@ -28,7 +28,7 @@
 import type { Material } from '../../material/material';
 import type { UniformGroupBlock } from '../../nodes/builder';
 import { packToView } from '../../schema/pack';
-import { invokeUniformGroupCallbacks, type UniformBinding } from '../core/bind-group';
+import { invokeUniformGroupCallbacks, readBlockStamp, sameStamp, type UniformBinding } from '../core/bind-group';
 import type { NodeFrame } from '../core/node-frame';
 import * as Buffers from './buffers';
 import type { TextureCapture } from './texture-bindings';
@@ -160,13 +160,38 @@ export function captureUniformGroup(
     binding.bufferKey ??= {};
     const data = getUboData(b.uniforms, binding.bufferKey, block.totalBytes);
 
+    // A per-object block whose versions all hold has the bytes it last packed: nothing to pack. A shared one packs at
+    // each use its update type allows, and only changed bytes upload.
+    let stamped = false;
+    const info = b.renderer.info.state;
+    if (!skipCallbacks) {
+        stamped = !block.group.shared && readBlockStamp(block, frame, material, _stamp);
+        if (stamped && sameStamp(_stamp, binding.stamp)) {
+            skipCallbacks = true;
+            info.kept++;
+        } else {
+            info.packed++;
+        }
+    }
+
     if (!skipCallbacks) {
         // Invoke each member node's update callback (assigns node.value, respects updateType).
         invokeUniformGroupCallbacks(block, frame);
         packGroup(block, new DataView(data.packed), material);
+        if (stamped) copyStamp(binding.stamp, _stamp);
+        else binding.stamp.length = 0;
     }
     captureInto(pool, index, binding.bufferKey, block, bindingPoint, data.packed);
 }
+
+/** `into` as a copy of `from`, filled index by index so it stays packed. */
+function copyStamp(into: number[], from: readonly number[]): void {
+    for (let index = 0; index < from.length; index++) into[index] = from[index]!;
+    into.length = from.length;
+}
+
+/** The stamp a draw reads before deciding to pack, read before the next draw's. */
+const _stamp: number[] = [];
 
 /**
  * Captures a STANDALONE kernel's uniform group (transform feedback) for one recorded dispatch into
@@ -198,6 +223,7 @@ export function uploadAndBindCapture(
     b: WebGLBackend,
     capture: UniformCapture,
     material: Material | null,
+    bound: BoundUniforms,
 ): void {
     const { key, block, bytes } = capture;
     const data = getUboData(b.uniforms, key, block.totalBytes);
@@ -209,7 +235,50 @@ export function uploadAndBindCapture(
     }
 
     const ubo = Buffers.getRaw(b.buffers, key);
-    if (ubo) gl.bindBufferBase(gl.UNIFORM_BUFFER, capture.bindingPoint, ubo);
+    if (ubo) bindUniformBuffer(gl, bound, capture.bindingPoint, ubo, -1, 0);
+}
+
+/**
+ * What a pass has bound at each uniform buffer binding point, so a draw binds only what differs, as three.js's
+ * `WebGLState` keeps its UBO bindings: a pass starts with none known and each binding point is set once until another
+ * buffer or range takes it.
+ */
+export type BoundUniforms = { buffers: (WebGLBuffer | null)[]; offsets: number[] };
+
+/** Binding points a pass tracks: the groups' and the multi-draw base table's (see programs.ts). */
+const TRACKED_BINDING_POINTS = 24;
+
+export function createBoundUniforms(): BoundUniforms {
+    const bound: BoundUniforms = { buffers: [], offsets: [] };
+    for (let point = 0; point < TRACKED_BINDING_POINTS; point++) {
+        bound.buffers.push(null);
+        bound.offsets.push(-1);
+    }
+    return bound;
+}
+
+/** Nothing known bound, as a pass begins. Emptied in place, its arrays' length and packing kept. */
+export function resetBoundUniforms(bound: BoundUniforms): void {
+    for (let point = 0; point < bound.buffers.length; point++) {
+        bound.buffers[point] = null;
+        bound.offsets[point] = -1;
+    }
+}
+
+/** Binds `buffer` at `point`, whole for an `offset` of -1, else its `size` bytes from `offset`; skipped if bound so. */
+export function bindUniformBuffer(
+    gl: WebGL2RenderingContext,
+    bound: BoundUniforms,
+    point: number,
+    buffer: WebGLBuffer,
+    offset: number,
+    size: number,
+): void {
+    if (bound.buffers[point] === buffer && bound.offsets[point] === offset) return;
+    if (offset < 0) gl.bindBufferBase(gl.UNIFORM_BUFFER, point, buffer);
+    else gl.bindBufferRange(gl.UNIFORM_BUFFER, point, buffer, offset, size);
+    bound.buffers[point] = buffer;
+    bound.offsets[point] = offset;
 }
 
 /** Fills the pooled capture at `index`, creating it on first use. */

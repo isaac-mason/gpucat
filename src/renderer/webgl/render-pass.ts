@@ -25,10 +25,11 @@ import { getBindings, pipelineLabel } from '../core/render-object';
 import * as RenderState from '../core/render-state';
 import { formatHasStencil, type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
 import * as Bindings from './bindings';
+import * as DrawBases from './draw-bases';
 import * as Geometries from './geometries';
 import { getRenderObjectGl } from './render-object-gl';
 import { bindRenderTargetFramebuffer, resolveActiveRenderTarget } from './render-target';
-import { applyMaterialState, createGlStateCache, establishPassBaseline } from './state';
+import * as State from './state';
 import { bindTextures, captureTextures } from './texture-bindings';
 import { isIntegerTextureFormat } from './textures';
 import type { WebGLBackend } from './webgl-backend';
@@ -50,16 +51,22 @@ function bindFramebuffer(gl: WebGL2RenderingContext, caches: WebGLBackend, param
 type Rects = Pick<RenderPassParams, 'viewport' | 'viewportValue' | 'scissor' | 'scissorValue'>;
 
 /** Apply a run's resolved (physical-pixel) viewport + scissor to GL state, over a `width` x `height` framebuffer. */
-function applyViewportScissor(gl: WebGL2RenderingContext, width: number, height: number, rects: Rects): void {
+function applyViewportScissor(
+    gl: WebGL2RenderingContext,
+    state: State.GlState,
+    width: number,
+    height: number,
+    rects: Rects,
+): void {
     if (rects.viewport) {
         const v = rects.viewportValue;
         // WebGPU's viewport origin is top-left; GL's is bottom-left. Flip Y against the framebuffer height
         // so a top-left rect (e.g. the studio grid's per-card cells, sourced from DOM coordinates) lands in
         // the right place. A full-framebuffer viewport is unchanged by the flip.
-        gl.viewport(v.x, height - v.y - v.height, v.width, v.height);
+        State.setViewport(gl, state, v.x, height - v.y - v.height, v.width, v.height);
         // Honor the viewport's depth range (defaults 0,1). Threaded through per pass so a prior pass's
         // custom range never leaks into this one.
-        gl.depthRange(v.minDepth, v.maxDepth);
+        State.setDepthRange(gl, state, v.minDepth, v.maxDepth);
     } else {
         // No explicit viewport for this pass → cover the full framebuffer at its own size. `params.width`
         // / `.height` are the physical framebuffer dimensions (the render target's size, or the canvas
@@ -67,16 +74,16 @@ function applyViewportScissor(gl: WebGL2RenderingContext, width: number, height:
         // lets a render target larger than the canvas draw correctly — e.g. a headless 1x1 OffscreenCanvas
         // rendering into a full-size target. Also restore the default full depth range so a preceding
         // pass's custom depthRange doesn't persist as stale state.
-        gl.viewport(0, 0, width, height);
-        gl.depthRange(0, 1);
+        State.setViewport(gl, state, 0, 0, width, height);
+        State.setDepthRange(gl, state, 0, 1);
     }
     if (rects.scissor) {
         const s = rects.scissorValue;
-        gl.enable(gl.SCISSOR_TEST);
+        State.setCapability(gl, state, 'scissorTest', true);
         // Same top-left to bottom-left Y flip as the viewport above.
-        gl.scissor(s.x, height - s.y - s.height, s.width, s.height);
+        State.setScissor(gl, state, s.x, height - s.y - s.height, s.width, s.height);
     } else {
-        gl.disable(gl.SCISSOR_TEST);
+        State.setCapability(gl, state, 'scissorTest', false);
     }
 }
 
@@ -96,6 +103,7 @@ function hasIntegerAttachment(textures: readonly { format: string }[]): boolean 
  */
 function clearBuffers(
     gl: WebGL2RenderingContext,
+    state: State.GlState,
     params: RenderPassParams,
     color: boolean,
     depth: boolean,
@@ -105,7 +113,7 @@ function clearBuffers(
     let mask = 0;
     if (color) {
         const { r, g, b, a } = params.clearColor;
-        gl.colorMask(true, true, true, true);
+        State.setColorMask(gl, state, true);
         const textures = params.renderTarget?.textures;
         if (textures && hasIntegerAttachment(textures)) {
             // `gl.clear` on an integer draw buffer is INVALID_OPERATION, which drops the depth and stencil clear too:
@@ -121,19 +129,19 @@ function clearBuffers(
                 else gl.clearBufferfv(gl.COLOR, i, clearColorValue);
             }
         } else {
-            gl.clearColor(r, g, b, a);
+            State.setClearColor(gl, state, r, g, b, a);
             mask |= gl.COLOR_BUFFER_BIT;
         }
     }
     if (depth) {
-        gl.clearDepth(params.clearDepthValue);
-        gl.depthMask(true);
+        State.setClearDepth(gl, state, params.clearDepthValue);
+        State.setDepthMask(gl, state, true);
         mask |= gl.DEPTH_BUFFER_BIT;
     }
     // Stencil only clears on a stencil-capable attachment.
     if (stencil && hasStencil) {
-        gl.clearStencil(params.clearStencilValue);
-        gl.stencilMask(0xff);
+        State.setClearStencil(gl, state, params.clearStencilValue);
+        State.setStencilWriteMask(gl, state, 0xff);
         mask |= gl.STENCIL_BUFFER_BIT;
     }
     if (mask !== 0) gl.clear(mask);
@@ -218,8 +226,8 @@ export function beginPass(caches: WebGLBackend, passCtx: RenderContext, params: 
     // Before the scissor, not after: `gl.clear` obeys the scissor box and WebGPU's `loadOp` does not,
     // so clearing under it would make one `clear` mean two different regions on the two backends.
     if (params.clearsColor || params.clearsDepth || params.clearsStencil) {
-        gl.disable(gl.SCISSOR_TEST);
-        clearBuffers(gl, params, params.clearsColor, params.clearsDepth, params.clearsStencil, targetStencil);
+        State.setCapability(gl, caches.glState, 'scissorTest', false);
+        clearBuffers(gl, caches.glState, params, params.clearsColor, params.clearsDepth, params.clearsStencil, targetStencil);
     }
 
     // each run of draws sets the rects it was recorded under (`encodeDraws`)
@@ -234,7 +242,7 @@ export function endPass(caches: WebGLBackend, params: RenderPassParams): void {
     const gl = caches.gl!;
     gl.bindVertexArray(null);
     invalidateUnstored(gl, params);
-    resolveActiveRenderTarget(gl, caches.renderTargets);
+    resolveActiveRenderTarget(gl, caches.renderTargets, caches.glState);
 }
 
 // the default framebuffer names its buffers, a framebuffer object its attachment points
@@ -288,6 +296,12 @@ export function captureDraw(
     captureTextures(renderObject, out.textures);
 }
 
+/** What the pass has bound at each uniform buffer binding point, reset as each pass's draws begin. */
+const _bound = /*@__PURE__*/ Bindings.createBoundUniforms();
+
+/** Where each of a pass's draws' multi-draw tables starts, by draw, or -1 for a draw that reads none. */
+const _tableStarts: number[] = [];
+
 export function encodeDraws(
     gl: WebGL2RenderingContext,
     caches: WebGLBackend,
@@ -305,20 +319,29 @@ export function encodeDraws(
     { passBlend }: PassScope,
 ): void {
     const hasStencil = !!passCtx.stencil;
-    // Pin the GL globals the fresh state cache assumes but the per-draw material state doesn't set
-    // (winding, stencil write mask, rasterizer discard) — see establishPassBaseline.
-    establishPassBaseline(gl);
-    const stateCache = createGlStateCache();
     let currentProgram: WebGLProgram | null = null;
     let currentVao: WebGLVertexArrayObject | null = null;
     // Nothing is known bound when the loop starts, so its first draw binds.
     const bound: Geometries.VaoBinding = { vao: null };
+    Bindings.resetBoundUniforms(_bound);
+
+    // Every draw list's table is in the pass's buffer before the first draw reads one.
+    const drawBases = caches._drawBases;
+    if (drawBases !== null) {
+        DrawBases.beginPassTables(drawBases);
+        for (let i = 0; i < count; i++) {
+            const draws = preparedOpts[i]?.draws ?? prepared[i].mesh.draws;
+            const program = getRenderObjectGl(caches.renderObjectGl, prepared[i]).program;
+            _tableStarts[i] = draws !== undefined && program?.drawBases ? DrawBases.addListTable(drawBases, draws) : -1;
+        }
+        DrawBases.uploadPassTables(gl, drawBases, info);
+    }
 
     // the runs cover the draws in order, each starting where the last ended
     let segmentIndex = 0;
     for (let i = 0; i < count; i++) {
         if (segmentIndex < segmentCount && segments[segmentIndex].start === i) {
-            applyViewportScissor(gl, params.width, params.height, segments[segmentIndex++]);
+            applyViewportScissor(gl, caches.glState, params.width, params.height, segments[segmentIndex++]);
         }
         const renderObject = prepared[i];
         const { mesh, material, geometry } = renderObject;
@@ -352,7 +375,9 @@ export function encodeDraws(
 
         // Uniform groups → std140 UBOs: each group's bytes as the draw recorded them, uploaded if they
         // differ from what its UBO holds and bound to its program binding point.
-        for (let u = 0; u < capture.uniformCount; u++) Bindings.uploadAndBindCapture(gl, caches, capture.uniforms[u], material);
+        for (let u = 0; u < capture.uniformCount; u++) {
+            Bindings.uploadAndBindCapture(gl, caches, capture.uniforms[u], material, _bound);
+        }
         if (inspector) {
             const groupCount = getBindings(renderObject).length;
             for (let g = 0; g < groupCount; g++) inspector.setBindGroup(g, mesh.name || '');
@@ -393,13 +418,34 @@ export function encodeDraws(
             throw new Error('[webgl] per-attachment blend modes are not supported on the WebGL2 backend.');
         }
         const blend = RenderState.resolveTargetBlend(material, passCtx.mrt, passBlend.targetName);
-        applyMaterialState(gl, stateCache, material, hasStencil, blend);
+        State.applyMaterialState(gl, caches.glState, material, hasStencil, blend);
 
         // Draw. Topology is a triangle list (the GLSL render path targets triangles).
         // `u_drawBase` feeds instanceIndex's base-inclusive lowering (`u_drawBase + gl_InstanceID`).
         const drawBaseLoc = programInfo.drawBaseLocation ?? null;
 
-        if (draws !== undefined) {
+        if (draws !== undefined && drawBases !== null) {
+            // Batched under WEBGL_multi_draw: the list as one call, each entry's base from the pass's table
+            if (geometry.index && drawInfo.indexType !== null) {
+                const bytesPerIndex =
+                    drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+                const list = draws as IndexedMeshDraw[];
+                DrawBases.drawIndexedList(gl, drawBases, _bound, list, drawInfo.indexType, bytesPerIndex, _tableStarts[i]!);
+                for (const d of list) {
+                    if (d.instanceCount <= 0) continue;
+                    if (inspector) inspector.drawIndexed(d.indexCount, d.instanceCount);
+                    countDraw(info, d.indexCount, d.instanceCount);
+                }
+            } else {
+                const list = draws as NonIndexedMeshDraw[];
+                DrawBases.drawList(gl, drawBases, _bound, list, _tableStarts[i]!);
+                for (const d of list) {
+                    if (d.instanceCount <= 0) continue;
+                    if (inspector) inspector.draw(d.vertexCount, d.instanceCount);
+                    countDraw(info, d.vertexCount, d.instanceCount);
+                }
+            }
+        } else if (draws !== undefined) {
             // Batched: one instanced draw per entry, each with its own firstInstance base. The VAO is
             // already bound once above, so the loop only sets u_drawBase + issues the draw. The mesh's
             // geometry selects indexed (drawElements) vs non-indexed (drawArrays) draws.
@@ -432,8 +478,9 @@ export function encodeDraws(
             }
         } else {
             // Reset u_drawBase to 0 so a prior batched draw sharing this program can't leak its
-            // firstInstance into instanceIndex here.
+            // firstInstance into instanceIndex here; under multi-draw, its base is the zero table's entry 0.
             if (drawBaseLoc !== null) gl.uniform1ui(drawBaseLoc, 0);
+            else if (drawBases !== null && programInfo.drawBases) DrawBases.bindZeroTable(gl, drawBases, _bound);
 
             if (geometry.index && drawInfo.indexType !== null) {
                 const { first, count } = resolveIndexedDrawRange(geometry, range);

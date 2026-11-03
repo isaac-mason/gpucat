@@ -49,6 +49,7 @@ import {
     PerspectiveCamera,
     type RenderTarget,
     read,
+    readBuffer,
     renderOutput,
     renderTexture,
     Scene,
@@ -333,6 +334,33 @@ async function caseMrtInteger(gpu: Renderer<WebGPUBackend>): Promise<CaseResult>
 
     const pixel = centerPixel(await read(gpu, checked));
     return { name: 'mrt-integer', pixel, expected: [0, 255, 0, 255], note: 'the rg32uint words read back intact' };
+}
+
+/**
+ * read-buffer: a compute pass writes each element's index times three into a storage buffer that never held CPU data,
+ * and `readBuffer` reads a range back, as the buffer's own u32 array. Green where every word arrived.
+ */
+async function caseReadBuffer(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const count = 256;
+    const words = new GpuBuffer(d.array(d.u32), { count, cpu: false, usage: 'storage' });
+    const fill = Fn(() => {
+        const out = storage('words', d.array(d.u32), 'read_write');
+        out.element(globalId.x).assign(globalId.x.mul(u32(3)));
+    }).compute({ workgroupSize: [64, 1, 1] });
+    const f = frame(gpu);
+    const pass = f.compute();
+    pass.dispatch(fill, [count / 64, 1, 1], { buffers: { words } });
+    pass.end();
+    f.submit();
+    const got = await readBuffer(gpu, words, { offset: 10, count: 20 });
+    let intact = got instanceof Uint32Array && got.length === 20;
+    for (let i = 0; intact && i < 20; i++) intact = got[i] === (10 + i) * 3;
+    return {
+        name: 'read-buffer',
+        pixel: intact ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: intact ? 'elements 10 to 29 as written' : `got ${Array.from(got.slice(0, 4)).join(', ')} ...`,
+    };
 }
 
 /** cube-layer: `PassDesc.layer` picks the face, so six passes on one frame fill six different faces. */
@@ -3509,6 +3537,7 @@ const CASES: Record<string, Case> = {
     'viewport-scissor': caseScissor,
     mrt: caseMrt,
     'mrt-integer': caseMrtInteger,
+    'read-buffer': caseReadBuffer,
     'cube-layer': caseCubeLayer,
     'rt-mip-depth': caseRtMipDepth,
     'rt-array-layer': caseRtArrayLayer,

@@ -75,7 +75,7 @@ describe('frame encoder ownership', () => {
         f.submit();
 
         expect(stub.stats.drawCalls).toBeGreaterThanOrEqual(2);
-        expect(stub.stats.encoderCreations).toBe(1);
+        expect(stub.stats.encoderCreations, 'the frame encoder, and the uniform copies ahead of it').toBe(2);
         expect(stub.stats.submits).toBe(1);
     });
 
@@ -93,7 +93,7 @@ describe('frame encoder ownership', () => {
         pass.end();
         f.submit();
 
-        expect(stub.stats.encoderCreations, 'one encoder for the frame and its mips').toBe(1);
+        expect(stub.stats.encoderCreations, 'one encoder for the frame and its mips, and the uniform copies ahead of it').toBe(2);
         expect(stub.stats.submits, 'one submit').toBe(1);
     });
 
@@ -160,7 +160,7 @@ describe('frame encoder ownership', () => {
             f.submit();
         }
 
-        expect(stub.stats.encoderCreations).toBe(3);
+        expect(stub.stats.encoderCreations, "each frame's encoder and its uniform copies").toBe(6);
         expect(stub.stats.submits).toBe(3);
     });
 

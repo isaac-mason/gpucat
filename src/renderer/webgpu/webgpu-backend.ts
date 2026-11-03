@@ -1,4 +1,4 @@
-import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { GpuBuffer, GpuTypedArray } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
 import type { TextureOrigin, TextureRegion } from '../../core/texture-region';
@@ -36,6 +36,7 @@ import * as FrameBackend from './frame-backend';
 import * as Geometries from './geometries';
 import * as Pipelines from './pipelines';
 import * as Prepare from './prepare';
+import * as ReadBuffer from './read-buffer';
 import * as ReadPixels from './read-pixels';
 import * as RenderObjectGpu from './render-object-gpu';
 import * as RenderPass from './render-pass';
@@ -51,6 +52,13 @@ export type WebGPUBackendOptions = {
 
     /** GPUDeviceDescriptor forwarded to adapter.requestDevice(). */
     deviceDescriptor?: GPUDeviceDescriptor;
+
+    /**
+     * Limits to request past WebGPU's defaults, worked out from the adapter's (`adapterLimits`), which no request may
+     * exceed: e.g. `(limits) => ({ maxStorageBuffersPerShaderStage: limits.maxStorageBuffersPerShaderStage })`. Merged
+     * over `deviceDescriptor.requiredLimits`.
+     */
+    requiredLimits?: (adapterLimits: GPUSupportedLimits) => Record<string, number>;
 
     /** Pre-created GPUDevice. When provided, skips navigator.gpu initialization. */
     device?: GPUDevice;
@@ -196,7 +204,12 @@ export class WebGPUBackend implements DeviceBackend {
             ) as GPUFeatureName[];
             const callerFeatures = opts.deviceDescriptor?.requiredFeatures ?? [];
             const mergedFeatures = [...new Set([...requiredFeatures, ...callerFeatures])] as GPUFeatureName[];
-            this.device = await this.adapter.requestDevice({ ...opts.deviceDescriptor, requiredFeatures: mergedFeatures });
+            const requiredLimits = { ...opts.deviceDescriptor?.requiredLimits, ...opts.requiredLimits?.(this.adapter.limits) };
+            this.device = await this.adapter.requestDevice({
+                ...opts.deviceDescriptor,
+                requiredFeatures: mergedFeatures,
+                requiredLimits,
+            });
 
             this.device.lost.then((info) => {
                 if (info.reason === 'destroyed') return; // intentional teardown
@@ -298,6 +311,10 @@ export class WebGPUBackend implements DeviceBackend {
         return ReadPixels.readPixels(this, renderTarget, attachmentIndex, layer, mipLevel);
     }
 
+    readBuffer(buffer: GpuBuffer, offset: number, count: number): Promise<GpuTypedArray> {
+        return ReadBuffer.readBuffer(this, buffer, offset, count);
+    }
+
     writeBuffer(buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void {
         Buffers.writeBufferBytes(this.buffers, this.device, buffer, byteOffset, data, dataByteOffset, byteSize);
     }
@@ -356,6 +373,10 @@ export class WebGPUBackend implements DeviceBackend {
     releaseUniformBlock(key: object): void {
         Buffers.releaseUniformBlock(this.buffers, key);
     }
+
+    /** Nothing to forget: a WebGPU pass starts from no state, and other users of the device cannot reach its encoders. */
+    /** @internal */
+    resetState(): void {}
 
     /** Map `buffer` for reading, held in `_readbacks` until the map settles. @internal */
     async mapForRead(buffer: GPUBuffer, offset?: number, size?: number): Promise<void> {

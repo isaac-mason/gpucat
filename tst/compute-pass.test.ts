@@ -94,7 +94,7 @@ describe('compute passes ride the frame encoder', () => {
 
         expect(stub.stats.dispatches).toBe(1);
         expect(stub.stats.drawCalls).toBeGreaterThanOrEqual(1);
-        expect(stub.stats.encoderCreations).toBe(1);
+        expect(stub.stats.encoderCreations, 'the frame encoder, and the uniform copies ahead of it').toBe(2);
         expect(stub.stats.submits).toBe(1);
     });
 

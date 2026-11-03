@@ -17,19 +17,19 @@ import {
     f32,
     modelWorldMatrix,
     mul,
-    renderTexture,
     renderOutput,
+    renderTexture,
     vec4,
 } from '../src/nodes/nodes';
 import { fullscreen } from '../src/objects/fullscreen';
 import { Mesh } from '../src/objects/mesh';
 import { createCanvasTarget } from '../src/renderer/core/canvas-target';
+import { frame } from '../src/renderer/core/frame';
 import { Renderer } from '../src/renderer/core/renderer';
 import { WebGPUBackend } from '../src/renderer/webgpu/webgpu-backend';
 import { drawScene } from '../src/scene/draw-scene';
 import { Scene } from '../src/scene/scene';
 import * as d from '../src/schema/schema';
-import { frame } from '../src/renderer/core/frame';
 
 /** One frame owns one encoder and one submit, including the pass a `RenderTextureNode` records inside it. */
 
@@ -71,7 +71,7 @@ describe('render encoder ownership', () => {
         scenePass.end();
         f.submit();
 
-        expect(stub.stats.encoderCreations).toBe(1);
+        expect(stub.stats.encoderCreations, 'the frame encoder, and the uniform copies ahead of it').toBe(2);
         expect(stub.stats.submits).toBe(1);
     });
 
@@ -93,7 +93,7 @@ describe('render encoder ownership', () => {
         // Guard: the beauty pass must actually have fired — its box draws AND the composite draws, so
         // >= 2 draw calls, otherwise the one-encoder assertion is vacuous.
         expect(stub.stats.drawCalls).toBeGreaterThanOrEqual(2);
-        expect(stub.stats.encoderCreations).toBe(1);
+        expect(stub.stats.encoderCreations, 'the frame encoder, and the uniform copies ahead of it').toBe(2);
         expect(stub.stats.submits).toBe(1);
     });
 });

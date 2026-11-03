@@ -1,4 +1,5 @@
 import { type Any, type Infer, type TypedArrayFor, typedArrayCtorOf } from '../schema/schema';
+import { nextVersion } from './version';
 
 /** What may be assigned to a uniform: the schema's own shape, a plain array, or a matching typed array. */
 export type UniformValue<T extends Any = Any> = Any extends T
@@ -38,11 +39,15 @@ export class UniformGroup {
     }
 }
 
-/** Create a per-object (non-shared) uniform group. */
-export const uniformGroup = (name: string, order = 1, updateType: UniformUpdateType = UniformUpdateType.NONE) =>
+/**
+ * Create a per-object (non-shared) uniform group. `order` is its @group index in every shader that uses it, as Godot's
+ * and Bevy's fixed sets are: a pipeline switch keeps the groups below that change no more often. Two groups a shader
+ * uses must not share an order.
+ */
+export const uniformGroup = (name: string, order = 3, updateType: UniformUpdateType = UniformUpdateType.NONE) =>
     new UniformGroup(name, false, order, updateType);
 
-/** Create a shared uniform group. */
+/** Create a shared uniform group, its `order` its fixed @group index as `uniformGroup`'s. */
 export const sharedUniformGroup = (name: string, order = 0, updateType: UniformUpdateType = UniformUpdateType.NONE) =>
     new UniformGroup(name, true, order, updateType);
 
@@ -55,16 +60,23 @@ export const frameGroup = /*@__PURE__*/ sharedUniformGroup('frame', 0, UniformUp
 /**
  * renderGroup, shared uniforms updated per render() call.
  * Contains camera uniforms (projection, view, position, near, far).
- * Maps to @group(0) with RENDER update type.
+ * Maps to @group(1) with RENDER update type.
  */
-export const renderGroup = /*@__PURE__*/ sharedUniformGroup('render', 0, UniformUpdateType.RENDER);
+export const renderGroup = /*@__PURE__*/ sharedUniformGroup('render', 1, UniformUpdateType.RENDER);
+
+/**
+ * materialGroup, what a material binds: its textures, samplers and storage buffers, by default. Two draws binding the
+ * same resources bind the same group, so it changes with the material rather than with each draw.
+ * Maps to @group(2) with OBJECT update type.
+ */
+export const materialGroup = /*@__PURE__*/ uniformGroup('material', 2, UniformUpdateType.OBJECT);
 
 /**
  * objectGroup, per-object uniforms updated per draw call.
- * Contains mesh matrices (modelWorldMatrix, modelNormalMatrix) and user material uniforms.
- * Maps to @group(1) with OBJECT update type.
+ * Contains mesh matrices (modelWorldMatrix, modelNormalMatrix) and user uniforms, by default.
+ * Maps to @group(3) with OBJECT update type.
  */
-export const objectGroup = /*@__PURE__*/ uniformGroup('object', 1, UniformUpdateType.OBJECT);
+export const objectGroup = /*@__PURE__*/ uniformGroup('object', 3, UniformUpdateType.OBJECT);
 
 /**
  * Core uniform data container.
@@ -96,6 +108,12 @@ export class Uniform<T extends Any = Any> {
      */
     label: string | undefined;
     private _value: UniformStored<T> | null = null;
+    /**
+     * Moves on every write: assigning `value`, or `needsUpdate = true` after changing the value in place. A per-object
+     * block whose members' versions all hold is not packed again. A write into the value that is neither (a typed array
+     * the uniform holds, changed without `needsUpdate`) is not seen, as `GpuBuffer`'s data is not.
+     */
+    version: number = nextVersion();
     /** The array plain arrays are packed into, reused while their length holds. Never one the caller passed. */
     private _packed: TypedArrayFor<T> | null = null;
 
@@ -118,6 +136,7 @@ export class Uniform<T extends Any = Any> {
      * allocates nothing, and a `value` read earlier sees the later writes.
      */
     set value(next: UniformValue<T> | null) {
+        this.version = nextVersion();
         // Only a flat run of numbers packs. An array of vectors or matrices is already `Infer<T>`, and
         // `set` would flatten it to NaN at the wrong length.
         if (!Array.isArray(next) || typeof next[0] !== 'number') {
@@ -132,6 +151,11 @@ export class Uniform<T extends Any = Any> {
         }
         (packed as Float32Array).set(next as number[]);
         this._value = packed as UniformStored<T>;
+    }
+
+    /** The uniform's value was changed in place (a typed array it holds, a struct's field): it is read again. */
+    set needsUpdate(_: true) {
+        this.version = nextVersion();
     }
 }
 
