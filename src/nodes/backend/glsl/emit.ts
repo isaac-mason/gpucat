@@ -1490,10 +1490,12 @@ function generateTextureCall(ctx: GlslBuildContext, node: CallNode<d.Any>): stri
             );
         }
         case 'textureLoad': {
-            // (t, coords, level) → texelFetch(name, ivec2(coords), level).
+            // (t, coords, level) → texelFetch(name, ivec2(coords), level). WGSL loads a depth texture as its f32
+            // depth, where texelFetch of its plain sampler2D gives the depth in .r of a vec4
             const level = rawArgs[2] ? generateExpr(ctx, rawArgs[2]) : '0';
             const coordExpr = f.texel(texelCoord(ctx, rawArgs[1]), `textureSize(${name}, ${level}).y`);
-            return `texelFetch(${name}, ${coordExpr}, ${level})`;
+            const fetch = `texelFetch(${name}, ${coordExpr}, ${level})`;
+            return d.isDepthTextureDesc(tex.type) ? `${fetch}.x` : fetch;
         }
         case 'textureDimensions': {
             // WGSL textureDimensions(t [, level:u32]) → vec{2,3}<u32>; GLSL textureSize(sampler, int) →

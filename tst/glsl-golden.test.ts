@@ -24,6 +24,7 @@ import {
     select,
     struct,
     texture,
+    textureLoad,
     textureSampleCompare,
     u32,
     Var,
@@ -290,6 +291,15 @@ describe('golden GLSL — render path', () => {
             depth: undefined,
         });
         expect(rLoad.code).toContain('_flipY2i');
+
+        // The free textureLoad of a depth binding is its f32 depth, as WGSL has it, not texelFetch's vec4.
+        const fetched = f32(textureLoad(depthTexture(depthTex).bindingNode, vec2i(i32(0), i32(0)), i32(0)));
+        const rFetch = compileGlsl({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(vec3(fetched, fetched, fetched), f32(1)),
+            depth: undefined,
+        });
+        expect(rFetch.code).toMatch(/texelFetch\([^;]*\)\.x/);
 
         // Shadow comparison sample (the original bug) must flip too.
         const shadow = depthTexture(depthTex);
