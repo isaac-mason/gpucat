@@ -1,6 +1,7 @@
 import type { UniformGroup } from '../../core/uniform';
 import { type Allocation, type MemoryTally, type RendererInfo } from '../core/info';
 import { type OffsetAllocation, type OffsetAllocator } from '../core/offset-allocator';
+import { type BindGroupCache } from './bind-group-cache';
 export type ArenaSlot = {
     page: ArenaPage;
     allocation: OffsetAllocation;
@@ -27,12 +28,18 @@ export type ArenaPage = {
     dirty: ArenaSlot[];
     groups: SharedGroup[];
     allocation: Allocation;
+    /** slots held in it; at 0 it is released after the next submit, as the frame's draws may still read it */
+    liveSlots: number;
 };
 export type DrawArena = {
     pages: ArenaPage[];
     /** each block's slot, by the block's buffer key */
     slots: WeakMap<object, ArenaSlot>;
     liveSlots: number;
+    /** pages left with no slots, released after the submit if none were taken again */
+    emptyPages: ArenaPage[];
+    /** the bind group cache, whose entries naming a page's buffer go with the page */
+    bindGroups: BindGroupCache;
     tally: MemoryTally;
     info: RendererInfo;
 };
@@ -42,7 +49,7 @@ export type DrawArena = {
  * and a per-frame one, which binds with no offset, keeps its own buffer.
  */
 export declare function inDrawArena(group: UniformGroup): boolean;
-export declare function createDrawArena(info: RendererInfo, tally: MemoryTally): DrawArena;
+export declare function createDrawArena(info: RendererInfo, tally: MemoryTally, bindGroups: BindGroupCache): DrawArena;
 /** The slot `key`'s block holds, if it has one. */
 export declare function arenaSlot(arena: DrawArena, key: object): ArenaSlot | undefined;
 /**
@@ -53,6 +60,11 @@ export declare function takeSlot(arena: DrawArena, device: GPUDevice, key: objec
 /** Frees `key`'s slot for another block. A write it queued may still land: every write copies the page's CPU copy,
  *  which a block placed there since has already written. */
 export declare function releaseSlot(arena: DrawArena, key: object): void;
+/**
+ * After a submit: releases each page left with no slots and not taken again, so a scene that needed many pages leaves
+ * none behind. Its buffer was read by the frame just submitted at the latest, which the submit has already queued.
+ */
+export declare function releaseEmptyPages(arena: DrawArena): void;
 /** `data` as the slot's bytes from the next submit on. */
 export declare function writeSlot(slot: ArenaSlot, data: ArrayBuffer): void;
 /**

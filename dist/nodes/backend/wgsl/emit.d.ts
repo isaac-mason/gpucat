@@ -6,6 +6,7 @@
  * module here. Nothing in this file touches GPUDevice or any runtime object — it is purely
  * node-graph → text. compile()/compileCompute() (in ../../builder) orchestrate discover → emit.
  */
+import { type SharedPlacement } from '../../../renderer/core/shared-blocks';
 import type { StructSchema } from '../../../schema/schema';
 import * as d from '../../../schema/schema';
 import type { AttributeEntry, CompileSlots, Discovery, NodeGraphInfo, SamplerEntry, StorageEntry, StorageTextureEntry, TextureEntry, UniformGroupBlock } from '../../builder';
@@ -28,6 +29,8 @@ export type TracedFn = {
 };
 /** Build context - carries all state during code generation */
 export type BuildContext = {
+    /** Where shared groups' members are placed, or null to lay each shared block out by itself. */
+    shared: SharedPlacement | null;
     stage: ShaderStage;
     isRender: boolean;
     uniforms: Map<string, {

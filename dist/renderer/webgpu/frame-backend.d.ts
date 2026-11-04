@@ -5,7 +5,8 @@ import type * as d from '../../schema/schema';
 import type { DeviceBackend } from '../core/device-backend';
 import type { ComputePassDesc, DispatchRecord, DrawOptions, PassDesc, PassEntry } from '../core/frame';
 import type { RenderContext } from '../core/pass-context';
-import { type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
+import { type PassOrder } from '../core/pass-order';
+import { type PreparedRenderObject, type RenderPassParams } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
 import { type DrawBindings } from './bindings';
 import * as Compute from './compute';
@@ -42,11 +43,8 @@ type OpenRenderPass = {
     preparedOpts: (DrawOptions | null)[];
     bindings: DrawBindings[];
     count: number;
-    /** Runs of `prepared`: one per bundle, and the direct draws between them, split where the camera or a rect
-     *  changed. Pooled; the first `segmentCount` are this pass's. */
-    segments: PreparedSegment[];
-    segmentCount: number;
-    runStart: number;
+    /** The order the draws encode in, and the view each was recorded under. */
+    order: PassOrder;
 };
 /** A compute pass between `beginComputePass` and `encodeComputePass`, holding its dispatches as they resolved. */
 type OpenComputePass = {
@@ -62,8 +60,8 @@ export declare function createWebGPUFrameBackendState(renderer: Renderer<DeviceB
 export declare function beginFrame(s: WebGPUFrameBackendState): void;
 /** Opens a render pass: its context and render scope are fixed here, before its first draw resolves. */
 export declare function beginPass(s: WebGPUFrameBackendState, desc: PassDesc): void;
-/** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded; a camera or rect
- *  change ends the run of draws before it. */
+/** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded, in the place in its
+ *  order the draw or bundle takes; a camera or rect change applies to the draws recorded after it. */
 export declare function recordEntry(s: WebGPUFrameBackendState, entry: PassEntry): void;
 /** Encodes what the pass resolved, then closes the scopes `beginPass` opened. */
 export declare function encodePass(s: WebGPUFrameBackendState, desc: PassDesc): void;

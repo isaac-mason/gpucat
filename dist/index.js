@@ -9544,6 +9544,8 @@ function callName(record) {
             return record.mesh.name || `Mesh #${record.mesh.objectId}`;
         case 'bundle':
             return record.bundle.label;
+        case 'bin':
+            return record.bin.desc.label ?? 'bin';
         case 'camera':
         case 'viewport':
         case 'scissor':
@@ -9573,6 +9575,11 @@ function callDetail(record) {
         case 'bundle':
             parts.push(`${record.bundle.count} draws`);
             break;
+        case 'bin': {
+            const key = record.bin.desc.key;
+            parts.push(`key ${typeof key === 'string' ? key : record.bin.fields.join(', ')}`);
+            break;
+        }
         case 'camera': {
             const world = record.camera.matrixWorld;
             parts.push(`at ${world[12].toFixed(2)}, ${world[13].toFixed(2)}, ${world[14].toFixed(2)}`);
@@ -9783,6 +9790,7 @@ function createUniformBindGroup(block) {
         currentBuffer: null,
         scratchBuffer: null,
         stamp: [],
+        sharedBlock: null,
     };
     return {
         id: bindGroupIdCounter++,
@@ -9837,6 +9845,7 @@ function cloneBindGroup(source) {
                     currentBuffer: null,
                     scratchBuffer: null,
                     stamp: [],
+                    sharedBlock: binding.sharedBlock,
                 };
             case 'storage':
                 return {
@@ -12188,6 +12197,221 @@ function fixedMembers(group) {
     return group === renderGroup ? VIEW_BLOCK : null;
 }
 
+function createSharedBlocks(layout) {
+    return { layout, groupToBlock: new Map() };
+}
+/** The first node of each `Uniform` in `nodes`: a shared group's member is the uniform, however many nodes read it. */
+function uniqueByUniform(nodes) {
+    const seen = new Set();
+    const out = [];
+    for (const node of nodes) {
+        if (seen.has(node.uniform))
+            continue;
+        seen.add(node.uniform);
+        out.push(node);
+    }
+    return out;
+}
+/** `group`'s block, made empty on first need. */
+function sharedBlockOf(blocks, group) {
+    let block = blocks.groupToBlock.get(group);
+    if (block === undefined) {
+        block = {
+            group,
+            layout: blocks.layout,
+            block: {
+                groupName: group.name,
+                groupIndex: group.order,
+                binding: 0,
+                shared: true,
+                members: [],
+                totalBytes: 16,
+                group,
+            },
+            uniformToMember: new Map(),
+            freeRuns: [],
+            slots: 0,
+            mirror: new ArrayBuffer(16),
+            dirtyStart: 0,
+            dirtyEnd: 0,
+            version: 0,
+            syncedFrame: -1,
+            syncedVersion: -1,
+        };
+        blocks.groupToBlock.set(group, block);
+    }
+    return block;
+}
+/**
+ * The members `nodes` read, one per `Uniform`, joining a new one at the first free slots that fit, in slot order.
+ * Throws when the block would pass `maxBytes`, the device's uniform block limit.
+ */
+function placeSharedMembers(blocks, group, nodes, maxBytes) {
+    const shared = sharedBlockOf(blocks, group);
+    const placed = [];
+    for (const node of nodes) {
+        if (node.uniform.value === null) {
+            throw new Error(`[gpucat] uniform '${node.name}' in shared group '${group.name}' reads its value from the material; a shared group's uniforms hold one value for every draw`);
+        }
+        let member = shared.uniformToMember.get(node.uniform);
+        if (member === undefined)
+            member = joinMember(shared, node, maxBytes);
+        else if (!member.nodes.includes(node))
+            member.nodes.push(node);
+        if (!placed.includes(member))
+            placed.push(member);
+    }
+    return placed.sort((a, b) => a.offset - b.offset);
+}
+function joinMember(shared, node, maxBytes) {
+    const size = layoutSizeOf(node.type, shared.layout);
+    const slots = Math.ceil(size / 16);
+    let start = -1;
+    for (let index = 0; index < shared.freeRuns.length; index++) {
+        const run = shared.freeRuns[index];
+        if (run.slots < slots)
+            continue;
+        start = run.start;
+        if (run.slots === slots)
+            shared.freeRuns.splice(index, 1);
+        else {
+            run.start += slots;
+            run.slots -= slots;
+        }
+        break;
+    }
+    if (start < 0) {
+        start = shared.slots;
+        shared.slots += slots;
+    }
+    const end = Math.max(shared.slots, start + slots) * 16;
+    if (end > maxBytes) {
+        throw new Error(`[gpucat] shared group '${shared.group.name}' would take ${end} bytes with '${node.name}' (${size}), past the device's ${maxBytes}-byte uniform block limit`);
+    }
+    const member = {
+        uniformId: node.name,
+        schema: node.type,
+        offset: start * 16,
+        size,
+        node,
+        owner: shared,
+        uniform: node.uniform,
+        nodes: [node],
+        slots,
+        readers: 0,
+        packedVersion: -1,
+    };
+    shared.uniformToMember.set(node.uniform, member);
+    const members = shared.block.members;
+    members.push(member);
+    members.sort((a, b) => a.offset - b.offset);
+    growMirror(shared);
+    shared.version++;
+    return member;
+}
+function growMirror(shared) {
+    const bytes = Math.max(16, shared.slots * 16);
+    shared.block.totalBytes = bytes;
+    if (shared.mirror.byteLength >= bytes)
+        return;
+    let capacity = shared.mirror.byteLength;
+    while (capacity < bytes)
+        capacity *= 2;
+    const mirror = new ArrayBuffer(capacity);
+    new Uint8Array(mirror).set(new Uint8Array(shared.mirror));
+    shared.mirror = mirror;
+    // a buffer as big as the new mirror uploads whole
+    shared.dirtyStart = 0;
+    shared.dirtyEnd = bytes;
+}
+/** A compiled state reads `members`: each counts it. */
+function addSharedReaders(members) {
+    for (const member of members)
+        member.readers++;
+}
+/**
+ * A compiled state reading `members` was released: each stops counting it, and one read by none frees its slots. A
+ * block left with no members leaves `blocks`, and its buffer, keyed by the block, goes to `releaseUniformBlock`.
+ */
+function releaseSharedReaders(blocks, members, releaseUniformBlock) {
+    for (const member of members) {
+        member.readers--;
+        if (member.readers > 0)
+            continue;
+        const shared = member.owner;
+        shared.uniformToMember.delete(member.uniform);
+        const all = shared.block.members;
+        all.splice(all.indexOf(member), 1);
+        freeSlots(shared, member.offset / 16, member.slots);
+        shared.version++;
+        if (shared.uniformToMember.size > 0 || blocks.groupToBlock.get(shared.group) !== shared)
+            continue;
+        blocks.groupToBlock.delete(shared.group);
+        releaseUniformBlock(shared);
+    }
+}
+function freeSlots(shared, start, slots) {
+    shared.freeRuns.push({ start, slots });
+    shared.freeRuns.sort((a, b) => a.start - b.start);
+    // merge neighbours, then give the tail back
+    for (let index = shared.freeRuns.length - 1; index > 0; index--) {
+        const before = shared.freeRuns[index - 1];
+        const run = shared.freeRuns[index];
+        if (before.start + before.slots === run.start) {
+            before.slots += run.slots;
+            shared.freeRuns.splice(index, 1);
+        }
+    }
+    const last = shared.freeRuns[shared.freeRuns.length - 1];
+    if (last !== undefined && last.start + last.slots === shared.slots) {
+        shared.slots = last.start;
+        shared.freeRuns.pop();
+        shared.block.totalBytes = Math.max(16, shared.slots * 16);
+    }
+}
+/**
+ * Brings the mirror up to date for this frame: runs each member's frame and render callbacks, and packs each member
+ * whose version moved, widening the dirty range. Once a frame, and again within it after a member joins.
+ */
+function syncSharedBlock(shared, frame) {
+    if (shared.syncedFrame === frame.frameId && shared.syncedVersion === shared.version)
+        return;
+    shared.syncedFrame = frame.frameId;
+    shared.syncedVersion = shared.version;
+    const view = new DataView(shared.mirror);
+    for (const member of shared.block.members) {
+        for (const node of member.nodes) {
+            if (node.update)
+                frame.updateNode(node);
+        }
+        if (member.packedVersion === member.uniform.version)
+            continue;
+        member.packedVersion = member.uniform.version;
+        const value = member.uniform.value;
+        if (value === null || value === undefined)
+            continue;
+        packToView(member.schema, view, member.offset, value, shared.layout);
+        if (shared.dirtyEnd <= shared.dirtyStart) {
+            shared.dirtyStart = member.offset;
+            shared.dirtyEnd = member.offset + member.slots * 16;
+        }
+        else {
+            shared.dirtyStart = Math.min(shared.dirtyStart, member.offset);
+            shared.dirtyEnd = Math.max(shared.dirtyEnd, member.offset + member.slots * 16);
+        }
+    }
+}
+/** The range to upload into `out`, then empties it; false when nothing is dirty. */
+function takeSharedDirty(shared, out) {
+    if (shared.dirtyEnd <= shared.dirtyStart)
+        return false;
+    out.start = shared.dirtyStart;
+    out.end = Math.min(shared.dirtyEnd, shared.block.totalBytes);
+    shared.dirtyStart = 0;
+    shared.dirtyEnd = 0;
+    return out.end > out.start;
+}
+
 /**
  * Global cache for shared BindGroups.
  *
@@ -12224,7 +12448,9 @@ function hashString$1(str) {
  */
 function createNodeBuilderState(compileResult, cacheKey, context) {
     // build template BindGroups from compile result
-    const bindings = buildTemplateBindGroups(compileResult.uniformGroups, compileResult.storage, compileResult.textures, compileResult.storageTextures, compileResult.samplers, context);
+    const sharedHolds = [];
+    const sharedMembers = readSharedMembers(compileResult.uniformGroups);
+    const bindings = buildTemplateBindGroups(compileResult.uniformGroups, compileResult.storage, compileResult.textures, compileResult.storageTextures, compileResult.samplers, context, sharedHolds);
     return {
         // Render shaders: combined vertex+fragment in single module
         vertexCode: compileResult.code,
@@ -12246,6 +12472,8 @@ function createNodeBuilderState(compileResult, cacheKey, context) {
         updateAfterNodes: compileResult.updateAfterNodes,
         updateNodes: compileResult.updateNodes,
         cacheKey,
+        sharedHolds,
+        sharedMembers,
         isNodeBuilderState: true,
     };
 }
@@ -12257,7 +12485,9 @@ function createNodeBuilderState(compileResult, cacheKey, context) {
  */
 function createNodeBuilderStateForCompute(compileResult, context) {
     // build template BindGroups from compile result
-    const bindings = buildTemplateBindGroups(compileResult.uniformGroups, compileResult.storage, compileResult.textures, compileResult.storageTextures, compileResult.samplers, context);
+    const sharedHolds = [];
+    const sharedMembers = readSharedMembers(compileResult.uniformGroups);
+    const bindings = buildTemplateBindGroups(compileResult.uniformGroups, compileResult.storage, compileResult.textures, compileResult.storageTextures, compileResult.samplers, context, sharedHolds);
     return {
         // No render shaders
         vertexCode: null,
@@ -12279,6 +12509,8 @@ function createNodeBuilderStateForCompute(compileResult, context) {
         updateAfterNodes: [],
         updateNodes: [],
         cacheKey: '', // no cache key for compute pipelines
+        sharedHolds,
+        sharedMembers,
         isNodeBuilderState: true,
     };
 }
@@ -12297,7 +12529,7 @@ function createNodeBuilderStateForCompute(compileResult, context) {
  * For shared uniform-only groups, uses _bindingGroupsCache to return the same
  * BindGroup instance across all compilations.
  */
-function buildTemplateBindGroups(uniformGroups, storage, textures, storageTextures, samplers, context) {
+function buildTemplateBindGroups(uniformGroups, storage, textures, storageTextures, samplers, context, holds) {
     // Get or create the cache for this context
     let contextCache = _bindingGroupsCache.get(context);
     if (contextCache === undefined) {
@@ -12338,21 +12570,27 @@ function buildTemplateBindGroups(uniformGroups, storage, textures, storageTextur
             groupSamplers.length === 0) {
             // uniform-only group
             if (shared) {
-                // One bind group for a fixed group (its block is the same in every shader); otherwise one for each
-                // set of members a shader reads
+                // One bind group for a fixed group (its block is the same in every shader) or a shared block (every
+                // shader's block is a view of it); otherwise one for each set of members a shader reads
+                const sharedBlock = uniformGroup.sharedBlock ?? null;
                 const cacheKeyString = fixedMembers(uniformGroup.group) !== null
                     ? `fixed:${uniformGroup.groupName}`
-                    : [...uniformGroup.members]
-                        .sort((a, b) => a.node.id - b.node.id)
-                        .map((m) => m.node.id)
-                        .join(',');
+                    : sharedBlock !== null
+                        ? `shared:${uniformGroup.groupName}`
+                        : [...uniformGroup.members]
+                            .sort((a, b) => a.node.id - b.node.id)
+                            .map((m) => m.node.id)
+                            .join(',');
                 const cacheKey = hashString$1(cacheKeyString);
-                let bindGroup = contextCache.get(cacheKey);
-                if (bindGroup === undefined) {
-                    bindGroup = createUniformBindGroup(uniformGroup);
-                    contextCache.set(cacheKey, bindGroup);
+                let entry = contextCache.get(cacheKey);
+                // a shared block emptied and made again is a new block: its group binds the new one
+                if (entry === undefined || (sharedBlock !== null && bindingBlock(entry.bindGroup) !== sharedBlock)) {
+                    entry = { bindGroup: uniformBindGroupFor(uniformGroup), users: 0 };
+                    contextCache.set(cacheKey, entry);
                 }
-                bindGroups.push(bindGroup);
+                entry.users++;
+                holds.push({ cache: contextCache, key: cacheKey, entry });
+                bindGroups.push(entry.bindGroup);
             }
             else {
                 // Non-shared: always create new
@@ -12362,7 +12600,7 @@ function buildTemplateBindGroups(uniformGroups, storage, textures, storageTextur
         else if (uniformGroup) {
             // mixed group: uniform + other resources
             // create a combined bind group (not cached - has textures/storage which vary)
-            const bindGroup = createUniformBindGroup(uniformGroup);
+            const bindGroup = uniformBindGroupFor(uniformGroup);
             // add storage/texture/sampler bindings
             for (const s of groupStorage) {
                 bindGroup.bindings.push({ kind: 'storage', entry: s, lastBuffer: null });
@@ -12432,6 +12670,66 @@ function assertVertexBuffers(geometry, state, label) {
         throw new Error(`[geometry] '${label}' reads vertex buffer '${group.name}' (${locations}), which this geometry does not set. ` +
             `Call geometry.setBuffer('${group.name}', ...), or stop the shader reading it.`);
     }
+}
+/**
+ * Lets go of what a compiled state holds that its users don't: each cached shared group stops counting it, and one held
+ * by no other state leaves the cache. The uniform blocks of every shared group no state holds any more go to
+ * `releaseUniformBlock`, a cached group's with its last holder and another shared group's with this state.
+ */
+function releaseNodeBuilderState(nodeState, sharedBlocks, releaseUniformBlock) {
+    releaseSharedReaders(sharedBlocks, nodeState.sharedMembers, releaseUniformBlock);
+    nodeState.sharedMembers.length = 0;
+    const cached = new Set();
+    for (const hold of nodeState.sharedHolds) {
+        cached.add(hold.entry.bindGroup);
+        hold.entry.users--;
+        if (hold.entry.users > 0)
+            continue;
+        if (hold.cache.get(hold.key) === hold.entry)
+            hold.cache.delete(hold.key);
+        releaseGroupBlocks(hold.entry.bindGroup, releaseUniformBlock);
+    }
+    nodeState.sharedHolds.length = 0;
+    for (const group of nodeState.bindings) {
+        if (group.shared && !cached.has(group))
+            releaseGroupBlocks(group, releaseUniformBlock);
+    }
+}
+function releaseGroupBlocks(group, releaseUniformBlock) {
+    for (const binding of group.bindings) {
+        // a shared block's buffer is the block's, released when its last member goes
+        if (binding.kind === 'uniform' && binding.bufferKey !== null && binding.sharedBlock === null) {
+            releaseUniformBlock(binding.bufferKey);
+        }
+    }
+}
+/** A uniform bind group for `block`: over its shared block's whole block, keyed by the shared block, if it has one. */
+function uniformBindGroupFor(block) {
+    const sharedBlock = block.sharedBlock ?? null;
+    if (sharedBlock === null)
+        return createUniformBindGroup(block);
+    const group = createUniformBindGroup(sharedBlock.block);
+    const binding = group.bindings[0];
+    binding.bufferKey = sharedBlock;
+    binding.sharedBlock = sharedBlock;
+    return group;
+}
+/** The shared block a uniform-only bind group reads, or null. */
+function bindingBlock(group) {
+    const binding = group.bindings[0];
+    return binding?.kind === 'uniform' ? binding.sharedBlock : null;
+}
+/** The shared block members `blocks` read, each counting the state reading them from here. */
+function readSharedMembers(blocks) {
+    const members = [];
+    for (const block of blocks) {
+        if (block.sharedBlock == null)
+            continue;
+        for (const member of block.members)
+            members.push(member);
+    }
+    addSharedReaders(members);
+    return members;
 }
 
 /**
@@ -12516,18 +12814,6 @@ function getBindings(renderObject) {
     return renderObject._bindings;
 }
 
-function createSegment() {
-    return {
-        bundle: null,
-        start: 0,
-        count: 0,
-        camera: null,
-        viewport: false,
-        viewportValue: { x: 0, y: 0, width: 0, height: 0, minDepth: 0, maxDepth: 1 },
-        scissor: false,
-        scissorValue: { x: 0, y: 0, width: 0, height: 0 },
-    };
-}
 /** Whether a depth format carries a stencil aspect. `stencil8` is stencil-only and still counts. */
 function formatHasStencil(format) {
     return format !== undefined && format.includes('stencil');
@@ -12558,6 +12844,183 @@ function createPassParams() {
         layer: 0,
         mipLevel: 0,
     };
+}
+
+/**
+ * The steps both backends take for one use of a uniform block, before deciding where its bytes go: whether a shared
+ * block was already resolved in its scope, whether a per-object block's values moved since its last pack, packing the
+ * members in the backend's layout, and comparing the result with what the block held.
+ */
+/**
+ * Whether a shared block updated per frame or per render was already resolved in this frame or render, marking it
+ * resolved otherwise. A per-object block, or one updated per object, is resolved at every use.
+ */
+function resolvedThisScope(binding, frame) {
+    const group = binding.block.group;
+    if (!group.shared)
+        return false;
+    if (group.updateType === 'frame') {
+        if (binding.lastFrameId === frame.frameId)
+            return true;
+        binding.lastFrameId = frame.frameId;
+    }
+    else if (group.updateType === 'render') {
+        if (binding.lastRenderId === frame.renderId)
+            return true;
+        binding.lastRenderId = frame.renderId;
+    }
+    return false;
+}
+/** The stamp the last check read, until the next check: one at a time, read before the next draw's. */
+const _stamp = [];
+/**
+ * Whether `binding`'s block can skip its pack because every value it was packed from has kept its version, counting
+ * the keep. Only a block with a stamp can: one whose members all carry versions (see `readBlockStamp`).
+ */
+function checkUniformStamp(binding, frame, material, info) {
+    if (!readBlockStamp(binding.block, frame, material, _stamp))
+        return 'unstamped';
+    if (!sameStamp(_stamp, binding.stamp))
+        return 'stamped';
+    info.kept++;
+    return 'kept';
+}
+/** After a pack the block's buffer holds: the stamp checked names its bytes now, or none does. */
+function commitUniformStamp(binding, check) {
+    if (check !== 'stamped') {
+        binding.stamp.length = 0;
+        return;
+    }
+    for (let index = 0; index < _stamp.length; index++)
+        binding.stamp[index] = _stamp[index];
+    binding.stamp.length = _stamp.length;
+}
+/** Writes every member that has a value, from the uniform or else the material, at its offset in `layout`. */
+function packUniformMembers(block, view, material, layout) {
+    for (const m of block.members) {
+        let value = m.node.uniform.value;
+        if (value === null && material) {
+            const materialUniform = material.uniforms.get(m.node.name);
+            if (materialUniform)
+                value = materialUniform.value;
+        }
+        if (value === null || value === undefined)
+            continue;
+        // UniformValue is broader than the schema's type but matches it at runtime
+        packToView(m.schema, view, m.offset, value, layout);
+    }
+}
+/**
+ * Packs `block` into `scratch`, seeded with `current` so a member with no value this time keeps its last one rather
+ * than reading as a change, and gives how many bytes differ from `current`.
+ */
+function packAndCompare(block, current, scratch, material, layout) {
+    new Uint32Array(scratch).set(new Uint32Array(current));
+    packUniformMembers(block, new DataView(scratch), material, layout);
+    return changedByteCount(current, scratch);
+}
+/**
+ * Bytes differing between two equally sized blocks, compared word by word. A count, not a flag: a large block where a
+ * few bytes moved (a per-frame value dragging a static payload up with it) is a different problem from one that
+ * genuinely changed.
+ */
+function changedByteCount(a, b) {
+    const av = new Uint32Array(a);
+    const bv = new Uint32Array(b);
+    let changed = 0;
+    for (let index = 0; index < av.length; index++) {
+        if (av[index] !== bv[index])
+            changed += 4;
+    }
+    return changed;
+}
+
+/** Frames an entry stays cached unused, and how often the cache is swept for them. */
+const GROUP_KEEP_FRAMES = 300;
+function createBindGroupCache() {
+    return { groups: new Map(), objectToGroups: new WeakMap(), sweptFrame: 0 };
+}
+/** Drops every entry (renderer dispose; `device.destroy()` frees the GPU side). */
+function disposeBindGroupCache(cache) {
+    cache.groups.clear();
+    cache.objectToGroups = new WeakMap();
+}
+/** The entry for `key`, made empty on first need and filed under each of `objects`, the GPU objects the key names. */
+function cachedGroup(cache, key, objects) {
+    let group = cache.groups.get(key);
+    if (group === undefined) {
+        group = {
+            key,
+            bindGroup: null,
+            dynamicBindGroups: [],
+            objects: [...objects],
+            lastFrame: 0,
+            evicted: false,
+            released: false,
+        };
+        cache.groups.set(key, group);
+        file(cache, group);
+    }
+    return group;
+}
+/** An evicted entry a group still binds, back in the cache unless another took its key since. */
+function readmit(cache, group) {
+    group.evicted = false;
+    if (cache.groups.has(group.key))
+        return;
+    cache.groups.set(group.key, group);
+    file(cache, group);
+}
+/** Drops entries no draw or dispatch has bound for {@link GROUP_KEEP_FRAMES} frames. */
+function sweepGroups(cache, frameId) {
+    cache.sweptFrame = frameId;
+    for (const [key, group] of cache.groups) {
+        if (frameId - group.lastFrame < GROUP_KEEP_FRAMES)
+            continue;
+        group.evicted = true;
+        cache.groups.delete(key);
+        unfile(cache, group, null);
+    }
+}
+/** `object` is being destroyed: every entry naming it leaves the cache for good. */
+function releaseGroupsNaming(cache, object) {
+    const named = cache.objectToGroups.get(object);
+    if (named === undefined)
+        return;
+    cache.objectToGroups.delete(object);
+    for (const group of named) {
+        group.released = true;
+        group.bindGroup = null;
+        group.dynamicBindGroups.length = 0;
+        if (cache.groups.get(group.key) === group)
+            cache.groups.delete(group.key);
+        unfile(cache, group, object);
+    }
+}
+/** Files `group` under each object it names. */
+function file(cache, group) {
+    for (const object of group.objects) {
+        const named = cache.objectToGroups.get(object);
+        if (named === undefined)
+            cache.objectToGroups.set(object, [group]);
+        else
+            named.push(group);
+    }
+}
+/** Takes `group` off the lists of the objects it names, but `except`'s, which is being dropped whole. */
+function unfile(cache, group, except) {
+    for (const object of group.objects) {
+        if (object === except)
+            continue;
+        const named = cache.objectToGroups.get(object);
+        if (named === undefined)
+            continue;
+        const at = named.indexOf(group);
+        if (at >= 0)
+            named.splice(at, 1);
+        if (named.length === 0)
+            cache.objectToGroups.delete(object);
+    }
 }
 
 /**
@@ -13434,8 +13897,8 @@ const MERGE_GAP_BYTES = 4096;
 function inDrawArena(group) {
     return !group.shared && group.updateType !== 'frame';
 }
-function createDrawArena(info, tally) {
-    return { pages: [], slots: new WeakMap(), liveSlots: 0, tally, info };
+function createDrawArena(info, tally, bindGroups) {
+    return { pages: [], slots: new WeakMap(), liveSlots: 0, emptyPages: [], bindGroups, tally, info };
 }
 /** The slot `key`'s block holds, if it has one. */
 function arenaSlot(arena, key) {
@@ -13474,6 +13937,7 @@ function takeSlot(arena, device, key, size) {
     };
     arena.slots.set(key, slot);
     arena.liveSlots++;
+    page.liveSlots++;
     return slot;
 }
 /** Frees `key`'s slot for another block. A write it queued may still land: every write copies the page's CPU copy,
@@ -13485,6 +13949,27 @@ function releaseSlot(arena, key) {
     arena.slots.delete(key);
     arena.liveSlots--;
     releaseOffset(slot.page.allocator, slot.allocation);
+    slot.page.liveSlots--;
+    if (slot.page.liveSlots === 0)
+        arena.emptyPages.push(slot.page);
+}
+/**
+ * After a submit: releases each page left with no slots and not taken again, so a scene that needed many pages leaves
+ * none behind. Its buffer was read by the frame just submitted at the latest, which the submit has already queued.
+ */
+function releaseEmptyPages(arena) {
+    for (const page of arena.emptyPages) {
+        if (page.liveSlots > 0)
+            continue;
+        const at = arena.pages.indexOf(page);
+        if (at < 0)
+            continue;
+        arena.pages.splice(at, 1);
+        releaseGroupsNaming(arena.bindGroups, page.buffer);
+        page.buffer.destroy();
+        clearAllocation(arena.tally, page.allocation);
+    }
+    arena.emptyPages.length = 0;
 }
 /** `data` as the slot's bytes from the next submit on. */
 function writeSlot(slot, data) {
@@ -13528,6 +14013,7 @@ function disposeDrawArena(arena) {
         clearAllocation(arena.tally, page.allocation);
     }
     arena.pages.length = 0;
+    arena.emptyPages.length = 0;
     arena.slots = new WeakMap();
     arena.liveSlots = 0;
 }
@@ -13548,6 +14034,7 @@ function addPage(arena, device, align) {
         dirty: [],
         groups: [],
         allocation,
+        liveSlots: 0,
     };
     arena.pages.push(page);
     return page;
@@ -13595,7 +14082,7 @@ function createDynamicUniformBuffers() {
         destroyed: false,
     };
 }
-function createBufferCache$1(info, tally) {
+function createBufferCache$1(info, tally, bindGroups) {
     return {
         bufferMap: new WeakMap(),
         rawMap: new WeakMap(),
@@ -13604,7 +14091,9 @@ function createBufferCache$1(info, tally) {
         tally,
         info,
         dynamicUniforms: createDynamicUniformBuffers(),
-        drawArena: createDrawArena(info, tally),
+        drawArena: createDrawArena(info, tally, bindGroups),
+        retired: [],
+        bindGroups,
     };
 }
 /**
@@ -13618,6 +14107,7 @@ function setupDispose(cache, buffer) {
         const entry = cache.bufferMap.get(buffer);
         if (!entry)
             return;
+        releaseGroupsNaming(cache.bindGroups, entry.buf);
         entry.buf.destroy();
         clearAllocation(cache.tally, entry.allocation);
         cache.bufferCount--;
@@ -13672,6 +14162,8 @@ function ensureUploaded$1(cache, device, buffer, name) {
     const usage = primaryBufferUsage(buffer);
     const label = buffer.label ?? name;
     if (plan === BufferUpload.Allocate) {
+        if (entry)
+            releaseGroupsNaming(cache.bindGroups, entry.buf);
         entry?.buf.destroy();
         // 4-byte alignment is a device requirement, so the size is decided here, not in the plan.
         const byteLength = alignTo4(arr?.byteLength ?? buffer.byteLength);
@@ -13780,6 +14272,8 @@ function uploadUniformBlock$1(cache, device, key, data, detail) {
     const byteLength = alignTo4(data.byteLength);
     let created = false;
     if (!entry || entry.buf.size < byteLength) {
+        if (entry)
+            releaseGroupsNaming(cache.bindGroups, entry.buf);
         entry?.buf.destroy();
         const buf = device.createBuffer({ size: byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         if (!entry) {
@@ -13801,6 +14295,48 @@ function uploadUniformBlock$1(cache, device, key, data, detail) {
     recordBufferWrite(cache.info, data.byteLength, 'uniform', false, undefined, detail?.material, detail?.updateType, detail?.changedBytes);
     return { buffer: buf, created };
 }
+const _dirty$1 = { start: 0, end: 0 };
+/**
+ * Brings `shared`'s buffer up to its mirror: the dirty range, or all of it into a new buffer when it outgrew the old
+ * one, which is destroyed after the submit since draws earlier in the frame read it. Whether the buffer is new.
+ */
+function uploadSharedBlock$1(cache, device, shared) {
+    let entry = cache.rawMap.get(shared);
+    if (entry === undefined || entry.buf.size < shared.block.totalBytes) {
+        const size = shared.mirror.byteLength;
+        const buf = device.createBuffer({
+            label: `shared-${shared.group.name}`,
+            size,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+        if (entry === undefined) {
+            entry = { buf, allocation: createAllocation('buffer', 'uniform', `shared-${shared.group.name}`) };
+            cache.rawMap.set(shared, entry);
+            cache.rawCount++;
+        }
+        else {
+            releaseGroupsNaming(cache.bindGroups, entry.buf);
+            cache.retired.push(entry.buf);
+            entry.buf = buf;
+        }
+        setAllocation(cache.tally, entry.allocation, size);
+        takeSharedDirty(shared, _dirty$1);
+        device.queue.writeBuffer(buf, 0, shared.mirror, 0, shared.block.totalBytes);
+        recordBufferWrite(cache.info, shared.block.totalBytes, 'uniform', false, `shared-${shared.group.name}`);
+        return true;
+    }
+    if (takeSharedDirty(shared, _dirty$1)) {
+        device.queue.writeBuffer(entry.buf, _dirty$1.start, shared.mirror, _dirty$1.start, _dirty$1.end - _dirty$1.start);
+        recordBufferWrite(cache.info, _dirty$1.end - _dirty$1.start, 'uniform', false, `shared-${shared.group.name}`);
+    }
+    return false;
+}
+/** After a submit: destroys the buffers replaced during the frame. */
+function destroyRetiredBuffers(cache) {
+    for (const buffer of cache.retired)
+        buffer.destroy();
+    cache.retired.length = 0;
+}
 /**
  * Get a previously created raw buffer, or undefined.
  * Does NOT upload, use uploadRaw for that.
@@ -13814,6 +14350,7 @@ function releaseUniformBlock$1(cache, key) {
     const entry = cache.rawMap.get(key);
     if (!entry)
         return;
+    releaseGroupsNaming(cache.bindGroups, entry.buf);
     entry.buf.destroy();
     clearAllocation(cache.tally, entry.allocation);
     cache.rawMap.delete(key);
@@ -14553,12 +15090,13 @@ function attachmentView(data, mipLevel, layer, is3d) {
     }
     return view;
 }
-function createTextureCache$1(tally) {
+function createTextureCache$1(tally, bindGroups) {
     return {
         textureMap: new WeakMap(),
         defaultTextures: new Map(),
         mipmapState: null,
         tally,
+        bindGroups,
     };
 }
 /** A fresh entry's allocations: counted as `sampled` until a render target files it as an attachment. */
@@ -14575,6 +15113,7 @@ function setupTextureDispose$1(cache, texture) {
     texture._onDispose = () => {
         const data = cache.textureMap.get(texture);
         if (data && !data.isDefaultTexture) {
+            releaseGroupsNaming(cache.bindGroups, data.texture);
             data.texture.destroy();
             if (data.msaaTextures)
                 for (const msaa of data.msaaTextures)
@@ -14731,6 +15270,7 @@ function updateTexture$1(cache, device, texture) {
         else {
             // Recreate at the new size: destroy the old GPU texture, swap in the new one,
             // and bump generation so dependent bind groups rebuild with the fresh view.
+            releaseGroupsNaming(cache.bindGroups, data.texture);
             data.texture.destroy();
             data.texture = gpuTextureResource;
             data.version = texture.version;
@@ -14791,6 +15331,7 @@ function updateTexture$1(cache, device, texture) {
         }
         else {
             // Resize (grow): destroy the old GPU texture and swap in the new (larger) one.
+            releaseGroupsNaming(cache.bindGroups, data.texture);
             data.texture.destroy();
             data.texture = gpuTextureResource;
             data.generation = texture.version;
@@ -15175,6 +15716,7 @@ function setRenderTargetTexture(cache, texture, gpuTextureResource, msaaTextures
     const existing = cache.textureMap.get(texture);
     if (existing) {
         if (existing.texture !== gpuTextureResource && !existing.isDefaultTexture) {
+            releaseGroupsNaming(cache.bindGroups, existing.texture);
             existing.texture.destroy();
         }
         if (existing.msaaTextures) {
@@ -15420,20 +15962,17 @@ function getSamplerCacheStats$1(state) {
     return { samplerCount: state.cache.size };
 }
 
-/** Frames an entry stays cached unused, and how often the cache is swept for them. */
-const GROUP_KEEP_FRAMES = 300;
 /**
  * Create a new Bindings state. The shared bind group layout cache is owned by the backend and passed
  * in so the bindings and pipelines layers hit a single value-keyed layout cache.
  */
-function createBindingsState$1(layoutCache) {
+function createBindingsState$1(layoutCache, cache) {
     return {
         layoutCache,
         data: new WeakMap(),
         objectIds: new WeakMap(),
         nextObjectId: 1,
-        groups: new Map(),
-        sweptFrame: 0,
+        cache,
     };
 }
 /** Map a storage texture WGSL dimension tag to a GPU view dimension. */
@@ -15516,7 +16055,7 @@ function updateRenderBindings(b, renderObject, frame, out) {
         initBindGroup(state, bindGroup, device, GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT);
         const data = getData(state, bindGroup);
         const scope = sharedScope(bindGroup, frame);
-        if (scope >= 0 && data.resolvedScope === scope && data.resolvedGroup !== null) {
+        if (scope >= 0 && data.resolvedScope === scope && data.resolvedGroup !== null && !sharedBlockMoved(bindGroup)) {
             out.groups[bindGroup.groupIndex] = data.resolvedGroup;
             out.offsets[bindGroup.groupIndex] = data.resolvedOffset;
             continue;
@@ -15542,7 +16081,7 @@ function updateComputeBindings(b, nodeBuilderState, frame, inputs, out) {
         initBindGroup(state, bindGroup, device, GPUShaderStage.COMPUTE);
         const data = getData(state, bindGroup);
         const scope = sharedScope(bindGroup, frame);
-        if (scope >= 0 && data.resolvedScope === scope && data.resolvedGroup !== null) {
+        if (scope >= 0 && data.resolvedScope === scope && data.resolvedGroup !== null && !sharedBlockMoved(bindGroup)) {
             out.groups[bindGroup.groupIndex] = data.resolvedGroup;
             out.offsets[bindGroup.groupIndex] = data.resolvedOffset;
             continue;
@@ -15575,6 +16114,11 @@ function sharedScope(bindGroup, frame) {
         return frame.renderId;
     return -1;
 }
+/** Whether the shared block `bindGroup` reads gained or lost a member since it last synced: its buffer may have grown. */
+function sharedBlockMoved(bindGroup) {
+    const sharedBlock = bindGroup.bindings[0].sharedBlock;
+    return sharedBlock !== null && sharedBlock.syncedVersion !== sharedBlock.version;
+}
 function keepResolved(data, scope, group, offset) {
     data.resolvedScope = scope;
     data.resolvedGroup = group;
@@ -15587,17 +16131,18 @@ function keepResolved(data, scope, group, offset) {
  * variant over the set now bound, built before or new.
  */
 function currentGPUBindGroup(state, device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, inputs, frameId, info) {
-    if (data.needsUpdate || data.current === null) {
-        data.current = cachedGroup(state, data, resourceKey(state, bufferCache, textureCache, bindGroup, geometry, inputs));
+    if (data.needsUpdate || data.current === null || data.current.released) {
+        const resources = resourceKey(state, bufferCache, textureCache, bindGroup, geometry, inputs, _keyObjects);
+        data.current = groupFor(state, data, resources, _keyObjects);
         data.needsUpdate = false;
     }
     const variant = data.current;
     if (variant.evicted)
-        readmit(state, variant);
+        readmit(state.cache, variant);
     variant.lastFrame = frameId;
-    if (frameId - state.sweptFrame >= GROUP_KEEP_FRAMES)
-        sweepGroups(state, frameId);
-    info.held = state.groups.size;
+    if (frameId - state.cache.sweptFrame >= GROUP_KEEP_FRAMES)
+        sweepGroups(state.cache, frameId);
+    info.held = state.cache.groups.size;
     const uniform = dynamicUniformBinding(bindGroup);
     if (uniform !== null && bindGroup.bindings.length === 1 && data.bindGroupLayout !== null) {
         // the block is all the group binds: every block of its layout and size in the same buffer shares one group
@@ -15625,31 +16170,10 @@ function currentGPUBindGroup(state, device, bufferCache, textureCache, samplerCa
         variant.dynamicBindGroups[bufferId] = built;
     return built;
 }
-/** The cached groups over `data`'s layout and the resources `resources` names, made empty on first need. */
-function cachedGroup(state, data, resources) {
+/** The cache entry over `data`'s layout and the resources `resources` names, its GPU objects being `objects`. */
+function groupFor(state, data, resources, objects) {
     const key = `${data.bindGroupLayout === null ? 0 : objectId(state, data.bindGroupLayout)}|${resources}`;
-    let group = state.groups.get(key);
-    if (group === undefined) {
-        group = { key, bindGroup: null, dynamicBindGroups: [], lastFrame: 0, evicted: false };
-        state.groups.set(key, group);
-    }
-    return group;
-}
-/** An evicted entry a group still binds, back in the cache unless another took its key since. */
-function readmit(state, group) {
-    group.evicted = false;
-    if (!state.groups.has(group.key))
-        state.groups.set(group.key, group);
-}
-/** Drops entries no draw or dispatch has bound for {@link GROUP_KEEP_FRAMES} frames. */
-function sweepGroups(state, frameId) {
-    state.sweptFrame = frameId;
-    for (const [key, group] of state.groups) {
-        if (frameId - group.lastFrame < GROUP_KEEP_FRAMES)
-            continue;
-        group.evicted = true;
-        state.groups.delete(key);
-    }
+    return cachedGroup(state.cache, key, objects);
 }
 /** A group that bound a texture since disposed resolves again: no group may bind it again. */
 function clearBindGroupVariants(data) {
@@ -15657,6 +16181,8 @@ function clearBindGroupVariants(data) {
     data.needsUpdate = true;
 }
 const _resolved = { texture: null, range: null };
+/** The GPU objects the last `resourceKey` named, read before the next one. */
+const _keyObjects = [];
 /**
  * The texture and range `node` binds: its own, or for a named binding what the dispatch's `textures` fills its slot
  * with. The result is shared: read it before the next call.
@@ -15686,8 +16212,14 @@ function resolveTextureBinding(node, inputs) {
     return _resolved;
 }
 /** the GPU objects `bindGroup` binds now, as the numbers `state` gives them: what tells one resource set from another */
-function resourceKey(state, bufferCache, textureCache, bindGroup, geometry, inputs) {
-    const id = (object) => (object ? objectId(state, object) : 0);
+function resourceKey(state, bufferCache, textureCache, bindGroup, geometry, inputs, objects) {
+    objects.length = 0;
+    const id = (object) => {
+        if (!object)
+            return 0;
+        objects.push(object);
+        return objectId(state, object);
+    };
     let key = '';
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
@@ -15870,33 +16402,26 @@ function dynamicUniformBinding(bindGroup) {
  */
 function updateUniformBinding(bufferCache, device, binding, frame, data, material, perUse, info) {
     const block = binding.block;
-    // Deduplication gate: skip if this binding was already processed at the current frame/render ID.
-    // Based on group.updateType:
-    //   'frame'  - check frameId (once per animation frame)
-    //   'render' - check renderId (once per render() call)
-    //   'object' - always process (content changes per-mesh)
-    //   'none'   - always process
-    if (block.group.shared) {
-        const updateType = block.group.updateType;
-        if (updateType === 'frame') {
-            if (binding.lastFrameId === frame.frameId)
-                return;
-            binding.lastFrameId = frame.frameId;
-        }
-        else if (updateType === 'render') {
-            if (binding.lastRenderId === frame.renderId)
-                return;
-            binding.lastRenderId = frame.renderId;
-        }
-        // 'object' and 'none' always process
+    // A shared block's members are synced by the block itself, once a frame and again after one joins, and only what
+    // moved uploads: every shader's draws bind its one buffer whole
+    const sharedBlock = binding.sharedBlock;
+    if (sharedBlock !== null) {
+        syncSharedBlock(sharedBlock, frame);
+        if (uploadSharedBlock$1(bufferCache, device, sharedBlock))
+            data.needsUpdate = true;
+        binding.sliceBufferId = -1;
+        return;
     }
+    // a shared frame or render block already resolved in this scope: this use reads what that one wrote
+    if (resolvedThisScope(binding, frame))
+        return;
     // A shared block bound at a dynamic offset (the view block) is packed at every use, straight into a ring
     // allocation: it has no buffer of its own, as PlayCanvas's view uniform buffers are not persistent
     if (block.group.shared && perUse) {
         invokeUniformGroupCallbacks(block, frame);
         const offset = allocDynamicUniform(bufferCache, device, block.totalBytes);
         const active = bufferCache.dynamicUniforms.active;
-        packMembers(block, new DataView(active.staging.view.buffer, offset, block.totalBytes), material);
+        packUniformMembers(block, new DataView(active.staging.view.buffer, offset, block.totalBytes), material, 'wgsl-uniform');
         binding.sliceBufferId = active.gpuBuffer.id;
         binding.sliceOffset = offset;
         info.packed++;
@@ -15904,11 +16429,11 @@ function updateUniformBinding(bufferCache, device, binding, frame, data, materia
     }
     // A per-object block whose versions all hold has the bytes it last packed, which its slot holds: nothing to pack
     const inArena = inDrawArena(block.group);
-    const stamped = inArena && readBlockStamp(block, frame, material, _stamp$1);
-    if (stamped && sameStamp(_stamp$1, binding.stamp) && data.slot !== null) {
+    // a stamp is committed only once the slot holds the bytes it names, so a kept block always has its slot
+    const stamp = inArena ? checkUniformStamp(binding, frame, material, info) : 'unstamped';
+    if (stamp === 'kept') {
         binding.lastUseFrameId = frame.frameId;
         binding.sliceBufferId = -1;
-        info.kept++;
         return;
     }
     // invoke update callbacks with the NodeFrame
@@ -15924,17 +16449,13 @@ function updateUniformBinding(bufferCache, device, binding, frame, data, materia
         binding.scratchBuffer = new ArrayBuffer(requiredBytes);
     }
     // Pack into scratch buffer, then compare with what the block's own buffer holds
-    const changedBytes = packAndCompare(block, binding.currentBuffer, binding.scratchBuffer, material);
+    const changedBytes = packAndCompare(block, binding.currentBuffer, binding.scratchBuffer, material, 'wgsl-uniform');
     const changed = changedBytes > 0;
     info.packed++;
     if (inArena) {
         // the stamp names what the slot holds, which a use reading a dynamic allocation leaves as it was
-        if (updateArenaBlock(bufferCache, device, binding, frame, data, changed)) {
-            if (stamped)
-                copyStamp$1(binding.stamp, _stamp$1);
-            else
-                binding.stamp.length = 0;
-        }
+        if (updateArenaBlock(bufferCache, device, binding, frame, data, changed))
+            commitUniformStamp(binding, stamp);
         return;
     }
     // A per-frame block: one use a frame, so its own buffer always holds the bytes this use reads
@@ -15993,55 +16514,6 @@ function updateArenaBlock(bufferCache, device, binding, frame, data, changed) {
     if (changed || placed)
         writeSlot(slot, binding.currentBuffer);
     return true;
-}
-/** `into` as a copy of `from`, filled index by index so it stays packed. */
-function copyStamp$1(into, from) {
-    for (let index = 0; index < from.length; index++)
-        into[index] = from[index];
-    into.length = from.length;
-}
-/** The stamp a draw reads before deciding to pack: one per backend, read before the next draw's. */
-const _stamp$1 = [];
-/** Writes every member that has a value, from the uniform or the material, at its compiled offset. */
-function packMembers(block, view, material) {
-    for (const m of block.members) {
-        let value = m.node.uniform.value;
-        if (value === null && material) {
-            const matUniform = material.uniforms.get(m.node.name);
-            if (matUniform) {
-                value = matUniform.value;
-            }
-        }
-        if (value === null || value === undefined)
-            continue;
-        packToView(m.schema, view, m.offset, value, 'wgsl-uniform');
-    }
-}
-/**
- * Pack uniforms into scratch buffer and compare against current buffer.
- * Uses compiled layout for correct WGSL alignment.
- * Returns true if any values changed.
- */
-/** packs the block into `scratchBuffer` and returns how many BYTES differ from
- *  `currentBuffer`. Zero means nothing changed. */
-function packAndCompare(block, currentBuffer, scratchBuffer, material) {
-    const current = new Uint32Array(currentBuffer);
-    const scratch = new Uint32Array(scratchBuffer);
-    // Seeded with the current bytes, so a member with no value this time keeps its last one rather
-    // than whatever the scratch held two packs ago, which would read as a change and upload it.
-    scratch.set(current);
-    packMembers(block, new DataView(scratchBuffer), material);
-    // Compare word by word, COUNTING rather than early-returning. The count is what
-    // separates "a few bytes of a large block moved" - a per-frame value dragging a
-    // static payload up with it, fixable by splitting the block - from "the block
-    // genuinely changed". Same single pass either way; only the exit differs.
-    const len = current.length;
-    let changedWords = 0;
-    for (let i = 0; i < len; i++) {
-        if (current[i] !== scratch[i])
-            changedWords++;
-    }
-    return changedWords * 4;
 }
 /** Update a texture binding. */
 function updateTextureBinding(textureCache, device, binding, data, inputs) {
@@ -16738,21 +17210,10 @@ var frustum = /*#__PURE__*/Object.freeze({
 });
 
 /**
- * render-list.ts - Sorted render item list with object pooling and scene collection.
- *
- * - Object pooling for RenderItems (avoids GC pressure)
- * - Sorted opaque and transparent lists
- * - Cached per scene/camera using nested WeakMaps
- * - Frustum culling integration
- * - Scene graph traversal
- *
- * RenderList collects meshes from a scene graph and sorts them for rendering:
- * - Opaque: sorted by material/pipeline key to minimize state changes
- * - Transparent: sorted back-to-front by view-space Z
+ * The meshes of a tree a camera sees, frustum culled, opaque apart from transparent, with pooled items cached per
+ * (tree, camera). The pass's bins order them (`draw-scene.ts`).
  */
 // Factories
-/** ID counter for RenderItems. */
-let renderItemIdCounter = 0;
 /**
  * Create a new RenderList.
  */
@@ -16815,105 +17276,24 @@ function getNextRenderItem(list) {
     const index = list.renderItemsIndex;
     let item = list.renderItems[index];
     if (item === undefined) {
-        item = {
-            id: renderItemIdCounter++,
-            mesh: null,
-            geometry: null,
-            material: null,
-            groupOrder: 0,
-            renderOrder: 0,
-            z: 0,
-        };
+        item = { mesh: null, geometry: null, material: null };
         list.renderItems.push(item);
     }
     list.renderItemsIndex++;
     return item;
 }
-/**
- * Push a mesh into the render list.
- *
- * @param list - The RenderList
- * @param mesh - The mesh to add
- * @param geometry - The mesh's geometry
- * @param material - The mesh's material
- * @param groupOrder - Group order for layer-based sorting
- * @param z - View-space Z for transparent sorting
- */
-function pushRenderItem(list, mesh, geometry, material, groupOrder, z) {
+/** Push a mesh into the render list, with the transparent ones if its material is. */
+function pushRenderItem(list, mesh, geometry, material) {
     const item = getNextRenderItem(list);
     item.mesh = mesh;
     item.geometry = geometry;
     item.material = material;
-    item.groupOrder = groupOrder;
-    item.renderOrder = mesh.renderOrder;
-    item.z = z;
     if (material.transparent) {
         list.transparent.push(item);
     }
     else {
         list.opaque.push(item);
     }
-}
-// Sorting
-/**
- * Sort the render list.
- *
- * @param list - The RenderList to sort
- * @param customOpaqueSort - Optional custom sort for opaque items
- * @param customTransparentSort - Optional custom sort for transparent items
- */
-function sortRenderList(list, customOpaqueSort, customTransparentSort) {
-    if (list.opaque.length > 1) {
-        list.opaque.sort(painterSortStable);
-    }
-    if (list.transparent.length > 1) {
-        list.transparent.sort(reversePainterSortStable);
-    }
-}
-/**
- * Default sort for opaque items.
- *
- * Sort priority:
- * 1. groupOrder (render layers)
- * 2. renderOrder (manual ordering)
- * 3. Z (front-to-back for early-z rejection)
- * 4. ID (stability)
- *
- * Note: we do NOT sort by material/pipeline. Pipeline switching is
- * minimized at draw time by tracking the active pipeline in setPipeline().
- */
-function painterSortStable(a, b) {
-    if (a.groupOrder !== b.groupOrder) {
-        return a.groupOrder - b.groupOrder;
-    }
-    if (a.renderOrder !== b.renderOrder) {
-        return a.renderOrder - b.renderOrder;
-    }
-    if (a.z !== b.z) {
-        return a.z - b.z;
-    }
-    return a.id - b.id;
-}
-/**
- * Default sort for transparent items (back-to-front).
- *
- * "Reverse painter sort stable" - sorts back-to-front for proper alpha blending.
- */
-function reversePainterSortStable(a, b) {
-    // Sort by groupOrder first (render layers)
-    if (a.groupOrder !== b.groupOrder) {
-        return a.groupOrder - b.groupOrder;
-    }
-    // Then by renderOrder
-    if (a.renderOrder !== b.renderOrder) {
-        return a.renderOrder - b.renderOrder;
-    }
-    // Then by Z (back-to-front for transparent = larger Z first)
-    if (a.z !== b.z) {
-        return b.z - a.z;
-    }
-    // Finally by ID for stability
-    return a.id - b.id;
 }
 // Scene Collection
 /** Frustum used for culling; rebuilt from VP every frame. */
@@ -16930,8 +17310,8 @@ const _worldSphere = { center: [0, 0, 0], radius: 0 };
  *
  * @param state - The RenderLists state
  * @param object - The object to collect from (Scene, Mesh, or any Object3D)
- * @param camera - The camera for frustum culling and Z sorting
- * @returns The populated and sorted RenderList
+ * @param camera - The camera for frustum culling
+ * @returns The populated RenderList
  */
 function collectRenderList(state, object, camera) {
     const list = getRenderList(state, object, camera);
@@ -16940,28 +17320,23 @@ function collectRenderList(state, object, camera) {
     // Build frustum from camera matrices
     setFromViewProjectionMatrix(_frustum, camera.projectionMatrix, camera.matrixWorldInverse, camera.coordinateSystem);
     // Walk object and collect visible meshes
-    walkObject(list, object, camera);
-    sortRenderList(list);
+    walkObject(list, object);
     return list;
 }
 /**
  * Walk the scene graph and collect visible meshes.
  */
-function walkObject(list, obj, camera) {
+function walkObject(list, obj) {
     if (!obj.visible)
         return;
     if (obj.isMesh) {
         const mesh = obj;
-        if (isMeshVisible(mesh)) {
-            const material = mesh.material;
-            const z = computeViewZ(mesh, camera);
-            pushRenderItem(list, mesh, mesh.geometry, material, 0, // groupOrder - could be mesh.renderOrder or layer
-            z);
-        }
+        if (isMeshVisible(mesh))
+            pushRenderItem(list, mesh, mesh.geometry, mesh.material);
     }
     // Recurse into children
     for (const child of obj.children) {
-        walkObject(list, child, camera);
+        walkObject(list, child);
     }
 }
 /**
@@ -17006,25 +17381,6 @@ function isMeshVisible(mesh) {
     // no bounds, always draw
     return true;
 }
-/**
- * Compute the view-space Z of a mesh for transparent sorting.
- *
- * Uses the mesh world-position (column 12, 13, 14 of matrixWorld)
- * and the camera view matrix.
- *
- * Returns the view-space Z coordinate (negative = in front of camera in a
- * right-handed system; we sort from largest (furthest) to smallest).
- */
-function computeViewZ(mesh, camera) {
-    const wm = mesh.matrixWorld;
-    const vm = camera.matrixWorldInverse;
-    // World position of mesh origin
-    const wx = wm[12];
-    const wy = wm[13];
-    const wz = wm[14];
-    // Transform world position by view matrix (only z row needed)
-    return vm[2] * wx + vm[6] * wy + vm[10] * wz + vm[14];
-}
 
 function isRenderTarget(target) {
     return target.isRenderTarget === true;
@@ -17034,7 +17390,12 @@ function renderTargetOf(target) {
     return isRenderTarget(target) ? target : null;
 }
 
-/** Frustum culled, in render order, opaque before transparent, drawn through the public `pass.draw`. */
+// Opaque draws group by pipeline then material, nearest first within one, so the costliest state changes least and
+// nearer surfaces hide what is behind them early. Transparent draws go farthest first, as blending needs. A mesh's
+// `renderOrder` ranks above both.
+const OPAQUE = { key: ['sortKey', 'pipeline', 'material', { depthNear: 8 }], label: 'opaque' };
+const TRANSPARENT = { key: ['sortKey', 'depthFar'], label: 'transparent' };
+/** Frustum culled, opaque before transparent, each in its own bin, drawn through the public `pass.bin`. */
 function drawScene(renderer, pass, scene, camera) {
     // The scene tab's input, reported here so a pass recorded by hand correctly has no tree.
     if (renderer.inspector !== null) {
@@ -17043,14 +17404,15 @@ function drawScene(renderer, pass, scene, camera) {
         renderer.inspector.beginRenderScene(pass.desc.label ?? 'render', scene, target.samples, colorFormat);
     }
     const list = collectRenderList(renderer._renderLists, scene, camera);
-    drawItems(pass, list.opaque);
-    drawItems(pass, list.transparent);
+    drawItems(pass.bin(OPAQUE), list.opaque);
+    drawItems(pass.bin(TRANSPARENT), list.transparent);
 }
-function drawItems(pass, items) {
+function drawItems(bin, items) {
     for (const item of items) {
-        if (item.mesh === null || item.material === null || item.geometry === null)
+        const mesh = item.mesh;
+        if (mesh === null || item.material === null || item.geometry === null)
             continue;
-        pass.draw(item.mesh);
+        bin.draw(mesh, mesh.renderOrder === 0 ? undefined : { sortKey: mesh.renderOrder });
     }
 }
 
@@ -20568,6 +20930,7 @@ function createGlslContext(stage, discovery) {
     const globalNames = seedGlslGlobalNames(discovery);
     return {
         stage,
+        shared: discovery.shared,
         uniforms: discovery.uniforms,
         usageCount: discovery.nodeIdToUsages,
         mutatedNodes: discovery.mutatedNodes,
@@ -21994,14 +22357,35 @@ function emitGlslUniformBlocks(ctx) {
         // producing "Buffer for uniform block is smaller than UNIFORM_BLOCK_DATA_SIZE".
         let structAlign = 16;
         // A fixed group (the view's) is its declared members in their declared order, in every program. Another
-        // shared group backs one buffer reused across materials, cached by its uniform set, so it is ordered by stable
-        // node id (as the WGSL emit and three.js). Non-shared groups keep declaration order.
+        // shared group's members sit where the renderer's shared block placed them, the same in every program that
+        // reads them: std140 has no explicit offsets, so unread slots are `uvec4` gaps and a member short of its slot
+        // is followed by `uint` padding to the next. Without a placement a shared group lays its own members out, one
+        // per Uniform, by stable node id (as the WGSL emit). Non-shared groups keep declaration order.
         const fixed = fixedMembers(entry.group);
-        const orderedUniforms = fixed !== null
-            ? [...entry.uniforms].sort((a, b) => fixed.indexOf(a) - fixed.indexOf(b))
-            : entry.group.shared
-                ? [...entry.uniforms].sort((a, b) => a.id - b.id)
-                : entry.uniforms;
+        const shared = fixed === null && entry.group.shared;
+        const placed = shared && ctx.shared !== null
+            ? placeSharedMembers(ctx.shared.blocks, entry.group, entry.uniforms, ctx.shared.maxBytes)
+            : null;
+        const orderedUniforms = placed !== null
+            ? []
+            : fixed !== null
+                ? [...entry.uniforms].sort((a, b) => fixed.indexOf(a) - fixed.indexOf(b))
+                : shared
+                    ? uniqueByUniform(entry.uniforms).sort((a, b) => a.id - b.id)
+                    : entry.uniforms;
+        if (placed !== null) {
+            let gaps = 0;
+            for (const member of placed) {
+                if (member.offset > offset)
+                    lines.push(`    uvec4 _gap${gaps++}[${(member.offset - offset) / 16}];`);
+                lines.push(`    ${glslLocalDecl(member.schema, uniformMemberName$1(ctx, member.node))};`);
+                for (let pad = member.size; pad < member.slots * 16; pad += 4)
+                    lines.push(`    uint _gap${gaps++};`);
+                members.push(member);
+                offset = member.offset + member.slots * 16;
+                assertSchemaUniformValid(`Uniforms_${groupName}.${member.uniformId}`, member.schema);
+            }
+        }
         for (const u of orderedUniforms) {
             // std140 offsets/sizes come from pack.ts — the single memory-layout authority.
             const align = layoutAlignOf(u.type, 'std140');
@@ -22033,6 +22417,7 @@ function emitGlslUniformBlocks(ctx) {
             members,
             totalBytes,
             group: entry.group,
+            sharedBlock: placed !== null && placed.length > 0 ? placed[0].owner : null,
         });
     });
     return { glsl: lines.join('\n'), uniformBlocks };
@@ -22911,6 +23296,7 @@ function constLiteral(type, value) {
  */
 function emptyDiscovery() {
     return {
+        shared: null,
         nodeIdToUsages: new Map(),
         mutatedNodes: new Set(),
         fnDefs: new Map(),
@@ -22946,6 +23332,7 @@ function createContext$1(stage, isRender, discovery) {
     return {
         stage,
         isRender,
+        shared: discovery.shared,
         // Discovered facts — referenced directly (no throwaway empty maps).
         uniforms: discovery.uniforms,
         storages: discovery.storages,
@@ -24189,39 +24576,58 @@ function emitAllBindings(ctx, stages) {
             const members = [];
             let offset = 0;
             // A fixed group (the view's) is its declared members in their declared order, in every shader. Another
-            // shared group backs one buffer reused across materials and is cached by its uniform set, so its layout
-            // must be deterministic for a set whatever the traversal order: by stable node id (as three.js does).
-            // Non-shared groups are per-object and cloned, so their declaration order is fine.
+            // shared group's members sit where the renderer's shared block placed them, the same in every shader that
+            // reads them, with whole 16-byte slots of gap where it reads none. Without a placement (a compile outside
+            // a renderer) a shared group lays its own members out, one per Uniform, by stable node id. Non-shared
+            // groups are per-object and cloned, so their declaration order is fine.
             const fixed = fixedMembers(bindGroup.group);
-            const orderedUniforms = fixed !== null
-                ? [...bindGroup.uniforms].sort((a, b) => fixed.indexOf(a) - fixed.indexOf(b))
-                : bindGroup.group.shared
-                    ? [...bindGroup.uniforms].sort((a, b) => a.id - b.id)
-                    : bindGroup.uniforms;
-            // This block wrapper is gpucat's, not the user's, so gpucat owns its uniform-address-space
-            // layout: a struct/array member (and any member following one) starts on a 16-byte boundary,
-            // pinned with @align/@size so every driver matches the packer. Member *internal* layout is
-            // std430 (the one WGSL layout) — a user makes a nested struct uniform-valid with d.align.
-            let prevAggregate = false;
-            for (const u of orderedUniforms) {
-                const isAggregate = isStructDesc(u.type) || isSizedArrayDesc(u.type) || isArrayDesc(u.type);
-                let align = layoutAlignOf(u.type, 'wgsl-uniform');
-                if (isAggregate || prevAggregate)
-                    align = Math.max(align, 16);
-                const size = layoutSizeOf(u.type, 'wgsl-uniform');
-                // align offset
-                offset = Math.ceil(offset / align) * align;
-                const memberName = uniformMemberName(ctx, u);
-                lines.push(`    @align(${align}) @size(${size}) ${memberName}: ${u.type.wgslType},`);
-                members.push({
-                    uniformId: u.name,
-                    schema: u.type,
-                    offset,
-                    size,
-                    node: u,
-                });
-                offset += size;
-                prevAggregate = isAggregate;
+            const shared = fixed === null && bindGroup.group.shared;
+            const placed = shared && ctx.shared !== null
+                ? placeSharedMembers(ctx.shared.blocks, bindGroup.group, bindGroup.uniforms, ctx.shared.maxBytes)
+                : null;
+            if (placed !== null) {
+                let gaps = 0;
+                for (const member of placed) {
+                    if (member.offset > offset) {
+                        const gap = member.offset - offset;
+                        lines.push(`    @align(16) @size(${gap}) _gap${gaps++}: array<vec4<u32>, ${gap / 16}>,`);
+                    }
+                    lines.push(`    @align(16) @size(${member.slots * 16}) ${uniformMemberName(ctx, member.node)}: ${member.schema.wgslType},`);
+                    members.push(member);
+                    offset = member.offset + member.slots * 16;
+                }
+            }
+            else {
+                const orderedUniforms = fixed !== null
+                    ? [...bindGroup.uniforms].sort((a, b) => fixed.indexOf(a) - fixed.indexOf(b))
+                    : shared
+                        ? uniqueByUniform(bindGroup.uniforms).sort((a, b) => a.id - b.id)
+                        : bindGroup.uniforms;
+                // This block wrapper is gpucat's, not the user's, so gpucat owns its uniform-address-space
+                // layout: a struct/array member (and any member following one) starts on a 16-byte boundary,
+                // pinned with @align/@size so every driver matches the packer. Member *internal* layout is
+                // std430 (the one WGSL layout) — a user makes a nested struct uniform-valid with d.align.
+                let prevAggregate = false;
+                for (const u of orderedUniforms) {
+                    const isAggregate = isStructDesc(u.type) || isSizedArrayDesc(u.type) || isArrayDesc(u.type);
+                    let align = layoutAlignOf(u.type, 'wgsl-uniform');
+                    if (isAggregate || prevAggregate)
+                        align = Math.max(align, 16);
+                    const size = layoutSizeOf(u.type, 'wgsl-uniform');
+                    // align offset
+                    offset = Math.ceil(offset / align) * align;
+                    const memberName = uniformMemberName(ctx, u);
+                    lines.push(`    @align(${align}) @size(${size}) ${memberName}: ${u.type.wgslType},`);
+                    members.push({
+                        uniformId: u.name,
+                        schema: u.type,
+                        offset,
+                        size,
+                        node: u,
+                    });
+                    offset += size;
+                    prevAggregate = isAggregate;
+                }
             }
             lines.push(`}`);
             lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var<uniform> uniforms_${groupName}: Uniforms_${groupName};`);
@@ -24241,6 +24647,7 @@ function emitAllBindings(ctx, stages) {
                 members,
                 totalBytes,
                 group: bindGroup.group,
+                sharedBlock: placed !== null && placed.length > 0 ? placed[0].owner : null,
             });
             bindingIndex++;
         }
@@ -24773,7 +25180,7 @@ function drawBaseDeclaration(ctx) {
         return `layout(std140) uniform DrawBases {\n    uvec4 u_drawBases[${DRAW_BASES_ENTRIES / 4}];\n};`;
     return 'uniform highp uint u_drawBase;';
 }
-function compileWgsl(slots) {
+function compileWgsl(slots, opts = {}) {
     // A fragment-less material (depth/stencil-only) may leave the slot null or undefined.
     const hasFragment = slots.fragment != null;
     // A frag_depth override is a fragment-stage value; a fragment shader must run to write it, even in
@@ -24788,7 +25195,7 @@ function compileWgsl(slots) {
         roots.push(slots.depth);
     // single discovery pass across all roots, then a context per stage that references the
     // discovered facts (both stages share one binding set — see createContext).
-    const discovered = discover(roots);
+    const discovered = discover(roots, opts.shared ?? null);
     const vertexCtx = createContext$1('vertex', true, discovered);
     const fragmentCtx = createContext$1('fragment', true, discovered);
     // pre-collect varyings from fragment roots (so vertex shader knows what to output). The depth
@@ -24944,7 +25351,7 @@ function compileGlsl(slots, opts = {}) {
     if (slots.depth)
         roots.push(slots.depth);
     // Shared, neutral analysis — identical to the WGSL path.
-    const discovered = discover(roots);
+    const discovered = discover(roots, opts.shared ?? null);
     // discover() only registers struct defs reached through storage bindings (the WGSL path's needs).
     // GLSL declares a `struct` for ANY struct-typed value — e.g. a local struct construct in a
     // fragment — so augment discovered.structDefs by walking every discovered node's type. This
@@ -25180,14 +25587,14 @@ function compileGlsl(slots, opts = {}) {
         graphInfo,
     };
 }
-function compileComputeWgsl(node) {
+function compileComputeWgsl(node, opts = {}) {
     // trace the FnNode to get roots
     const fn = node.fn;
     const traced = fn.trace();
     // filter out undefined (void functions have no output)
     const roots = [traced.body, traced.output].filter((n) => n != null);
     // single discovery pass, then a context referencing the discovered facts (see createContext).
-    const discovered = discover(roots);
+    const discovered = discover(roots, opts.shared ?? null);
     const ctx = createContext$1('compute', false, discovered);
     // generate compute shader body (reuse the trace above, re-tracing would
     // produce fresh StorageNode/etc. ids that aren't in discovered.storageNames,
@@ -25457,12 +25864,20 @@ function nameBindings(textures, storageTextures, samplers, storages, storageName
     // so they allocate from their own scope, free to reuse a name a binding took.
     const memberScope = createNameScope();
     let unnamedUniforms = 0;
-    for (const [identity, { node }] of uniforms) {
-        uniformNames.set(identity, allocName(memberScope, node.uniform.label || `uniform${unnamedUniforms++}`));
+    // In a shared group a Uniform is one member however many nodes read it (`uniform(u)` makes a node per call), so
+    // every node of it takes the one name.
+    const sharedUniformToName = new Map();
+    for (const [identity, { node, group }] of uniforms) {
+        const shared = group.shared && fixedMembers(group) === null;
+        const known = shared ? sharedUniformToName.get(node.uniform) : undefined;
+        const name = known ?? allocName(memberScope, node.uniform.label || `uniform${unnamedUniforms++}`);
+        if (shared)
+            sharedUniformToName.set(node.uniform, name);
+        uniformNames.set(identity, name);
     }
     return { textureNames, samplerNames, uniformNames, bindingNames: scope };
 }
-function discover(roots) {
+function discover(roots, shared = null) {
     const nodeIdToNode = new Map();
     const nodeIdToUsages = new Map();
     const visited = new Set();
@@ -25681,6 +26096,7 @@ function discover(roots) {
     }
     const { textureNames, samplerNames, uniformNames, bindingNames } = nameBindings(textures, storageTextures, samplers, storages, storageNames, uniforms);
     return {
+        shared,
         nodeIdToNode,
         nodeIdToUsages,
         mutatedNodes,
@@ -25897,13 +26313,19 @@ function aimNodeFrame(renderer, camera, width, height) {
 }
 
 /** create a new NodeManager state */
-function createNodeManagerState(backend) {
+function createNodeManagerState(backend, layout) {
     return {
         renderStates: new Map(),
         computeStates: new Map(),
         nodeFrame: createNodeFrame(),
+        sharedBlocks: createSharedBlocks(layout),
+        shared: null,
         backend,
     };
+}
+/** Lets compiles place shared members, now that the device's uniform block limit is known. */
+function setSharedPlacement(state, maxBytes) {
+    state.shared = { blocks: state.sharedBlocks, maxBytes };
 }
 /**
  * Get the NodeFrame for rendering a specific RenderObject.
@@ -25964,7 +26386,7 @@ function compileNodeState(state, renderObject, compile) {
             vertex: material.vertex,
             fragment: material.fragment,
             depth: material.depth,
-        });
+        }, state.shared);
         // the context is what the template's shared bind groups are cached against
         entry = { nodeState: createNodeBuilderState(compileResult, key, renderObject.renderContext), users: 0 };
         state.renderStates.set(key, entry);
@@ -26005,8 +26427,10 @@ function releaseNodeState(state, renderObject) {
     if (entry === undefined || entry.nodeState !== nodeState)
         return;
     entry.users--;
-    if (entry.users === 0)
-        state.renderStates.delete(nodeState.cacheKey);
+    if (entry.users > 0)
+        return;
+    state.renderStates.delete(nodeState.cacheKey);
+    releaseNodeBuilderState(nodeState, state.sharedBlocks, (key) => state.backend.releaseUniformBlock(key));
 }
 /**
  * Check if a RenderObject needs node recompilation.
@@ -26119,7 +26543,7 @@ function updateForCompute(state, computeNode) {
  * @returns the compiled NodeBuilderState
  */
 function compileComputeNode(state, computeNode, context) {
-    const compileResult = compileComputeWgsl(computeNode);
+    const compileResult = compileComputeWgsl(computeNode, { shared: state.shared ?? undefined });
     // extract update nodes from the compile result
     // for compute, we use the uniform update callbacks
     const updateNodes = [];
@@ -26153,7 +26577,20 @@ function compileComputeNode(state, computeNode, context) {
  * @param computeNode the ComputeNode being disposed
  */
 function deleteForCompute(state, computeNode) {
+    const nodeState = state.computeStates.get(computeNode.id);
+    if (nodeState === undefined)
+        return;
     state.computeStates.delete(computeNode.id);
+    // a dispatch binds its compiled groups directly, so its own groups' blocks are its, as the shared ones are
+    for (const group of nodeState.bindings) {
+        if (group.shared)
+            continue;
+        for (const binding of group.bindings) {
+            if (binding.kind === 'uniform' && binding.bufferKey !== null)
+                state.backend.releaseUniformBlock(binding.bufferKey);
+        }
+    }
+    releaseNodeBuilderState(nodeState, state.sharedBlocks, (key) => state.backend.releaseUniformBlock(key));
 }
 
 /**
@@ -26332,6 +26769,7 @@ function getForRender(state, device, renderObject, bindGroupLayouts, promises = 
     entry = {
         pipeline: null,
         cacheKey,
+        users: 0,
     };
     state.renderPipelines.set(cacheKey, entry);
     // Build pipeline descriptor
@@ -26568,6 +27006,24 @@ function getCachedPipelineKey(renderObject, samples, colorFormats, depthFormat) 
     renderObject._pipelineKeyGeometryVersion = geometryVersion;
     return key;
 }
+/** Makes `entry` the pipeline `held` names, counting it there and releasing what was there before. */
+function holdRenderPipeline(state, held, entry) {
+    if (held.pipelineEntry === entry)
+        return;
+    releaseRenderPipeline(state, held);
+    entry.users++;
+    held.pipelineEntry = entry;
+}
+/** Stops `held` counting its pipeline; one held by none leaves the cache. */
+function releaseRenderPipeline(state, held) {
+    const entry = held.pipelineEntry;
+    if (entry === null)
+        return;
+    held.pipelineEntry = null;
+    entry.users--;
+    if (entry.users === 0 && state.renderPipelines.get(entry.cacheKey) === entry)
+        state.renderPipelines.delete(entry.cacheKey);
+}
 /** Drop every cached pipeline (called on renderer dispose; `device.destroy()` frees the GPU side). */
 function disposePipelines(state) {
     state.renderPipelines.clear();
@@ -26778,6 +27234,7 @@ function createRenderObjectGpuCache() {
 function createRenderObjectGpu() {
     return {
         pipeline: null,
+        pipelineEntry: null,
         probeBindings: null,
         vertexBuffers: [],
         vertexBufferNames: [],
@@ -29305,6 +29762,7 @@ function getRenderObject(state, mesh, material, camera, renderContext) {
         renderObject = createRenderObject(mesh, material, camera, renderContext);
         // Set up disposal callback: walk the nested chain and delete the leaf.
         renderObject.onDispose = () => {
+            state.nodes.backend.releaseRenderObject(renderObject);
             releaseNodeState(state.nodes, renderObject);
             cache.get(mesh)?.get(material)?.delete(renderContext);
             state.renderObjects.delete(renderObject);
@@ -32351,6 +32809,7 @@ function openRenderPass(frame, desc) {
         pass.ended = false;
     }
     pass.camera = desc.camera;
+    pass.binCount = 0;
     frame.poolIndex++;
     beginOnBackend(frame, pass);
     frame.open = pass;
@@ -32363,6 +32822,9 @@ function createRenderPass(frame, desc) {
         drawRecord: null,
         bundleRecord: null,
         cameraRecord: null,
+        binRecord: null,
+        bins: [],
+        binCount: 0,
         viewportRecord: { kind: 'viewport', viewport: undefined },
         scissorRecord: { kind: 'scissor', scissor: undefined },
         camera: desc.camera,
@@ -32370,6 +32832,7 @@ function createRenderPass(frame, desc) {
         draw: (mesh, opts) => recordDraw(frame, pass, mesh, opts),
         execute: (bundle) => recordBundle(frame, pass, bundle),
         scene: (root, camera) => recordScene(frame, pass, root, camera),
+        bin: (desc) => recordBin(frame, pass, desc),
         setCamera: (camera) => recordCamera(frame, pass, camera),
         setViewport: (viewport) => recordViewport(frame, pass, viewport),
         setScissor: (scissor) => recordScissor(frame, pass, scissor),
@@ -32390,6 +32853,81 @@ function recordCamera(frame, pass, camera) {
         record.camera = camera;
     }
     resolveCall(frame, pass, record);
+}
+function recordBin(frame, pass, desc) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] bin after end()`);
+    let bin = pass.bins[pass.binCount];
+    if (bin === undefined) {
+        const created = {
+            kind: 'bin',
+            desc,
+            index: pass.binCount,
+            fields: [],
+            bits: [],
+            keyRead: null,
+            usesDepth: false,
+            ended: false,
+            draw: (mesh, opts) => recordDraw(frame, pass, mesh, opts, created),
+        };
+        bin = created;
+        pass.bins.push(bin);
+    }
+    bin.desc = desc;
+    bin.ended = false;
+    if (bin.keyRead !== desc.key)
+        readBinKey(bin, desc.key, passLabel(pass));
+    pass.binCount++;
+    let record = pass.binRecord;
+    if (record === null) {
+        record = { kind: 'bin', bin };
+        pass.binRecord = record;
+    }
+    else {
+        record.bin = bin;
+    }
+    resolveCall(frame, pass, record);
+    return bin;
+}
+const BIN_KEY_PRESETS = {
+    state: ['sortKey', 'pipeline', 'material', 'geometry'],
+    'back-to-front': ['sortKey', 'depthFar'],
+    submission: [],
+};
+const BIN_FIELDS = ['sortKey', 'pipeline', 'material', 'geometry', 'view', 'depthNear', 'depthFar'];
+/** `key` into `bin`'s fields and bits, refusing a field it does not know or one named twice. */
+function readBinKey(bin, key, label) {
+    bin.fields.length = 0;
+    bin.bits.length = 0;
+    bin.usesDepth = false;
+    const fields = typeof key === 'string' ? BIN_KEY_PRESETS[key] : key;
+    if (fields === undefined)
+        throw new Error(`[pass ${label}] bin key '${key}' is none of 'state', 'back-to-front', 'submission'`);
+    for (const entry of fields) {
+        let field;
+        let bits = 0;
+        if (typeof entry === 'string')
+            field = entry;
+        else {
+            const names = Object.keys(entry);
+            if (names.length !== 1)
+                throw new Error(`[pass ${label}] a bin key field with bits names one field, not ${names.length}`);
+            field = names[0];
+            bits = entry[field];
+            if (!Number.isInteger(bits) || bits < 1 || bits > 52) {
+                throw new Error(`[pass ${label}] bin key field '${field}' takes 1 to 52 bits, not ${bits}`);
+            }
+        }
+        if (!BIN_FIELDS.includes(field))
+            throw new Error(`[pass ${label}] '${field}' is not a bin key field`);
+        if (bin.fields.includes(field))
+            throw new Error(`[pass ${label}] bin key names '${field}' twice`);
+        bin.fields.push(field);
+        bin.bits.push(bits);
+        if (field === 'depthNear' || field === 'depthFar')
+            bin.usesDepth = true;
+    }
+    bin.keyRead = key;
 }
 function recordViewport(frame, pass, viewport) {
     if (pass.ended)
@@ -32555,9 +33093,14 @@ function resolveCall(frame, pass, record) {
     }
     inspector?.endRecordedCall(null);
 }
-function recordDraw(frame, pass, mesh, opts) {
+function recordDraw(frame, pass, mesh, opts, bin = null) {
     if (pass.ended)
         throw new Error(`[pass ${passLabel(pass)}] draw after end()`);
+    if (bin?.ended)
+        throw new Error(`[pass ${passLabel(pass)}] draw into a bin after its pass ended`);
+    if (bin === null && opts?.sortKey !== undefined) {
+        throw new Error(`[pass ${passLabel(pass)}] '${mesh.name || 'mesh'}' passes a sortKey to the pass; a sortKey orders draws in a bin`);
+    }
     if (opts?.draws !== undefined && (opts.instances !== undefined || opts.range !== undefined)) {
         throw new Error(`[pass ${passLabel(pass)}] '${mesh.name || 'mesh'}' passes draws alongside instances or range; ` +
             'each MeshDraw carries its own instanceCount and index range, so the single-draw fields are unreachable.');
@@ -32565,13 +33108,15 @@ function recordDraw(frame, pass, mesh, opts) {
     const material = opts?.material ?? mesh.material;
     let record = pass.drawRecord;
     if (record === null) {
-        record = { kind: 'draw', mesh, material, opts: opts ?? null };
+        record = { kind: 'draw', mesh, material, opts: opts ?? null, bin, sortKey: opts?.sortKey ?? 0 };
         pass.drawRecord = record;
     }
     else {
         record.mesh = mesh;
         record.material = material;
         record.opts = opts ?? null;
+        record.bin = bin;
+        record.sortKey = opts?.sortKey ?? 0;
     }
     resolveCall(frame, pass, record);
 }
@@ -32598,6 +33143,9 @@ function endPass$2(frame, pass) {
             'its draws were never encoded. A frame opened between this pass and its end() is what does this.');
     }
     pass.ended = true;
+    if (pass.kind === 'render')
+        for (let index = 0; index < pass.binCount; index++)
+            pass.bins[index].ended = true;
     frame.open = null; // cleared first: encoding evaluates the graph, which may open a nested pass
     inspectorOf(frame)?.endRecordedPass(null);
     if (pass.kind === 'compute') {
@@ -37562,7 +38110,14 @@ function bundle(label) {
         draw(mesh, opts) {
             if (finished)
                 throw new Error(`[bundle ${built.label}] draw after finish()`);
-            records.push({ kind: 'draw', mesh, material: opts?.material ?? mesh.material, opts: opts ?? null });
+            records.push({
+                kind: 'draw',
+                mesh,
+                material: opts?.material ?? mesh.material,
+                opts: opts ?? null,
+                bin: null,
+                sortKey: 0,
+            });
         },
         finish() {
             finished = true;
@@ -37774,27 +38329,6 @@ function applyViewRecord(renderer, params, entry, coordinateSystem) {
 /** Whether a record changes what the draws after it are drawn with, rather than drawing. */
 function isViewRecord(entry) {
     return entry.kind === 'camera' || entry.kind === 'viewport' || entry.kind === 'scissor';
-}
-/** The run of draws `start` to `start + count` into `out`, with the camera and rects `params` holds while they draw. */
-function writeSegment(out, bundle, start, count, params) {
-    out.bundle = bundle;
-    out.start = start;
-    out.count = count;
-    out.camera = params.camera;
-    out.viewport = params.viewport;
-    const viewport = params.viewportValue;
-    out.viewportValue.x = viewport.x;
-    out.viewportValue.y = viewport.y;
-    out.viewportValue.width = viewport.width;
-    out.viewportValue.height = viewport.height;
-    out.viewportValue.minDepth = viewport.minDepth;
-    out.viewportValue.maxDepth = viewport.maxDepth;
-    out.scissor = params.scissor;
-    const scissor = params.scissorValue;
-    out.scissorValue.x = scissor.x;
-    out.scissorValue.y = scissor.y;
-    out.scissorValue.width = scissor.width;
-    out.scissorValue.height = scissor.height;
 }
 /**
  * The mip and layer of `rt` the pass draws into, 0 and 0 unless named, checked against its layout. A cube's six faces
@@ -38062,7 +38596,7 @@ class Renderer {
     onDeviceLost = null;
     constructor(backend) {
         this.backend = backend;
-        this._nodes = createNodeManagerState(backend);
+        this._nodes = createNodeManagerState(backend, backend.name === 'webgl' ? 'std140' : 'wgsl-uniform');
         this._renderObjects = createRenderObjectsState(this._nodes);
     }
     /** `B['name']`, not `RendererBackend`, so a union of concrete renderers discriminates on it. */
@@ -38251,6 +38785,540 @@ function yieldToMain() {
 }
 
 /**
+ * state.ts (webgl) - GL pipeline-state helpers, driven by gpucat material fields.
+ *
+ * These are the immediate-mode equivalents of a WebGPU pipeline's fixed-function state: depth
+ * test/write/compare, face culling, blending, and stencil. WebGPU bakes this into the pipeline
+ * object; WebGL2 sets it live on the context before each draw. These read `Material`'s fields
+ * directly, and those fields are WebGPU vocabulary (`depthCompare`, `cullMode`, `blend`,
+ * `stencilFunc`, `stencilFail`), so there is no second enum set to translate through.
+ *
+ * `GlState` records what the context holds, field by field, for the context's life, as three.js's `WebGLState`,
+ * PlayCanvas's and Babylon's devices keep theirs: a call that would set what is set is skipped. Every state call gpucat
+ * makes goes through it (draws, clears, rects, the probe, transform feedback); `resetGlState` puts the context back to
+ * GL's defaults and the record with it, for after other code has used the context.
+ */
+/** Uniform buffer binding points the record tracks: the groups' and the multi-draw base table's (see programs.ts). */
+const TRACKED_BINDING_POINTS = 24;
+function unknownFace() {
+    return { func: null, ref: null, readMask: null, fail: null, zFail: null, zPass: null };
+}
+/** A record knowing nothing: every first call sets its state. */
+function createGlState() {
+    return {
+        depthTest: null,
+        cullFace: null,
+        blend: null,
+        stencilTest: null,
+        polygonOffsetFill: null,
+        alphaToCoverage: null,
+        scissorTest: null,
+        rasterizerDiscard: null,
+        depthFunc: null,
+        depthMask: null,
+        colorMask: null,
+        frontFace: null,
+        cullFaceMode: null,
+        blendSrcColor: null,
+        blendDstColor: null,
+        blendSrcAlpha: null,
+        blendDstAlpha: null,
+        blendOpColor: null,
+        blendOpAlpha: null,
+        polygonOffsetFactor: null,
+        polygonOffsetUnits: null,
+        stencilWriteMask: null,
+        front: unknownFace(),
+        back: unknownFace(),
+        viewportX: null,
+        viewportY: null,
+        viewportWidth: null,
+        viewportHeight: null,
+        depthNear: null,
+        depthFar: null,
+        scissorX: null,
+        scissorY: null,
+        scissorWidth: null,
+        scissorHeight: null,
+        clearR: null,
+        clearG: null,
+        clearB: null,
+        clearA: null,
+        clearDepth: null,
+        clearStencil: null,
+        program: undefined,
+        vao: undefined,
+        uniformBuffers: new Array(TRACKED_BINDING_POINTS).fill(undefined),
+        uniformOffsets: new Array(TRACKED_BINDING_POINTS).fill(-1),
+    };
+}
+/** Forgets everything `state` records, in place: for when other code may have changed the context. */
+function forgetGlState(state) {
+    Object.assign(state, createGlState());
+}
+// Enum → GL constant maps. Keyed by the WebGPU-vocabulary strings gpucat's Material uses.
+/** Map a WebGPU compare function to a GL depth/stencil func constant. */
+function compareFunc(gl, compare) {
+    switch (compare) {
+        case 'never':
+            return gl.NEVER;
+        case 'less':
+            return gl.LESS;
+        case 'equal':
+            return gl.EQUAL;
+        case 'less-equal':
+            return gl.LEQUAL;
+        case 'greater':
+            return gl.GREATER;
+        case 'not-equal':
+            return gl.NOTEQUAL;
+        case 'greater-equal':
+            return gl.GEQUAL;
+        case 'always':
+            return gl.ALWAYS;
+        default: {
+            const unhandled = compare;
+            throw new Error(`[webgl] unhandled '${unhandled}'.`);
+        }
+    }
+}
+/** Map a WebGPU blend factor to the GL blend-factor constant. */
+function blendFactor(gl, factor) {
+    switch (factor) {
+        case 'zero':
+            return gl.ZERO;
+        case 'one':
+            return gl.ONE;
+        case 'src':
+            return gl.SRC_COLOR;
+        case 'one-minus-src':
+            return gl.ONE_MINUS_SRC_COLOR;
+        case 'src-alpha':
+            return gl.SRC_ALPHA;
+        case 'one-minus-src-alpha':
+            return gl.ONE_MINUS_SRC_ALPHA;
+        case 'dst':
+            return gl.DST_COLOR;
+        case 'one-minus-dst':
+            return gl.ONE_MINUS_DST_COLOR;
+        case 'dst-alpha':
+            return gl.DST_ALPHA;
+        case 'one-minus-dst-alpha':
+            return gl.ONE_MINUS_DST_ALPHA;
+        case 'src-alpha-saturated':
+            return gl.SRC_ALPHA_SATURATE;
+        // 'constant' / 'one-minus-constant' map to GL_CONSTANT_COLOR / GL_ONE_MINUS_CONSTANT_COLOR,
+        // which read the blend constant set by gl.blendColor(). gpucat's Material/GPUBlendState models
+        // no blend-constant value (WebGPU's setBlendConstant is never called), so there is nothing to
+        // feed gl.blendColor — a constant-factor blend would silently blend against (0,0,0,0). Fail
+        // loud instead of blending against black.
+        case 'constant':
+        case 'one-minus-constant':
+            throw new Error(`[webgl] blend factor '${factor}' is not supported on WebGL2: gpucat does not ` +
+                `model a blend constant (no setBlendConstant equivalent), so gl.blendColor cannot be set.`);
+        // Dual-source blending is a WebGPU feature with no WebGL2 equivalent at all, so these cannot be
+        // approximated the way a missing format sometimes can.
+        case 'src1':
+        case 'one-minus-src1':
+        case 'src1-alpha':
+        case 'one-minus-src1-alpha':
+            throw new Error(`[webgl] blend factor '${factor}' needs dual-source blending, which WebGL2 does not have.`);
+        default: {
+            const unhandled = factor;
+            throw new Error(`[webgl] unknown blend factor '${unhandled}'.`);
+        }
+    }
+}
+/** Map a WebGPU blend operation to the GL blend-equation constant. */
+function blendOp(gl, op) {
+    switch (op) {
+        case 'subtract':
+            return gl.FUNC_SUBTRACT;
+        case 'reverse-subtract':
+            return gl.FUNC_REVERSE_SUBTRACT;
+        case 'min':
+            return gl.MIN;
+        case 'max':
+            return gl.MAX;
+        case 'add':
+            return gl.FUNC_ADD;
+        default: {
+            const unhandled = op;
+            throw new Error(`[webgl] unhandled '${unhandled}'.`);
+        }
+    }
+}
+/** Map a WebGPU stencil operation to the GL stencil-op constant. */
+function stencilOp(gl, op) {
+    switch (op) {
+        case 'zero':
+            return gl.ZERO;
+        case 'replace':
+            return gl.REPLACE;
+        case 'invert':
+            return gl.INVERT;
+        case 'increment-clamp':
+            return gl.INCR;
+        case 'decrement-clamp':
+            return gl.DECR;
+        case 'increment-wrap':
+            return gl.INCR_WRAP;
+        case 'decrement-wrap':
+            return gl.DECR_WRAP;
+        case 'keep':
+            return gl.KEEP;
+        default: {
+            const unhandled = op;
+            throw new Error(`[webgl] unhandled '${unhandled}'.`);
+        }
+    }
+}
+function capabilityEnum(gl, capability) {
+    switch (capability) {
+        case 'depthTest':
+            return gl.DEPTH_TEST;
+        case 'cullFace':
+            return gl.CULL_FACE;
+        case 'blend':
+            return gl.BLEND;
+        case 'stencilTest':
+            return gl.STENCIL_TEST;
+        case 'polygonOffsetFill':
+            return gl.POLYGON_OFFSET_FILL;
+        case 'alphaToCoverage':
+            return gl.SAMPLE_ALPHA_TO_COVERAGE;
+        case 'scissorTest':
+            return gl.SCISSOR_TEST;
+        case 'rasterizerDiscard':
+            return gl.RASTERIZER_DISCARD;
+    }
+}
+function setCapability(gl, state, capability, on) {
+    if (state[capability] === on)
+        return;
+    if (on)
+        gl.enable(capabilityEnum(gl, capability));
+    else
+        gl.disable(capabilityEnum(gl, capability));
+    state[capability] = on;
+}
+function setDepthMask(gl, state, on) {
+    if (state.depthMask === on)
+        return;
+    gl.depthMask(on);
+    state.depthMask = on;
+}
+function setColorMask(gl, state, on) {
+    if (state.colorMask === on)
+        return;
+    gl.colorMask(on, on, on, on);
+    state.colorMask = on;
+}
+function setStencilWriteMask(gl, state, mask) {
+    if (state.stencilWriteMask === mask)
+        return;
+    gl.stencilMask(mask);
+    state.stencilWriteMask = mask;
+}
+function setFrontFace(gl, state, face) {
+    if (state.frontFace === face)
+        return;
+    gl.frontFace(face);
+    state.frontFace = face;
+}
+function setViewport(gl, state, x, y, width, height) {
+    if (state.viewportX === x && state.viewportY === y && state.viewportWidth === width && state.viewportHeight === height)
+        return;
+    gl.viewport(x, y, width, height);
+    state.viewportX = x;
+    state.viewportY = y;
+    state.viewportWidth = width;
+    state.viewportHeight = height;
+}
+function setDepthRange(gl, state, near, far) {
+    if (state.depthNear === near && state.depthFar === far)
+        return;
+    gl.depthRange(near, far);
+    state.depthNear = near;
+    state.depthFar = far;
+}
+function setScissor(gl, state, x, y, width, height) {
+    if (state.scissorX === x && state.scissorY === y && state.scissorWidth === width && state.scissorHeight === height)
+        return;
+    gl.scissor(x, y, width, height);
+    state.scissorX = x;
+    state.scissorY = y;
+    state.scissorWidth = width;
+    state.scissorHeight = height;
+}
+function setClearColor(gl, state, r, g, b, a) {
+    if (state.clearR === r && state.clearG === g && state.clearB === b && state.clearA === a)
+        return;
+    gl.clearColor(r, g, b, a);
+    state.clearR = r;
+    state.clearG = g;
+    state.clearB = b;
+    state.clearA = a;
+}
+function setClearDepth(gl, state, depth) {
+    if (state.clearDepth === depth)
+        return;
+    gl.clearDepth(depth);
+    state.clearDepth = depth;
+}
+function setClearStencil(gl, state, value) {
+    if (state.clearStencil === value)
+        return;
+    gl.clearStencil(value);
+    state.clearStencil = value;
+}
+function setDepthFunc(gl, state, func) {
+    if (state.depthFunc === func)
+        return;
+    gl.depthFunc(func);
+    state.depthFunc = func;
+}
+/**
+ * Apply depth test + compare. WebGL2 folds "no test" into disabling `DEPTH_TEST`; when the material
+ * has `depthTest=false` we mirror WebGPU by keeping the buffer enabled with `depthFunc=ALWAYS` (so
+ * depth still writes if `depthWrite` is on).
+ */
+function setDepthState(gl, state, material) {
+    // WebGPU semantics: depthTest=false ⇒ compare 'always' (still writes). Depth is a per-pixel test;
+    // the depth *buffer* stays enabled so writes happen. We therefore always enable DEPTH_TEST and
+    // drive behaviour purely through depthFunc + depthMask.
+    setCapability(gl, state, 'depthTest', true);
+    setDepthFunc(gl, state, compareFunc(gl, material.depthTest ? material.depthCompare : 'always'));
+    setDepthMask(gl, state, material.depthWrite);
+}
+/** Apply face culling from `material.cullMode` ('none' | 'front' | 'back'). Front face is CCW. */
+function setCullState(gl, state, material) {
+    const mode = material.cullMode;
+    // gpucat's winding is CCW everywhere, culled or not
+    setFrontFace(gl, state, gl.CCW);
+    if (mode === 'none' || mode === undefined) {
+        setCapability(gl, state, 'cullFace', false);
+        return;
+    }
+    setCapability(gl, state, 'cullFace', true);
+    const face = mode === 'front' ? gl.FRONT : gl.BACK;
+    if (state.cullFaceMode !== face) {
+        gl.cullFace(face);
+        state.cullFaceMode = face;
+    }
+}
+/**
+ * Apply an already-resolved blend state. WHICH blend a material gets is decided by
+ * `core/render-state`, shared with the WebGPU pipeline so the two backends cannot disagree about what
+ * `transparent` means; this function only translates the result into GL calls. `undefined` is
+ * no-blend.
+ */
+function setBlendState(gl, state, blend) {
+    if (!blend) {
+        setCapability(gl, state, 'blend', false);
+        return;
+    }
+    setCapability(gl, state, 'blend', true);
+    const srcColor = blendFactor(gl, blend.color.srcFactor ?? 'one');
+    const dstColor = blendFactor(gl, blend.color.dstFactor ?? 'zero');
+    const srcAlpha = blendFactor(gl, blend.alpha.srcFactor ?? 'one');
+    const dstAlpha = blendFactor(gl, blend.alpha.dstFactor ?? 'zero');
+    if (state.blendSrcColor !== srcColor ||
+        state.blendDstColor !== dstColor ||
+        state.blendSrcAlpha !== srcAlpha ||
+        state.blendDstAlpha !== dstAlpha) {
+        gl.blendFuncSeparate(srcColor, dstColor, srcAlpha, dstAlpha);
+        state.blendSrcColor = srcColor;
+        state.blendDstColor = dstColor;
+        state.blendSrcAlpha = srcAlpha;
+        state.blendDstAlpha = dstAlpha;
+    }
+    const opColor = blendOp(gl, blend.color.operation ?? 'add');
+    const opAlpha = blendOp(gl, blend.alpha.operation ?? 'add');
+    if (state.blendOpColor !== opColor || state.blendOpAlpha !== opAlpha) {
+        gl.blendEquationSeparate(opColor, opAlpha);
+        state.blendOpColor = opColor;
+        state.blendOpAlpha = opAlpha;
+    }
+}
+/**
+ * Apply polygon offset (depth bias) from `material.depthBias` / `material.depthBiasSlopeScale`.
+ * WebGL's `gl.polygonOffset(factor, units)` maps to WebGPU's (depthBiasSlopeScale, depthBias): factor
+ * scales the fragment's depth slope, units is the constant bias.
+ */
+function setDepthBiasState(gl, state, material) {
+    const factor = material.depthBiasSlopeScale;
+    const units = material.depthBias;
+    const enabled = factor !== 0 || units !== 0;
+    setCapability(gl, state, 'polygonOffsetFill', enabled);
+    if (enabled && (state.polygonOffsetFactor !== factor || state.polygonOffsetUnits !== units)) {
+        gl.polygonOffset(factor, units);
+        state.polygonOffsetFactor = factor;
+        state.polygonOffsetUnits = units;
+    }
+}
+/** Sets one face's stencil test and ops, each call only where it differs. */
+function setStencilFace(gl, face, glFace, func, ref, readMask, fail, zFail, zPass) {
+    if (face.func !== func || face.ref !== ref || face.readMask !== readMask) {
+        gl.stencilFuncSeparate(glFace, func, ref, readMask);
+        face.func = func;
+        face.ref = ref;
+        face.readMask = readMask;
+    }
+    if (face.fail !== fail || face.zFail !== zFail || face.zPass !== zPass) {
+        gl.stencilOpSeparate(glFace, fail, zFail, zPass);
+        face.fail = fail;
+        face.zFail = zFail;
+        face.zPass = zPass;
+    }
+}
+/**
+ * Apply stencil test + ops. Only meaningful when the framebuffer has a stencil attachment
+ * (`hasStencil`) and the material opts in via `stencilTest`. Otherwise the stencil test is disabled.
+ * WebGPU carries a dynamic stencil reference (set via setStencilReference); here it folds into
+ * `gl.stencilFunc`.
+ */
+function setStencilState(gl, state, material, hasStencil) {
+    if (!hasStencil || !material.stencilTest) {
+        setCapability(gl, state, 'stencilTest', false);
+        return;
+    }
+    setCapability(gl, state, 'stencilTest', true);
+    setStencilWriteMask(gl, state, material.stencilWriteMask);
+    const func = compareFunc(gl, material.stencilFunc);
+    const fail = stencilOp(gl, material.stencilFail);
+    const zFail = stencilOp(gl, material.stencilZFail);
+    const zPass = stencilOp(gl, material.stencilZPass);
+    const ref = material.stencilRef;
+    const readMask = material.stencilReadMask;
+    setStencilFace(gl, state.front, gl.FRONT, func, ref, readMask, fail, zFail, zPass);
+    // the back face takes the front's test and ops unless the material sets its own
+    const back = material.stencilBack;
+    if (back == null) {
+        setStencilFace(gl, state.back, gl.BACK, func, ref, readMask, fail, zFail, zPass);
+        return;
+    }
+    setStencilFace(gl, state.back, gl.BACK, back.func === undefined ? func : compareFunc(gl, back.func), ref, readMask, back.fail === undefined ? fail : stencilOp(gl, back.fail), back.zFail === undefined ? zFail : stencilOp(gl, back.zFail), back.zPass === undefined ? zPass : stencilOp(gl, back.zPass));
+}
+/**
+ * Apply the whole fixed-function GL state for a material in one call: depth, cull, blend, color mask,
+ * and (when the framebuffer supports it) stencil. Each state is set only where the context differs.
+ *
+ * `blend` is the pass's already-resolved blend state (see `core/render-state`), passed in rather than
+ * derived here because resolving it needs the pass's MRT context, which is not on the material.
+ */
+function applyMaterialState(gl, state, material, hasStencil, blend) {
+    // Before any GL call: this is a material the backend cannot honour, not a state it failed to set.
+    if (material.depthBiasClamp !== 0) {
+        throw new Error('[webgl] depthBiasClamp has no WebGL2 equivalent, so this material would bias differently ' +
+            'on the two backends. Leave it at 0, or branch on `renderer.api`.');
+    }
+    // the render loop draws rasterized; transform feedback is the one path that turns it off, and turns it back
+    setCapability(gl, state, 'rasterizerDiscard', false);
+    setDepthState(gl, state, material);
+    setDepthBiasState(gl, state, material);
+    setCullState(gl, state, material);
+    setBlendState(gl, state, blend);
+    setCapability(gl, state, 'alphaToCoverage', material.alphaToCoverage);
+    setColorMask(gl, state, material.colorWrite);
+    setStencilState(gl, state, material, hasStencil);
+}
+/**
+ * Puts the context back to GL's defaults for every state gpucat sets, and the record with it: for after other code has
+ * drawn with the context, as three.js's `resetState` does. Reading the context's state back instead would stall it.
+ */
+function resetGlState(gl, state, width, height) {
+    forgetGlState(state);
+    setCapability(gl, state, 'depthTest', false);
+    setCapability(gl, state, 'cullFace', false);
+    setCapability(gl, state, 'blend', false);
+    setCapability(gl, state, 'stencilTest', false);
+    setCapability(gl, state, 'polygonOffsetFill', false);
+    setCapability(gl, state, 'alphaToCoverage', false);
+    setCapability(gl, state, 'scissorTest', false);
+    setCapability(gl, state, 'rasterizerDiscard', false);
+    setDepthFunc(gl, state, gl.LESS);
+    setDepthMask(gl, state, true);
+    setColorMask(gl, state, true);
+    setFrontFace(gl, state, gl.CCW);
+    gl.cullFace(gl.BACK);
+    state.cullFaceMode = gl.BACK;
+    gl.blendFuncSeparate(gl.ONE, gl.ZERO, gl.ONE, gl.ZERO);
+    gl.blendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD);
+    gl.polygonOffset(0, 0);
+    setStencilWriteMask(gl, state, 0xffffffff);
+    gl.stencilFunc(gl.ALWAYS, 0, 0xffffffff);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+    setViewport(gl, state, 0, 0, width, height);
+    setDepthRange(gl, state, 0, 1);
+    setScissor(gl, state, 0, 0, width, height);
+    setClearColor(gl, state, 0, 0, 0, 0);
+    setClearDepth(gl, state, 1);
+    setClearStencil(gl, state, 0);
+    useProgram(gl, state, null);
+    bindVertexArray(gl, state, null);
+    for (let point = 0; point < state.uniformBuffers.length; point++) {
+        bindUniformBuffer(gl, state, point, null, -1, 0);
+    }
+    gl.bindBuffer(gl.UNIFORM_BUFFER, null);
+    // the rest is GL's default now, which the record learns as each is next set
+}
+/** Makes `program` current, skipped if it is: the record lives for the context, so a pass reuses the last one's. */
+function useProgram(gl, state, program) {
+    if (state.program === program)
+        return;
+    gl.useProgram(program);
+    state.program = program;
+}
+/** Binds `vao`, skipped if bound. */
+function bindVertexArray(gl, state, vao) {
+    if (state.vao === vao)
+        return;
+    gl.bindVertexArray(vao);
+    state.vao = vao;
+}
+/**
+ * Binds VAO 0 if another is bound, before an `ELEMENT_ARRAY_BUFFER` bind, which is VAO state: under a draw's VAO it would
+ * rewrite that VAO's index buffer. Babylon's `_unbindVertexArrayObject`, so uploads can land mid-pass.
+ */
+function unbindVertexArray(gl, state) {
+    bindVertexArray(gl, state, null);
+}
+/** Binds `buffer` at `point`, whole for an `offset` of -1, else its `size` bytes from `offset`; skipped if bound so. */
+function bindUniformBuffer(gl, state, point, buffer, offset, size) {
+    if (state.uniformBuffers[point] === buffer && state.uniformOffsets[point] === offset)
+        return;
+    if (offset < 0)
+        gl.bindBufferBase(gl.UNIFORM_BUFFER, point, buffer);
+    else
+        gl.bindBufferRange(gl.UNIFORM_BUFFER, point, buffer, offset, size);
+    state.uniformBuffers[point] = buffer;
+    state.uniformOffsets[point] = offset;
+}
+/** Deletes `program`, made not current first so GL frees it now rather than when it next stops being current. */
+function deleteProgram(gl, state, program) {
+    if (state.program === program)
+        useProgram(gl, state, null);
+    gl.deleteProgram(program);
+}
+/** Deletes `vao`; GL reverts a bound one's binding to VAO 0, and the record follows. */
+function deleteVertexArray(gl, state, vao) {
+    if (state.vao === vao)
+        state.vao = null;
+    gl.deleteVertexArray(vao);
+}
+/** Deletes `buffer`; GL unbinds it from the context's binding points, and the record follows. */
+function deleteBuffer(gl, state, buffer) {
+    for (let point = 0; point < state.uniformBuffers.length; point++) {
+        if (state.uniformBuffers[point] === buffer) {
+            state.uniformBuffers[point] = null;
+            state.uniformOffsets[point] = -1;
+        }
+    }
+    gl.deleteBuffer(buffer);
+}
+
+/**
  * buffers.ts (webgl) - `GpuBuffer -> WebGLBuffer` cache, the GL sibling of `webgpu/buffers.ts`.
  *
  * Two maps, matching WebGPU's, because there are two genuinely different cases:
@@ -38271,7 +39339,7 @@ function yieldToMain() {
  * upload. It matters because `ELEMENT_ARRAY_BUFFER` bindings are captured into whatever VAO is bound,
  * so callers must upload with VAO 0 bound (see `prepareGeometry`).
  */
-function createBufferCache(info, tally) {
+function createBufferCache(info, tally, glState) {
     return {
         bufferMap: new WeakMap(),
         rawMap: new WeakMap(),
@@ -38281,6 +39349,7 @@ function createBufferCache(info, tally) {
         tally,
         textureOnly: new WeakSet(),
         info,
+        glState,
     };
 }
 /**
@@ -38312,7 +39381,7 @@ function setupBufferDispose(gl, cache, buffer) {
         const entry = cache.bufferMap.get(buffer);
         if (!entry)
             return;
-        gl.deleteBuffer(entry.glBuffer);
+        deleteBuffer(gl, cache.glState, entry.glBuffer);
         cache.all.delete(entry.glBuffer);
         clearAllocation(cache.tally, entry.allocation);
         cache.bufferCount--;
@@ -38373,6 +39442,9 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
             cache.bufferCount++;
             setupBufferDispose(gl, cache, buffer);
         }
+        // ELEMENT_ARRAY_BUFFER is VAO state: under a draw's VAO it would rewrite that VAO's index buffer
+        if (target === gl.ELEMENT_ARRAY_BUFFER)
+            unbindVertexArray(gl, cache.glState);
         gl.bindBuffer(target, entry.glBuffer);
         if (array) {
             gl.bufferData(target, array, usageHint ?? glUsageHint(gl, buffer));
@@ -38393,6 +39465,8 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
     // only a `cpu: false` buffer plans past Skip without an array, and it only ever allocates
     if (!array)
         throw new Error(`[webgl] buffer '${label}': a write was planned with no array.`);
+    if (target === gl.ELEMENT_ARRAY_BUFFER)
+        unbindVertexArray(gl, cache.glState);
     gl.bindBuffer(target, entry.glBuffer);
     if (plan === BufferUpload.Partial) {
         uploadDirtyRanges(gl, cache, target, array, buffer, label);
@@ -38409,10 +39483,7 @@ function writeBufferBytes(gl, cache, buffer, byteOffset, data, dataByteOffset, b
     const label = buffer.label ?? 'write-buffer';
     let glBuffer = cache.bufferMap.get(buffer)?.glBuffer;
     if (glBuffer === undefined && buffer.usage.has('index')) {
-        const vao = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
-        gl.bindVertexArray(null);
         glBuffer = ensureUploaded(gl, cache, buffer, gl.ELEMENT_ARRAY_BUFFER, label);
-        gl.bindVertexArray(vao);
     }
     glBuffer ??= ensureUploaded(gl, cache, buffer, gl.COPY_WRITE_BUFFER, label);
     gl.bindBuffer(gl.COPY_WRITE_BUFFER, glBuffer);
@@ -38439,6 +39510,42 @@ function getUploaded(cache, buffer) {
 function isCurrent(cache, buffer) {
     const entry = cache.bufferMap.get(buffer);
     return entry !== undefined && planBufferUpload(buffer, true, entry.byteLength, entry.version) === BufferUpload.Skip;
+}
+const _dirty = { start: 0, end: 0 };
+/**
+ * Brings `shared`'s UBO up to its mirror: the dirty range, or all of it when the mirror outgrew the buffer. GL runs
+ * draws as issued, so a resize reallocates in place without disturbing draws already made.
+ */
+function uploadSharedBlock(gl, cache, shared) {
+    let entry = cache.rawMap.get(shared);
+    const size = shared.mirror.byteLength;
+    if (entry === undefined || entry.byteLength < shared.block.totalBytes) {
+        if (entry === undefined) {
+            const glBuffer = gl.createBuffer();
+            if (!glBuffer)
+                throw new Error('[webgl] gl.createBuffer returned null (shared block).');
+            entry = {
+                glBuffer,
+                byteLength: size,
+                allocation: createAllocation('buffer', 'uniform', `shared-${shared.group.name}`),
+            };
+            cache.rawMap.set(shared, entry);
+            cache.all.add(glBuffer);
+            cache.rawCount++;
+        }
+        entry.byteLength = size;
+        setAllocation(cache.tally, entry.allocation, size);
+        takeSharedDirty(shared, _dirty);
+        gl.bindBuffer(gl.UNIFORM_BUFFER, entry.glBuffer);
+        gl.bufferData(gl.UNIFORM_BUFFER, shared.mirror, gl.DYNAMIC_DRAW);
+        recordBufferWrite(cache.info, size, 'uniform', true, `shared-${shared.group.name}`);
+        return;
+    }
+    if (!takeSharedDirty(shared, _dirty))
+        return;
+    gl.bindBuffer(gl.UNIFORM_BUFFER, entry.glBuffer);
+    gl.bufferSubData(gl.UNIFORM_BUFFER, _dirty.start, new Uint8Array(shared.mirror, _dirty.start, _dirty.end - _dirty.start));
+    recordBufferWrite(cache.info, _dirty.end - _dirty.start, 'uniform', false, `shared-${shared.group.name}`);
 }
 /**
  * Upload one packed uniform block, identified by an arbitrary key.
@@ -38486,7 +39593,7 @@ function releaseUniformBlock(gl, cache, key) {
     const entry = cache.rawMap.get(key);
     if (!entry)
         return;
-    gl.deleteBuffer(entry.glBuffer);
+    deleteBuffer(gl, cache.glState, entry.glBuffer);
     cache.all.delete(entry.glBuffer);
     clearAllocation(cache.tally, entry.allocation);
     cache.rawMap.delete(key);
@@ -38501,7 +39608,7 @@ function releaseUniformBlock(gl, cache, key) {
  */
 function disposeBufferCache(gl, cache) {
     for (const glBuffer of cache.all)
-        gl.deleteBuffer(glBuffer);
+        deleteBuffer(gl, cache.glState, glBuffer);
     cache.all.clear();
     cache.bufferMap = new WeakMap();
     cache.rawMap = new WeakMap();
@@ -38510,6 +39617,69 @@ function disposeBufferCache(gl, cache) {
 }
 function getBufferCacheStats(cache) {
     return { bufferCount: cache.bufferCount, rawCount: cache.rawCount };
+}
+
+function createPassUniforms(gl) {
+    const stream = gl.createBuffer();
+    if (!stream)
+        throw new Error('[webgl] gl.createBuffer returned null (pass uniforms).');
+    return {
+        stream,
+        align: gl.getParameter(gl.UNIFORM_BUFFER_OFFSET_ALIGNMENT),
+        bytes: new Uint8Array(4096),
+        written: 0,
+        keys: [],
+        scopes: [],
+        offsets: [],
+        slotCount: 0,
+    };
+}
+function disposePassUniforms(gl, uniforms, state) {
+    deleteBuffer(gl, state, uniforms.stream);
+}
+/** A pass begins: no slots written. */
+function beginPassUniforms(uniforms) {
+    uniforms.written = 0;
+    uniforms.slotCount = 0;
+    uniforms.keys.length = 0;
+}
+/**
+ * `capture`'s slot: the one its block already has for its scope in this pass, or one written with its bytes. A pass's
+ * draws arrive in recorded order, which groups a scope's draws, so the last slots are searched first.
+ */
+function placeCapture(uniforms, capture) {
+    for (let slot = uniforms.slotCount - 1; slot >= 0; slot--) {
+        if (uniforms.keys[slot] === capture.key && uniforms.scopes[slot] === capture.scope) {
+            capture.slot = uniforms.offsets[slot];
+            return;
+        }
+    }
+    const start = Math.ceil(uniforms.written / uniforms.align) * uniforms.align;
+    const end = start + capture.bytes.byteLength;
+    if (end > uniforms.bytes.byteLength) {
+        const grown = new Uint8Array(Math.max(end, uniforms.bytes.byteLength * 2));
+        grown.set(uniforms.bytes.subarray(0, uniforms.written));
+        uniforms.bytes = grown;
+    }
+    uniforms.bytes.set(capture.bytes, start);
+    uniforms.written = end;
+    const slot = uniforms.slotCount++;
+    uniforms.keys[slot] = capture.key;
+    uniforms.scopes[slot] = capture.scope;
+    uniforms.offsets[slot] = start;
+    capture.slot = start;
+}
+/** Uploads the pass's slots, ahead of its draws, into fresh storage. Nothing when the pass wrote none. */
+function uploadPassUniforms(gl, uniforms, info) {
+    if (uniforms.written === 0)
+        return;
+    gl.bindBuffer(gl.UNIFORM_BUFFER, uniforms.stream);
+    gl.bufferData(gl.UNIFORM_BUFFER, uniforms.bytes, gl.STREAM_DRAW, 0, uniforms.written);
+    recordBufferWrite(info, uniforms.written, 'uniform', true, 'pass-uniforms');
+}
+/** Binds `capture`'s slot to its binding point. */
+function bindCaptureSlot(gl, uniforms, state, capture) {
+    bindUniformBuffer(gl, state, capture.bindingPoint, uniforms.stream, capture.slot, capture.block.totalBytes);
 }
 
 /**
@@ -38533,11 +39703,13 @@ function getBufferCacheStats(cache) {
  *   - invoking each member node's `update` callback through `invokeUniformGroupCallbacks`, which both
  *     backends share from `core/bind-group.ts`,
  *   - reading each member's value from `m.node.uniform.value`, falling back to the material's named
- *     uniforms, then packing it with `packToView(schema, view, offset, value, 'std140')`.
+ *     uniforms, then packing it in std140 through `packUniformMembers` (`core/uniform-use.ts`), as WebGPU does.
  * Per-group GL state (the latest packed values, what the UBO holds, change tracking) is cached in a
  * WeakMap keyed by the binding's `bufferKey`, the same key `buffers.ts` holds the UBO under, so shared
  * groups (camera) share one entry and per-object groups get their own, exactly as WebGPU.
  */
+/** The scope of a block resolved once per frame: below every render id. */
+const FRAME_SCOPE = -2;
 /** Create an empty bindings state. */
 function createBindingsState() {
     return { byKey: new WeakMap() };
@@ -38549,42 +39721,6 @@ function getUboData(state, key, byteLength) {
         state.byKey.set(key, data);
     }
     return data;
-}
-/**
- * Pack a uniform group's current member values into `view` at their std140 offsets. Mirrors
- * `webgpu/bindings.ts` `packAndCompare`'s value sourcing: `m.node.uniform.value`, else the material's
- * named uniform, then `packToView(..., 'std140')`.
- */
-function packGroup(block, view, material) {
-    for (const m of block.members) {
-        let value = m.node.uniform.value;
-        if (value === null && material) {
-            const matUniform = material.uniforms.get(m.node.name);
-            if (matUniform)
-                value = matUniform.value;
-        }
-        if (value === null || value === undefined)
-            continue;
-        // Cast: UniformValue is broader than Infer<schema> but matches at runtime. std140 for UBOs.
-        packToView(m.schema, view, m.offset, value, 'std140');
-    }
-}
-/** True if two ArrayBuffers of equal length differ in any 32-bit word. */
-/**
- * Bytes differing between two equally-sized packed blocks, or 0 when identical. Counted at 32-bit word
- * granularity because that is the comparison unit, matching the WebGPU backend's `packAndCompare`.
- * A count rather than a boolean so the upload can be attributed: a 64 kB block where four bytes moved
- * is a different problem from one where half of it did.
- */
-function changedByteCount(a, b) {
-    const av = new Uint32Array(a);
-    const bv = new Uint32Array(b);
-    let changed = 0;
-    for (let i = 0; i < av.length; i++) {
-        if (av[i] !== bv[i])
-            changed += 4;
-    }
-    return changed;
 }
 /** Identity for a uniform-block upload: the material it belongs to and the block's update scope. */
 function uniformDetail(block, material, changedBytes) {
@@ -38599,61 +39735,47 @@ function uniformDetail(block, material, changedBytes) {
  */
 function captureUniformGroup(b, binding, frame, bindingPoint, material, pool, index) {
     const block = binding.block;
-    // Update-type gate (identical to webgpu/bindings.ts updateUniformBinding).
-    let skipCallbacks = false;
-    if (block.group.shared) {
-        const updateType = block.group.updateType;
-        if (updateType === 'frame') {
-            if (binding.lastFrameId === frame.frameId)
-                skipCallbacks = true;
-            else
-                binding.lastFrameId = frame.frameId;
+    // A shared block's members are synced by the block itself, once a frame and again after one joins, and what moved
+    // uploads now, which GL orders before the draws that read it: the use binds its one buffer
+    const sharedBlock = binding.sharedBlock;
+    if (sharedBlock !== null) {
+        syncSharedBlock(sharedBlock, frame);
+        uploadSharedBlock(b.gl, b.buffers, sharedBlock);
+        let capture = pool[index];
+        if (capture === undefined) {
+            capture = { key: sharedBlock, block, bindingPoint, bytes: new Uint8Array(0), shared: true, scope: -1, slot: -1 };
+            pool[index] = capture;
         }
-        else if (updateType === 'render') {
-            if (binding.lastRenderId === frame.renderId)
-                skipCallbacks = true;
-            else
-                binding.lastRenderId = frame.renderId;
-        }
-        // 'object' / 'none' always process.
+        capture.key = sharedBlock;
+        capture.block = block;
+        capture.bindingPoint = bindingPoint;
+        capture.shared = true;
+        capture.scope = -1;
+        return;
     }
+    // a shared frame or render block already resolved in this scope captures the bytes that resolve packed
+    const resolved = resolvedThisScope(binding, frame);
     // Lazily claim the neutral key slot; `webgpu/bindings.ts` does the same, so both backends key a
     // uniform block's device buffer the same way.
     binding.bufferKey ??= {};
     const data = getUboData(b.uniforms, binding.bufferKey, block.totalBytes);
     // A per-object block whose versions all hold has the bytes it last packed: nothing to pack. A shared one packs at
     // each use its update type allows, and only changed bytes upload.
-    let stamped = false;
-    const info = b.renderer.info.state;
-    if (!skipCallbacks) {
-        stamped = !block.group.shared && readBlockStamp(block, frame, material, _stamp);
-        if (stamped && sameStamp(_stamp, binding.stamp)) {
-            skipCallbacks = true;
-            info.kept++;
-        }
-        else {
+    if (!resolved) {
+        const info = b.renderer.info.state;
+        const stamp = block.group.shared ? 'unstamped' : checkUniformStamp(binding, frame, material, info);
+        if (stamp !== 'kept') {
             info.packed++;
+            invokeUniformGroupCallbacks(block, frame);
+            packUniformMembers(block, new DataView(data.packed), material, 'std140');
+            commitUniformStamp(binding, stamp);
         }
-    }
-    if (!skipCallbacks) {
-        // Invoke each member node's update callback (assigns node.value, respects updateType).
-        invokeUniformGroupCallbacks(block, frame);
-        packGroup(block, new DataView(data.packed), material);
-        if (stamped)
-            copyStamp(binding.stamp, _stamp);
-        else
-            binding.stamp.length = 0;
     }
     captureInto(pool, index, binding.bufferKey, block, bindingPoint, data.packed);
+    const updateType = block.group.updateType;
+    if (block.group.shared)
+        pool[index].scope = updateType === 'render' ? frame.renderId : updateType === 'frame' ? FRAME_SCOPE : -1;
 }
-/** `into` as a copy of `from`, filled index by index so it stays packed. */
-function copyStamp(into, from) {
-    for (let index = 0; index < from.length; index++)
-        into[index] = from[index];
-    into.length = from.length;
-}
-/** The stamp a draw reads before deciding to pack, read before the next draw's. */
-const _stamp = [];
 /**
  * Captures a STANDALONE kernel's uniform group (transform feedback) for one recorded dispatch into
  * `pool[index]`. There is no RenderObject/BindGroup and no per-frame gating: the group is keyed by its
@@ -38664,15 +39786,25 @@ const _stamp = [];
 function captureStandaloneUniformGroup(b, block, frame, bindingPoint, pool, index) {
     invokeUniformGroupCallbacks(block, frame);
     const data = getUboData(b.uniforms, block, block.totalBytes);
-    packGroup(block, new DataView(data.packed), null);
+    packUniformMembers(block, new DataView(data.packed), null, 'std140');
     captureInto(pool, index, block, block, bindingPoint, data.packed);
 }
 /**
  * Uploads a captured group if its bytes differ from what its UBO holds, then binds the UBO to its
  * binding point. Runs as the pass executes, draw by draw, which GL orders for us.
  */
-function uploadAndBindCapture(gl, b, capture, material, bound) {
+function uploadAndBindCapture(gl, b, capture, material, state) {
     const { key, block, bytes } = capture;
+    if (capture.shared) {
+        const ubo = getRaw(b.buffers, key);
+        if (ubo)
+            bindUniformBuffer(gl, state, capture.bindingPoint, ubo, -1, 0);
+        return;
+    }
+    if (capture.scope !== -1) {
+        bindCaptureSlot(gl, b._passUniforms, state, capture);
+        return;
+    }
     const data = getUboData(b.uniforms, key, block.totalBytes);
     const changedBytes = data.uploaded ? changedByteCount(bytes.buffer, data.staging) : block.totalBytes;
     if (changedBytes > 0) {
@@ -38682,43 +39814,17 @@ function uploadAndBindCapture(gl, b, capture, material, bound) {
     }
     const ubo = getRaw(b.buffers, key);
     if (ubo)
-        bindUniformBuffer(gl, bound, capture.bindingPoint, ubo, -1, 0);
-}
-/** Binding points a pass tracks: the groups' and the multi-draw base table's (see programs.ts). */
-const TRACKED_BINDING_POINTS = 24;
-function createBoundUniforms() {
-    const bound = { buffers: [], offsets: [] };
-    for (let point = 0; point < TRACKED_BINDING_POINTS; point++) {
-        bound.buffers.push(null);
-        bound.offsets.push(-1);
-    }
-    return bound;
-}
-/** Nothing known bound, as a pass begins. Emptied in place, its arrays' length and packing kept. */
-function resetBoundUniforms(bound) {
-    for (let point = 0; point < bound.buffers.length; point++) {
-        bound.buffers[point] = null;
-        bound.offsets[point] = -1;
-    }
-}
-/** Binds `buffer` at `point`, whole for an `offset` of -1, else its `size` bytes from `offset`; skipped if bound so. */
-function bindUniformBuffer(gl, bound, point, buffer, offset, size) {
-    if (bound.buffers[point] === buffer && bound.offsets[point] === offset)
-        return;
-    if (offset < 0)
-        gl.bindBufferBase(gl.UNIFORM_BUFFER, point, buffer);
-    else
-        gl.bindBufferRange(gl.UNIFORM_BUFFER, point, buffer, offset, size);
-    bound.buffers[point] = buffer;
-    bound.offsets[point] = offset;
+        bindUniformBuffer(gl, state, capture.bindingPoint, ubo, -1, 0);
 }
 /** Fills the pooled capture at `index`, creating it on first use. */
 function captureInto(pool, index, key, block, bindingPoint, packed) {
     let capture = pool[index];
     if (capture === undefined) {
-        capture = { key, block, bindingPoint, bytes: new Uint8Array(packed.byteLength) };
+        capture = { key, block, bindingPoint, bytes: new Uint8Array(packed.byteLength), shared: false, scope: -1, slot: -1 };
         pool[index] = capture;
     }
+    capture.shared = false;
+    capture.scope = -1;
     capture.key = key;
     capture.block = block;
     capture.bindingPoint = bindingPoint;
@@ -39999,6 +41105,172 @@ function copyTextureRegion$1(gl, state, source, region, destination, origin) {
  */
 const FRAGMENT_STAGE_MARKER = '// ---- fragment stage ----';
 
+// A texture that programs agree on (bound by identity, so its binding id names it in every program) gets a home: a
+// texture unit it keeps renderer-wide, so a program switch finds it already bound instead of rebinding it at whatever
+// unit the next program numbered it. Godot reserves the top units for scene textures the same way; wgpu's GL backend
+// keeps bindings across pipeline switches where their slots agree.
+//
+// Homes are units 16 to 30: below them a program numbers what has no home (a storage read, which binds per draw, or a
+// texture no home could take), and 31 is the upload unit. Assignment colours an interference graph incrementally, at
+// link: two homes read by one live program are neighbours, and a home only takes a unit none of whose holders is a
+// neighbour of it. So every live program reads its homes on distinct units, however homes move as programs link. A
+// home counts the live programs reading it and is freed at none, so after a scene switch the table holds only the
+// new scene's textures.
+const FIRST_HOME = 16;
+const HOME_COUNT = 15;
+/** Units a program numbers itself, below the homes. */
+const OWN_UNITS = FIRST_HOME;
+function createTextureHomes(maxCombinedUnits) {
+    return {
+        enabled: maxCombinedUnits >= FIRST_HOME + HOME_COUNT + 1,
+        idToHome: new Map(),
+        unitHolders: Array.from({ length: HOME_COUNT }, () => []),
+    };
+}
+/**
+ * The units a program linked for `textures` binds them at: a home for each texture bound by identity, which keeps its
+ * unit or takes one its neighbours leave free, and units of its own from 0 for the rest. Throws when those pass 15.
+ */
+function linkProgramUnits(homes, textures) {
+    const units = { nameToHome: new Map(), nameToUnit: new Map(), homes: [] };
+    const candidates = [];
+    for (const entry of textures) {
+        if (!homes.enabled || !boundByIdentity(entry) || units.nameToUnit.has(entry.shaderName))
+            continue;
+        let home = homes.idToHome.get(entry.textureId);
+        if (home === undefined) {
+            home = { id: entry.textureId, unit: -1, readers: 0, neighbours: new Map() };
+            homes.idToHome.set(entry.textureId, home);
+        }
+        if (!candidates.includes(home))
+            candidates.push(home);
+    }
+    const taken = new Set();
+    for (const home of candidates) {
+        if (home.unit < 0 || taken.has(home.unit))
+            placeHome(homes, home, candidates, taken);
+        // with nowhere to go, a home placed elsewhere stays there for its readers and this program numbers it itself
+        if (home.unit < 0 || taken.has(home.unit))
+            continue;
+        taken.add(home.unit);
+        units.homes.push(home);
+    }
+    for (const home of units.homes) {
+        home.readers++;
+        for (const other of units.homes)
+            if (other !== home)
+                home.neighbours.set(other, (home.neighbours.get(other) ?? 0) + 1);
+    }
+    let own = 0;
+    for (const entry of textures) {
+        if (units.nameToUnit.has(entry.shaderName))
+            continue;
+        const home = boundByIdentity(entry) ? homes.idToHome.get(entry.textureId) : undefined;
+        if (home !== undefined && units.homes.includes(home)) {
+            units.nameToHome.set(entry.shaderName, home);
+            units.nameToUnit.set(entry.shaderName, -1);
+            continue;
+        }
+        if (own === OWN_UNITS) {
+            throw new Error(`[webgl] a program samples ${textures.length} textures, ${units.homes.length} at shared units and more than ` +
+                `${OWN_UNITS} of its own; sample fewer in one material on the WebGL2 backend.`);
+        }
+        units.nameToUnit.set(entry.shaderName, homes.enabled ? own++ : entry.binding);
+    }
+    // a home no program could place, read by none, goes
+    for (const home of candidates)
+        if (home.readers === 0 && home.unit < 0)
+            homes.idToHome.delete(home.id);
+    return units;
+}
+/** The unit a program binds `shaderName` at. */
+function unitOf(units, shaderName, fallback) {
+    const home = units.nameToHome.get(shaderName);
+    if (home !== undefined)
+        return home.unit;
+    return units.nameToUnit.get(shaderName) ?? fallback;
+}
+/** A program is deleted: its homes stop counting it, and one read by none is freed. */
+function releaseProgramUnits(homes, units) {
+    for (const home of units.homes) {
+        home.readers--;
+        for (const other of units.homes) {
+            if (other === home)
+                continue;
+            const count = (home.neighbours.get(other) ?? 0) - 1;
+            if (count > 0)
+                home.neighbours.set(other, count);
+            else
+                home.neighbours.delete(other);
+        }
+    }
+    for (const home of units.homes) {
+        if (home.readers > 0)
+            continue;
+        if (home.unit >= 0) {
+            const holders = homes.unitHolders[home.unit - FIRST_HOME];
+            holders.splice(holders.indexOf(home), 1);
+        }
+        homes.idToHome.delete(home.id);
+    }
+    units.homes.length = 0;
+}
+/** Every home forgotten, with the programs reading them (renderer dispose). */
+function clearTextureHomes(homes) {
+    homes.idToHome.clear();
+    for (const holders of homes.unitHolders)
+        holders.length = 0;
+}
+function getTextureHomeStats(homes) {
+    let unitsHeld = 0;
+    for (const holders of homes.unitHolders)
+        if (holders.length > 0)
+            unitsHeld++;
+    return { homes: homes.idToHome.size, unitsHeld };
+}
+/** A texture every program reading it names by the same binding id: not a storage read, which binds per draw. */
+function boundByIdentity(entry) {
+    return entry.node.slot === null && entry.node.storageBufferSource === null;
+}
+/**
+ * Moves `home` to a unit the linking program has not taken and none of whose holders is a neighbour of it or another
+ * home the program reads: an empty unit first, else the one with the fewest holders. Leaves it where it is (or
+ * unplaced) when there is none.
+ */
+function placeHome(homes, home, programHomes, taken) {
+    let best = -1;
+    let bestHolders = Infinity;
+    for (let index = 0; index < HOME_COUNT; index++) {
+        const unit = FIRST_HOME + index;
+        if (taken.has(unit))
+            continue;
+        const holders = homes.unitHolders[index];
+        if (holders.length >= bestHolders)
+            continue;
+        let clashes = false;
+        for (const holder of holders) {
+            if (holder !== home && (home.neighbours.has(holder) || programHomes.includes(holder))) {
+                clashes = true;
+                break;
+            }
+        }
+        if (clashes)
+            continue;
+        best = unit;
+        bestHolders = holders.length;
+        if (bestHolders === 0)
+            break;
+    }
+    if (best < 0)
+        return;
+    if (home.unit >= 0) {
+        const holders = homes.unitHolders[home.unit - FIRST_HOME];
+        holders.splice(holders.indexOf(home), 1);
+    }
+    home.unit = best;
+    homes.unitHolders[best - FIRST_HOME].push(home);
+}
+
 /**
  * programs.ts (webgl) - GLSL program compile/link + cache.
  *
@@ -40015,9 +41287,13 @@ const FRAGMENT_STAGE_MARKER = '// ---- fragment stage ----';
  * node graph, so identical materials share one program (analogous to how the WebGPU path shares a
  * pipeline by its cache key).
  */
-/** Create an empty program cache. */
+/** Create an empty program cache; its homes wait for the context's unit count ({@link setTextureUnitCount}). */
 function createProgramCache() {
-    return { programs: new Map() };
+    return { programs: new Map(), homes: createTextureHomes(0) };
+}
+/** Gives the cache's programs homes when the device has the units for them. */
+function setTextureUnitCount(cache, maxCombinedUnits) {
+    cache.homes = createTextureHomes(maxCombinedUnits);
 }
 /** Split the emitter's combined `code` into its vertex and fragment sources. */
 function splitStages(code) {
@@ -40059,7 +41335,7 @@ function compileShader$1(gl, type, source) {
  * @param code the combined GLSL source from `compileGlsl` (`nodeBuilderState.vertexCode`)
  * @param uniformGroups the compiled uniform groups, used to resolve + bind each UBO block index
  */
-function getProgram(gl, cache, code, uniformGroups) {
+function getProgram(gl, cache, code, uniformGroups, textures) {
     const existing = cache.programs.get(code);
     if (existing)
         return existing;
@@ -40092,9 +41368,13 @@ function getProgram(gl, cache, code, uniformGroups) {
         program,
         uboBindingPoints,
         textureUniforms: new Map(),
+        units: linkProgramUnits(cache.homes, textures),
         drawBaseLocation,
         drawBases,
         fragCoordFlipHeightLocation,
+        fragCoordFlipHeight: -1,
+        source: code,
+        users: 0,
     };
     cache.programs.set(code, info);
     return info;
@@ -40136,7 +41416,7 @@ function createTransformFeedbackProgram(gl, vertex, fragment, feedbackVaryings, 
     }
     // Same std140 UBO binding points as getProgram, so kernels using uniform() work.
     const uboBindingPoints = bindUniformBlocks(gl, program, uniformGroups);
-    return { program, uboBindingPoints, textureUniforms: new Map() };
+    return { program, uboBindingPoints, textureUniforms: new Map(), units: null };
 }
 /**
  * Where the multi-draw base table binds: WebGL2 guarantees 24 uniform buffer binding points, and the groups take the
@@ -40172,12 +41452,39 @@ function bindDrawBases(gl, program) {
     gl.uniformBlockBinding(program, blockIndex, DRAW_BASES_BINDING);
     return true;
 }
+/** The cached program for `code`, counted for `held`, releasing what `held` had before. */
+function holdProgram(gl, cache, state, held, code, uniformGroups, textures) {
+    const info = getProgram(gl, cache, code, uniformGroups, textures);
+    if (held.program === info)
+        return info;
+    releaseProgram(gl, cache, state, held);
+    info.users = (info.users ?? 0) + 1;
+    held.program = info;
+    return info;
+}
+/** Stops `held` counting its program; one held by none is deleted. */
+function releaseProgram(gl, cache, state, held) {
+    const info = held.program;
+    if (info === null)
+        return;
+    held.program = null;
+    if (info.source === undefined || info.users === undefined)
+        return;
+    info.users--;
+    if (info.users > 0 || cache.programs.get(info.source) !== info)
+        return;
+    cache.programs.delete(info.source);
+    if (info.units !== null)
+        releaseProgramUnits(cache.homes, info.units);
+    deleteProgram(gl, state, info.program);
+}
 /** Delete all cached programs (called on renderer dispose). */
-function disposePrograms(gl, cache) {
+function disposePrograms(gl, cache, state) {
     for (const { program } of cache.programs.values()) {
-        gl.deleteProgram(program);
+        deleteProgram(gl, state, program);
     }
     cache.programs.clear();
+    clearTextureHomes(cache.homes);
 }
 /** Number of linked GL programs currently cached. */
 function getProgramCacheStats(cache) {
@@ -40217,9 +41524,9 @@ function createDrawBases(gl) {
         instanceCounts: new Int32Array(DRAW_BASES_ENTRIES),
     };
 }
-function disposeDrawBases(gl, bases) {
-    gl.deleteBuffer(bases.stream);
-    gl.deleteBuffer(bases.zero);
+function disposeDrawBases(gl, bases, state) {
+    deleteBuffer(gl, state, bases.stream);
+    deleteBuffer(gl, state, bases.zero);
 }
 /** A pass begins: no tables written. */
 function beginPassTables(bases) {
@@ -40261,14 +41568,14 @@ function uploadPassTables(gl, bases, info) {
     recordBufferWrite(info, bases.size, 'uniform', true, 'draw-bases');
 }
 /** Binds the zero table, for a single draw on a program that reads the table. */
-function bindZeroTable(gl, bases, bound) {
-    bindUniformBuffer(gl, bound, DRAW_BASES_BINDING, bases.zero, 0, TABLE_BYTES);
+function bindZeroTable(gl, bases, state) {
+    bindUniformBuffer(gl, state, DRAW_BASES_BINDING, bases.zero, 0, TABLE_BYTES);
 }
 /**
  * Draws an indexed list as one call per block of entries, each block's table bound first when the program reads it
  * (`table` is the list's start from {@link addListTable}, or -1).
  */
-function drawIndexedList(gl, bases, bound, draws, indexType, bytesPerIndex, table) {
+function drawIndexedList(gl, bases, state, draws, indexType, bytesPerIndex, table) {
     let drawn = 0;
     for (const draw of draws) {
         if (draw.instanceCount <= 0)
@@ -40281,12 +41588,12 @@ function drawIndexedList(gl, bases, bound, draws, indexType, bytesPerIndex, tabl
     }
     for (let first = 0; first < drawn; first += DRAW_BASES_ENTRIES) {
         if (table >= 0)
-            bindTable(gl, bases, bound, table + first * 4);
+            bindTable(gl, bases, state, table + first * 4);
         bases.extension.multiDrawElementsInstancedWEBGL(gl.TRIANGLES, bases.counts, first, indexType, bases.offsets, first, bases.instanceCounts, first, Math.min(DRAW_BASES_ENTRIES, drawn - first));
     }
 }
 /** As {@link drawIndexedList}, for a non-indexed list. */
-function drawList(gl, bases, bound, draws, table) {
+function drawList(gl, bases, state, draws, table) {
     let drawn = 0;
     for (const draw of draws) {
         if (draw.instanceCount <= 0)
@@ -40299,13 +41606,13 @@ function drawList(gl, bases, bound, draws, table) {
     }
     for (let first = 0; first < drawn; first += DRAW_BASES_ENTRIES) {
         if (table >= 0)
-            bindTable(gl, bases, bound, table + first * 4);
+            bindTable(gl, bases, state, table + first * 4);
         bases.extension.multiDrawArraysInstancedWEBGL(gl.TRIANGLES, bases.offsets, first, bases.counts, first, bases.instanceCounts, first, Math.min(DRAW_BASES_ENTRIES, drawn - first));
     }
 }
 /** The pass's table from byte `offset`, one block. */
-function bindTable(gl, bases, bound, offset) {
-    bindUniformBuffer(gl, bound, DRAW_BASES_BINDING, bases.stream, offset, TABLE_BYTES);
+function bindTable(gl, bases, state, offset) {
+    bindUniformBuffer(gl, state, DRAW_BASES_BINDING, bases.stream, offset, TABLE_BYTES);
 }
 /** `drawn`, with the lists grown to hold one more entry. */
 function growLists(bases, drawn) {
@@ -40322,6 +41629,303 @@ function growLists(bases, drawn) {
     bases.offsets = offsets;
     bases.instanceCounts = instanceCounts;
     return drawn;
+}
+
+function createPassOrder() {
+    return {
+        views: [],
+        viewCount: 0,
+        viewChanged: true,
+        drawViews: [],
+        blocks: [],
+        blockCount: 0,
+        binBlocks: [],
+        directOpen: false,
+        keys: new Float64Array(64),
+        codes: new Float64Array(64),
+        values: new Float64Array(64),
+        positions: new Uint32Array(64),
+        drawnViews: [],
+        reordered: [],
+        identityToCode: new Map(),
+    };
+}
+/** A pass begins: no views, blocks or draws. */
+function resetPassOrder(order) {
+    order.viewCount = 0;
+    order.viewChanged = true;
+    order.blockCount = 0;
+    order.binBlocks.length = 0;
+    order.directOpen = false;
+}
+/** The pass's camera or a rect changed: the next draw takes a new view. */
+function markViewChanged(order) {
+    order.viewChanged = true;
+}
+/** A draw at `drawIndex` in the pass's own order, under the view `params` holds. */
+function addPassDraw(order, drawIndex, params) {
+    order.drawViews[drawIndex] = currentView(order, params);
+    if (!order.directOpen) {
+        openBlock(order, null, null);
+        order.directOpen = true;
+    }
+    pushDraw(order.blocks[order.blockCount - 1], drawIndex);
+}
+/** A bin made here: its draws encode at this point. */
+function addBin(order, bin) {
+    order.binBlocks[bin.index] = order.blockCount;
+    openBlock(order, bin, null);
+    order.directOpen = false;
+}
+/**
+ * A draw at `drawIndex` into `bin`, under the view `params` holds, with what its key reads: the `pipeline` the backend
+ * resolved it to, its material and geometry, its `sortKey`, and the depth of `mesh` from the view's camera.
+ */
+function addBinDraw(order, drawIndex, bin, pipeline, material, geometry, sortKey, mesh, params) {
+    order.drawViews[drawIndex] = currentView(order, params);
+    const block = order.blocks[order.binBlocks[bin.index]];
+    const at = block.count;
+    pushDraw(block, drawIndex);
+    block.pipelines[at] = pipeline;
+    block.materials[at] = material;
+    block.geometries[at] = geometry;
+    block.sortKeys[at] = sortKey;
+    block.depths[at] = bin.usesDepth ? viewDepth(mesh, params.camera) : 0;
+}
+/** A bundle's draws, `start` to `start + count`, under the view `params` holds. */
+function addBundle(order, bundle, start, count, params) {
+    if (count === 0)
+        return;
+    const view = currentView(order, params);
+    const block = openBlock(order, null, bundle);
+    for (let drawIndex = start; drawIndex < start + count; drawIndex++) {
+        order.drawViews[drawIndex] = view;
+        pushDraw(block, drawIndex);
+    }
+    order.directOpen = false;
+}
+/** At `end()`: each bin's draws into the order its key gives. */
+function orderBins(order, label) {
+    for (let index = 0; index < order.blockCount; index++) {
+        const block = order.blocks[index];
+        if (block.bin !== null && block.count > 1 && block.bin.fields.length > 0)
+            orderBin(order, block, label);
+    }
+}
+function currentView(order, params) {
+    if (!order.viewChanged && order.viewCount > 0)
+        return order.viewCount - 1;
+    let view = order.views[order.viewCount];
+    if (view === undefined) {
+        view = {
+            camera: null,
+            viewport: false,
+            viewportValue: { x: 0, y: 0, width: 0, height: 0, minDepth: 0, maxDepth: 1 },
+            scissor: false,
+            scissorValue: { x: 0, y: 0, width: 0, height: 0 },
+        };
+        order.views[order.viewCount] = view;
+    }
+    writeView(view, params);
+    order.viewChanged = false;
+    return order.viewCount++;
+}
+function writeView(out, params) {
+    out.camera = params.camera;
+    out.viewport = params.viewport;
+    const viewport = params.viewportValue;
+    out.viewportValue.x = viewport.x;
+    out.viewportValue.y = viewport.y;
+    out.viewportValue.width = viewport.width;
+    out.viewportValue.height = viewport.height;
+    out.viewportValue.minDepth = viewport.minDepth;
+    out.viewportValue.maxDepth = viewport.maxDepth;
+    out.scissor = params.scissor;
+    const scissor = params.scissorValue;
+    out.scissorValue.x = scissor.x;
+    out.scissorValue.y = scissor.y;
+    out.scissorValue.width = scissor.width;
+    out.scissorValue.height = scissor.height;
+}
+function openBlock(order, bin, bundle) {
+    let block = order.blocks[order.blockCount];
+    if (block === undefined) {
+        block = { bin, bundle, draws: [], count: 0, pipelines: [], materials: [], geometries: [], sortKeys: [], depths: [] };
+        order.blocks[order.blockCount] = block;
+    }
+    block.bin = bin;
+    block.bundle = bundle;
+    block.count = 0;
+    order.blockCount++;
+    return block;
+}
+function pushDraw(block, drawIndex) {
+    block.draws[block.count++] = drawIndex;
+}
+/** Distance in front of `camera` to the origin of `mesh`: the view-space depth, the camera looking down its -Z. */
+function viewDepth(mesh, camera) {
+    if (camera === null)
+        return 0;
+    const world = mesh.matrixWorld;
+    const view = camera.matrixWorldInverse;
+    return -(view[2] * world[12] + view[6] * world[13] + view[10] * world[14] + view[14]);
+}
+const DEFAULT_DEPTH_BITS = 16;
+/**
+ * Orders `block`'s draws by its bin's key. Each field becomes a small integer per draw (an identity's dense number in
+ * first-seen order, a `sortKey`'s rank, a depth quantized over the bin's range), packed most significant first. When
+ * the draw's place in the block fits below the fields, it is packed too and the keys sort natively; otherwise the sort
+ * compares keys, then places.
+ */
+function orderBin(order, block, label) {
+    const bin = block.bin;
+    const count = block.count;
+    growScratch(order, count);
+    const keys = order.keys;
+    const codes = order.codes;
+    keys.fill(0, 0, count);
+    let totalBits = 0;
+    for (let fieldIndex = 0; fieldIndex < bin.fields.length; fieldIndex++) {
+        const field = bin.fields[fieldIndex];
+        const given = bin.bits[fieldIndex];
+        let bits;
+        if (field === 'depthNear' || field === 'depthFar') {
+            bits = given === 0 ? DEFAULT_DEPTH_BITS : given;
+            quantizeDepths(block.depths, count, bits, field === 'depthFar', codes);
+        }
+        else {
+            const distinct = field === 'sortKey'
+                ? rankSortKeys(order, block.sortKeys, count, codes)
+                : numberIdentities(order, identitiesOf(order, block, field), count, codes);
+            const needed = bitsFor(distinct);
+            if (given !== 0 && needed > given) {
+                throw new Error(`[pass ${label}] bin ${bin.desc.label ?? bin.index}: '${field}' has ${distinct} distinct values, past its ${given} bits`);
+            }
+            bits = given === 0 ? needed : given;
+        }
+        if (bits === 0)
+            continue;
+        totalBits += bits;
+        if (totalBits > 52) {
+            throw new Error(`[pass ${label}] bin ${bin.desc.label ?? bin.index}: its key takes ${totalBits} bits by '${field}', past the 52 one key holds`);
+        }
+        const scale = 2 ** bits;
+        for (let at = 0; at < count; at++)
+            keys[at] = keys[at] * scale + codes[at];
+    }
+    const reordered = order.reordered;
+    const placeBits = bitsFor(count);
+    if (totalBits + placeBits <= 53) {
+        const placeScale = 2 ** placeBits;
+        for (let at = 0; at < count; at++)
+            keys[at] = keys[at] * placeScale + at;
+        const sorted = keys.subarray(0, count).sort();
+        for (let at = 0; at < count; at++) {
+            const key = sorted[at];
+            reordered[at] = key - Math.floor(key / placeScale) * placeScale;
+        }
+    }
+    else {
+        const positions = order.positions;
+        for (let at = 0; at < count; at++)
+            positions[at] = at;
+        positions.subarray(0, count).sort((a, b) => keys[a] - keys[b] || a - b);
+        for (let at = 0; at < count; at++)
+            reordered[at] = positions[at];
+    }
+    // `reordered` holds places; the block takes the draws at them
+    for (let at = 0; at < count; at++)
+        reordered[at] = block.draws[reordered[at]];
+    for (let at = 0; at < count; at++)
+        block.draws[at] = reordered[at];
+}
+function growScratch(order, count) {
+    if (order.keys.length >= count)
+        return;
+    let length = order.keys.length;
+    while (length < count)
+        length *= 2;
+    order.keys = new Float64Array(length);
+    order.codes = new Float64Array(length);
+    order.values = new Float64Array(length);
+    order.positions = new Uint32Array(length);
+}
+/** Bits to tell `distinct` values apart: 0 for one. */
+function bitsFor(distinct) {
+    return distinct <= 1 ? 0 : Math.ceil(Math.log2(distinct));
+}
+/** What `field` names per draw: an identity the bin groups by. */
+function identitiesOf(order, block, field) {
+    if (field === 'pipeline')
+        return block.pipelines;
+    if (field === 'material')
+        return block.materials;
+    if (field === 'geometry')
+        return block.geometries;
+    // a view is the index of the camera and rects a draw was recorded under
+    const views = order.drawnViews;
+    for (let at = 0; at < block.count; at++)
+        views[at] = order.drawViews[block.draws[at]];
+    return views;
+}
+/** Each draw's identity as a dense number, in first-seen order, into `codes`; how many distinct there are. */
+function numberIdentities(order, identities, count, codes) {
+    const identityToCode = order.identityToCode;
+    for (let at = 0; at < count; at++) {
+        const identity = identities[at];
+        let code = identityToCode.get(identity);
+        if (code === undefined) {
+            code = identityToCode.size;
+            identityToCode.set(identity, code);
+        }
+        codes[at] = code;
+    }
+    const distinct = identityToCode.size;
+    identityToCode.clear();
+    return distinct;
+}
+/** Each draw's `sortKey` as its rank among the distinct ones, lowest 0, into `codes`; how many distinct there are. */
+function rankSortKeys(order, sortKeys, count, codes) {
+    const values = order.values;
+    for (let at = 0; at < count; at++)
+        values[at] = sortKeys[at];
+    values.subarray(0, count).sort();
+    let distinct = 0;
+    for (let at = 0; at < count; at++)
+        if (at === 0 || values[at] !== values[distinct - 1])
+            values[distinct++] = values[at];
+    for (let at = 0; at < count; at++) {
+        const value = sortKeys[at];
+        let low = 0;
+        let high = distinct - 1;
+        while (low < high) {
+            const middle = (low + high) >> 1;
+            if (values[middle] < value)
+                low = middle + 1;
+            else
+                high = middle;
+        }
+        codes[at] = low;
+    }
+    return distinct;
+}
+/** Each draw's depth quantized into `bits` over the bin's range, nearest 0, or farthest 0 when `farFirst`, into `codes`. */
+function quantizeDepths(depths, count, bits, farFirst, codes) {
+    let near = Infinity;
+    let far = -Infinity;
+    for (let at = 0; at < count; at++) {
+        const depth = depths[at];
+        if (depth < near)
+            near = depth;
+        if (depth > far)
+            far = depth;
+    }
+    const top = 2 ** bits - 1;
+    const scale = far > near ? top / (far - near) : 0;
+    for (let at = 0; at < count; at++) {
+        const code = Math.floor((depths[at] - near) * scale);
+        codes[at] = farFirst ? top - code : code;
+    }
 }
 
 /**
@@ -40363,10 +41967,10 @@ function prepareRenderObject$1(gl, b, nodes, renderObject, glslOptions) {
     if (needsNodeUpdate(nodes, renderObject)) {
         // Bind the GLSL emitter options (precision) into the compile callback. When no options are
         // requested this is `compileGlsl` with defaults — byte-identical to the golden path.
-        const compile = glslOptions ? (slots) => compileGlsl(slots, glslOptions) : compileGlsl;
+        const compile = (slots, shared) => compileGlsl(slots, { ...glslOptions, shared: shared ?? undefined });
         compileNodeState(nodes, renderObject, compile);
         // A recompile invalidates the cached program payload (the source may have changed).
-        getRenderObjectGl(b.renderObjectGl, renderObject).program = null;
+        releaseProgram(gl, b.programs, b.glState, getRenderObjectGl(b.renderObjectGl, renderObject));
     }
     const nodeState = renderObject.nodeBuilderState;
     if (!nodeState || !nodeState.vertexCode) {
@@ -40378,7 +41982,7 @@ function prepareRenderObject$1(gl, b, nodes, renderObject, glslOptions) {
     // Compile + link (or fetch the cached) GL program for this material's source.
     const payload = getRenderObjectGl(b.renderObjectGl, renderObject);
     if (!payload.program) {
-        payload.program = getProgram(gl, b.programs, nodeState.vertexCode, nodeState.uniformGroups);
+        holdProgram(gl, b.programs, b.glState, payload, nodeState.vertexCode, nodeState.uniformGroups, nodeState.textures);
     }
 }
 
@@ -40451,7 +42055,7 @@ function getGeometriesStats$1(state) {
 function groupBuffer(geometry, group) {
     return group.name !== null ? geometry.buffers.get(group.name) : (group.buffer ?? undefined);
 }
-function getGeometryBuffers(gl, state, geometry) {
+function getGeometryBuffers(gl, glState, state, geometry) {
     let gb = state.data.get(geometry);
     if (!gb) {
         gb = { programs: new Map(), bindingsVersion: geometry.bindingsVersion };
@@ -40460,7 +42064,7 @@ function getGeometryBuffers(gl, state, geometry) {
         // Release the VAOs when the Geometry goes away. The buffers release themselves through
         // `buffers.ts`, which owns them and may be sharing them with another geometry.
         geometry._onDispose = () => {
-            disposeGeometry(gl, state, geometry);
+            disposeGeometry(gl, glState, state, geometry);
         };
     }
     return gb;
@@ -40533,40 +42137,36 @@ function glComponentType(gl, glType) {
  * `bound` is the VAO the caller last bound. It is left bound unless an index upload or a VAO build has
  * to unbind it, and `bound` follows, so the caller can skip binding a VAO that is still bound.
  */
-function prepareGeometry(gl, b, geometry, nodeState, program, label = 'geometry', bound = { vao: null }) {
-    const gb = getGeometryBuffers(gl, b.geometries, geometry);
+function prepareGeometry(gl, b, geometry, nodeState, program, label = 'geometry') {
+    const gb = getGeometryBuffers(gl, b.glState, b.geometries, geometry);
     if (gb.bindingsVersion !== geometry.bindingsVersion) {
         for (const stale of gb.programs.values())
-            gl.deleteVertexArray(stale.drawInfo.vao);
+            deleteVertexArray(gl, b.glState, stale.drawInfo.vao);
         gb.programs.clear();
         gb.bindingsVersion = geometry.bindingsVersion;
     }
     let entry = gb.programs.get(program);
     if (entry === undefined) {
-        entry = buildProgramGeometry(gl, b.buffers, b.geometries, geometry, nodeState, label);
+        entry = buildProgramGeometry(gl, b.glState, b.buffers, b.geometries, geometry, nodeState, label);
         gb.programs.set(program, entry);
-        bound.vao = null;
         return entry.drawInfo;
     }
     // An ARRAY_BUFFER binding is not VAO state, so vertex uploads are safe under any bound VAO.
     for (let i = 0; i < entry.buffers.length; i++) {
         ensureUploaded(gl, b.buffers, entry.buffers[i], gl.ARRAY_BUFFER, entry.names[i]);
     }
-    // An index upload binds ELEMENT_ARRAY_BUFFER, which IS VAO state: under a previous object's VAO it
-    // would rewrite that VAO's element binding to this index buffer, and its next draw would read the
-    // wrong one. Uploads land on VAO 0.
+    // An index upload binds ELEMENT_ARRAY_BUFFER, which IS VAO state: `ensureUploaded` lands it on VAO 0 through the
+    // record, so a previous object's VAO keeps its own index buffer.
     const index = geometry.index;
     if (index !== undefined && !isCurrent(b.buffers, index)) {
-        gl.bindVertexArray(null);
-        bound.vao = null;
         ensureUploaded(gl, b.buffers, index, gl.ELEMENT_ARRAY_BUFFER, 'index');
     }
     return entry.drawInfo;
 }
 /** Uploads what `geometry` draws from under this compile and builds the VAO over it, leaving VAO 0 bound. */
-function buildProgramGeometry(gl, bufferCache, state, geometry, nodeState, label) {
+function buildProgramGeometry(gl, glState, bufferCache, state, geometry, nodeState, label) {
     assertVertexBuffers(geometry, nodeState, label);
-    gl.bindVertexArray(null);
+    unbindVertexArray(gl, glState);
     const buffers = [];
     const names = [];
     for (const group of nodeState.vertexBufferGroups) {
@@ -40587,7 +42187,7 @@ function buildProgramGeometry(gl, bufferCache, state, geometry, nodeState, label
     const vao = gl.createVertexArray();
     if (!vao)
         throw new Error('[webgl] gl.createVertexArray returned null.');
-    gl.bindVertexArray(vao);
+    bindVertexArray(gl, glState, vao);
     for (let g = 0; g < buffers.length; g++) {
         const group = nodeState.vertexBufferGroups[g];
         gl.bindBuffer(gl.ARRAY_BUFFER, getUploaded(bufferCache, buffers[g]));
@@ -40628,7 +42228,7 @@ function buildProgramGeometry(gl, bufferCache, state, geometry, nodeState, label
     if (glIndex) {
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, glIndex);
     }
-    gl.bindVertexArray(null);
+    unbindVertexArray(gl, glState);
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
     return { drawInfo: { vao, indexType }, buffers, names };
@@ -40639,482 +42239,14 @@ function buildProgramGeometry(gl, bufferCache, state, geometry, nodeState, label
  * Not its buffers. `buffers.ts` owns those, keyed by `GpuBuffer`, and another geometry may still be
  * drawing from the same one; each buffer releases itself when its own `GpuBuffer` is disposed.
  */
-function disposeGeometry(gl, state, geometry) {
+function disposeGeometry(gl, glState, state, geometry) {
     const gb = state.data.get(geometry);
     if (!gb)
         return;
     for (const entry of gb.programs.values())
-        gl.deleteVertexArray(entry.drawInfo.vao);
+        deleteVertexArray(gl, glState, entry.drawInfo.vao);
     state.memory.geometries--;
     state.data.delete(geometry);
-}
-
-/**
- * state.ts (webgl) - GL pipeline-state helpers, driven by gpucat material fields.
- *
- * These are the immediate-mode equivalents of a WebGPU pipeline's fixed-function state: depth
- * test/write/compare, face culling, blending, and stencil. WebGPU bakes this into the pipeline
- * object; WebGL2 sets it live on the context before each draw. These read `Material`'s fields
- * directly, and those fields are WebGPU vocabulary (`depthCompare`, `cullMode`, `blend`,
- * `stencilFunc`, `stencilFail`), so there is no second enum set to translate through.
- *
- * `GlState` records what the context holds, field by field, for the context's life, as three.js's `WebGLState`,
- * PlayCanvas's and Babylon's devices keep theirs: a call that would set what is set is skipped. Every state call gpucat
- * makes goes through it (draws, clears, rects, the probe, transform feedback); `resetGlState` puts the context back to
- * GL's defaults and the record with it, for after other code has used the context.
- */
-function unknownFace() {
-    return { func: null, ref: null, readMask: null, fail: null, zFail: null, zPass: null };
-}
-/** A record knowing nothing: every first call sets its state. */
-function createGlState() {
-    return {
-        depthTest: null,
-        cullFace: null,
-        blend: null,
-        stencilTest: null,
-        polygonOffsetFill: null,
-        alphaToCoverage: null,
-        scissorTest: null,
-        rasterizerDiscard: null,
-        depthFunc: null,
-        depthMask: null,
-        colorMask: null,
-        frontFace: null,
-        cullFaceMode: null,
-        blendSrcColor: null,
-        blendDstColor: null,
-        blendSrcAlpha: null,
-        blendDstAlpha: null,
-        blendOpColor: null,
-        blendOpAlpha: null,
-        polygonOffsetFactor: null,
-        polygonOffsetUnits: null,
-        stencilWriteMask: null,
-        front: unknownFace(),
-        back: unknownFace(),
-        viewportX: null,
-        viewportY: null,
-        viewportWidth: null,
-        viewportHeight: null,
-        depthNear: null,
-        depthFar: null,
-        scissorX: null,
-        scissorY: null,
-        scissorWidth: null,
-        scissorHeight: null,
-        clearR: null,
-        clearG: null,
-        clearB: null,
-        clearA: null,
-        clearDepth: null,
-        clearStencil: null,
-    };
-}
-/** Forgets everything `state` records, in place: for when other code may have changed the context. */
-function forgetGlState(state) {
-    Object.assign(state, createGlState());
-}
-// Enum → GL constant maps. Keyed by the WebGPU-vocabulary strings gpucat's Material uses.
-/** Map a WebGPU compare function to a GL depth/stencil func constant. */
-function compareFunc(gl, compare) {
-    switch (compare) {
-        case 'never':
-            return gl.NEVER;
-        case 'less':
-            return gl.LESS;
-        case 'equal':
-            return gl.EQUAL;
-        case 'less-equal':
-            return gl.LEQUAL;
-        case 'greater':
-            return gl.GREATER;
-        case 'not-equal':
-            return gl.NOTEQUAL;
-        case 'greater-equal':
-            return gl.GEQUAL;
-        case 'always':
-            return gl.ALWAYS;
-        default: {
-            const unhandled = compare;
-            throw new Error(`[webgl] unhandled '${unhandled}'.`);
-        }
-    }
-}
-/** Map a WebGPU blend factor to the GL blend-factor constant. */
-function blendFactor(gl, factor) {
-    switch (factor) {
-        case 'zero':
-            return gl.ZERO;
-        case 'one':
-            return gl.ONE;
-        case 'src':
-            return gl.SRC_COLOR;
-        case 'one-minus-src':
-            return gl.ONE_MINUS_SRC_COLOR;
-        case 'src-alpha':
-            return gl.SRC_ALPHA;
-        case 'one-minus-src-alpha':
-            return gl.ONE_MINUS_SRC_ALPHA;
-        case 'dst':
-            return gl.DST_COLOR;
-        case 'one-minus-dst':
-            return gl.ONE_MINUS_DST_COLOR;
-        case 'dst-alpha':
-            return gl.DST_ALPHA;
-        case 'one-minus-dst-alpha':
-            return gl.ONE_MINUS_DST_ALPHA;
-        case 'src-alpha-saturated':
-            return gl.SRC_ALPHA_SATURATE;
-        // 'constant' / 'one-minus-constant' map to GL_CONSTANT_COLOR / GL_ONE_MINUS_CONSTANT_COLOR,
-        // which read the blend constant set by gl.blendColor(). gpucat's Material/GPUBlendState models
-        // no blend-constant value (WebGPU's setBlendConstant is never called), so there is nothing to
-        // feed gl.blendColor — a constant-factor blend would silently blend against (0,0,0,0). Fail
-        // loud instead of blending against black.
-        case 'constant':
-        case 'one-minus-constant':
-            throw new Error(`[webgl] blend factor '${factor}' is not supported on WebGL2: gpucat does not ` +
-                `model a blend constant (no setBlendConstant equivalent), so gl.blendColor cannot be set.`);
-        // Dual-source blending is a WebGPU feature with no WebGL2 equivalent at all, so these cannot be
-        // approximated the way a missing format sometimes can.
-        case 'src1':
-        case 'one-minus-src1':
-        case 'src1-alpha':
-        case 'one-minus-src1-alpha':
-            throw new Error(`[webgl] blend factor '${factor}' needs dual-source blending, which WebGL2 does not have.`);
-        default: {
-            const unhandled = factor;
-            throw new Error(`[webgl] unknown blend factor '${unhandled}'.`);
-        }
-    }
-}
-/** Map a WebGPU blend operation to the GL blend-equation constant. */
-function blendOp(gl, op) {
-    switch (op) {
-        case 'subtract':
-            return gl.FUNC_SUBTRACT;
-        case 'reverse-subtract':
-            return gl.FUNC_REVERSE_SUBTRACT;
-        case 'min':
-            return gl.MIN;
-        case 'max':
-            return gl.MAX;
-        case 'add':
-            return gl.FUNC_ADD;
-        default: {
-            const unhandled = op;
-            throw new Error(`[webgl] unhandled '${unhandled}'.`);
-        }
-    }
-}
-/** Map a WebGPU stencil operation to the GL stencil-op constant. */
-function stencilOp(gl, op) {
-    switch (op) {
-        case 'zero':
-            return gl.ZERO;
-        case 'replace':
-            return gl.REPLACE;
-        case 'invert':
-            return gl.INVERT;
-        case 'increment-clamp':
-            return gl.INCR;
-        case 'decrement-clamp':
-            return gl.DECR;
-        case 'increment-wrap':
-            return gl.INCR_WRAP;
-        case 'decrement-wrap':
-            return gl.DECR_WRAP;
-        case 'keep':
-            return gl.KEEP;
-        default: {
-            const unhandled = op;
-            throw new Error(`[webgl] unhandled '${unhandled}'.`);
-        }
-    }
-}
-function capabilityEnum(gl, capability) {
-    switch (capability) {
-        case 'depthTest':
-            return gl.DEPTH_TEST;
-        case 'cullFace':
-            return gl.CULL_FACE;
-        case 'blend':
-            return gl.BLEND;
-        case 'stencilTest':
-            return gl.STENCIL_TEST;
-        case 'polygonOffsetFill':
-            return gl.POLYGON_OFFSET_FILL;
-        case 'alphaToCoverage':
-            return gl.SAMPLE_ALPHA_TO_COVERAGE;
-        case 'scissorTest':
-            return gl.SCISSOR_TEST;
-        case 'rasterizerDiscard':
-            return gl.RASTERIZER_DISCARD;
-    }
-}
-function setCapability(gl, state, capability, on) {
-    if (state[capability] === on)
-        return;
-    if (on)
-        gl.enable(capabilityEnum(gl, capability));
-    else
-        gl.disable(capabilityEnum(gl, capability));
-    state[capability] = on;
-}
-function setDepthMask(gl, state, on) {
-    if (state.depthMask === on)
-        return;
-    gl.depthMask(on);
-    state.depthMask = on;
-}
-function setColorMask(gl, state, on) {
-    if (state.colorMask === on)
-        return;
-    gl.colorMask(on, on, on, on);
-    state.colorMask = on;
-}
-function setStencilWriteMask(gl, state, mask) {
-    if (state.stencilWriteMask === mask)
-        return;
-    gl.stencilMask(mask);
-    state.stencilWriteMask = mask;
-}
-function setFrontFace(gl, state, face) {
-    if (state.frontFace === face)
-        return;
-    gl.frontFace(face);
-    state.frontFace = face;
-}
-function setViewport(gl, state, x, y, width, height) {
-    if (state.viewportX === x && state.viewportY === y && state.viewportWidth === width && state.viewportHeight === height)
-        return;
-    gl.viewport(x, y, width, height);
-    state.viewportX = x;
-    state.viewportY = y;
-    state.viewportWidth = width;
-    state.viewportHeight = height;
-}
-function setDepthRange(gl, state, near, far) {
-    if (state.depthNear === near && state.depthFar === far)
-        return;
-    gl.depthRange(near, far);
-    state.depthNear = near;
-    state.depthFar = far;
-}
-function setScissor(gl, state, x, y, width, height) {
-    if (state.scissorX === x && state.scissorY === y && state.scissorWidth === width && state.scissorHeight === height)
-        return;
-    gl.scissor(x, y, width, height);
-    state.scissorX = x;
-    state.scissorY = y;
-    state.scissorWidth = width;
-    state.scissorHeight = height;
-}
-function setClearColor(gl, state, r, g, b, a) {
-    if (state.clearR === r && state.clearG === g && state.clearB === b && state.clearA === a)
-        return;
-    gl.clearColor(r, g, b, a);
-    state.clearR = r;
-    state.clearG = g;
-    state.clearB = b;
-    state.clearA = a;
-}
-function setClearDepth(gl, state, depth) {
-    if (state.clearDepth === depth)
-        return;
-    gl.clearDepth(depth);
-    state.clearDepth = depth;
-}
-function setClearStencil(gl, state, value) {
-    if (state.clearStencil === value)
-        return;
-    gl.clearStencil(value);
-    state.clearStencil = value;
-}
-function setDepthFunc(gl, state, func) {
-    if (state.depthFunc === func)
-        return;
-    gl.depthFunc(func);
-    state.depthFunc = func;
-}
-/**
- * Apply depth test + compare. WebGL2 folds "no test" into disabling `DEPTH_TEST`; when the material
- * has `depthTest=false` we mirror WebGPU by keeping the buffer enabled with `depthFunc=ALWAYS` (so
- * depth still writes if `depthWrite` is on).
- */
-function setDepthState(gl, state, material) {
-    // WebGPU semantics: depthTest=false ⇒ compare 'always' (still writes). Depth is a per-pixel test;
-    // the depth *buffer* stays enabled so writes happen. We therefore always enable DEPTH_TEST and
-    // drive behaviour purely through depthFunc + depthMask.
-    setCapability(gl, state, 'depthTest', true);
-    setDepthFunc(gl, state, compareFunc(gl, material.depthTest ? material.depthCompare : 'always'));
-    setDepthMask(gl, state, material.depthWrite);
-}
-/** Apply face culling from `material.cullMode` ('none' | 'front' | 'back'). Front face is CCW. */
-function setCullState(gl, state, material) {
-    const mode = material.cullMode;
-    // gpucat's winding is CCW everywhere, culled or not
-    setFrontFace(gl, state, gl.CCW);
-    if (mode === 'none' || mode === undefined) {
-        setCapability(gl, state, 'cullFace', false);
-        return;
-    }
-    setCapability(gl, state, 'cullFace', true);
-    const face = mode === 'front' ? gl.FRONT : gl.BACK;
-    if (state.cullFaceMode !== face) {
-        gl.cullFace(face);
-        state.cullFaceMode = face;
-    }
-}
-/**
- * Apply an already-resolved blend state. WHICH blend a material gets is decided by
- * `core/render-state`, shared with the WebGPU pipeline so the two backends cannot disagree about what
- * `transparent` means; this function only translates the result into GL calls. `undefined` is
- * no-blend.
- */
-function setBlendState(gl, state, blend) {
-    if (!blend) {
-        setCapability(gl, state, 'blend', false);
-        return;
-    }
-    setCapability(gl, state, 'blend', true);
-    const srcColor = blendFactor(gl, blend.color.srcFactor ?? 'one');
-    const dstColor = blendFactor(gl, blend.color.dstFactor ?? 'zero');
-    const srcAlpha = blendFactor(gl, blend.alpha.srcFactor ?? 'one');
-    const dstAlpha = blendFactor(gl, blend.alpha.dstFactor ?? 'zero');
-    if (state.blendSrcColor !== srcColor ||
-        state.blendDstColor !== dstColor ||
-        state.blendSrcAlpha !== srcAlpha ||
-        state.blendDstAlpha !== dstAlpha) {
-        gl.blendFuncSeparate(srcColor, dstColor, srcAlpha, dstAlpha);
-        state.blendSrcColor = srcColor;
-        state.blendDstColor = dstColor;
-        state.blendSrcAlpha = srcAlpha;
-        state.blendDstAlpha = dstAlpha;
-    }
-    const opColor = blendOp(gl, blend.color.operation ?? 'add');
-    const opAlpha = blendOp(gl, blend.alpha.operation ?? 'add');
-    if (state.blendOpColor !== opColor || state.blendOpAlpha !== opAlpha) {
-        gl.blendEquationSeparate(opColor, opAlpha);
-        state.blendOpColor = opColor;
-        state.blendOpAlpha = opAlpha;
-    }
-}
-/**
- * Apply polygon offset (depth bias) from `material.depthBias` / `material.depthBiasSlopeScale`.
- * WebGL's `gl.polygonOffset(factor, units)` maps to WebGPU's (depthBiasSlopeScale, depthBias): factor
- * scales the fragment's depth slope, units is the constant bias.
- */
-function setDepthBiasState(gl, state, material) {
-    const factor = material.depthBiasSlopeScale;
-    const units = material.depthBias;
-    const enabled = factor !== 0 || units !== 0;
-    setCapability(gl, state, 'polygonOffsetFill', enabled);
-    if (enabled && (state.polygonOffsetFactor !== factor || state.polygonOffsetUnits !== units)) {
-        gl.polygonOffset(factor, units);
-        state.polygonOffsetFactor = factor;
-        state.polygonOffsetUnits = units;
-    }
-}
-/** Sets one face's stencil test and ops, each call only where it differs. */
-function setStencilFace(gl, face, glFace, func, ref, readMask, fail, zFail, zPass) {
-    if (face.func !== func || face.ref !== ref || face.readMask !== readMask) {
-        gl.stencilFuncSeparate(glFace, func, ref, readMask);
-        face.func = func;
-        face.ref = ref;
-        face.readMask = readMask;
-    }
-    if (face.fail !== fail || face.zFail !== zFail || face.zPass !== zPass) {
-        gl.stencilOpSeparate(glFace, fail, zFail, zPass);
-        face.fail = fail;
-        face.zFail = zFail;
-        face.zPass = zPass;
-    }
-}
-/**
- * Apply stencil test + ops. Only meaningful when the framebuffer has a stencil attachment
- * (`hasStencil`) and the material opts in via `stencilTest`. Otherwise the stencil test is disabled.
- * WebGPU carries a dynamic stencil reference (set via setStencilReference); here it folds into
- * `gl.stencilFunc`.
- */
-function setStencilState(gl, state, material, hasStencil) {
-    if (!hasStencil || !material.stencilTest) {
-        setCapability(gl, state, 'stencilTest', false);
-        return;
-    }
-    setCapability(gl, state, 'stencilTest', true);
-    setStencilWriteMask(gl, state, material.stencilWriteMask);
-    const func = compareFunc(gl, material.stencilFunc);
-    const fail = stencilOp(gl, material.stencilFail);
-    const zFail = stencilOp(gl, material.stencilZFail);
-    const zPass = stencilOp(gl, material.stencilZPass);
-    const ref = material.stencilRef;
-    const readMask = material.stencilReadMask;
-    setStencilFace(gl, state.front, gl.FRONT, func, ref, readMask, fail, zFail, zPass);
-    // the back face takes the front's test and ops unless the material sets its own
-    const back = material.stencilBack;
-    if (back == null) {
-        setStencilFace(gl, state.back, gl.BACK, func, ref, readMask, fail, zFail, zPass);
-        return;
-    }
-    setStencilFace(gl, state.back, gl.BACK, back.func === undefined ? func : compareFunc(gl, back.func), ref, readMask, back.fail === undefined ? fail : stencilOp(gl, back.fail), back.zFail === undefined ? zFail : stencilOp(gl, back.zFail), back.zPass === undefined ? zPass : stencilOp(gl, back.zPass));
-}
-/**
- * Apply the whole fixed-function GL state for a material in one call: depth, cull, blend, color mask,
- * and (when the framebuffer supports it) stencil. Each state is set only where the context differs.
- *
- * `blend` is the pass's already-resolved blend state (see `core/render-state`), passed in rather than
- * derived here because resolving it needs the pass's MRT context, which is not on the material.
- */
-function applyMaterialState(gl, state, material, hasStencil, blend) {
-    // Before any GL call: this is a material the backend cannot honour, not a state it failed to set.
-    if (material.depthBiasClamp !== 0) {
-        throw new Error('[webgl] depthBiasClamp has no WebGL2 equivalent, so this material would bias differently ' +
-            'on the two backends. Leave it at 0, or branch on `renderer.api`.');
-    }
-    // the render loop draws rasterized; transform feedback is the one path that turns it off, and turns it back
-    setCapability(gl, state, 'rasterizerDiscard', false);
-    setDepthState(gl, state, material);
-    setDepthBiasState(gl, state, material);
-    setCullState(gl, state, material);
-    setBlendState(gl, state, blend);
-    setCapability(gl, state, 'alphaToCoverage', material.alphaToCoverage);
-    setColorMask(gl, state, material.colorWrite);
-    setStencilState(gl, state, material, hasStencil);
-}
-/**
- * Puts the context back to GL's defaults for every state gpucat sets, and the record with it: for after other code has
- * drawn with the context, as three.js's `resetState` does. Reading the context's state back instead would stall it.
- */
-function resetGlState(gl, state, width, height) {
-    forgetGlState(state);
-    setCapability(gl, state, 'depthTest', false);
-    setCapability(gl, state, 'cullFace', false);
-    setCapability(gl, state, 'blend', false);
-    setCapability(gl, state, 'stencilTest', false);
-    setCapability(gl, state, 'polygonOffsetFill', false);
-    setCapability(gl, state, 'alphaToCoverage', false);
-    setCapability(gl, state, 'scissorTest', false);
-    setCapability(gl, state, 'rasterizerDiscard', false);
-    setDepthFunc(gl, state, gl.LESS);
-    setDepthMask(gl, state, true);
-    setColorMask(gl, state, true);
-    setFrontFace(gl, state, gl.CCW);
-    gl.cullFace(gl.BACK);
-    state.cullFaceMode = gl.BACK;
-    gl.blendFuncSeparate(gl.ONE, gl.ZERO, gl.ONE, gl.ZERO);
-    gl.blendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD);
-    gl.polygonOffset(0, 0);
-    setStencilWriteMask(gl, state, 0xffffffff);
-    gl.stencilFunc(gl.ALWAYS, 0, 0xffffffff);
-    gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
-    setViewport(gl, state, 0, 0, width, height);
-    setDepthRange(gl, state, 0, 1);
-    setScissor(gl, state, 0, 0, width, height);
-    setClearColor(gl, state, 0, 0, 0, 0);
-    setClearDepth(gl, state, 1);
-    setClearStencil(gl, state, 0);
-    // the rest is GL's default now, which the record learns as each is next set
 }
 
 /**
@@ -41947,12 +43079,13 @@ function bindTextures(gl, b, renderObject, programInfo, capture) {
             if (entry.node.slot !== null) {
                 throw new Error(`[webgl] texture slot '${entry.node.slot}' is filled by a compute dispatch, which WebGL2 has none of.`);
             }
-            const unit = entry.binding;
+            // The program's unit for the texture: its home, shared with every program reading it, or one of the
+            // program's own (`texture-homes.ts`). `entry.binding`, the emitter's number, pairs it with its sampler.
+            const unit = programInfo.units === null ? entry.binding : unitOf(programInfo.units, entry.shaderName, entry.binding);
             const capturedIndex = captured++;
-            // Guard the flat texture-unit assignment against the device cap. Units are `entry.binding`,
-            // a 0-based index across every texture + storage-buffer a material samples; once it reaches
-            // MAX_COMBINED_TEXTURE_IMAGE_UNITS, `activeTexture(TEXTURE0 + unit)` addresses a non-existent
-            // unit and the draw samples garbage. Turn that silent corruption into a clear, actionable error.
+            // Guard the unit against the device cap: past MAX_COMBINED_TEXTURE_IMAGE_UNITS,
+            // `activeTexture(TEXTURE0 + unit)` addresses a non-existent unit and the draw samples garbage. Turn that
+            // silent corruption into a clear, actionable error.
             if (b.textures.maxTextureUnits == null) {
                 b.textures.maxTextureUnits = gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS);
             }
@@ -41994,8 +43127,8 @@ function bindTextures(gl, b, renderObject, programInfo, capture) {
                 continue;
             bindTextureUnit(gl, b.textures, unit, texData.target, texData.texture);
             applyLevelRange(gl, b.textures, unit, texData, gpuTexture, range);
-            // Find the sampler assigned to this same unit and bind its GL sampler object.
-            const gpuSampler = capture === null ? findSamplerForUnit(bindGroups, unit) : capture.samplers[capturedIndex];
+            // Find the sampler paired with it and bind its GL sampler object at its unit.
+            const gpuSampler = capture === null ? findSamplerForUnit(bindGroups, entry.binding) : capture.samplers[capturedIndex];
             // Reject a linear filter on a float32 texture when float-linear isn't available (would
             // sample as incomplete/black = wrong output, not just lower quality).
             assertFloatLinearFilterable(gl, gpuTexture.format, gpuSampler);
@@ -42279,12 +43412,11 @@ function beginPass$3(caches, passCtx, params) {
     return { passBlend };
 }
 /**
- * Unbinds the VAO so later buffer mutations cannot record into it, invalidates the depth and stencil the pass doesn't
- * store, then resolves an MSAA target (its colour alone, so they can go first).
+ * Invalidates the depth and stencil the pass doesn't store, then resolves an MSAA target (its colour alone, so they can
+ * go first). The VAO stays bound: index uploads unbind it through `glState` first.
  */
 function endPass$1(caches, params) {
     const gl = caches.gl;
-    gl.bindVertexArray(null);
     invalidateUnstored(gl, params);
     resolveActiveRenderTarget(gl, caches.renderTargets, caches.glState);
 }
@@ -42327,17 +43459,15 @@ function captureDraw(caches, nodes, renderObject, out) {
     }
     captureTextures(renderObject, out.textures);
 }
-/** What the pass has bound at each uniform buffer binding point, reset as each pass's draws begin. */
-const _bound = /*@__PURE__*/ createBoundUniforms();
 /** Where each of a pass's draws' multi-draw tables starts, by draw, or -1 for a draw that reads none. */
 const _tableStarts = [];
-function encodeDraws$1(gl, caches, nodes, passCtx, params, prepared, preparedOpts, captures, count, segments, segmentCount, inspector, info, { passBlend }) {
+function encodeDraws$1(gl, caches, nodes, passCtx, params, prepared, preparedOpts, captures, count, order, inspector, info, { passBlend }) {
     const hasStencil = !!passCtx.stencil;
-    let currentProgram = null;
+    // The program, VAO and uniform buffers carry over from the last pass in `glState`; these are for the inspector,
+    // which reports switches within the pass.
+    let passProgram = null;
     let currentVao = null;
-    // Nothing is known bound when the loop starts, so its first draw binds.
-    const bound = { vao: null };
-    resetBoundUniforms(_bound);
+    const glState = caches.glState;
     // Every draw list's table is in the pass's buffer before the first draw reads one.
     const drawBases = caches._drawBases;
     if (drawBases !== null) {
@@ -42349,162 +43479,177 @@ function encodeDraws$1(gl, caches, nodes, passCtx, params, prepared, preparedOpt
         }
         uploadPassTables(gl, drawBases, info);
     }
-    // the runs cover the draws in order, each starting where the last ended
-    let segmentIndex = 0;
+    // Each scope's shared view and frame blocks into the pass's slots, in recorded order, ahead of every draw: a draw
+    // then binds its scope's slot wherever its bin put it
+    const passUniforms = caches._passUniforms;
+    beginPassUniforms(passUniforms);
     for (let i = 0; i < count; i++) {
-        if (segmentIndex < segmentCount && segments[segmentIndex].start === i) {
-            applyViewportScissor(gl, caches.glState, params.width, params.height, segments[segmentIndex++]);
-        }
-        const renderObject = prepared[i];
-        const { mesh, material, geometry } = renderObject;
-        const nodeState = renderObject.nodeBuilderState;
-        const opts = preparedOpts[i];
-        const draws = opts?.draws ?? mesh.draws;
-        const instances = opts?.instances ?? mesh.count;
-        const range = opts?.range;
         const capture = captures[i];
-        const payload = getRenderObjectGl(caches.renderObjectGl, renderObject);
-        const programInfo = payload.program;
-        if (!programInfo) {
-            throw new Error(`[webgl] '${mesh.name || 'mesh'}' reached the draw loop with no linked program.`);
-        }
-        // Program (deduped). Inspector: a program switch is the WebGL analogue of a pipeline switch.
-        if (currentProgram !== programInfo.program) {
-            gl.useProgram(programInfo.program);
-            currentProgram = programInfo.program;
-            // gl_FragCoord Y-flip height: @builtin(position)/screenUV lower to a flip against the
-            // framebuffer height so they match WebGPU's top-left origin. Constant per pass; set on
-            // each program bind. null location = program doesn't use the builtin.
-            if (programInfo.fragCoordFlipHeightLocation != null) {
-                gl.uniform1f(programInfo.fragCoordFlipHeightLocation, params.height);
-            }
-            if (inspector)
-                inspector.setPipeline(pipelineLabel(mesh, material));
-        }
-        // Uniform groups → std140 UBOs: each group's bytes as the draw recorded them, uploaded if they
-        // differ from what its UBO holds and bound to its program binding point.
         for (let u = 0; u < capture.uniformCount; u++) {
-            uploadAndBindCapture(gl, caches, capture.uniforms[u], material, _bound);
+            const uniform = capture.uniforms[u];
+            if (uniform.scope !== -1)
+                placeCapture(passUniforms, uniform);
         }
-        if (inspector) {
-            const groupCount = getBindings(renderObject).length;
-            for (let g = 0; g < groupCount; g++)
-                inspector.setBindGroup(g, mesh.name || '');
-        }
-        // Texture + sampler bindings → GL texture units + combined-sampler uniforms, as recorded.
-        bindTextures(gl, caches, renderObject, programInfo, capture.textures);
-        // Geometry VAO (uploads buffers + builds/reuses the VAO for this program). `bound` follows what is
-        // bound in GL, which `prepareGeometry` may unbind to upload safely; `currentVao` is the VAO the
-        // draws switched to, for the inspector.
-        const drawInfo = prepareGeometry(gl, caches, geometry, nodeState, programInfo.program, renderObject.mesh.name || 'mesh', bound);
-        if (bound.vao !== drawInfo.vao) {
-            gl.bindVertexArray(drawInfo.vao);
-            bound.vao = drawInfo.vao;
-        }
-        if (currentVao !== drawInfo.vao) {
-            currentVao = drawInfo.vao;
-            // Inspector: a VAO carries all vertex (+index) buffer bindings; log it as a single
-            // vertex-buffer bind (slot 0) plus an index bind when the geometry is indexed.
+    }
+    uploadPassUniforms(gl, passUniforms, info);
+    let currentView = -1;
+    for (let blockIndex = 0; blockIndex < order.blockCount; blockIndex++) {
+        const block = order.blocks[blockIndex];
+        for (let at = 0; at < block.count; at++) {
+            const i = block.draws[at];
+            const view = order.drawViews[i];
+            if (view !== currentView) {
+                currentView = view;
+                applyViewportScissor(gl, caches.glState, params.width, params.height, order.views[view]);
+            }
+            const renderObject = prepared[i];
+            const { mesh, material, geometry } = renderObject;
+            const nodeState = renderObject.nodeBuilderState;
+            const opts = preparedOpts[i];
+            const draws = opts?.draws ?? mesh.draws;
+            const instances = opts?.instances ?? mesh.count;
+            const range = opts?.range;
+            const capture = captures[i];
+            const payload = getRenderObjectGl(caches.renderObjectGl, renderObject);
+            const programInfo = payload.program;
+            if (!programInfo) {
+                throw new Error(`[webgl] '${mesh.name || 'mesh'}' reached the draw loop with no linked program.`);
+            }
+            // Program (deduped). Inspector: a program switch is the WebGL analogue of a pipeline switch.
+            useProgram(gl, glState, programInfo.program);
+            // gl_FragCoord Y-flip height: @builtin(position)/screenUV lower to a flip against the framebuffer height so
+            // they match WebGPU's top-left origin. A uniform keeps its value with its program, which passes share, so it
+            // is written when this pass's height differs. null location = program doesn't use the builtin.
+            if (programInfo.fragCoordFlipHeightLocation != null && programInfo.fragCoordFlipHeight !== params.height) {
+                gl.uniform1f(programInfo.fragCoordFlipHeightLocation, params.height);
+                programInfo.fragCoordFlipHeight = params.height;
+            }
+            if (passProgram !== programInfo.program) {
+                passProgram = programInfo.program;
+                if (inspector)
+                    inspector.setPipeline(pipelineLabel(mesh, material));
+            }
+            // Uniform groups → std140 UBOs: each group's bytes as the draw recorded them, uploaded if they
+            // differ from what its UBO holds and bound to its program binding point.
+            for (let u = 0; u < capture.uniformCount; u++) {
+                uploadAndBindCapture(gl, caches, capture.uniforms[u], material, glState);
+            }
             if (inspector) {
-                inspector.setVertexBuffer(0);
-                if (geometry.index && drawInfo.indexType !== null)
-                    inspector.setIndexBuffer();
+                const groupCount = getBindings(renderObject).length;
+                for (let g = 0; g < groupCount; g++)
+                    inspector.setBindGroup(g, mesh.name || '');
             }
-        }
-        // Fixed-function GL state from the material (depth/cull/blend/colorMask/stencil).
-        // A mixed 'material'/'no' MRT only agrees across attachments while the material is opaque.
-        if (passBlend.opaqueOnly && material.transparent) {
-            throw new Error('[webgl] per-attachment blend modes are not supported on the WebGL2 backend.');
-        }
-        const blend = resolveTargetBlend(material, passCtx.mrt, passBlend.targetName);
-        applyMaterialState(gl, caches.glState, material, hasStencil, blend);
-        // Draw. Topology is a triangle list (the GLSL render path targets triangles).
-        // `u_drawBase` feeds instanceIndex's base-inclusive lowering (`u_drawBase + gl_InstanceID`).
-        const drawBaseLoc = programInfo.drawBaseLocation ?? null;
-        if (draws !== undefined && drawBases !== null) {
-            // Batched under WEBGL_multi_draw: the list as one call, each entry's base from the pass's table
-            if (geometry.index && drawInfo.indexType !== null) {
-                const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
-                const list = draws;
-                drawIndexedList(gl, drawBases, _bound, list, drawInfo.indexType, bytesPerIndex, _tableStarts[i]);
-                for (const d of list) {
-                    if (d.instanceCount <= 0)
-                        continue;
-                    if (inspector)
-                        inspector.drawIndexed(d.indexCount, d.instanceCount);
-                    countDraw(info, d.indexCount, d.instanceCount);
+            // Texture + sampler bindings → GL texture units + combined-sampler uniforms, as recorded.
+            bindTextures(gl, caches, renderObject, programInfo, capture.textures);
+            // Geometry VAO (uploads buffers + builds/reuses the VAO for this program, unbinding through `glState` to upload
+            // safely); `currentVao` is the VAO the draws switched to, for the inspector.
+            const drawInfo = prepareGeometry(gl, caches, geometry, nodeState, programInfo.program, renderObject.mesh.name || 'mesh');
+            bindVertexArray(gl, glState, drawInfo.vao);
+            if (currentVao !== drawInfo.vao) {
+                currentVao = drawInfo.vao;
+                // Inspector: a VAO carries all vertex (+index) buffer bindings; log it as a single
+                // vertex-buffer bind (slot 0) plus an index bind when the geometry is indexed.
+                if (inspector) {
+                    inspector.setVertexBuffer(0);
+                    if (geometry.index && drawInfo.indexType !== null)
+                        inspector.setIndexBuffer();
+                }
+            }
+            // Fixed-function GL state from the material (depth/cull/blend/colorMask/stencil).
+            // A mixed 'material'/'no' MRT only agrees across attachments while the material is opaque.
+            if (passBlend.opaqueOnly && material.transparent) {
+                throw new Error('[webgl] per-attachment blend modes are not supported on the WebGL2 backend.');
+            }
+            const blend = resolveTargetBlend(material, passCtx.mrt, passBlend.targetName);
+            applyMaterialState(gl, caches.glState, material, hasStencil, blend);
+            // Draw. Topology is a triangle list (the GLSL render path targets triangles).
+            // `u_drawBase` feeds instanceIndex's base-inclusive lowering (`u_drawBase + gl_InstanceID`).
+            const drawBaseLoc = programInfo.drawBaseLocation ?? null;
+            if (draws !== undefined && drawBases !== null) {
+                // Batched under WEBGL_multi_draw: the list as one call, each entry's base from the pass's table
+                if (geometry.index && drawInfo.indexType !== null) {
+                    const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+                    const list = draws;
+                    drawIndexedList(gl, drawBases, glState, list, drawInfo.indexType, bytesPerIndex, _tableStarts[i]);
+                    for (const d of list) {
+                        if (d.instanceCount <= 0)
+                            continue;
+                        if (inspector)
+                            inspector.drawIndexed(d.indexCount, d.instanceCount);
+                        countDraw(info, d.indexCount, d.instanceCount);
+                    }
+                }
+                else {
+                    const list = draws;
+                    drawList(gl, drawBases, glState, list, _tableStarts[i]);
+                    for (const d of list) {
+                        if (d.instanceCount <= 0)
+                            continue;
+                        if (inspector)
+                            inspector.draw(d.vertexCount, d.instanceCount);
+                        countDraw(info, d.vertexCount, d.instanceCount);
+                    }
+                }
+            }
+            else if (draws !== undefined) {
+                // Batched: one instanced draw per entry, each with its own firstInstance base. The VAO is
+                // already bound once above, so the loop only sets u_drawBase + issues the draw. The mesh's
+                // geometry selects indexed (drawElements) vs non-indexed (drawArrays) draws.
+                if (geometry.index && drawInfo.indexType !== null) {
+                    // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
+                    // 4 (uint32) bytes.
+                    const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+                    for (const d of draws) {
+                        if (d.instanceCount <= 0)
+                            continue;
+                        if (drawBaseLoc !== null)
+                            gl.uniform1ui(drawBaseLoc, d.firstInstance);
+                        gl.drawElementsInstanced(gl.TRIANGLES, d.indexCount, drawInfo.indexType, d.firstIndex * bytesPerIndex, d.instanceCount);
+                        if (inspector)
+                            inspector.drawIndexed(d.indexCount, d.instanceCount);
+                        countDraw(info, d.indexCount, d.instanceCount);
+                    }
+                }
+                else {
+                    for (const d of draws) {
+                        if (d.instanceCount <= 0)
+                            continue;
+                        if (drawBaseLoc !== null)
+                            gl.uniform1ui(drawBaseLoc, d.firstInstance);
+                        gl.drawArraysInstanced(gl.TRIANGLES, d.firstVertex, d.vertexCount, d.instanceCount);
+                        if (inspector)
+                            inspector.draw(d.vertexCount, d.instanceCount);
+                        countDraw(info, d.vertexCount, d.instanceCount);
+                    }
                 }
             }
             else {
-                const list = draws;
-                drawList(gl, drawBases, _bound, list, _tableStarts[i]);
-                for (const d of list) {
-                    if (d.instanceCount <= 0)
-                        continue;
+                // Reset u_drawBase to 0 so a prior batched draw sharing this program can't leak its
+                // firstInstance into instanceIndex here; under multi-draw, its base is the zero table's entry 0.
+                if (drawBaseLoc !== null)
+                    gl.uniform1ui(drawBaseLoc, 0);
+                else if (drawBases !== null && programInfo.drawBases)
+                    bindZeroTable(gl, drawBases, glState);
+                if (geometry.index && drawInfo.indexType !== null) {
+                    const { first, count } = resolveIndexedDrawRange(geometry, range);
+                    // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
+                    // 4 (uint32) bytes.
+                    const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+                    gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, first * bytesPerIndex, instances);
                     if (inspector)
-                        inspector.draw(d.vertexCount, d.instanceCount);
-                    countDraw(info, d.vertexCount, d.instanceCount);
+                        inspector.drawIndexed(count, instances);
+                    countDraw(info, count, instances);
+                }
+                else {
+                    const { first, count } = resolveVertexDrawRange(geometry, range);
+                    gl.drawArraysInstanced(gl.TRIANGLES, first, count, instances);
+                    if (inspector)
+                        inspector.draw(count, instances);
+                    countDraw(info, count, instances);
                 }
             }
+            updateAfter(nodes, renderObject);
         }
-        else if (draws !== undefined) {
-            // Batched: one instanced draw per entry, each with its own firstInstance base. The VAO is
-            // already bound once above, so the loop only sets u_drawBase + issues the draw. The mesh's
-            // geometry selects indexed (drawElements) vs non-indexed (drawArrays) draws.
-            if (geometry.index && drawInfo.indexType !== null) {
-                // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
-                // 4 (uint32) bytes.
-                const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
-                for (const d of draws) {
-                    if (d.instanceCount <= 0)
-                        continue;
-                    if (drawBaseLoc !== null)
-                        gl.uniform1ui(drawBaseLoc, d.firstInstance);
-                    gl.drawElementsInstanced(gl.TRIANGLES, d.indexCount, drawInfo.indexType, d.firstIndex * bytesPerIndex, d.instanceCount);
-                    if (inspector)
-                        inspector.drawIndexed(d.indexCount, d.instanceCount);
-                    countDraw(info, d.indexCount, d.instanceCount);
-                }
-            }
-            else {
-                for (const d of draws) {
-                    if (d.instanceCount <= 0)
-                        continue;
-                    if (drawBaseLoc !== null)
-                        gl.uniform1ui(drawBaseLoc, d.firstInstance);
-                    gl.drawArraysInstanced(gl.TRIANGLES, d.firstVertex, d.vertexCount, d.instanceCount);
-                    if (inspector)
-                        inspector.draw(d.vertexCount, d.instanceCount);
-                    countDraw(info, d.vertexCount, d.instanceCount);
-                }
-            }
-        }
-        else {
-            // Reset u_drawBase to 0 so a prior batched draw sharing this program can't leak its
-            // firstInstance into instanceIndex here; under multi-draw, its base is the zero table's entry 0.
-            if (drawBaseLoc !== null)
-                gl.uniform1ui(drawBaseLoc, 0);
-            else if (drawBases !== null && programInfo.drawBases)
-                bindZeroTable(gl, drawBases, _bound);
-            if (geometry.index && drawInfo.indexType !== null) {
-                const { first, count } = resolveIndexedDrawRange(geometry, range);
-                // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
-                // 4 (uint32) bytes.
-                const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
-                gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, first * bytesPerIndex, instances);
-                if (inspector)
-                    inspector.drawIndexed(count, instances);
-                countDraw(info, count, instances);
-            }
-            else {
-                const { first, count } = resolveVertexDrawRange(geometry, range);
-                gl.drawArraysInstanced(gl.TRIANGLES, first, count, instances);
-                if (inspector)
-                    inspector.draw(count, instances);
-                countDraw(info, count, instances);
-            }
-        }
-        updateAfter(nodes, renderObject);
     }
 }
 
@@ -42532,8 +43677,6 @@ function encodeDraws$1(gl, caches, nodes, passCtx, params, prepared, preparedOpt
  * assigned unit with the combined-sampler uniform set (`bindStandaloneTextures`). The user binds
  * neighbour data as an explicit `DataTexture` referenced by the kernel's `textureLoad` — no hidden mirror.
  */
-/** A dispatch binds outside any pass, so nothing is known bound: reset before each. */
-const _dispatchBound = /*@__PURE__*/ createBoundUniforms();
 function createTransformFeedbackState() {
     return {
         nodes: new WeakMap(),
@@ -42570,7 +43713,7 @@ function ensureIo(gl, buffers, buffer, role, name) {
     return glBuffer;
 }
 /** Get (or compile + link + build-VAO-slot for) the per-node cache. */
-function getNodeCache(gl, state, node, precision) {
+function getNodeCache(gl, glState, state, node, precision) {
     let cache = state.nodes.get(node);
     if (cache)
         return cache;
@@ -42589,8 +43732,8 @@ function getNodeCache(gl, state, node, precision) {
         prevDispose?.();
         const c = state.nodes.get(node);
         if (c) {
-            gl.deleteProgram(c.programInfo.program);
-            gl.deleteVertexArray(c.vao);
+            deleteProgram(gl, glState, c.programInfo.program);
+            deleteVertexArray(gl, glState, c.vao);
             state.allPrograms.delete(c.programInfo.program);
             state.allVaos.delete(c.vao);
             state.nodes.delete(node);
@@ -42606,7 +43749,7 @@ function getNodeCache(gl, state, node, precision) {
  * optimized out have no binding point and are skipped.
  */
 function captureTransformFeedback(gl, b, state, node, precision, frame, out) {
-    const { compiled, programInfo } = getNodeCache(gl, state, node, precision);
+    const { compiled, programInfo } = getNodeCache(gl, b.glState, state, node, precision);
     out.uniformCount = 0;
     for (const group of compiled.uniformGroups) {
         if (group.members.length === 0)
@@ -42636,10 +43779,10 @@ inspectorName) {
             throw new Error(`[webgl] transform-feedback output buffer can't also be an input; ` + `use distinct buffers and ping-pong`);
         }
     }
-    const cache = getNodeCache(gl, state, node, precision);
+    const cache = getNodeCache(gl, b.glState, state, node, precision);
     const { compiled, programInfo, vao } = cache;
     // Both checks run before any GL state is touched: a throw past `useProgram` would leave the
-    // program, the VAO and the transform-feedback object bound, with nothing unwinding them.
+    // transform-feedback object bound, with nothing unwinding it.
     for (const attr of compiled.inputAttributes) {
         // Attribute shader name is `a_<name>`; the run-site key is the bare `<name>`.
         const key = attr.name.startsWith('a_') ? attr.name.slice(2) : attr.name;
@@ -42653,11 +43796,10 @@ inspectorName) {
             throw new Error(`[webgl] transform-feedback kernel output '${key}' has no bound buffer.`);
         }
     }
-    gl.useProgram(programInfo.program);
+    useProgram(gl, b.glState, programInfo.program);
     // Bind the kernel's uniform groups (std140 UBOs) as the dispatch captured them.
-    resetBoundUniforms(_dispatchBound);
     for (let index = 0; index < capture.uniformCount; index++) {
-        uploadAndBindCapture(gl, b, capture.uniforms[index], null, _dispatchBound);
+        uploadAndBindCapture(gl, b, capture.uniforms[index], null, b.glState);
     }
     // Bind any DataTextures the kernel samples via textureLoad() (explicit neighbour gather — the user
     // binds the DataTexture on the texture node; no hidden mirror), as captured. Runs in the vertex stage under TF.
@@ -42667,7 +43809,7 @@ inspectorName) {
     // Bind inputs as vertex attributes into the node's VAO (rebuilt each dispatch: the caller may
     // ping-pong a different GpuBuffer per element name each frame, so the attribute→buffer binding
     // is not stable across dispatches).
-    gl.bindVertexArray(vao);
+    bindVertexArray(gl, b.glState, vao);
     for (const attr of compiled.inputAttributes) {
         const key = attr.name.startsWith('a_') ? attr.name.slice(2) : attr.name;
         const glBuffer = ensureIo(gl, buffers, inputs[key], 'input', key);
@@ -42729,8 +43871,6 @@ inspectorName) {
         gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, i, null);
     }
     gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
-    gl.bindVertexArray(null);
-    gl.useProgram(null);
 }
 /**
  * Get the plain GL buffer backing a GpuBuffer within this transform-feedback state, if one exists.
@@ -42779,11 +43919,11 @@ function clientWaitAsync(gl, sync, label = 'readBuffer', maxPolls = 4000) {
     });
 }
 /** Release all GL resources owned by the transform-feedback state (called on renderer dispose). */
-function disposeTransformFeedback(gl, state) {
+function disposeTransformFeedback(gl, glState, state) {
     for (const program of state.allPrograms)
-        gl.deleteProgram(program);
+        deleteProgram(gl, glState, program);
     for (const vao of state.allVaos)
-        gl.deleteVertexArray(vao);
+        deleteVertexArray(gl, glState, vao);
     if (state.tf)
         gl.deleteTransformFeedback(state.tf);
     state.allPrograms.clear();
@@ -42859,19 +43999,36 @@ function recordEntry$1(s, entry) {
     if (open.skipped)
         return;
     if (isViewRecord(entry)) {
-        closeRun$1(open);
+        markViewChanged(open.order);
         applyViewRecord(s.renderer, open.params, entry, CoordinateSystem.WEBGL);
         return;
     }
+    if (entry.kind === 'bin') {
+        addBin(open.order, entry.bin);
+        return;
+    }
     try {
-        if (entry.kind !== 'bundle') {
-            resolveDraw$1(s, open, entry);
+        if (entry.kind === 'draw') {
+            const index = resolveDraw$1(s, open, entry);
+            if (index < 0)
+                return;
+            const bin = entry.bin;
+            if (bin === null)
+                addPassDraw(open.order, index, open.params);
+            else {
+                const renderObject = open.prepared[index];
+                const program = getRenderObjectGl(s.backend.renderObjectGl, renderObject).program;
+                addBinDraw(open.order, index, bin, program.program, renderObject.material, renderObject.geometry, entry.sortKey, renderObject.mesh, open.params);
+            }
             return;
         }
         // WebGL has no device bundles: a bundle's records replay as the draws they always were.
         const { records, count } = entry.bundle;
-        for (let index = 0; index < count; index++)
-            resolveDraw$1(s, open, records[index]);
+        for (let record = 0; record < count; record++) {
+            const index = resolveDraw$1(s, open, records[record]);
+            if (index >= 0)
+                addPassDraw(open.order, index, open.params);
+        }
     }
     catch (error) {
         // A throw inside a nested pass (a render texture's contents) left it begun; this pass records on.
@@ -42879,6 +44036,7 @@ function recordEntry$1(s, entry) {
         throw error;
     }
 }
+/** Resolves `entry` into the pass's prepared arrays: the index it took, or -1 when it draws nothing. */
 function resolveDraw$1(s, open, entry) {
     const { renderer, backend } = s;
     const renderObject = prepareRecordedDraw(renderer, entry, open.params.camera, open.ctx, (nodes, object) => prepareRenderObject$1(backend.gl, backend, nodes, object, {
@@ -42888,7 +44046,7 @@ function resolveDraw$1(s, open, entry) {
     }));
     if (drawsNothing(renderObject, entry.opts)) {
         renderer.inspector?.resolvedDraw(renderObject, true);
-        return;
+        return -1;
     }
     // A nested pass recorded by `updateBefore` aimed the frame at its own target.
     aimNodeFrame(renderer, open.params.camera, open.params.width, open.params.height);
@@ -42902,18 +44060,7 @@ function resolveDraw$1(s, open, entry) {
     }
     captureDraw(backend, renderer._nodes, renderObject, capture);
     renderer.inspector?.resolvedDraw(renderObject, false);
-}
-function closeRun$1(open) {
-    if (open.count === open.runStart)
-        return;
-    let segment = open.segments[open.segmentCount];
-    if (segment === undefined) {
-        segment = createSegment();
-        open.segments[open.segmentCount] = segment;
-    }
-    open.segmentCount++;
-    writeSegment(segment, null, open.runStart, open.count - open.runStart, open.params);
-    open.runStart = open.count;
+    return index;
 }
 /** Encodes what the pass captured, then closes the scopes `beginPass` opened. */
 function encodePass$1(s, desc) {
@@ -42923,7 +44070,7 @@ function encodePass$1(s, desc) {
     const { renderer, backend } = s;
     const { ctx, params } = open;
     try {
-        closeRun$1(open);
+        orderBins(open.order, params.passId);
         aimNodeFrame(renderer, desc.camera ?? null, params.width, params.height);
         // The pass's own GL work starts here, after everything that prepared it: `beginPass` clears,
         // `endPass` resolves, and the mip chains below are the last of it. Preparing uploads and compiles
@@ -42934,7 +44081,7 @@ function encodePass$1(s, desc) {
             const scope = beginPass$3(backend, ctx, params);
             try {
                 if (open.count > 0) {
-                    encodeDraws$1(backend.gl, backend, renderer._nodes, ctx, params, open.prepared, open.preparedOpts, open.captures, open.count, open.segments, open.segmentCount, renderer.inspector, renderer.info, scope);
+                    encodeDraws$1(backend.gl, backend, renderer._nodes, ctx, params, open.prepared, open.preparedOpts, open.captures, open.count, open.order, renderer.inspector, renderer.info, scope);
                 }
             }
             finally {
@@ -42983,9 +44130,7 @@ function openAt$1(pool, depth, desc, ctx) {
             preparedOpts: [],
             captures: [],
             count: 0,
-            segments: [],
-            segmentCount: 0,
-            runStart: 0,
+            order: createPassOrder(),
         };
         pool[depth] = open;
     }
@@ -42993,8 +44138,7 @@ function openAt$1(pool, depth, desc, ctx) {
     open.ctx = ctx;
     open.skipped = true;
     open.count = 0;
-    open.segmentCount = 0;
-    open.runStart = 0;
+    resetPassOrder(open.order);
     return open;
 }
 function beginTransformFeedbackPass(s, _desc) {
@@ -43103,8 +44247,6 @@ function discardFrame$1(s) {
  */
 /** The probe uploads each group as soon as it captures it, so one slot serves every group. */
 const _probeCaptures = [];
-/** The probe binds outside any pass, so nothing is known bound: reset before each probe. */
-const _probeBound = /*@__PURE__*/ createBoundUniforms();
 /** Split the emitter's combined `code` into vertex + fragment; returns the VERTEX source only. */
 function extractVertexSrc(code) {
     const idx = code.indexOf(FRAGMENT_STAGE_MARKER);
@@ -43129,11 +44271,11 @@ function compileShader(gl, type, source) {
  * VERTEX GLSL with the caller's patched FRAGMENT GLSL, resolving the same std140 UBO binding points
  * the normal program does (so the object's uniform groups bind correctly).
  */
-function buildProbeGl(gl, textures, ro, patchedFragment, previous) {
+function buildProbeGl(gl, glState, textures, ro, patchedFragment, previous) {
     if (previous && previous.fragmentSrc === patchedFragment)
         return previous;
     if (previous)
-        disposeProbeGl(gl, textures, previous);
+        disposeProbeGl(gl, glState, textures, previous);
     const nodeState = ro.nodeBuilderState;
     if (!nodeState || !nodeState.vertexCode) {
         throw new Error('[webgl] RenderObject has no compiled GLSL.');
@@ -43183,8 +44325,8 @@ function buildProbeGl(gl, textures, ro, patchedFragment, previous) {
     };
 }
 /** Free all GL resources of a probe program. */
-function disposeProbeGl(gl, textures, p) {
-    gl.deleteProgram(p.program);
+function disposeProbeGl(gl, glState, textures, p) {
+    deleteProgram(gl, glState, p.program);
     gl.deleteFramebuffer(p.fbo);
     deleteGlTexture(gl, textures, p.colorTex);
     gl.deleteRenderbuffer(p.depthRb);
@@ -43192,9 +44334,9 @@ function disposeProbeGl(gl, textures, p) {
 function createProbeState() {
     return { gl: null };
 }
-function disposeProbeState(gl, textures, state) {
+function disposeProbeState(gl, glState, textures, state) {
     if (gl && state.gl)
-        disposeProbeGl(gl, textures, state.gl);
+        disposeProbeGl(gl, glState, textures, state.gl);
     state.gl = null;
 }
 /**
@@ -43214,14 +44356,15 @@ function renderProbe(gl, state, caches, frame, ro, patchedFragment) {
         return null;
     const geometry = ro.geometry;
     // Build / reuse the probe program (compile errors surface as a thrown Error to the caller).
-    const p = buildProbeGl(gl, caches.textures, ro, patchedFragment, state.gl);
+    const p = buildProbeGl(gl, caches.glState, caches.textures, ro, patchedFragment, state.gl);
     state.gl = p;
     // Wrap the program in a ProgramInfo so the shared texture-binding path can reuse its texture-uniform
-    // cache. (bindTextures only reads `program` + `textureUniforms`.)
+    // cache, binding each texture at the unit the emitter numbered it.
     const programInfo = {
         program: p.program,
         uboBindingPoints: p.uboBindingPoints,
         textureUniforms: p.textureUniforms,
+        units: null,
     };
     // Bind the probe FBO + a 1×1 viewport and clear.
     gl.bindFramebuffer(gl.FRAMEBUFFER, p.fbo);
@@ -43239,8 +44382,7 @@ function renderProbe(gl, state, caches, frame, ro, patchedFragment) {
     setCapability(gl, glState, 'cullFace', false);
     setCapability(gl, glState, 'blend', false);
     setCapability(gl, glState, 'rasterizerDiscard', false);
-    gl.useProgram(p.program);
-    resetBoundUniforms(_probeBound);
+    useProgram(gl, glState, p.program);
     // Capture + upload + bind each uniform group's std140 UBO as the normal draw does, but at once: the
     // probe draws now rather than in a recorded pass. The groups were already updated this frame by the
     // main render; the update-type gate keeps shared groups from re-running.
@@ -43253,16 +44395,16 @@ function renderProbe(gl, state, caches, frame, ro, patchedFragment) {
             if (bindingPoint === undefined)
                 continue;
             captureUniformGroup(caches, binding, frame, bindingPoint, ro.material, _probeCaptures, 0);
-            uploadAndBindCapture(gl, caches, _probeCaptures[0], ro.material, _probeBound);
+            uploadAndBindCapture(gl, caches, _probeCaptures[0], ro.material, glState);
         }
     }
     if (caches._drawBases !== null && p.drawBases)
-        bindZeroTable(gl, caches._drawBases, _probeBound);
+        bindZeroTable(gl, caches._drawBases, glState);
     // Textures + samplers → GL units + combined-sampler uniforms.
     bindTextures(gl, caches, ro, programInfo, null);
     // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
     const drawInfo = prepareGeometry(gl, caches, geometry, nodeState, p.program);
-    gl.bindVertexArray(drawInfo.vao);
+    bindVertexArray(gl, glState, drawInfo.vao);
     // Draw (triangle list, instance count = mesh.count), mirroring the render-pass draw selection.
     const instances = mesh.count;
     const start = geometry.drawRange.start;
@@ -43281,10 +44423,8 @@ function renderProbe(gl, state, caches, frame, ro, patchedFragment) {
     // Read back the single pixel.
     const pixel = new Uint8Array(4);
     gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
-    // Restore default bindings so the next main-loop frame is unaffected.
-    gl.bindVertexArray(null);
+    // Back to the default framebuffer; the program and VAO stay in `glState`'s record.
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.useProgram(null);
     return pixel;
 }
 
@@ -43480,6 +44620,8 @@ class WebGLBackend {
     _maxTextureSize;
     /** The multi-draw state, null without WEBGL_multi_draw or with `multiDraw: false`. @internal */
     _drawBases = null;
+    /** Each pass's shared view and frame blocks, a slot per scope, made with the context. @internal */
+    _passUniforms = null;
     constructor(opts) {
         this._opts = opts;
         this.target = opts.target;
@@ -43489,7 +44631,7 @@ class WebGLBackend {
     // eslint-disable-next-line @typescript-eslint/require-await
     async init(renderer) {
         this.renderer = renderer;
-        this.buffers = createBufferCache(renderer.info, this.memoryTally);
+        this.buffers = createBufferCache(renderer.info, this.memoryTally, this.glState);
         const { width, height } = this.target.getDrawingBufferSize();
         this._width = width || 1;
         this._height = height || 1;
@@ -43508,6 +44650,9 @@ class WebGLBackend {
         const maxTex = this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE);
         this._maxTextureSize = typeof maxTex === 'number' && maxTex > 0 ? maxTex : undefined;
         this._drawBases = this._opts.multiDraw === false ? null : createDrawBases(this.gl);
+        this._passUniforms = createPassUniforms(this.gl);
+        setTextureUnitCount(this.programs, this.gl.getParameter(this.gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS));
+        setSharedPlacement(renderer._nodes, this.gl.getParameter(this.gl.MAX_UNIFORM_BLOCK_SIZE));
         // WebGL's parallel to WebGPU's `device.lost`: the canvas fires `webglcontextlost` when the
         // driver drops the context (GPU reset, tab backgrounding, `WEBGL_lose_context`). Preventing
         // the event's default keeps the context restorable. We flip `_isDeviceLost` (every frame phase
@@ -43592,6 +44737,14 @@ class WebGLBackend {
         }
     }
     /** @internal */
+    releaseRenderObject(renderObject) {
+        const payload = this.renderObjectGl.data.get(renderObject);
+        if (payload === undefined)
+            return;
+        if (this.gl)
+            releaseProgram(this.gl, this.programs, this.glState, payload);
+        this.renderObjectGl.data.delete(renderObject);
+    }
     releaseUniformBlock(key) {
         if (this.gl)
             releaseUniformBlock(this.gl, this.buffers, key);
@@ -43606,12 +44759,9 @@ class WebGLBackend {
             return;
         resetGlState(gl, this.glState, gl.drawingBufferWidth, gl.drawingBufferHeight);
         forgetTextureUnits(gl, this.textures);
-        gl.useProgram(null);
-        gl.bindVertexArray(null);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.bindRenderbuffer(gl.RENDERBUFFER, null);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
-        gl.bindBuffer(gl.UNIFORM_BUFFER, null);
         gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
         gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
         gl.bindBuffer(gl.COPY_READ_BUFFER, null);
@@ -43643,6 +44793,7 @@ class WebGLBackend {
         memory.samplers = getSamplerCacheStats(this.samplers).samplerCount;
         // Keyed on source, so it does not compare with WebGPU's pipeline count, which adds fixed-function state.
         memory.backend.programs = getProgramCacheStats(this.programs).programCount;
+        memory.backend.textureHomes = getTextureHomeStats(this.programs.homes).homes;
         memory.backend.framebuffers = renderTargets.fboCount;
         memory.backend.renderbuffers = renderTargets.renderbufferCount;
     }
@@ -43668,7 +44819,7 @@ class WebGLBackend {
     }
     /** Release the shader-probe GL resources. @internal */
     clearProbe() {
-        disposeProbeState(this.gl, this.textures, this._probe);
+        disposeProbeState(this.gl, this.glState, this.textures, this._probe);
     }
     /**
      * Run a transform-feedback kernel (the honest WebGL2 primitive — attribute-in / captured-varying-
@@ -43785,15 +44936,18 @@ class WebGLBackend {
         this._onContextLost = null;
         this._onContextRestored = null;
         if (this.gl) {
-            disposeProbeState(this.gl, this.textures, this._probe);
-            disposePrograms(this.gl, this.programs);
+            disposeProbeState(this.gl, this.glState, this.textures, this._probe);
+            disposePrograms(this.gl, this.programs, this.glState);
             if (this._drawBases !== null)
-                disposeDrawBases(this.gl, this._drawBases);
+                disposeDrawBases(this.gl, this._drawBases, this.glState);
             this._drawBases = null;
+            if (this._passUniforms !== null)
+                disposePassUniforms(this.gl, this._passUniforms, this.glState);
+            this._passUniforms = null;
             disposeTextureCache(this.gl, this.textures);
             disposeSamplerCache(this.gl, this.samplers);
             disposeGlRenderTargets(this.gl, this.renderTargets);
-            disposeTransformFeedback(this.gl, this._transformFeedback);
+            disposeTransformFeedback(this.gl, this.glState, this._transformFeedback);
             // Every GL buffer this renderer made: vertex, index and uniform-block. Individually they
             // are released when their GpuBuffer is disposed; this is the teardown sweep.
             disposeBufferCache(this.gl, this.buffers);
@@ -44102,6 +45256,7 @@ function initRenderObject(b, nodes, renderObject, compile) {
         assertDynamicUniformLimit(device, getBindings(renderObject), pipelineName(renderObject));
         // Create pipeline using the unified pipelines system (sync)
         const entry = getForRender(pipelinesState, device, renderObject, bindGroupLayouts, null);
+        holdRenderPipeline(pipelinesState, gpu, entry);
         gpu.pipeline = entry.pipeline;
     }
     return true;
@@ -44131,6 +45286,7 @@ function initRenderObjectWithPromises(b, nodes, renderObject, promises, compile)
         const entry = getForRender(pipelinesState, device, renderObject, bindGroupLayouts, promises);
         // Pipeline will be set when promise resolves, but we track the entry
         // The actual pipeline assignment happens after promises resolve
+        holdRenderPipeline(pipelinesState, gpu, entry);
         promises.push(Promise.resolve().then(() => {
             if (entry.pipeline) {
                 gpu.pipeline = entry.pipeline;
@@ -44150,7 +45306,7 @@ function pipelineName(renderObject) {
  * render-loop orchestration.
  */
 function prepareRenderObject(b, nodes, renderObject) {
-    const initialized = initRenderObject(b, nodes, renderObject, compileWgsl);
+    const initialized = initRenderObject(b, nodes, renderObject, compileWithShared);
     const gpu = getRenderObjectGpu(b.renderObjectGpu, renderObject);
     if (!initialized || !gpu.pipeline || !renderObject.nodeBuilderState) {
         throw new Error(`[gpucat] '${renderObject.mesh.name || 'mesh'}' has no pipeline after init; returning false here ` +
@@ -44163,7 +45319,7 @@ function prepareRenderObject(b, nodes, renderObject) {
  * pushing in-flight promises onto `promises`.
  */
 function compileRenderObject(b, nodes, renderObject, promises) {
-    initRenderObjectWithPromises(b, nodes, renderObject, promises, compileWgsl);
+    initRenderObjectWithPromises(b, nodes, renderObject, promises, compileWithShared);
 }
 /**
  * Pre-warm upload half of `compile()`: upload storage/vertex/index buffers for a render object,
@@ -44208,6 +45364,10 @@ function uploadRenderObjectResources(b, renderObject, geometry, frame) {
 }
 /** The pre-warm builds bind groups ahead of any draw, so what they resolve to has no draw to go to. */
 const _prewarmBindings = createDrawBindings();
+/** A WGSL render compile placing shared members in the renderer's shared blocks. */
+function compileWithShared(slots, shared) {
+    return compileWgsl(slots, { shared: shared ?? undefined });
+}
 
 /** Create a new Geometries state. */
 function createGeometriesState() {
@@ -44536,18 +45696,23 @@ function beginPass$1(b, params) {
         timestampWrites: inspector ? inspector.getTimestampWrites(params.passId) : undefined,
     });
     // Fresh per pass: a pooled one needs resetting at the top of every pass, where this starts empty. A GPU pass
-    // starts with the whole target as both its viewport and scissor; each segment sets its own when they differ.
+    // starts with the whole target as both its viewport and scissor; each view sets its own when they differ.
     return {
         gpuPass,
         currentSets: createCurrentSets(b.renderer.info.state),
         viewport: { x: 0, y: 0, width: params.width, height: params.height, minDepth: 0, maxDepth: 1 },
         scissor: { x: 0, y: 0, width: params.width, height: params.height },
+        view: -1,
     };
 }
-/** Sets the viewport and scissor `segment` was recorded under where they differ from what the encoder has. A bundle
- *  keeps them: they are pass state, which `executeBundles` leaves alone. */
-function applySegmentRects(scope, segment, width, height) {
-    const want = segment.viewport ? segment.viewportValue : null;
+/** Sets the viewport and scissor of the pass order's view `index` where they differ from what the encoder has. A
+ *  bundle keeps them: they are pass state, which `executeBundles` leaves alone. */
+function applyView(scope, order, index, width, height) {
+    if (scope.view === index)
+        return;
+    scope.view = index;
+    const view = order.views[index];
+    const want = view.viewport ? view.viewportValue : null;
     const x = want?.x ?? 0;
     const y = want?.y ?? 0;
     const w = want?.width ?? width;
@@ -44569,7 +45734,7 @@ function applySegmentRects(scope, segment, width, height) {
         viewport.minDepth = minDepth;
         viewport.maxDepth = maxDepth;
     }
-    const clip = segment.scissor ? segment.scissorValue : null;
+    const clip = view.scissor ? view.scissorValue : null;
     const sx = clip?.x ?? 0;
     const sy = clip?.y ?? 0;
     const sw = clip?.width ?? width;
@@ -44586,21 +45751,23 @@ function applySegmentRects(scope, segment, width, height) {
 function endPass(scope) {
     scope.gpuPass.end();
 }
-/** Encodes the pass's first `segmentCount` runs of draws, each under the viewport and scissor it was recorded with. */
-function encodeDraws(ctx, scope, segments, segmentCount) {
+/** Encodes the pass's blocks in order, each draw under the viewport and scissor it was recorded with. */
+function encodeDraws(ctx, scope) {
     const inspector = ctx.inspector;
     if (inspector)
         inspector.perf.start('drawCalls');
-    for (let index = 0; index < segmentCount; index++) {
-        const segment = segments[index];
-        applySegmentRects(scope, segment, ctx.params.width, ctx.params.height);
-        const { bundle, start } = segment;
-        const end = start + segment.count;
+    const order = ctx.order;
+    for (let index = 0; index < order.blockCount; index++) {
+        const block = order.blocks[index];
+        const bundle = block.bundle;
         if (bundle === null) {
-            encodeDrawRange(ctx, start, end, scope);
+            encodeDrawList(ctx, block.draws, block.count, scope);
             continue;
         }
-        scope.gpuPass.executeBundles([getOrRecordBundle(ctx, start, end, bundle, segment.camera)]);
+        const from = block.draws[0];
+        const view = order.drawViews[from];
+        applyView(scope, order, view, ctx.params.width, ctx.params.height);
+        scope.gpuPass.executeBundles([getOrRecordBundle(ctx, from, from + block.count, bundle, order.views[view].camera)]);
         // A bundle sets its own pipeline and bindings, so what the pass had set no longer holds.
         resetCurrentSets(scope.currentSets);
     }
@@ -44699,101 +45866,112 @@ function resolveDrawBindings(b, nodes, renderObject, out, inspector) {
     if (inspector)
         inspector.perf.end('updateForRender');
 }
-/** A range, not the whole array, because a bundle is a contiguous slice of it recorded against its own encoder. */
-function encodeDrawRange(ctx, from, to, { gpuPass, currentSets }) {
+/** A bundle's draws, `from` to `to`: a contiguous slice of the pass's, recorded against its own encoder. */
+function encodeDrawRange(ctx, from, to, scope) {
+    for (let index = from; index < to; index++)
+        encodeDraw(ctx, index, scope);
+}
+/** A block's `count` draws, by index, each under the viewport and scissor it was recorded with. */
+function encodeDrawList(ctx, draws, count, scope) {
+    const { order, params } = ctx;
+    for (let at = 0; at < count; at++) {
+        const index = draws[at];
+        applyView(scope, order, order.drawViews[index], params.width, params.height);
+        encodeDraw(ctx, index, scope);
+    }
+}
+function encodeDraw(ctx, index, { gpuPass, currentSets }) {
     const { b, nodes, passCtx, preparedObjects, preparedOpts, inspector, info } = ctx;
-    for (let index = from; index < to; index++) {
-        const renderObject = preparedObjects[index];
-        const { mesh, material, geometry } = renderObject;
-        const opts = preparedOpts[index];
-        const draws = opts?.draws ?? mesh.draws;
-        const instances = opts?.instances ?? mesh.count;
-        const range = opts?.range;
-        const gpu = getRenderObjectGpu(b.renderObjectGpu, renderObject);
-        if (takesPipeline(currentSets.pass, gpu.pipeline)) {
-            passSetPipeline(gpuPass, inspector, gpu.pipeline, pipelineLabel(mesh, material));
+    const renderObject = preparedObjects[index];
+    const { mesh, material, geometry } = renderObject;
+    const opts = preparedOpts[index];
+    const draws = opts?.draws ?? mesh.draws;
+    const instances = opts?.instances ?? mesh.count;
+    const range = opts?.range;
+    const gpu = getRenderObjectGpu(b.renderObjectGpu, renderObject);
+    if (takesPipeline(currentSets.pass, gpu.pipeline)) {
+        passSetPipeline(gpuPass, inspector, gpu.pipeline, pipelineLabel(mesh, material));
+    }
+    // The stencil reference is dynamic pass state (not baked into the pipeline); set it when a
+    // stencil-testing material's ref changes. Only meaningful on a stencil-capable attachment.
+    // A bundle encoder rejects it, which is why a stencil-ref material cannot be bundled.
+    if (passCtx.stencil && material.stencilTest && currentSets.stencilRef !== material.stencilRef) {
+        if (!('setStencilReference' in gpuPass)) {
+            throw new Error(`[bundle] "${mesh.name || 'mesh'}" sets a stencil reference, which a render bundle cannot`);
         }
-        // The stencil reference is dynamic pass state (not baked into the pipeline); set it when a
-        // stencil-testing material's ref changes. Only meaningful on a stencil-capable attachment.
-        // A bundle encoder rejects it, which is why a stencil-ref material cannot be bundled.
-        if (passCtx.stencil && material.stencilTest && currentSets.stencilRef !== material.stencilRef) {
-            if (!('setStencilReference' in gpuPass)) {
-                throw new Error(`[bundle] "${mesh.name || 'mesh'}" sets a stencil reference, which a render bundle cannot`);
-            }
-            gpuPass.setStencilReference(material.stencilRef);
-            currentSets.stencilRef = material.stencilRef;
+        gpuPass.setStencilReference(material.stencilRef);
+        currentSets.stencilRef = material.stencilRef;
+    }
+    const { groups: bindGroups, offsets: dynamicOffsets } = ctx.bindings[index];
+    setBindGroups(currentSets.pass, gpuPass, bindGroups, dynamicOffsets, inspector === null ? null : (groupIndex) => inspector.setBindGroup(groupIndex, mesh.name || ''));
+    resolveVertexBuffers(b.geometries, gpu, renderObject);
+    const { vertexBuffers, vertexBufferNames } = gpu;
+    for (let slot = 0; slot < vertexBuffers.length; slot++) {
+        const gpuBuf = ensureUploaded$1(b.buffers, b.device, vertexBuffers[slot], vertexBufferNames[slot]);
+        if (currentSets.attributes[slot] !== gpuBuf) {
+            passSetVertexBuffer(gpuPass, inspector, slot, gpuBuf);
+            currentSets.attributes[slot] = gpuBuf;
         }
-        const { groups: bindGroups, offsets: dynamicOffsets } = ctx.bindings[index];
-        setBindGroups(currentSets.pass, gpuPass, bindGroups, dynamicOffsets, inspector === null ? null : (groupIndex) => inspector.setBindGroup(groupIndex, mesh.name || ''));
-        resolveVertexBuffers(b.geometries, gpu, renderObject);
-        const { vertexBuffers, vertexBufferNames } = gpu;
-        for (let slot = 0; slot < vertexBuffers.length; slot++) {
-            const gpuBuf = ensureUploaded$1(b.buffers, b.device, vertexBuffers[slot], vertexBufferNames[slot]);
-            if (currentSets.attributes[slot] !== gpuBuf) {
-                passSetVertexBuffer(gpuPass, inspector, slot, gpuBuf);
-                currentSets.attributes[slot] = gpuBuf;
+    }
+    if (geometry.index) {
+        const idxBuf = ensureUploaded$1(b.buffers, b.device, geometry.index, 'index');
+        if (currentSets.index !== idxBuf) {
+            passSetIndexBuffer(gpuPass, inspector, idxBuf, geometry.index.indexFormat);
+            currentSets.index = idxBuf;
+        }
+        if (draws !== undefined) {
+            // Batched: one instanced drawIndexed per entry, each carrying its own firstInstance
+            // (native — instance_index is base-inclusive on WebGPU).
+            for (const d of draws) {
+                if (d.instanceCount <= 0)
+                    continue;
+                passDrawIndexed(gpuPass, inspector, info, d.indexCount, d.instanceCount, d.firstIndex, d.firstInstance, d.baseVertex ?? 0);
             }
         }
-        if (geometry.index) {
-            const idxBuf = ensureUploaded$1(b.buffers, b.device, geometry.index, 'index');
-            if (currentSets.index !== idxBuf) {
-                passSetIndexBuffer(gpuPass, inspector, idxBuf, geometry.index.indexFormat);
-                currentSets.index = idxBuf;
-            }
-            if (draws !== undefined) {
-                // Batched: one instanced drawIndexed per entry, each carrying its own firstInstance
-                // (native — instance_index is base-inclusive on WebGPU).
-                for (const d of draws) {
-                    if (d.instanceCount <= 0)
-                        continue;
-                    passDrawIndexed(gpuPass, inspector, info, d.indexCount, d.instanceCount, d.firstIndex, d.firstInstance, d.baseVertex ?? 0);
-                }
-            }
-            else if (geometry.indirect) {
-                const indirect = geometry.indirect;
-                const indBuf = ensureUploaded$1(b.buffers, b.device, indirect, 'indirect');
-                const byteStride = indirect.itemSize * 4;
-                const baseOffset = geometry.indirectOffset;
-                const drawCount = geometry.indirectDrawCount ?? indirect.count;
-                for (let d = 0; d < drawCount; d++) {
-                    passDrawIndexedIndirect(gpuPass, inspector, info, indBuf, baseOffset + d * byteStride);
-                }
-            }
-            else {
-                const { first, count } = resolveIndexedDrawRange(geometry, range);
-                passDrawIndexed(gpuPass, inspector, info, count, instances, first);
+        else if (geometry.indirect) {
+            const indirect = geometry.indirect;
+            const indBuf = ensureUploaded$1(b.buffers, b.device, indirect, 'indirect');
+            const byteStride = indirect.itemSize * 4;
+            const baseOffset = geometry.indirectOffset;
+            const drawCount = geometry.indirectDrawCount ?? indirect.count;
+            for (let d = 0; d < drawCount; d++) {
+                passDrawIndexedIndirect(gpuPass, inspector, info, indBuf, baseOffset + d * byteStride);
             }
         }
         else {
-            if (draws !== undefined) {
-                // Batched non-indexed: one instanced draw per entry, each carrying its own firstInstance.
-                for (const d of draws) {
-                    if (d.instanceCount <= 0)
-                        continue;
-                    passDraw(gpuPass, inspector, info, d.vertexCount, d.instanceCount, d.firstVertex, d.firstInstance);
-                }
-            }
-            else if (geometry.indirect) {
-                const indirect = geometry.indirect;
-                const indBuf = ensureUploaded$1(b.buffers, b.device, indirect, 'indirect');
-                const byteStride = indirect.itemSize * 4;
-                const baseOffset = geometry.indirectOffset;
-                const drawCount = geometry.indirectDrawCount ?? indirect.count;
-                for (let d = 0; d < drawCount; d++) {
-                    passDrawIndirect(gpuPass, inspector, info, indBuf, baseOffset + d * byteStride);
-                }
-            }
-            else {
-                const { first, count } = resolveVertexDrawRange(geometry, range);
-                passDraw(gpuPass, inspector, info, count, instances, first);
+            const { first, count } = resolveIndexedDrawRange(geometry, range);
+            passDrawIndexed(gpuPass, inspector, info, count, instances, first);
+        }
+    }
+    else {
+        if (draws !== undefined) {
+            // Batched non-indexed: one instanced draw per entry, each carrying its own firstInstance.
+            for (const d of draws) {
+                if (d.instanceCount <= 0)
+                    continue;
+                passDraw(gpuPass, inspector, info, d.vertexCount, d.instanceCount, d.firstVertex, d.firstInstance);
             }
         }
-        if (inspector)
-            inspector.perf.start('updateAfter');
-        updateAfter(nodes, renderObject);
-        if (inspector)
-            inspector.perf.end('updateAfter');
+        else if (geometry.indirect) {
+            const indirect = geometry.indirect;
+            const indBuf = ensureUploaded$1(b.buffers, b.device, indirect, 'indirect');
+            const byteStride = indirect.itemSize * 4;
+            const baseOffset = geometry.indirectOffset;
+            const drawCount = geometry.indirectDrawCount ?? indirect.count;
+            for (let d = 0; d < drawCount; d++) {
+                passDrawIndirect(gpuPass, inspector, info, indBuf, baseOffset + d * byteStride);
+            }
+        }
+        else {
+            const { first, count } = resolveVertexDrawRange(geometry, range);
+            passDraw(gpuPass, inspector, info, count, instances, first);
+        }
     }
+    if (inspector)
+        inspector.perf.start('updateAfter');
+    updateAfter(nodes, renderObject);
+    if (inspector)
+        inspector.perf.end('updateAfter');
 }
 // Teardown — release every device resource the renderer owns.
 /**
@@ -44944,28 +46122,42 @@ function beginPass(s, desc) {
     renderer.inspector?.beginRender(open.params.passId);
     backend._openValidationScope();
 }
-/** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded; a camera or rect
- *  change ends the run of draws before it. */
+/** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded, in the place in its
+ *  order the draw or bundle takes; a camera or rect change applies to the draws recorded after it. */
 function recordEntry(s, entry) {
     const depth = s.depth;
     const open = s.openByDepth[depth - 1];
     if (open.skipped)
         return;
     if (isViewRecord(entry)) {
-        closeRun(open, null);
+        markViewChanged(open.order);
         applyViewRecord(s.renderer, open.params, entry, CoordinateSystem.WEBGPU);
         return;
     }
+    if (entry.kind === 'bin') {
+        addBin(open.order, entry.bin);
+        return;
+    }
     try {
-        if (entry.kind !== 'bundle') {
-            resolveDraw(s, open, entry);
+        if (entry.kind === 'draw') {
+            const index = resolveDraw(s, open, entry);
+            if (index < 0)
+                return;
+            const bin = entry.bin;
+            if (bin === null)
+                addPassDraw(open.order, index, open.params);
+            else {
+                const renderObject = open.prepared[index];
+                const gpu = getRenderObjectGpu(s.backend.renderObjectGpu, renderObject);
+                addBinDraw(open.order, index, bin, gpu.pipeline, renderObject.material, renderObject.geometry, entry.sortKey, renderObject.mesh, open.params);
+            }
             return;
         }
-        closeRun(open, null);
+        const start = open.count;
         const { records, count } = entry.bundle;
         for (let index = 0; index < count; index++)
             resolveDraw(s, open, records[index]);
-        closeRun(open, entry.bundle);
+        addBundle(open.order, entry.bundle, start, open.count - start, open.params);
     }
     catch (error) {
         // A throw inside a nested pass (a render texture's contents) left it begun; this pass records on.
@@ -44981,12 +46173,13 @@ function unwindTo(s, depth) {
             closePassScopes(s, open, open.params.passId);
     }
 }
+/** Resolves `entry` into the pass's prepared arrays: the index it took, or -1 when it draws nothing. */
 function resolveDraw(s, open, entry) {
     const { renderer, backend } = s;
     const renderObject = prepareRecordedDraw(renderer, entry, open.params.camera, open.ctx, (nodes, object) => prepareRenderObject(backend, nodes, object));
     if (drawsNothing(renderObject, entry.opts)) {
         renderer.inspector?.resolvedDraw(renderObject, true);
-        return;
+        return -1;
     }
     // A nested pass recorded by `updateBefore` aimed the frame at its own target.
     aimNodeFrame(renderer, open.params.camera, open.params.width, open.params.height);
@@ -44999,6 +46192,7 @@ function resolveDraw(s, open, entry) {
         keepProbeBindings(backend.renderObjectGpu, renderObject, bindings);
         renderer.inspector.resolvedDraw(renderObject, false);
     }
+    return index;
 }
 function keepProbeBindings(cache, renderObject, bindings) {
     const gpu = getRenderObjectGpu(cache, renderObject);
@@ -45007,18 +46201,6 @@ function keepProbeBindings(cache, renderObject, bindings) {
     gpu.probeBindings.offsets.length = 0;
     gpu.probeBindings.groups.push(...bindings.groups);
     gpu.probeBindings.offsets.push(...bindings.offsets);
-}
-function closeRun(open, bundle) {
-    if (open.count === open.runStart)
-        return;
-    let segment = open.segments[open.segmentCount];
-    if (segment === undefined) {
-        segment = createSegment();
-        open.segments[open.segmentCount] = segment;
-    }
-    open.segmentCount++;
-    writeSegment(segment, bundle, open.runStart, open.count - open.runStart, open.params);
-    open.runStart = open.count;
 }
 /** Encodes what the pass resolved, then closes the scopes `beginPass` opened. */
 function encodePass(s, desc) {
@@ -45029,12 +46211,12 @@ function encodePass(s, desc) {
     // Read now: the params struct is pooled per depth, so a later pass owns it by the time this settles.
     const passId = open.params.passId;
     try {
-        closeRun(open, null);
+        orderBins(open.order, passId);
         aimNodeFrame(renderer, desc.camera ?? null, open.params.width, open.params.height);
         const scope = beginPass$1(backend, open.params);
         try {
             if (open.count > 0)
-                encodeDraws(contextAt(s, open), scope, open.segments, open.segmentCount);
+                encodeDraws(contextAt(s, open), scope);
         }
         finally {
             endPass(scope);
@@ -45145,6 +46327,8 @@ function submitFrame(s) {
         const frameCommands = backend._currentEncoder.finish();
         backend.device.queue.submit(dynamicUniformCopies === null ? [frameCommands] : [dynamicUniformCopies, frameCommands]);
         onDynamicUniformsSubmitted(backend.buffers);
+        releaseEmptyPages(backend.buffers.drawArena);
+        destroyRetiredBuffers(backend.buffers);
     }
     finally {
         backend._closeValidationScope('submit');
@@ -45183,9 +46367,7 @@ function openAt(pool, depth, desc, ctx) {
             preparedOpts: [],
             bindings: [],
             count: 0,
-            segments: [],
-            segmentCount: 0,
-            runStart: 0,
+            order: createPassOrder(),
         };
         pool[depth] = open;
     }
@@ -45193,8 +46375,7 @@ function openAt(pool, depth, desc, ctx) {
     open.ctx = ctx;
     open.skipped = true;
     open.count = 0;
-    open.segmentCount = 0;
-    open.runStart = 0;
+    resetPassOrder(open.order);
     return open;
 }
 /** The compute pass slot at `depth`, reset for `desc`. Grows to the nesting depth in use and never shrinks. */
@@ -45240,6 +46421,7 @@ function contextAt(s, open) {
             preparedObjects: open.prepared,
             preparedOpts: open.preparedOpts,
             bindings: open.bindings,
+            order: open.order,
             inspector: null,
             info: renderer.info,
         };
@@ -45252,6 +46434,7 @@ function contextAt(s, open) {
     ctx.preparedObjects = open.prepared;
     ctx.preparedOpts = open.preparedOpts;
     ctx.bindings = open.bindings;
+    ctx.order = open.order;
     ctx.inspector = renderer.inspector;
     ctx.info = renderer.info;
     return ctx;
@@ -45367,10 +46550,12 @@ class WebGPUBackend {
     bindGroupLayoutCache = createBindGroupLayoutCache();
     /** Every GPU allocation this backend holds, shared by its buffer, texture and swapchain caches. @internal */
     memoryTally = createMemoryTally();
-    /** @internal */ textures = createTextureCache$1(this.memoryTally);
+    /** Every GPU bind group, by layout and resources; the caches that destroy what groups bind release them. @internal */
+    bindGroupCache = createBindGroupCache();
+    /** @internal */ textures = createTextureCache$1(this.memoryTally, this.bindGroupCache);
     /** @internal */ samplers = createSamplerCache$1();
     /** @internal */ pipelines = createPipelinesState(this.bindGroupLayoutCache);
-    /** @internal */ bindings = createBindingsState$1(this.bindGroupLayoutCache);
+    /** @internal */ bindings = createBindingsState$1(this.bindGroupLayoutCache, this.bindGroupCache);
     /** @internal */ renderObjectGpu = createRenderObjectGpuCache();
     /** @internal */ geometries = createGeometriesState();
     /** Per (bundle, camera, render context, replay in the frame); here rather than on the neutral bundle, which may name no device object. @internal */
@@ -45429,7 +46614,7 @@ class WebGPUBackend {
      */
     async init(renderer) {
         this.renderer = renderer;
-        this.buffers = createBufferCache$1(renderer.info, this.memoryTally);
+        this.buffers = createBufferCache$1(renderer.info, this.memoryTally, this.bindGroupCache);
         const opts = this._opts;
         if (opts.device) {
             this.device = opts.device;
@@ -45479,6 +46664,7 @@ class WebGPUBackend {
         // own target, so only the colour one is published here.
         this.pipelines.canvasFormat = this.format;
         this._frame = createWebGPUFrameBackendState(renderer, this);
+        setSharedPlacement(renderer._nodes, this.device.limits.maxUniformBufferBindingSize);
     }
     beginFrame() {
         beginFrame(this._frame);
@@ -45575,6 +46761,14 @@ class WebGPUBackend {
         memory.backend.dynamicUniformStaging = dynamicUniforms.stagingBuffers;
     }
     /** @internal */
+    releaseRenderObject(renderObject) {
+        const gpu = peekRenderObjectGpu(this.renderObjectGpu, renderObject);
+        if (gpu === undefined)
+            return;
+        releaseRenderPipeline(this.pipelines, gpu);
+        gpu.pipeline = null;
+        this.renderObjectGpu.data.delete(renderObject);
+    }
     releaseUniformBlock(key) {
         releaseUniformBlock$1(this.buffers, key);
     }
@@ -45601,6 +46795,7 @@ class WebGPUBackend {
         disposeSamplerCache$1(this.samplers);
         disposeBufferCache$1(this.buffers);
         disposePipelines(this.pipelines);
+        disposeBindGroupCache(this.bindGroupCache);
         disposeBindGroupLayoutCache(this.bindGroupLayoutCache);
         resetMemoryTally(this.memoryTally);
         // A handed-in device is the caller's to destroy; the caches above are ours either way.

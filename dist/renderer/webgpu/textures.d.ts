@@ -16,6 +16,7 @@ import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureViewRange } from '../../core/gpu-texture-view';
 import type { TextureRegion } from '../../core/texture-region';
 import { type Allocation, type MemoryTally } from '../core/info';
+import { type BindGroupCache } from './bind-group-cache';
 import { type BindGroupData } from './bindings';
 import { type MipmapState } from './mipmap-utils';
 /** Data stored per Texture in the cache */
@@ -101,8 +102,10 @@ export type TextureCache = {
     mipmapState: MipmapState | null;
     /** The backend's memory tally, shared with its buffers. */
     tally: MemoryTally;
+    /** The bind group cache, whose entries naming a texture go when it is destroyed. */
+    bindGroups: BindGroupCache;
 };
-export declare function createTextureCache(tally: MemoryTally): TextureCache;
+export declare function createTextureCache(tally: MemoryTally, bindGroups: BindGroupCache): TextureCache;
 /** A fresh entry's allocations: counted as `sampled` until a render target files it as an attachment. */
 export declare function textureAllocations(texture: GpuTexture): Pick<TextureData, 'allocation' | 'msaaAllocation'>;
 /**

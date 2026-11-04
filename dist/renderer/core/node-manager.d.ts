@@ -1,9 +1,11 @@
 import type { CompileResult, CompileSlots } from '../../nodes/builder';
 import { type ComputeNode } from '../../nodes/nodes';
+import type { MemoryLayout } from '../../schema/pack';
 import type { DeviceBackend } from './device-backend';
 import type { BindingContext, NodeBuilderState } from './node-builder-state';
 import { type NodeFrame } from './node-frame';
 import type { RenderObject } from './render-object';
+import { type SharedBlocks, type SharedPlacement } from './shared-blocks';
 /** A compiled render shader and how many RenderObjects hold it. */
 type RenderStateEntry = {
     nodeState: NodeBuilderState;
@@ -24,11 +26,18 @@ export type NodeManagerState = {
     computeStates: Map<string, NodeBuilderState>;
     /** the NodeFrame instance for this manager */
     nodeFrame: NodeFrame;
-    /** Frees the uniform blocks of the bind groups a RenderObject copies from its compiled shader. */
-    backend: Pick<DeviceBackend, 'releaseUniformBlock'>;
+    /** One block per shared uniform group, which every shader reading the group binds; see `shared-blocks.ts`. */
+    sharedBlocks: SharedBlocks;
+    /** What compiles place shared members with: set by the backend once its device's uniform block limit is known. */
+    shared: SharedPlacement | null;
+    /** Frees the uniform blocks of the bind groups a RenderObject copies from its compiled shader, and what the backend
+     *  holds for a RenderObject being disposed. */
+    backend: Pick<DeviceBackend, 'releaseUniformBlock' | 'releaseRenderObject'>;
 };
 /** create a new NodeManager state */
-export declare function createNodeManagerState(backend: Pick<DeviceBackend, 'releaseUniformBlock'>): NodeManagerState;
+export declare function createNodeManagerState(backend: Pick<DeviceBackend, 'releaseUniformBlock' | 'releaseRenderObject'>, layout: MemoryLayout): NodeManagerState;
+/** Lets compiles place shared members, now that the device's uniform block limit is known. */
+export declare function setSharedPlacement(state: NodeManagerState, maxBytes: number): void;
 /**
  * Get the NodeFrame for rendering a specific RenderObject.
  * Sets the frame's context properties from the RenderObject.
@@ -41,7 +50,7 @@ export declare function getNodeFrameForRender(state: NodeManagerState, renderObj
  * The render-shader emitter is injected via `compile` so the backend chooses the target language
  * (WGSL for WebGPU, GLSL for WebGL2). Neutral core code never references a concrete emitter here.
  */
-export declare function compileNodeState(state: NodeManagerState, renderObject: RenderObject, compile: (slots: CompileSlots) => CompileResult): NodeBuilderState;
+export declare function compileNodeState(state: NodeManagerState, renderObject: RenderObject, compile: (slots: CompileSlots, shared: SharedPlacement | null) => CompileResult): NodeBuilderState;
 /**
  * Drop a RenderObject's hold on its compiled shader, evicting the shader once nothing holds it. The
  * RenderObject's bind groups were copied from that shader, so they go with it: its own groups' uniform

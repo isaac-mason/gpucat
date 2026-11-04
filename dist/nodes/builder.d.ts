@@ -1,5 +1,6 @@
 import type { GpuBuffer } from '../core/gpu-buffer';
 import type { NodeFrame } from '../renderer/core/node-frame';
+import type { SharedBlock, SharedPlacement } from '../renderer/core/shared-blocks';
 import type { StructSchema } from '../schema/schema';
 import * as d from '../schema/schema';
 import { type NameScope } from './backend/names';
@@ -14,7 +15,7 @@ import type { InterpolationSampling, InterpolationType } from './lib/varying';
 import type { WgslFunctionNode } from './lib/wgsl-fn';
 /** Entries in the multi-draw base table: a 16 KB block, WebGL2's guaranteed `MAX_UNIFORM_BLOCK_SIZE`. */
 export declare const DRAW_BASES_ENTRIES = 4096;
-export declare function compileWgsl(slots: CompileSlots): CompileResult;
+export declare function compileWgsl(slots: CompileSlots, opts?: CompileWgslOptions): CompileResult;
 /**
  * GLSL ES 3.00 sibling of {@link compile}. Reuses the shared, backend-neutral {@link discover} pass
  * and node graph, then drives the GLSL emitter instead of the WGSL one. First vertical slice: a "lit
@@ -28,7 +29,15 @@ export declare function compileWgsl(slots: CompileSlots): CompileResult;
  * Options for the GLSL emitter. WGSL has no precision qualifier, so these are GLSL-only (grammar-
  * native): a WebGL-backend concern that never touches the WGSL path.
  */
+/** Options for a WGSL compile. */
+export type CompileWgslOptions = {
+    /** Where shared groups' members are placed: the renderer's shared blocks. Without it a shared group's block holds
+     *  the members this shader reads, laid out by itself. */
+    shared?: SharedPlacement;
+};
 export type CompileGlslOptions = {
+    /** As {@link CompileWgslOptions.shared}. */
+    shared?: SharedPlacement;
     /**
      * Fragment-stage default precision qualifier (`precision <p> float;` / `precision <p> int;`).
      * Default: 'highp', keeping the emitted GLSL byte-identical to the golden snapshots.
@@ -50,7 +59,7 @@ export type CompileGlslOptions = {
     multiDraw?: boolean;
 };
 export declare function compileGlsl(slots: CompileSlots, opts?: CompileGlslOptions): CompileResult;
-export declare function compileComputeWgsl(node: ComputeNode): ComputeCompileResult;
+export declare function compileComputeWgsl(node: ComputeNode, opts?: CompileWgslOptions): ComputeCompileResult;
 /**
  * GLSL compile path for a transform-feedback kernel (Phase 1 of the WebGL transform-feedback plan).
  * Sibling to {@link compileCompute}: reuses the shared, backend-neutral {@link discover} pass and the
@@ -138,6 +147,8 @@ export type UniformGroupBlock = {
     members: UniformMember[];
     totalBytes: number;
     group: UniformGroup;
+    /** The renderer's shared block this shader's block is a view of, when its members were placed there. */
+    sharedBlock?: SharedBlock | null;
 };
 export type StorageEntry = {
     node: StorageNode<d.Any>;
@@ -261,6 +272,8 @@ export type TransformFeedbackGlslResult = {
 };
 /** result of a single DFS pass that discovers all metadata needed before code generation */
 export type Discovery = {
+    /** Where shared groups' members are placed, or null to lay each shader's shared blocks out by themselves. */
+    shared: SharedPlacement | null;
     nodeIdToUsages: Map<number, number>;
     mutatedNodes: Set<number>;
     fnDefs: Map<string, {

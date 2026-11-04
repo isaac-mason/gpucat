@@ -17,7 +17,8 @@ import type { DrawOptions } from '../core/frame';
 import type { RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
-import { type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
+import type { PassOrder } from '../core/pass-order';
+import { type PreparedRenderObject, type RenderPassParams } from '../core/render-types';
 import * as Bindings from './bindings';
 import type { WebGLBackend } from './webgl-backend';
 /**
@@ -41,8 +42,8 @@ export type PassScope = {
 };
 export declare function beginPass(caches: WebGLBackend, passCtx: RenderContext, params: RenderPassParams): PassScope;
 /**
- * Unbinds the VAO so later buffer mutations cannot record into it, invalidates the depth and stencil the pass doesn't
- * store, then resolves an MSAA target (its colour alone, so they can go first).
+ * Invalidates the depth and stencil the pass doesn't store, then resolves an MSAA target (its colour alone, so they can
+ * go first). The VAO stays bound: index uploads unbind it through `glState` first.
  */
 export declare function endPass(caches: WebGLBackend, params: RenderPassParams): void;
 /**
@@ -50,5 +51,5 @@ export declare function endPass(caches: WebGLBackend, params: RenderPassParams):
  * recorded it, so the draw uses the values set before that call.
  */
 export declare function captureDraw(caches: WebGLBackend, nodes: NodeManagerState, renderObject: PreparedRenderObject, out: Bindings.RecordCapture): void;
-export declare function encodeDraws(gl: WebGL2RenderingContext, caches: WebGLBackend, nodes: NodeManagerState, passCtx: RenderContext, params: RenderPassParams, prepared: readonly PreparedRenderObject[], preparedOpts: readonly (DrawOptions | null)[], captures: readonly Bindings.RecordCapture[], count: number, segments: readonly PreparedSegment[], segmentCount: number, inspector: InspectorBase | null, info: RendererInfo, { passBlend }: PassScope): void;
+export declare function encodeDraws(gl: WebGL2RenderingContext, caches: WebGLBackend, nodes: NodeManagerState, passCtx: RenderContext, params: RenderPassParams, prepared: readonly PreparedRenderObject[], preparedOpts: readonly (DrawOptions | null)[], captures: readonly Bindings.RecordCapture[], count: number, order: PassOrder, inspector: InspectorBase | null, info: RendererInfo, { passBlend }: PassScope): void;
 export {};

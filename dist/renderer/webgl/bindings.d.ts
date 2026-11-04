@@ -19,7 +19,7 @@
  *   - invoking each member node's `update` callback through `invokeUniformGroupCallbacks`, which both
  *     backends share from `core/bind-group.ts`,
  *   - reading each member's value from `m.node.uniform.value`, falling back to the material's named
- *     uniforms, then packing it with `packToView(schema, view, offset, value, 'std140')`.
+ *     uniforms, then packing it in std140 through `packUniformMembers` (`core/uniform-use.ts`), as WebGPU does.
  * Per-group GL state (the latest packed values, what the UBO holds, change tracking) is cached in a
  * WeakMap keyed by the binding's `bufferKey`, the same key `buffers.ts` holds the UBO under, so shared
  * groups (camera) share one entry and per-object groups get their own, exactly as WebGPU.
@@ -28,6 +28,7 @@ import type { Material } from '../../material/material';
 import type { UniformGroupBlock } from '../../nodes/builder';
 import { type UniformBinding } from '../core/bind-group';
 import type { NodeFrame } from '../core/node-frame';
+import { type GlState } from './state';
 import type { TextureCapture } from './texture-bindings';
 import type { WebGLBackend } from './webgl-backend';
 /** Per-uniform-BindGroup GL resources + change-tracking state. */
@@ -46,11 +47,19 @@ type UboData = {
  * One uniform group's bytes as a draw or dispatch recorded them, and where they bind. Captured at the
  * call so it uses the values set before it, uploaded when its pass executes. Pooled per record.
  */
+/**
+ * A recorded use of a uniform block: its bytes as packed for the draw, or for a shared block's, `shared`, whose buffer
+ * is already up to date and binds alone. `scope` names what the bytes hold for (a render id, or the frame) when the
+ * block resolves once per scope, -1 when per use; such a use binds the pass's `slot` for its scope (`pass-uniforms.ts`).
+ */
 export type UniformCapture = {
     key: object;
     block: UniformGroupBlock;
     bindingPoint: number;
     bytes: Uint8Array<ArrayBuffer>;
+    shared: boolean;
+    scope: number;
+    slot: number;
 };
 /**
  * Bindings state: the CPU half of a uniform binding.
@@ -89,21 +98,7 @@ export declare function captureStandaloneUniformGroup(b: WebGLBackend, block: Un
  * Uploads a captured group if its bytes differ from what its UBO holds, then binds the UBO to its
  * binding point. Runs as the pass executes, draw by draw, which GL orders for us.
  */
-export declare function uploadAndBindCapture(gl: WebGL2RenderingContext, b: WebGLBackend, capture: UniformCapture, material: Material | null, bound: BoundUniforms): void;
-/**
- * What a pass has bound at each uniform buffer binding point, so a draw binds only what differs, as three.js's
- * `WebGLState` keeps its UBO bindings: a pass starts with none known and each binding point is set once until another
- * buffer or range takes it.
- */
-export type BoundUniforms = {
-    buffers: (WebGLBuffer | null)[];
-    offsets: number[];
-};
-export declare function createBoundUniforms(): BoundUniforms;
-/** Nothing known bound, as a pass begins. Emptied in place, its arrays' length and packing kept. */
-export declare function resetBoundUniforms(bound: BoundUniforms): void;
-/** Binds `buffer` at `point`, whole for an `offset` of -1, else its `size` bytes from `offset`; skipped if bound so. */
-export declare function bindUniformBuffer(gl: WebGL2RenderingContext, bound: BoundUniforms, point: number, buffer: WebGLBuffer, offset: number, size: number): void;
+export declare function uploadAndBindCapture(gl: WebGL2RenderingContext, b: WebGLBackend, capture: UniformCapture, material: Material | null, state: GlState): void;
 /**
  * What one recorded draw (or transform-feedback dispatch) binds, captured at the call that recorded it:
  * its uniform groups' bytes and the texture and sampler values it samples. Pooled per record.

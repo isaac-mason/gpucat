@@ -16,6 +16,7 @@ import type { Any } from '../../schema/schema';
 import type { NodeBuilderState } from '../core/node-builder-state';
 import type { RenderObject } from '../core/render-object';
 import type { DrawBindings } from './bindings';
+import type { RenderPipelineEntry } from './pipelines';
 /**
  * The WebGPU device payload for a single RenderObject.
  *
@@ -28,6 +29,8 @@ export type RenderObjectGpu = {
      * null until pipeline is created.
      */
     pipeline: GPURenderPipeline | null;
+    /** The cache entry `pipeline` came from, which counts this object while it holds it. */
+    pipelineEntry: RenderPipelineEntry | null;
     /**
      * A copy of what the object's most recent draw bound, kept only while an inspector is attached, for
      * the pipeline probe that redraws it. Draw bindings themselves are pooled per pass and reused.

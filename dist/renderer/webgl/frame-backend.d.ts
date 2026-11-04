@@ -2,7 +2,8 @@ import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { DeviceBackend } from '../core/device-backend';
 import type { DrawOptions, PassDesc, PassEntry, TransformFeedbackPassDesc, TransformFeedbackRecord } from '../core/frame';
 import type { RenderContext } from '../core/pass-context';
-import { type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
+import { type PassOrder } from '../core/pass-order';
+import { type PreparedRenderObject, type RenderPassParams } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
 import * as Bindings from './bindings';
 import type { WebGLBackend } from './webgl-backend';
@@ -43,11 +44,9 @@ type OpenRenderPass = {
     preparedOpts: (DrawOptions | null)[];
     captures: Bindings.RecordCapture[];
     count: number;
-    /** Runs of `prepared`, split where the camera or a rect changed. Pooled; the first `segmentCount` are this
-     *  pass's. A bundle's draws replay inside the run they land in: WebGL has no device bundles. */
-    segments: PreparedSegment[];
-    segmentCount: number;
-    runStart: number;
+    /** The order the draws encode in, and the view each was recorded under. A bundle's draws replay as the pass's own
+     *  draws: WebGL has no device bundles. */
+    order: PassOrder;
 };
 export declare function createWebGLFrameBackendState(renderer: Renderer<DeviceBackend>, backend: WebGLBackend): WebGLFrameBackendState;
 export declare function beginFrame(s: WebGLFrameBackendState): void;

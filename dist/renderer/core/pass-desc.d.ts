@@ -1,8 +1,8 @@
 import type { CoordinateSystem } from '../../core/coordinate-system';
 import type { DeviceBackend } from './device-backend';
-import type { CameraRecord, PassDesc, PassEntry, Rect, RenderBundle, ScissorRecord, ViewportRecord, ViewportRect } from './frame';
+import type { CameraRecord, PassDesc, PassEntry, Rect, ScissorRecord, ViewportRecord, ViewportRect } from './frame';
 import { type RenderContext, type RenderContextsState, type ScissorValue, type ViewportValue } from './pass-context';
-import { type PreparedSegment, type RenderPassParams } from './render-types';
+import { type RenderPassParams } from './render-types';
 import type { Renderer } from './renderer';
 import { type Target } from './target';
 import type { View } from './view';
@@ -31,5 +31,3 @@ export declare function resolveScissor(scissor: Rect | undefined, width: number,
 export declare function applyViewRecord(renderer: Renderer<DeviceBackend>, params: RenderPassParams, entry: CameraRecord | ViewportRecord | ScissorRecord, coordinateSystem: CoordinateSystem): void;
 /** Whether a record changes what the draws after it are drawn with, rather than drawing. */
 export declare function isViewRecord(entry: PassEntry): entry is CameraRecord | ViewportRecord | ScissorRecord;
-/** The run of draws `start` to `start + count` into `out`, with the camera and rects `params` holds while they draw. */
-export declare function writeSegment(out: PreparedSegment, bundle: RenderBundle | null, start: number, count: number, params: RenderPassParams): void;

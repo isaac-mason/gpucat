@@ -1,11 +1,23 @@
 import type { AttributeEntry, CompileResult, ComputeCompileResult, SamplerEntry, StorageEntry, TextureEntry, UniformGroupBlock, UpdateAfterNode, UpdateBeforeNode, UpdateNode, VaryingEntry, VertexBufferGroup } from '../../nodes/builder';
 import { type BindGroup } from './bind-group';
 import type { ComputeContext, RenderContext } from './pass-context';
+import { type SharedBlocks, type SharedMember } from './shared-blocks';
 /**
  * Context type for bind group caching.
  * RenderContext for render passes, ComputeContext for compute passes.
  */
 export type BindingContext = RenderContext | ComputeContext;
+/** A cached shared group and the compiled states holding it: at 0 it leaves the cache and its uniform block goes. */
+type SharedEntry = {
+    bindGroup: BindGroup;
+    users: number;
+};
+/** A state's hold on a cached shared group, to let go of when the state goes. */
+type SharedHold = {
+    cache: Map<string, SharedEntry>;
+    key: string;
+    entry: SharedEntry;
+};
 /**
  * NodeBuilderState - Compiled shader state for both render and compute.
  *
@@ -57,6 +69,10 @@ export type NodeBuilderState = {
     updateNodes: UpdateNode[];
     /** The key the NodeManager shares this render state under. Empty for compute. */
     cacheKey: string;
+    /** The cached shared groups among `bindings`, which count this state until `releaseNodeBuilderState`. */
+    sharedHolds: SharedHold[];
+    /** The shared block members this state's shaders read, which count it as a reader until it is released. */
+    sharedMembers: SharedMember[];
     readonly isNodeBuilderState: true;
 };
 /**
@@ -98,3 +114,10 @@ export declare function createBindings(state: NodeBuilderState): BindGroup[];
 export declare function assertVertexBuffers(geometry: {
     buffers: ReadonlyMap<string, unknown>;
 }, state: NodeBuilderState, label: string): void;
+/**
+ * Lets go of what a compiled state holds that its users don't: each cached shared group stops counting it, and one held
+ * by no other state leaves the cache. The uniform blocks of every shared group no state holds any more go to
+ * `releaseUniformBlock`, a cached group's with its last holder and another shared group's with this state.
+ */
+export declare function releaseNodeBuilderState(nodeState: NodeBuilderState, sharedBlocks: SharedBlocks, releaseUniformBlock: (key: object) => void): void;
+export {};

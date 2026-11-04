@@ -14,6 +14,7 @@ import * as Bindings from './bindings';
 import * as Buffers from './buffers';
 import * as DrawBases from './draw-bases';
 import * as Geometries from './geometries';
+import * as PassUniforms from './pass-uniforms';
 import * as Programs from './programs';
 import { type RenderObjectGlCache } from './render-object-gl';
 import * as RenderTargets from './render-target';
@@ -97,6 +98,8 @@ export declare class WebGLBackend implements DeviceBackend {
     _maxTextureSize: number | undefined;
     /** The multi-draw state, null without WEBGL_multi_draw or with `multiDraw: false`. @internal */
     _drawBases: DrawBases.DrawBases | null;
+    /** Each pass's shared view and frame blocks, a slot per scope, made with the context. @internal */
+    _passUniforms: PassUniforms.PassUniforms | null;
     constructor(opts: WebGLBackendOptions);
     private _frame;
     /** Acquire the WebGL2 context and set the initial viewport. Async to match the WebGPU contract. */
@@ -120,6 +123,7 @@ export declare class WebGLBackend implements DeviceBackend {
     /** @internal */
     compileObjects(objects: RenderObject[], _params: RenderPassParams): Promise<void>;
     /** @internal */
+    releaseRenderObject(renderObject: RenderObject): void;
     releaseUniformBlock(key: object): void;
     /**
      * Puts the context back to GL's defaults for everything gpucat sets or reads through, and forgets its records of it.

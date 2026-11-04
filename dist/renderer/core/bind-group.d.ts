@@ -3,6 +3,7 @@ import type { GpuTexture } from '../../core/gpu-texture';
 import type { Material } from '../../material/material';
 import type { SamplerEntry, StorageEntry, StorageTextureEntry, TextureEntry, UniformGroupBlock } from '../../nodes/builder';
 import type { NodeFrame } from './node-frame';
+import type { SharedBlock } from './shared-blocks';
 /**
  * A single binding within a BindGroup.
  * Can be a uniform buffer, storage buffer, texture, or sampler.
@@ -50,6 +51,11 @@ export type UniformBinding = {
      * packed again.
      */
     stamp: number[];
+    /**
+     * The renderer's shared block this binding reads, for a shared group whose uniforms live there: its bytes are the
+     * block's, synced and uploaded by the block, and its buffer is keyed by the block. Null for any other.
+     */
+    sharedBlock: SharedBlock | null;
 };
 /** Storage buffer binding (SSBO) */
 export type StorageBinding = {

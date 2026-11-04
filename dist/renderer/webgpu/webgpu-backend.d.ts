@@ -10,6 +10,7 @@ import * as Info from '../core/info';
 import type { RenderObject } from '../core/render-object';
 import type { RenderPassParams } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
+import * as BindGroupCache from './bind-group-cache';
 import { type BindGroupLayoutCache } from './bind-group-layout';
 import * as Bindings from './bindings';
 import * as Buffers from './buffers';
@@ -65,6 +66,8 @@ export declare class WebGPUBackend implements DeviceBackend {
     bindGroupLayoutCache: BindGroupLayoutCache;
     /** Every GPU allocation this backend holds, shared by its buffer, texture and swapchain caches. @internal */
     readonly memoryTally: Info.MemoryTally;
+    /** Every GPU bind group, by layout and resources; the caches that destroy what groups bind release them. @internal */
+    readonly bindGroupCache: BindGroupCache.BindGroupCache;
     /** @internal */ textures: Textures.TextureCache;
     /** @internal */ samplers: Samplers.SamplerCache;
     /** @internal */ pipelines: Pipelines.PipelinesState;
@@ -133,6 +136,7 @@ export declare class WebGPUBackend implements DeviceBackend {
     hasFeature(feature: GPUFeatureName): boolean;
     readMemoryStats(memory: Info.MemoryInfo): void;
     /** @internal */
+    releaseRenderObject(renderObject: RenderObject): void;
     releaseUniformBlock(key: object): void;
     /** Nothing to forget: a WebGPU pass starts from no state, and other users of the device cannot reach its encoders. */
     /** @internal */

@@ -14,7 +14,9 @@
  * node graph, so identical materials share one program (analogous to how the WebGPU path shares a
  * pipeline by its cache key).
  */
-import type { UniformGroupBlock } from '../../nodes/builder';
+import type { TextureEntry, UniformGroupBlock } from '../../nodes/builder';
+import { type GlState } from './state';
+import { type ProgramUnits, type TextureHomes } from './texture-homes';
 /** A linked GL program plus the resolved per-group UBO binding points. */
 export type ProgramInfo = {
     program: WebGLProgram;
@@ -29,6 +31,9 @@ export type ProgramInfo = {
      * the first draw that binds it (a location is a property of the linked program).
      */
     textureUniforms: Map<string, TextureUniforms>;
+    /** The units its textures bind at (`texture-homes.ts`); null for a program no cache holds, which binds each at
+     *  the unit the emitter numbered it. */
+    units: ProgramUnits | null;
     /**
      * Location of the batched-draw base uniform (`u_drawBase`), or `null` when the program doesn't
      * use `instanceIndex` (so the uniform isn't declared). Resolved at link time. The batched draw
@@ -43,6 +48,14 @@ export type ProgramInfo = {
      * to the current framebuffer height so gl_FragCoord / screenUV match WebGPU's top-left origin.
      */
     fragCoordFlipHeightLocation?: WebGLUniformLocation | null;
+    /** The height last written to that uniform: a uniform's value is the program's, kept across passes. */
+    fragCoordFlipHeight?: number;
+    /**
+     * For a program in the source cache, its source and the RenderObjects holding it: at 0 it is deleted, as three.js
+     * releases a program at zero `usedTimes`. Null for a program no cache holds (a probe's, a kernel's).
+     */
+    source?: string;
+    users?: number;
 };
 /**
  * A texture binding's uniforms on one program, and the values last written to them. A program keeps a
@@ -58,12 +71,15 @@ export type TextureUniforms = {
     /** What `flip` holds, 1 or 0; -1 until first set. */
     flipped: number;
 };
-/** Program cache, keyed by the combined GLSL source string. */
+/** Program cache, keyed by the combined GLSL source string, and the texture homes its programs read. */
 export type ProgramCache = {
     programs: Map<string, ProgramInfo>;
+    homes: TextureHomes;
 };
-/** Create an empty program cache. */
+/** Create an empty program cache; its homes wait for the context's unit count ({@link setTextureUnitCount}). */
 export declare function createProgramCache(): ProgramCache;
+/** Gives the cache's programs homes when the device has the units for them. */
+export declare function setTextureUnitCount(cache: ProgramCache, maxCombinedUnits: number): void;
 /**
  * Get (or compile + link + cache) the GL program for a compiled material.
  *
@@ -72,7 +88,7 @@ export declare function createProgramCache(): ProgramCache;
  * @param code the combined GLSL source from `compileGlsl` (`nodeBuilderState.vertexCode`)
  * @param uniformGroups the compiled uniform groups, used to resolve + bind each UBO block index
  */
-export declare function getProgram(gl: WebGL2RenderingContext, cache: ProgramCache, code: string, uniformGroups: UniformGroupBlock[]): ProgramInfo;
+export declare function getProgram(gl: WebGL2RenderingContext, cache: ProgramCache, code: string, uniformGroups: UniformGroupBlock[], textures: readonly TextureEntry[]): ProgramInfo;
 /**
  * Compile + link a transform-feedback program: a vertex shader whose captured varyings are declared
  * to the linker via `gl.transformFeedbackVaryings(program, varyings, SEPARATE_ATTRIBS)` BEFORE
@@ -104,8 +120,16 @@ export declare const DRAW_BASES_BINDING = 23;
 export declare function bindUniformBlocks(gl: WebGL2RenderingContext, program: WebGLProgram, uniformGroups: UniformGroupBlock[]): Map<string, number>;
 /** Binds the multi-draw base table of `program` at {@link DRAW_BASES_BINDING}; whether the program reads one. */
 export declare function bindDrawBases(gl: WebGL2RenderingContext, program: WebGLProgram): boolean;
+/** The cached program for `code`, counted for `held`, releasing what `held` had before. */
+export declare function holdProgram(gl: WebGL2RenderingContext, cache: ProgramCache, state: GlState, held: {
+    program: ProgramInfo | null;
+}, code: string, uniformGroups: UniformGroupBlock[], textures: readonly TextureEntry[]): ProgramInfo;
+/** Stops `held` counting its program; one held by none is deleted. */
+export declare function releaseProgram(gl: WebGL2RenderingContext, cache: ProgramCache, state: GlState, held: {
+    program: ProgramInfo | null;
+}): void;
 /** Delete all cached programs (called on renderer dispose). */
-export declare function disposePrograms(gl: WebGL2RenderingContext, cache: ProgramCache): void;
+export declare function disposePrograms(gl: WebGL2RenderingContext, cache: ProgramCache, state: GlState): void;
 /** Number of linked GL programs currently cached. */
 export declare function getProgramCacheStats(cache: ProgramCache): {
     programCount: number;

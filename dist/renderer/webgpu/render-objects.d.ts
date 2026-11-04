@@ -6,6 +6,7 @@
 import type { CompileResult, CompileSlots } from '../../nodes/builder';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderObject } from '../core/render-object';
+import type { SharedPlacement } from '../core/shared-blocks';
 import type { WebGPUBackend } from './webgpu-backend';
 /**
  * Initialize a RenderObject for rendering.
@@ -22,6 +23,6 @@ import type { WebGPUBackend } from './webgpu-backend';
  *
  * @returns true if initialization succeeded
  */
-export declare function initRenderObject(b: WebGPUBackend, nodes: NodeManagerState, renderObject: RenderObject, compile: (slots: CompileSlots) => CompileResult): boolean;
+export declare function initRenderObject(b: WebGPUBackend, nodes: NodeManagerState, renderObject: RenderObject, compile: (slots: CompileSlots, shared: SharedPlacement | null) => CompileResult): boolean;
 /** `initRenderObject` for the pre-warm: pipeline compilation is pushed onto `promises` instead of awaited. */
-export declare function initRenderObjectWithPromises(b: WebGPUBackend, nodes: NodeManagerState, renderObject: RenderObject, promises: Promise<void>[], compile: (slots: CompileSlots) => CompileResult): boolean;
+export declare function initRenderObjectWithPromises(b: WebGPUBackend, nodes: NodeManagerState, renderObject: RenderObject, promises: Promise<void>[], compile: (slots: CompileSlots, shared: SharedPlacement | null) => CompileResult): boolean;

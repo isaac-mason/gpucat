@@ -4,7 +4,8 @@ import type { DrawOptions } from '../core/frame';
 import { type Allocation, type MemoryTally, type RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext, ScissorValue, ViewportValue } from '../core/pass-context';
-import { type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
+import type { PassOrder } from '../core/pass-order';
+import { type PreparedRenderObject, type RenderPassParams } from '../core/render-types';
 import { type DrawBindings } from './bindings';
 import { type PassState } from './pass-state';
 import type { WebGPUBackend } from './webgpu-backend';
@@ -83,6 +84,8 @@ export type PassScope = {
     currentSets: CurrentSets;
     viewport: ViewportValue;
     scissor: ScissorValue;
+    /** The pass order's view the rects were last set from, -1 before the first. */
+    view: number;
 };
 /** The draw loop's own scope, which a bundle recording satisfies with a bundle encoder. */
 export type DrawScope = {
@@ -101,11 +104,13 @@ export type EncodeContext = {
     preparedOpts: readonly (DrawOptions | null)[];
     /** What each prepared draw binds, resolved when it was recorded. */
     bindings: readonly DrawBindings[];
+    /** The order the draws encode in, and the view each was recorded under. */
+    order: PassOrder;
     inspector: InspectorBase | null;
     info: RendererInfo;
 };
-/** Encodes the pass's first `segmentCount` runs of draws, each under the viewport and scissor it was recorded with. */
-export declare function encodeDraws(ctx: EncodeContext, scope: PassScope, segments: readonly PreparedSegment[], segmentCount: number): void;
+/** Encodes the pass's blocks in order, each draw under the viewport and scissor it was recorded with. */
+export declare function encodeDraws(ctx: EncodeContext, scope: PassScope): void;
 /** A device bundle and the bind groups and dynamic offsets it baked, in draw then @group order. */
 export type RecordedBundle = {
     gpu: GPURenderBundle;

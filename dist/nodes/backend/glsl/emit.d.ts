@@ -14,6 +14,7 @@
  *
  * Nothing here touches GPUDevice or any runtime object — it is purely node-graph → text.
  */
+import { type SharedPlacement } from '../../../renderer/core/shared-blocks';
 import type { StructSchema } from '../../../schema/schema';
 import * as d from '../../../schema/schema';
 import type { CompileSlots, Discovery, SamplerEntry, TextureEntry, UniformGroupBlock } from '../../builder';
@@ -45,6 +46,8 @@ export type StorageMirror = {
  * per-stage emission scratch (attributes, varyings, CSE vars, code lines).
  */
 export type GlslBuildContext = {
+    /** Where shared groups' members are placed, or null to lay each shared block out by itself. */
+    shared: SharedPlacement | null;
     stage: ShaderStage;
     uniforms: Map<string, {
         node: UniformNode<d.Any>;

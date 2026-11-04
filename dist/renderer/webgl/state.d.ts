@@ -55,6 +55,15 @@ export type GlState = {
     clearA: number | null;
     clearDepth: number | null;
     clearStencil: number | null;
+    /** The program in use (null for none), the vertex array bound (null for VAO 0); undefined where not known. */
+    program: WebGLProgram | null | undefined;
+    vao: WebGLVertexArrayObject | null | undefined;
+    /**
+     * Each uniform buffer binding point's buffer (undefined where not known) and offset (-1 for the whole buffer), as
+     * three.js's `uboBindings`: a pass reuses what the last left bound.
+     */
+    uniformBuffers: (WebGLBuffer | null | undefined)[];
+    uniformOffsets: number[];
 };
 /** One face's stencil test and ops; null where not known. */
 type StencilFace = {
@@ -97,4 +106,21 @@ export declare function applyMaterialState(gl: WebGL2RenderingContext, state: Gl
  * drawn with the context, as three.js's `resetState` does. Reading the context's state back instead would stall it.
  */
 export declare function resetGlState(gl: WebGL2RenderingContext, state: GlState, width: number, height: number): void;
+/** Makes `program` current, skipped if it is: the record lives for the context, so a pass reuses the last one's. */
+export declare function useProgram(gl: WebGL2RenderingContext, state: GlState, program: WebGLProgram | null): void;
+/** Binds `vao`, skipped if bound. */
+export declare function bindVertexArray(gl: WebGL2RenderingContext, state: GlState, vao: WebGLVertexArrayObject | null): void;
+/**
+ * Binds VAO 0 if another is bound, before an `ELEMENT_ARRAY_BUFFER` bind, which is VAO state: under a draw's VAO it would
+ * rewrite that VAO's index buffer. Babylon's `_unbindVertexArrayObject`, so uploads can land mid-pass.
+ */
+export declare function unbindVertexArray(gl: WebGL2RenderingContext, state: GlState): void;
+/** Binds `buffer` at `point`, whole for an `offset` of -1, else its `size` bytes from `offset`; skipped if bound so. */
+export declare function bindUniformBuffer(gl: WebGL2RenderingContext, state: GlState, point: number, buffer: WebGLBuffer | null, offset: number, size: number): void;
+/** Deletes `program`, made not current first so GL frees it now rather than when it next stops being current. */
+export declare function deleteProgram(gl: WebGL2RenderingContext, state: GlState, program: WebGLProgram): void;
+/** Deletes `vao`; GL reverts a bound one's binding to VAO 0, and the record follows. */
+export declare function deleteVertexArray(gl: WebGL2RenderingContext, state: GlState, vao: WebGLVertexArrayObject): void;
+/** Deletes `buffer`; GL unbinds it from the context's binding points, and the record follows. */
+export declare function deleteBuffer(gl: WebGL2RenderingContext, state: GlState, buffer: WebGLBuffer): void;
 export {};

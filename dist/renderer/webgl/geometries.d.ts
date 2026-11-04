@@ -19,6 +19,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
 import type { NodeBuilderState } from '../core/node-builder-state';
+import { type GlState } from './state';
 import type { WebGLBackend } from './webgl-backend';
 /** A geometry's VAO for one program, and the buffers it was built over. */
 type ProgramGeometry = {
@@ -35,10 +36,6 @@ type GeometryBuffers = {
     programs: Map<WebGLProgram, ProgramGeometry>;
     /** A VAO bakes in the buffers bound when it was built, so a rebind invalidates every one of them. */
     bindingsVersion: number;
-};
-/** The VAO a pass last bound, so a draw binds only a different one. */
-export type VaoBinding = {
-    vao: WebGLVertexArrayObject | null;
 };
 /** Geometries state: per-geometry VAOs, keyed by geometry identity. */
 export type GeometriesState = {
@@ -87,12 +84,12 @@ export type GeometryDrawInfo = {
  * `bound` is the VAO the caller last bound. It is left bound unless an index upload or a VAO build has
  * to unbind it, and `bound` follows, so the caller can skip binding a VAO that is still bound.
  */
-export declare function prepareGeometry(gl: WebGL2RenderingContext, b: WebGLBackend, geometry: Geometry, nodeState: NodeBuilderState, program: WebGLProgram, label?: string, bound?: VaoBinding): GeometryDrawInfo;
+export declare function prepareGeometry(gl: WebGL2RenderingContext, b: WebGLBackend, geometry: Geometry, nodeState: NodeBuilderState, program: WebGLProgram, label?: string): GeometryDrawInfo;
 /**
  * Dispose the GL resources this module owns for one geometry: its VAOs.
  *
  * Not its buffers. `buffers.ts` owns those, keyed by `GpuBuffer`, and another geometry may still be
  * drawing from the same one; each buffer releases itself when its own `GpuBuffer` is disposed.
  */
-export declare function disposeGeometry(gl: WebGL2RenderingContext, state: GeometriesState, geometry: Geometry): void;
+export declare function disposeGeometry(gl: WebGL2RenderingContext, glState: GlState, state: GeometriesState, geometry: Geometry): void;
 export {};

@@ -5,31 +5,10 @@ import type { DispatchOptions } from '../core/frame';
 import type { NodeBuilderState } from '../core/node-builder-state';
 import type { NodeFrame } from '../core/node-frame';
 import type { RenderObject } from '../core/render-object';
+import { type BindGroupCache, type CachedGroup } from './bind-group-cache';
 import { type BindGroupLayoutCache } from './bind-group-layout';
 import { type ArenaSlot } from './draw-arena';
 import type { WebGPUBackend } from './webgpu-backend';
-/**
- * The GPU bind groups over one layout and one set of resources, shared by every BindGroup binding that set: two render
- * objects drawing one material's textures bind one GPU group, which a pass then sets once for both. Keyed by the
- * layout and the GPU objects bound, by identity, so a recreated texture or buffer is a new key and a stale entry is
- * never found again; entries unused for {@link GROUP_KEEP_FRAMES} frames are dropped, as Granite's and Filament's
- * descriptor caches recycle theirs.
- */
-export type CachedGroup = {
-    key: string;
-    /** over the uniform block's own buffer, or for a group with none; built on first need */
-    bindGroup: GPUBindGroup | null;
-    /**
-     * For a group whose uniform block binds at a dynamic offset: one GPU bind group per dynamic uniform
-     * buffer a use has been allocated from, by buffer id. Those buffers are pooled, never replaced, so each
-     * stays valid.
-     */
-    dynamicBindGroups: (GPUBindGroup | undefined)[];
-    /** the frame it was last bound in */
-    lastFrame: number;
-    /** dropped from the cache: a group still holding it re-enters it on its next use */
-    evicted: boolean;
-};
 /**
  * Per-BindGroup data (GPU resources).
  * Keyed by BindGroup object identity in a WeakMap.
@@ -70,16 +49,14 @@ export type BindingsState = {
     /** a number for each GPU object a cache key names, held weakly so no key keeps one alive */
     objectIds: WeakMap<object, number>;
     nextObjectId: number;
-    /** every GPU bind group, by layout and resources bound. See {@link CachedGroup}. */
-    groups: Map<string, CachedGroup>;
-    /** the frame the cache was last swept for unused entries */
-    sweptFrame: number;
+    /** every GPU bind group, by layout and resources bound, shared with the caches that destroy what they bind */
+    cache: BindGroupCache;
 };
 /**
  * Create a new Bindings state. The shared bind group layout cache is owned by the backend and passed
  * in so the bindings and pipelines layers hit a single value-keyed layout cache.
  */
-export declare function createBindingsState(layoutCache: BindGroupLayoutCache): BindingsState;
+export declare function createBindingsState(layoutCache: BindGroupLayoutCache, cache: BindGroupCache): BindingsState;
 /**
  * What one recorded draw or dispatch binds, in @group order: its bind groups and the dynamic offset each is
  * bound at (-1 for a group without one). Per draw rather than per RenderObject, since one object drawn twice

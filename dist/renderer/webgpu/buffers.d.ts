@@ -3,6 +3,8 @@ import type { Geometry } from '../../geometry/geometry';
 import type { StorageNode } from '../../nodes/nodes';
 import type { Any } from '../../schema/schema';
 import { type Allocation, type MemoryTally, type RendererInfo } from '../core/info';
+import { type SharedBlock } from '../core/shared-blocks';
+import { type BindGroupCache } from './bind-group-cache';
 import { type DrawArena, type SharedGroup } from './draw-arena';
 type CacheEntry = {
     buf: GPUBuffer;
@@ -31,6 +33,10 @@ export type BufferCache = {
     dynamicUniforms: DynamicUniformBuffers;
     /** Where each render object's and dispatch's own uniform block lives. See `draw-arena.ts`. */
     drawArena: DrawArena;
+    /** The bind group cache, whose entries naming a buffer go when it is destroyed. */
+    bindGroups: BindGroupCache;
+    /** Buffers replaced while the frame may still read them, destroyed after its submit. */
+    retired: GPUBuffer[];
 };
 /**
  * PlayCanvas's `DynamicBuffers`. A uniform block used again in a frame with different bytes cannot rewrite
@@ -84,7 +90,7 @@ export type BufferCacheStats = {
     bufferCount: number;
     rawCount: number;
 };
-export declare function createBufferCache(info: RendererInfo, tally: MemoryTally): BufferCache;
+export declare function createBufferCache(info: RendererInfo, tally: MemoryTally, bindGroups: BindGroupCache): BufferCache;
 /**
  * Ensure a GpuBuffer is uploaded to the GPU, creating the GPUBuffer on first
  * use and re-uploading when the version advances or updateRanges are pending.
@@ -144,6 +150,13 @@ export type RawWriteDetail = {
  * through `ensureUploaded`.
  */
 export declare function uploadUniformBlock(cache: BufferCache, device: GPUDevice, key: object, data: ArrayBuffer, detail?: RawWriteDetail): UploadRawResult;
+/**
+ * Brings `shared`'s buffer up to its mirror: the dirty range, or all of it into a new buffer when it outgrew the old
+ * one, which is destroyed after the submit since draws earlier in the frame read it. Whether the buffer is new.
+ */
+export declare function uploadSharedBlock(cache: BufferCache, device: GPUDevice, shared: SharedBlock): boolean;
+/** After a submit: destroys the buffers replaced during the frame. */
+export declare function destroyRetiredBuffers(cache: BufferCache): void;
 /**
  * Get a previously created raw buffer, or undefined.
  * Does NOT upload, use uploadRaw for that.

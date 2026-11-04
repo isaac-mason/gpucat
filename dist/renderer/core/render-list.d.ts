@@ -1,44 +1,20 @@
 /**
- * render-list.ts - Sorted render item list with object pooling and scene collection.
- *
- * - Object pooling for RenderItems (avoids GC pressure)
- * - Sorted opaque and transparent lists
- * - Cached per scene/camera using nested WeakMaps
- * - Frustum culling integration
- * - Scene graph traversal
- *
- * RenderList collects meshes from a scene graph and sorts them for rendering:
- * - Opaque: sorted by material/pipeline key to minimize state changes
- * - Transparent: sorted back-to-front by view-space Z
+ * The meshes of a tree a camera sees, frustum culled, opaque apart from transparent, with pooled items cached per
+ * (tree, camera). The pass's bins order them (`draw-scene.ts`).
  */
 import type { Object3D } from '../../core/object3d';
 import type { Geometry } from '../../geometry/geometry';
 import type { Material } from '../../material/material';
 import type { Mesh } from '../../objects/mesh';
 import type { View } from './view';
-/**
- * RenderItem - A single item in the render list.
- *
- * Pooled and reused across frames to avoid GC pressure.
- */
+/** A mesh the walk found, pooled and reused across frames. */
 export type RenderItem = {
-    /** Unique ID for this item (stable across frames). */
-    id: number;
     /** The mesh to render. */
     mesh: Mesh | null;
     /** The geometry (cached from mesh.geometry). */
     geometry: Geometry | null;
     /** The material (cached from mesh.material). */
     material: Material | null;
-    /** Group order for render order sorting (layer-based). */
-    groupOrder: number;
-    /** Render order for manual sorting. */
-    renderOrder: number;
-    /**
-     * View-space Z coordinate.
-     * Used for transparent sorting (back-to-front).
-     */
-    z: number;
 };
 /**
  * RenderList - Contains sorted lists of render items.
@@ -52,9 +28,9 @@ export type RenderList = {
     renderItems: RenderItem[];
     /** Current index into the pool (number of active items). */
     renderItemsIndex: number;
-    /** Opaque items (sorted by pipeline key). */
+    /** Opaque items, in walk order. */
     opaque: RenderItem[];
-    /** Transparent items (sorted back-to-front by Z). */
+    /** Transparent items, in walk order. */
     transparent: RenderItem[];
 };
 /**
@@ -86,51 +62,8 @@ export declare function getRenderList(state: RenderListsState, object: Object3D,
  * This resets the pool index but keeps pooled items for reuse.
  */
 export declare function beginRenderList(list: RenderList, object: Object3D, camera: View): void;
-/**
- * Push a mesh into the render list.
- *
- * @param list - The RenderList
- * @param mesh - The mesh to add
- * @param geometry - The mesh's geometry
- * @param material - The mesh's material
- * @param groupOrder - Group order for layer-based sorting
- * @param z - View-space Z for transparent sorting
- */
-export declare function pushRenderItem(list: RenderList, mesh: Mesh, geometry: Geometry, material: Material, groupOrder: number, z: number): void;
-/**
- * Finish building the render list.
- *
- * This doesn't do anything special currently, but could be used
- * for finalization tasks.
- */
-export declare function finishRenderList(_list: RenderList): void;
-/**
- * Sort the render list.
- *
- * @param list - The RenderList to sort
- * @param customOpaqueSort - Optional custom sort for opaque items
- * @param customTransparentSort - Optional custom sort for transparent items
- */
-export declare function sortRenderList(list: RenderList, customOpaqueSort?: (a: RenderItem, b: RenderItem) => number, customTransparentSort?: (a: RenderItem, b: RenderItem) => number): void;
-/**
- * Default sort for opaque items.
- *
- * Sort priority:
- * 1. groupOrder (render layers)
- * 2. renderOrder (manual ordering)
- * 3. Z (front-to-back for early-z rejection)
- * 4. ID (stability)
- *
- * Note: we do NOT sort by material/pipeline. Pipeline switching is
- * minimized at draw time by tracking the active pipeline in setPipeline().
- */
-export declare function painterSortStable(a: RenderItem, b: RenderItem): number;
-/**
- * Default sort for transparent items (back-to-front).
- *
- * "Reverse painter sort stable" - sorts back-to-front for proper alpha blending.
- */
-export declare function reversePainterSortStable(a: RenderItem, b: RenderItem): number;
+/** Push a mesh into the render list, with the transparent ones if its material is. */
+export declare function pushRenderItem(list: RenderList, mesh: Mesh, geometry: Geometry, material: Material): void;
 /**
  * Collect all visible meshes from a scene into a RenderList.
  *
@@ -139,7 +72,7 @@ export declare function reversePainterSortStable(a: RenderItem, b: RenderItem): 
  *
  * @param state - The RenderLists state
  * @param object - The object to collect from (Scene, Mesh, or any Object3D)
- * @param camera - The camera for frustum culling and Z sorting
- * @returns The populated and sorted RenderList
+ * @param camera - The camera for frustum culling
+ * @returns The populated RenderList
  */
 export declare function collectRenderList(state: RenderListsState, object: Object3D, camera: View): RenderList;

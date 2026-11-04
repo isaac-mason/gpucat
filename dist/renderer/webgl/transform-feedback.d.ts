@@ -30,6 +30,7 @@ import type { NodeFrame } from '../core/node-frame';
 import { type RecordCapture } from './bindings';
 import * as Buffers from './buffers';
 import type { ProgramInfo } from './programs';
+import { type GlState } from './state';
 import type { WebGLBackend } from './webgl-backend';
 /** Per-node cached compile + link. */
 type TfNodeCache = {
@@ -95,5 +96,5 @@ export declare function getGlBufferFor(buffers: Buffers.BufferCache, buffer: Gpu
  */
 export declare function clientWaitAsync(gl: WebGL2RenderingContext, sync: WebGLSync, label?: string, maxPolls?: number): Promise<void>;
 /** Release all GL resources owned by the transform-feedback state (called on renderer dispose). */
-export declare function disposeTransformFeedback(gl: WebGL2RenderingContext, state: TransformFeedbackState): void;
+export declare function disposeTransformFeedback(gl: WebGL2RenderingContext, glState: GlState, state: TransformFeedbackState): void;
 export {};

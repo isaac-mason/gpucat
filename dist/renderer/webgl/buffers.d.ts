@@ -21,6 +21,8 @@
  */
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import { type Allocation, type MemoryTally, type RendererInfo } from '../core/info';
+import { type SharedBlock } from '../core/shared-blocks';
+import { type GlState } from './state';
 type CacheEntry = {
     glBuffer: WebGLBuffer;
     /** `buffer.version` at last upload, the re-upload gate. */
@@ -50,12 +52,14 @@ export type BufferCache = {
     /** Where upload volume is tallied. Held by reference so the frame boundary that zeroes it stays
      *  in one place (the renderer) and every reader sees the same numbers; see `core/info.ts`. */
     info: RendererInfo;
+    /** The context's binding record: an index buffer bind unbinds a draw's VAO through it, and a delete updates it. */
+    glState: GlState;
 };
 export type BufferCacheStats = {
     bufferCount: number;
     rawCount: number;
 };
-export declare function createBufferCache(info: RendererInfo, tally: MemoryTally): BufferCache;
+export declare function createBufferCache(info: RendererInfo, tally: MemoryTally, glState: GlState): BufferCache;
 /**
  * GL usage hint from the buffer's declared usage, the analogue of WebGPU's `deriveGPUUsage`.
  *
@@ -96,6 +100,11 @@ export type RawWriteDetail = {
     updateType?: string;
     changedBytes?: number;
 };
+/**
+ * Brings `shared`'s UBO up to its mirror: the dirty range, or all of it when the mirror outgrew the buffer. GL runs
+ * draws as issued, so a resize reallocates in place without disturbing draws already made.
+ */
+export declare function uploadSharedBlock(gl: WebGL2RenderingContext, cache: BufferCache, shared: SharedBlock): void;
 /**
  * Upload one packed uniform block, identified by an arbitrary key.
  *

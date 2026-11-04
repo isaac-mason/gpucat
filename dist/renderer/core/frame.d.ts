@@ -68,6 +68,61 @@ export type DrawRecord = {
     mesh: Mesh;
     material: Material;
     opts: DrawOptions | null;
+    /** The bin it was drawn into, or null for a draw in the pass's own order. */
+    bin: Bin | null;
+    /** Its `sortKey` in the bin, 0 when none was given. */
+    sortKey: number;
+};
+/**
+ * What a bin orders its draws by. Each field ranks above the ones after it, and the order they were drawn in breaks
+ * ties. `pipeline`, `material` and `geometry` group draws sharing what each names; `view` groups draws by the camera,
+ * viewport and scissor they were drawn under; `depthNear` puts the nearest to its camera first, `depthFar` the
+ * farthest; `sortKey` orders by the number a draw was given, lowest first.
+ */
+export type BinField = 'sortKey' | 'pipeline' | 'material' | 'geometry' | 'view' | 'depthNear' | 'depthFar';
+/**
+ * A field, or a field with the bits its value packs into. A depth is quantized into that many bits (16 when not given);
+ * a field with more distinct values than its bits hold fails at `end()`.
+ */
+export type BinKeyField = BinField | Partial<Record<BinField, number>>;
+/**
+ * How a bin orders its draws. `'state'` is `['sortKey', 'pipeline', 'material', 'geometry']`, for opaque draws, changing
+ * the costliest state least. `'back-to-front'` is `['sortKey', 'depthFar']`, for blended draws. `'submission'` keeps the
+ * order they were drawn in.
+ */
+export type BinKey = 'state' | 'back-to-front' | 'submission' | readonly BinKeyField[];
+export type BinDesc = {
+    key: BinKey;
+    label?: string;
+};
+export type BinDrawOptions = DrawOptions & {
+    /** What `sortKey` in the bin's key orders this draw by: lower first. Default 0. */
+    sortKey?: number;
+};
+/**
+ * Draws a pass orders by key. Its draws run together at the point in the pass the bin was made, in the order its key
+ * gives, however they were drawn into it. Each draw keeps the camera, viewport and scissor set when it was drawn.
+ */
+export type Bin = {
+    readonly kind: 'bin';
+    /** The desc this bin was made with; rewritten when its pool slot is reused. */
+    desc: BinDesc;
+    /** Its place among its pass's bins this frame. @internal */
+    index: number;
+    /** The fields its key orders by, and the bits each was given (0 for as many as it needs). @internal */
+    fields: BinField[];
+    /** @internal */ bits: number[];
+    /** The key `fields` were read from, so a desc handed in again is not read twice. @internal */
+    keyRead: BinKey | null;
+    /** Whether a field needs each draw's depth from its camera. @internal */
+    usesDepth: boolean;
+    /** @internal */ ended: boolean;
+    draw(mesh: Mesh, opts?: BinDrawOptions): void;
+};
+/** A bin made at this point in the pass. */
+export type BinRecord = {
+    kind: 'bin';
+    bin: Bin;
 };
 /**
  * Draws recorded once and replayed into any pass of the same attachment shape. Holds its meshes and
@@ -106,7 +161,7 @@ export type ScissorRecord = {
 };
 /** What a pass records: a draw it was handed, a bundle it was told to replay, or a change to what the draws after it
  *  are drawn with. */
-export type PassEntry = DrawRecord | BundleRecord | CameraRecord | ViewportRecord | ScissorRecord;
+export type PassEntry = DrawRecord | BundleRecord | BinRecord | CameraRecord | ViewportRecord | ScissorRecord;
 export type ComputePassDesc = {
     label?: string;
     /**
@@ -192,6 +247,11 @@ export type Pass = {
     bundleRecord: BundleRecord | null;
     /** Handed to the backend by every `setCamera()`, created by the first. @internal */
     cameraRecord: CameraRecord | null;
+    /** Handed to the backend by every `bin()`, created by the first. @internal */
+    binRecord: BinRecord | null;
+    /** Every bin made in this pass's slot, the first `binCount` this frame's. @internal */
+    bins: Bin[];
+    /** @internal */ binCount: number;
     /** Handed to the backend by every `setViewport()` and `setScissor()`. @internal */
     /** @internal */ viewportRecord: ViewportRecord;
     /** @internal */ scissorRecord: ScissorRecord;
@@ -204,6 +264,8 @@ export type Pass = {
     execute(bundle: RenderBundle): void;
     /** Walks a tree here: frustum culled, `visible` honoured, opaque before transparent. */
     scene(root: Object3D, camera?: View): void;
+    /** A bin here: what is drawn into it runs at this point in the pass, ordered by its key. */
+    bin(desc: BinDesc): Bin;
     /**
      * Draws what is recorded after this from `camera`, until the next. Its matrices are uniforms of their own for
      * those draws, so one pass draws several views: a shadow atlas, cascades. The same camera again changes nothing.
