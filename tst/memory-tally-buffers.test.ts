@@ -14,6 +14,8 @@ import { disposeRenderObject } from '../src/renderer/core/render-object';
 import * as RenderObjects from '../src/renderer/core/render-objects';
 import type { View } from '../src/renderer/core/view';
 import * as GlBuffers from '../src/renderer/webgl/buffers';
+import { createGlState } from '../src/renderer/webgl/state';
+import { createBindGroupCache } from '../src/renderer/webgpu/bind-group-cache';
 import * as GpuBuffers from '../src/renderer/webgpu/buffers';
 import { installWebGPUPolyfills } from './stub-gpu';
 
@@ -67,7 +69,7 @@ describe('webgpu', () => {
     test('a buffer counts its device size under its usage and label, a grow moves the bytes, dispose clears it', () => {
         const { device } = fakeDevice();
         const tally = createMemoryTally();
-        const cache = GpuBuffers.createBufferCache(createRendererInfo(), tally);
+        const cache = GpuBuffers.createBufferCache(createRendererInfo(), tally, createBindGroupCache());
         const buffer = vertexBuffer(9, 'mesh/positions');
 
         GpuBuffers.ensureUploaded(cache, device, buffer, 'position');
@@ -88,7 +90,7 @@ describe('webgpu', () => {
     test('an unlabelled buffer takes the name its upload site gives it', () => {
         const { device } = fakeDevice();
         const tally = createMemoryTally();
-        const cache = GpuBuffers.createBufferCache(createRendererInfo(), tally);
+        const cache = GpuBuffers.createBufferCache(createRendererInfo(), tally, createBindGroupCache());
         GpuBuffers.ensureUploaded(cache, device, vertexBuffer(3), 'normal');
         expect([...tally.live][0]!.label).toBe('normal');
     });
@@ -96,7 +98,7 @@ describe('webgpu', () => {
     test('a uniform block counts until its owner releases it, and the release destroys it', () => {
         const { device, destroyed } = fakeDevice();
         const tally = createMemoryTally();
-        const cache = GpuBuffers.createBufferCache(createRendererInfo(), tally);
+        const cache = GpuBuffers.createBufferCache(createRendererInfo(), tally, createBindGroupCache());
         const key = {};
 
         GpuBuffers.uploadUniformBlock(cache, device, key, new ArrayBuffer(64), { material: 'water' });
@@ -119,7 +121,7 @@ describe('webgl', () => {
     test('a buffer counts its size under its usage and label, a grow moves the bytes, dispose clears it', () => {
         const { gl } = fakeGl();
         const tally = createMemoryTally();
-        const cache = GlBuffers.createBufferCache(createRendererInfo(), tally);
+        const cache = GlBuffers.createBufferCache(createRendererInfo(), tally, createGlState());
         const buffer = vertexBuffer(9, 'mesh/positions');
 
         GlBuffers.ensureUploaded(gl, cache, buffer, ARRAY_BUFFER, 'position');
@@ -139,7 +141,7 @@ describe('webgl', () => {
     test('a uniform block counts until its owner releases it, and the release deletes it', () => {
         const { gl, deleted } = fakeGl();
         const tally = createMemoryTally();
-        const cache = GlBuffers.createBufferCache(createRendererInfo(), tally);
+        const cache = GlBuffers.createBufferCache(createRendererInfo(), tally, createGlState());
         const key = {};
 
         GlBuffers.uploadUniformBlock(gl, cache, key, new ArrayBuffer(64), { material: 'water' });
@@ -156,7 +158,7 @@ describe('render objects', () => {
     test('disposing one releases the uniform blocks of its own groups, never the shared ones', () => {
         const released: object[] = [];
         const state = RenderObjects.createRenderObjectsState(
-            createNodeManagerState({ releaseUniformBlock: (key) => void released.push(key) }),
+            createNodeManagerState({ releaseUniformBlock: (key) => void released.push(key), releaseRenderObject: () => {} }),
         );
         const mesh = { geometry: {} } as unknown as Mesh;
         const material = {} as unknown as Material;

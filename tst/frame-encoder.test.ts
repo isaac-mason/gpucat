@@ -682,14 +682,17 @@ test('replacing a geometry buffer with a different format is picked up', async (
     };
 
     drawOnce();
-    const afterFirst = renderer.backend.pipelines.renderPipelines.size;
+    const firstKeys = [...renderer.backend.pipelines.renderPipelines.keys()];
 
     // setBuffer only bumps `geometry.version` for a NEW name, so this triggers no recompile. The
     // arrayStride still changes, and the pipeline key carries it, which is what covers the gap.
     geometry.setBuffer('position', new GpuBuffer(d.vec4f, { data: new Float32Array(12), usage: 'vertex' }));
     drawOnce();
 
-    expect(renderer.backend.pipelines.renderPipelines.size).toBe(afterFirst + 1);
+    // a pipeline under a new key, the old one gone with its last user
+    const keys = [...renderer.backend.pipelines.renderPipelines.keys()];
+    expect(keys.length).toBe(firstKeys.length);
+    expect(keys).not.toEqual(firstKeys);
 });
 
 test('a material change after the first draw rebuilds the pipeline', async () => {
@@ -707,14 +710,17 @@ test('a material change after the first draw rebuilds the pipeline', async () =>
     };
 
     drawOnce();
-    const afterFirst = renderer.backend.pipelines.renderPipelines.size;
+    const firstKeys = [...renderer.backend.pipelines.renderPipelines.keys()];
 
     // depthWrite is pipeline state, so a resolved pipeline held past this change would be wrong.
     mesh.material.depthWrite = !mesh.material.depthWrite;
     mesh.material.version++;
     drawOnce();
 
-    expect(renderer.backend.pipelines.renderPipelines.size).toBe(afterFirst + 1);
+    // a pipeline under a new key, the old one gone with its last user
+    const keys = [...renderer.backend.pipelines.renderPipelines.keys()];
+    expect(keys.length).toBe(firstKeys.length);
+    expect(keys).not.toEqual(firstKeys);
 });
 
 describe('read is an operation on the gpu, not a method on the target', () => {

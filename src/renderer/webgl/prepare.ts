@@ -1,7 +1,8 @@
 import { type CompileGlslOptions, compileGlsl } from '../../nodes/builder';
 import { compileNodeState, type NodeManagerState, needsNodeUpdate } from '../core/node-manager';
 import { getBindings, type RenderObject } from '../core/render-object';
-import { getProgram } from './programs';
+import type { SharedPlacement } from '../core/shared-blocks';
+import { holdProgram, releaseProgram } from './programs';
 import { getRenderObjectGl } from './render-object-gl';
 import type { WebGLBackend } from './webgl-backend';
 
@@ -30,10 +31,11 @@ export function prepareRenderObject(
     if (needsNodeUpdate(nodes, renderObject)) {
         // Bind the GLSL emitter options (precision) into the compile callback. When no options are
         // requested this is `compileGlsl` with defaults — byte-identical to the golden path.
-        const compile = glslOptions ? (slots: Parameters<typeof compileGlsl>[0]) => compileGlsl(slots, glslOptions) : compileGlsl;
+        const compile = (slots: Parameters<typeof compileGlsl>[0], shared: SharedPlacement | null) =>
+            compileGlsl(slots, { ...glslOptions, shared: shared ?? undefined });
         compileNodeState(nodes, renderObject, compile);
         // A recompile invalidates the cached program payload (the source may have changed).
-        getRenderObjectGl(b.renderObjectGl, renderObject).program = null;
+        releaseProgram(gl, b.programs, b.glState, getRenderObjectGl(b.renderObjectGl, renderObject));
     }
 
     const nodeState = renderObject.nodeBuilderState;
@@ -50,6 +52,6 @@ export function prepareRenderObject(
     // Compile + link (or fetch the cached) GL program for this material's source.
     const payload = getRenderObjectGl(b.renderObjectGl, renderObject);
     if (!payload.program) {
-        payload.program = getProgram(gl, b.programs, nodeState.vertexCode, nodeState.uniformGroups);
+        holdProgram(gl, b.programs, b.glState, payload, nodeState.vertexCode, nodeState.uniformGroups, nodeState.textures);
     }
 }

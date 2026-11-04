@@ -12,26 +12,24 @@ import type {
 } from '../core/frame';
 import { aimNodeFrame } from '../core/node-frame';
 import type { RenderContext } from '../core/pass-context';
+import { alignCameraToBackend, applyViewRecord, isViewRecord, resolvePassContext, resolvePassParams } from '../core/pass-desc';
 import {
-    alignCameraToBackend,
-    applyViewRecord,
-    isViewRecord,
-    resolvePassContext,
-    resolvePassParams,
-    writeSegment,
-} from '../core/pass-desc';
-import {
-    createPassParams,
-    createSegment,
-    type PreparedRenderObject,
-    type PreparedSegment,
-    type RenderPassParams,
-} from '../core/render-types';
+    addBin,
+    addBinDraw,
+    addPassDraw,
+    createPassOrder,
+    markViewChanged,
+    orderBins,
+    type PassOrder,
+    resetPassOrder,
+} from '../core/pass-order';
+import { createPassParams, type PreparedRenderObject, type RenderPassParams } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
 import { drawsNothing, prepareRecordedDraw } from '../core/renderer-ops';
 import { renderTargetOf } from '../core/target';
 import * as Bindings from './bindings';
 import * as Prepare from './prepare';
+import { getRenderObjectGl } from './render-object-gl';
 import * as RenderPass from './render-pass';
 import * as Textures from './textures';
 import * as TransformFeedback from './transform-feedback';
@@ -76,11 +74,9 @@ type OpenRenderPass = {
     preparedOpts: (DrawOptions | null)[];
     captures: Bindings.RecordCapture[];
     count: number;
-    /** Runs of `prepared`, split where the camera or a rect changed. Pooled; the first `segmentCount` are this
-     *  pass's. A bundle's draws replay inside the run they land in: WebGL has no device bundles. */
-    segments: PreparedSegment[];
-    segmentCount: number;
-    runStart: number;
+    /** The order the draws encode in, and the view each was recorded under. A bundle's draws replay as the pass's own
+     *  draws: WebGL has no device bundles. */
+    order: PassOrder;
 };
 
 export function createWebGLFrameBackendState(renderer: Renderer<DeviceBackend>, backend: WebGLBackend): WebGLFrameBackendState {
@@ -158,18 +154,43 @@ export function recordEntry(s: WebGLFrameBackendState, entry: PassEntry): void {
     const open = s.openByDepth[depth - 1];
     if (open.skipped) return;
     if (isViewRecord(entry)) {
-        closeRun(open);
+        markViewChanged(open.order);
         applyViewRecord(s.renderer, open.params, entry, CoordinateSystem.WEBGL);
         return;
     }
+    if (entry.kind === 'bin') {
+        addBin(open.order, entry.bin);
+        return;
+    }
     try {
-        if (entry.kind !== 'bundle') {
-            resolveDraw(s, open, entry);
+        if (entry.kind === 'draw') {
+            const index = resolveDraw(s, open, entry);
+            if (index < 0) return;
+            const bin = entry.bin;
+            if (bin === null) addPassDraw(open.order, index, open.params);
+            else {
+                const renderObject = open.prepared[index]!;
+                const program = getRenderObjectGl(s.backend.renderObjectGl, renderObject).program!;
+                addBinDraw(
+                    open.order,
+                    index,
+                    bin,
+                    program.program,
+                    renderObject.material,
+                    renderObject.geometry,
+                    entry.sortKey,
+                    renderObject.mesh,
+                    open.params,
+                );
+            }
             return;
         }
         // WebGL has no device bundles: a bundle's records replay as the draws they always were.
         const { records, count } = entry.bundle;
-        for (let index = 0; index < count; index++) resolveDraw(s, open, records[index] as DrawRecord);
+        for (let record = 0; record < count; record++) {
+            const index = resolveDraw(s, open, records[record] as DrawRecord);
+            if (index >= 0) addPassDraw(open.order, index, open.params);
+        }
     } catch (error) {
         // A throw inside a nested pass (a render texture's contents) left it begun; this pass records on.
         unwindTo(s, depth);
@@ -177,7 +198,8 @@ export function recordEntry(s: WebGLFrameBackendState, entry: PassEntry): void {
     }
 }
 
-function resolveDraw(s: WebGLFrameBackendState, open: OpenRenderPass, entry: DrawRecord): void {
+/** Resolves `entry` into the pass's prepared arrays: the index it took, or -1 when it draws nothing. */
+function resolveDraw(s: WebGLFrameBackendState, open: OpenRenderPass, entry: DrawRecord): number {
     const { renderer, backend } = s;
     const renderObject = prepareRecordedDraw(renderer, entry, open.params.camera!, open.ctx, (nodes, object) =>
         Prepare.prepareRenderObject(backend.gl!, backend, nodes, object, {
@@ -188,7 +210,7 @@ function resolveDraw(s: WebGLFrameBackendState, open: OpenRenderPass, entry: Dra
     );
     if (drawsNothing(renderObject, entry.opts)) {
         renderer.inspector?.resolvedDraw(renderObject, true);
-        return;
+        return -1;
     }
 
     // A nested pass recorded by `updateBefore` aimed the frame at its own target.
@@ -203,18 +225,7 @@ function resolveDraw(s: WebGLFrameBackendState, open: OpenRenderPass, entry: Dra
     }
     RenderPass.captureDraw(backend, renderer._nodes, renderObject, capture);
     renderer.inspector?.resolvedDraw(renderObject, false);
-}
-
-function closeRun(open: OpenRenderPass): void {
-    if (open.count === open.runStart) return;
-    let segment = open.segments[open.segmentCount];
-    if (segment === undefined) {
-        segment = createSegment();
-        open.segments[open.segmentCount] = segment;
-    }
-    open.segmentCount++;
-    writeSegment(segment, null, open.runStart, open.count - open.runStart, open.params);
-    open.runStart = open.count;
+    return index;
 }
 
 /** Encodes what the pass captured, then closes the scopes `beginPass` opened. */
@@ -225,7 +236,7 @@ export function encodePass(s: WebGLFrameBackendState, desc: PassDesc): void {
     const { ctx, params } = open;
 
     try {
-        closeRun(open);
+        orderBins(open.order, params.passId);
         aimNodeFrame(renderer, desc.camera ?? null, params.width, params.height);
 
         // The pass's own GL work starts here, after everything that prepared it: `beginPass` clears,
@@ -247,8 +258,7 @@ export function encodePass(s: WebGLFrameBackendState, desc: PassDesc): void {
                         open.preparedOpts,
                         open.captures,
                         open.count,
-                        open.segments,
-                        open.segmentCount,
+                        open.order,
                         renderer.inspector,
                         renderer.info,
                         scope,
@@ -300,9 +310,7 @@ function openAt(pool: OpenRenderPass[], depth: number, desc: PassDesc, ctx: Rend
             preparedOpts: [],
             captures: [],
             count: 0,
-            segments: [],
-            segmentCount: 0,
-            runStart: 0,
+            order: createPassOrder(),
         };
         pool[depth] = open;
     }
@@ -310,8 +318,7 @@ function openAt(pool: OpenRenderPass[], depth: number, desc: PassDesc, ctx: Rend
     open.ctx = ctx;
     open.skipped = true;
     open.count = 0;
-    open.segmentCount = 0;
-    open.runStart = 0;
+    resetPassOrder(open.order);
     return open;
 }
 

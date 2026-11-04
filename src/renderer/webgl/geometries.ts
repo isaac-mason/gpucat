@@ -22,6 +22,7 @@ import type { Geometry } from '../../geometry/geometry';
 import type { NodeBuilderState } from '../core/node-builder-state';
 import { assertVertexBuffers } from '../core/node-builder-state';
 import * as Buffers from './buffers';
+import { bindVertexArray, deleteVertexArray, type GlState, unbindVertexArray } from './state';
 import type { WebGLBackend } from './webgl-backend';
 
 /** A geometry's VAO for one program, and the buffers it was built over. */
@@ -41,9 +42,6 @@ type GeometryBuffers = {
     /** A VAO bakes in the buffers bound when it was built, so a rebind invalidates every one of them. */
     bindingsVersion: number;
 };
-
-/** The VAO a pass last bound, so a draw binds only a different one. */
-export type VaoBinding = { vao: WebGLVertexArrayObject | null };
 
 /** Geometries state: per-geometry VAOs, keyed by geometry identity. */
 export type GeometriesState = {
@@ -69,7 +67,12 @@ function groupBuffer(geometry: Geometry, group: NodeBuilderState['vertexBufferGr
     return group.name !== null ? geometry.buffers.get(group.name) : (group.buffer ?? undefined);
 }
 
-function getGeometryBuffers(gl: WebGL2RenderingContext, state: GeometriesState, geometry: Geometry): GeometryBuffers {
+function getGeometryBuffers(
+    gl: WebGL2RenderingContext,
+    glState: GlState,
+    state: GeometriesState,
+    geometry: Geometry,
+): GeometryBuffers {
     let gb = state.data.get(geometry);
     if (!gb) {
         gb = { programs: new Map(), bindingsVersion: geometry.bindingsVersion };
@@ -78,7 +81,7 @@ function getGeometryBuffers(gl: WebGL2RenderingContext, state: GeometriesState, 
         // Release the VAOs when the Geometry goes away. The buffers release themselves through
         // `buffers.ts`, which owns them and may be sharing them with another geometry.
         geometry._onDispose = () => {
-            disposeGeometry(gl, state, geometry);
+            disposeGeometry(gl, glState, state, geometry);
         };
     }
     return gb;
@@ -188,21 +191,19 @@ export function prepareGeometry(
     nodeState: NodeBuilderState,
     program: WebGLProgram,
     label = 'geometry',
-    bound: VaoBinding = { vao: null },
 ): GeometryDrawInfo {
-    const gb = getGeometryBuffers(gl, b.geometries, geometry);
+    const gb = getGeometryBuffers(gl, b.glState, b.geometries, geometry);
 
     if (gb.bindingsVersion !== geometry.bindingsVersion) {
-        for (const stale of gb.programs.values()) gl.deleteVertexArray(stale.drawInfo.vao);
+        for (const stale of gb.programs.values()) deleteVertexArray(gl, b.glState, stale.drawInfo.vao);
         gb.programs.clear();
         gb.bindingsVersion = geometry.bindingsVersion;
     }
 
     let entry = gb.programs.get(program);
     if (entry === undefined) {
-        entry = buildProgramGeometry(gl, b.buffers, b.geometries, geometry, nodeState, label);
+        entry = buildProgramGeometry(gl, b.glState, b.buffers, b.geometries, geometry, nodeState, label);
         gb.programs.set(program, entry);
-        bound.vao = null;
         return entry.drawInfo;
     }
 
@@ -211,13 +212,10 @@ export function prepareGeometry(
         Buffers.ensureUploaded(gl, b.buffers, entry.buffers[i], gl.ARRAY_BUFFER, entry.names[i]);
     }
 
-    // An index upload binds ELEMENT_ARRAY_BUFFER, which IS VAO state: under a previous object's VAO it
-    // would rewrite that VAO's element binding to this index buffer, and its next draw would read the
-    // wrong one. Uploads land on VAO 0.
+    // An index upload binds ELEMENT_ARRAY_BUFFER, which IS VAO state: `ensureUploaded` lands it on VAO 0 through the
+    // record, so a previous object's VAO keeps its own index buffer.
     const index = geometry.index;
     if (index !== undefined && !Buffers.isCurrent(b.buffers, index)) {
-        gl.bindVertexArray(null);
-        bound.vao = null;
         Buffers.ensureUploaded(gl, b.buffers, index, gl.ELEMENT_ARRAY_BUFFER, 'index');
     }
 
@@ -227,6 +225,7 @@ export function prepareGeometry(
 /** Uploads what `geometry` draws from under this compile and builds the VAO over it, leaving VAO 0 bound. */
 function buildProgramGeometry(
     gl: WebGL2RenderingContext,
+    glState: GlState,
     bufferCache: Buffers.BufferCache,
     state: GeometriesState,
     geometry: Geometry,
@@ -234,7 +233,7 @@ function buildProgramGeometry(
     label: string,
 ): ProgramGeometry {
     assertVertexBuffers(geometry, nodeState, label);
-    gl.bindVertexArray(null);
+    unbindVertexArray(gl, glState);
 
     const buffers: GpuBuffer[] = [];
     const names: string[] = [];
@@ -259,7 +258,7 @@ function buildProgramGeometry(
 
     const vao = gl.createVertexArray();
     if (!vao) throw new Error('[webgl] gl.createVertexArray returned null.');
-    gl.bindVertexArray(vao);
+    bindVertexArray(gl, glState, vao);
 
     for (let g = 0; g < buffers.length; g++) {
         const group = nodeState.vertexBufferGroups[g];
@@ -305,7 +304,7 @@ function buildProgramGeometry(
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, glIndex);
     }
 
-    gl.bindVertexArray(null);
+    unbindVertexArray(gl, glState);
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
 
@@ -318,10 +317,10 @@ function buildProgramGeometry(
  * Not its buffers. `buffers.ts` owns those, keyed by `GpuBuffer`, and another geometry may still be
  * drawing from the same one; each buffer releases itself when its own `GpuBuffer` is disposed.
  */
-export function disposeGeometry(gl: WebGL2RenderingContext, state: GeometriesState, geometry: Geometry): void {
+export function disposeGeometry(gl: WebGL2RenderingContext, glState: GlState, state: GeometriesState, geometry: Geometry): void {
     const gb = state.data.get(geometry);
     if (!gb) return;
-    for (const entry of gb.programs.values()) gl.deleteVertexArray(entry.drawInfo.vao);
+    for (const entry of gb.programs.values()) deleteVertexArray(gl, glState, entry.drawInfo.vao);
     state.memory.geometries--;
     state.data.delete(geometry);
 }

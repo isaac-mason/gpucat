@@ -28,23 +28,15 @@ import type { InspectorBase } from '../../inspector/inspector-base';
 import { compileTransformFeedback, type TransformFeedbackGlslResult } from '../../nodes/builder';
 import type { TransformFeedbackNode } from '../../nodes/lib/transform-feedback';
 import type { NodeFrame } from '../core/node-frame';
-import {
-    captureStandaloneUniformGroup,
-    createBoundUniforms,
-    type RecordCapture,
-    resetBoundUniforms,
-    uploadAndBindCapture,
-} from './bindings';
+import { captureStandaloneUniformGroup, type RecordCapture, uploadAndBindCapture } from './bindings';
 import * as Buffers from './buffers';
 import { attribFormat, glComponentType } from './geometries';
 import type { ProgramInfo } from './programs';
 import { createTransformFeedbackProgram } from './programs';
-import { setCapability } from './state';
+import { bindVertexArray, deleteProgram, deleteVertexArray, type GlState, setCapability, useProgram } from './state';
 import { bindStandaloneTextures, captureStandaloneTextures } from './texture-bindings';
 import type { WebGLBackend } from './webgl-backend';
 
-/** A dispatch binds outside any pass, so nothing is known bound: reset before each. */
-const _dispatchBound = /*@__PURE__*/ createBoundUniforms();
 /** Per-node cached compile + link. */
 type TfNodeCache = {
     compiled: TransformFeedbackGlslResult;
@@ -124,6 +116,7 @@ function ensureIo(
 /** Get (or compile + link + build-VAO-slot for) the per-node cache. */
 function getNodeCache(
     gl: WebGL2RenderingContext,
+    glState: GlState,
     state: TransformFeedbackState,
     node: TransformFeedbackNode,
     precision: 'highp' | 'mediump' | 'lowp' | undefined,
@@ -154,8 +147,8 @@ function getNodeCache(
         prevDispose?.();
         const c = state.nodes.get(node);
         if (c) {
-            gl.deleteProgram(c.programInfo.program);
-            gl.deleteVertexArray(c.vao);
+            deleteProgram(gl, glState, c.programInfo.program);
+            deleteVertexArray(gl, glState, c.vao);
             state.allPrograms.delete(c.programInfo.program);
             state.allVaos.delete(c.vao);
             state.nodes.delete(node);
@@ -181,7 +174,7 @@ export function captureTransformFeedback(
     frame: NodeFrame,
     out: RecordCapture,
 ): void {
-    const { compiled, programInfo } = getNodeCache(gl, state, node, precision);
+    const { compiled, programInfo } = getNodeCache(gl, b.glState, state, node, precision);
     out.uniformCount = 0;
     for (const group of compiled.uniformGroups) {
         if (group.members.length === 0) continue;
@@ -223,11 +216,11 @@ export function runTransformFeedback(
         }
     }
 
-    const cache = getNodeCache(gl, state, node, precision);
+    const cache = getNodeCache(gl, b.glState, state, node, precision);
     const { compiled, programInfo, vao } = cache;
 
     // Both checks run before any GL state is touched: a throw past `useProgram` would leave the
-    // program, the VAO and the transform-feedback object bound, with nothing unwinding them.
+    // transform-feedback object bound, with nothing unwinding it.
     for (const attr of compiled.inputAttributes) {
         // Attribute shader name is `a_<name>`; the run-site key is the bare `<name>`.
         const key = attr.name.startsWith('a_') ? attr.name.slice(2) : attr.name;
@@ -242,12 +235,11 @@ export function runTransformFeedback(
         }
     }
 
-    gl.useProgram(programInfo.program);
+    useProgram(gl, b.glState, programInfo.program);
 
     // Bind the kernel's uniform groups (std140 UBOs) as the dispatch captured them.
-    resetBoundUniforms(_dispatchBound);
     for (let index = 0; index < capture.uniformCount; index++) {
-        uploadAndBindCapture(gl, b, capture.uniforms[index], null, _dispatchBound);
+        uploadAndBindCapture(gl, b, capture.uniforms[index], null, b.glState);
     }
 
     // Bind any DataTextures the kernel samples via textureLoad() (explicit neighbour gather — the user
@@ -259,7 +251,7 @@ export function runTransformFeedback(
     // Bind inputs as vertex attributes into the node's VAO (rebuilt each dispatch: the caller may
     // ping-pong a different GpuBuffer per element name each frame, so the attribute→buffer binding
     // is not stable across dispatches).
-    gl.bindVertexArray(vao);
+    bindVertexArray(gl, b.glState, vao);
     for (const attr of compiled.inputAttributes) {
         const key = attr.name.startsWith('a_') ? attr.name.slice(2) : attr.name;
         const glBuffer = ensureIo(gl, buffers, inputs[key]!, 'input', key);
@@ -320,8 +312,6 @@ export function runTransformFeedback(
         gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, i, null);
     }
     gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
-    gl.bindVertexArray(null);
-    gl.useProgram(null);
 }
 
 /**
@@ -382,9 +372,9 @@ export function clientWaitAsync(
 }
 
 /** Release all GL resources owned by the transform-feedback state (called on renderer dispose). */
-export function disposeTransformFeedback(gl: WebGL2RenderingContext, state: TransformFeedbackState): void {
-    for (const program of state.allPrograms) gl.deleteProgram(program);
-    for (const vao of state.allVaos) gl.deleteVertexArray(vao);
+export function disposeTransformFeedback(gl: WebGL2RenderingContext, glState: GlState, state: TransformFeedbackState): void {
+    for (const program of state.allPrograms) deleteProgram(gl, glState, program);
+    for (const vao of state.allVaos) deleteVertexArray(gl, glState, vao);
     if (state.tf) gl.deleteTransformFeedback(state.tf);
     state.allPrograms.clear();
     state.allVaos.clear();

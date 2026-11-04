@@ -15,6 +15,7 @@ import {
     type OffsetAllocator,
     releaseOffset,
 } from '../core/offset-allocator';
+import { type BindGroupCache, releaseGroupsNaming } from './bind-group-cache';
 
 // Each render object's and dispatch's own uniform block (model matrices, per-object uniforms) lives in a slot of a few
 // large uniform buffers, as PlayCanvas and Unity's SRP Batcher keep per-draw data. A draw binds its page at its slot's
@@ -53,6 +54,8 @@ export type ArenaPage = {
     dirty: ArenaSlot[];
     groups: SharedGroup[];
     allocation: Allocation;
+    /** slots held in it; at 0 it is released after the next submit, as the frame's draws may still read it */
+    liveSlots: number;
 };
 
 export type DrawArena = {
@@ -60,6 +63,10 @@ export type DrawArena = {
     /** each block's slot, by the block's buffer key */
     slots: WeakMap<object, ArenaSlot>;
     liveSlots: number;
+    /** pages left with no slots, released after the submit if none were taken again */
+    emptyPages: ArenaPage[];
+    /** the bind group cache, whose entries naming a page's buffer go with the page */
+    bindGroups: BindGroupCache;
     tally: MemoryTally;
     info: RendererInfo;
 };
@@ -73,8 +80,8 @@ export function inDrawArena(group: UniformGroup): boolean {
     return !group.shared && group.updateType !== 'frame';
 }
 
-export function createDrawArena(info: RendererInfo, tally: MemoryTally): DrawArena {
-    return { pages: [], slots: new WeakMap(), liveSlots: 0, tally, info };
+export function createDrawArena(info: RendererInfo, tally: MemoryTally, bindGroups: BindGroupCache): DrawArena {
+    return { pages: [], slots: new WeakMap(), liveSlots: 0, emptyPages: [], bindGroups, tally, info };
 }
 
 /** The slot `key`'s block holds, if it has one. */
@@ -115,6 +122,7 @@ export function takeSlot(arena: DrawArena, device: GPUDevice, key: object, size:
     };
     arena.slots.set(key, slot);
     arena.liveSlots++;
+    page.liveSlots++;
     return slot;
 }
 
@@ -126,6 +134,25 @@ export function releaseSlot(arena: DrawArena, key: object): void {
     arena.slots.delete(key);
     arena.liveSlots--;
     releaseOffset(slot.page.allocator, slot.allocation);
+    slot.page.liveSlots--;
+    if (slot.page.liveSlots === 0) arena.emptyPages.push(slot.page);
+}
+
+/**
+ * After a submit: releases each page left with no slots and not taken again, so a scene that needed many pages leaves
+ * none behind. Its buffer was read by the frame just submitted at the latest, which the submit has already queued.
+ */
+export function releaseEmptyPages(arena: DrawArena): void {
+    for (const page of arena.emptyPages) {
+        if (page.liveSlots > 0) continue;
+        const at = arena.pages.indexOf(page);
+        if (at < 0) continue;
+        arena.pages.splice(at, 1);
+        releaseGroupsNaming(arena.bindGroups, page.buffer);
+        page.buffer.destroy();
+        clearAllocation(arena.tally, page.allocation);
+    }
+    arena.emptyPages.length = 0;
 }
 
 /** `data` as the slot's bytes from the next submit on. */
@@ -182,6 +209,7 @@ export function disposeDrawArena(arena: DrawArena): void {
         clearAllocation(arena.tally, page.allocation);
     }
     arena.pages.length = 0;
+    arena.emptyPages.length = 0;
     arena.slots = new WeakMap();
     arena.liveSlots = 0;
 }
@@ -203,6 +231,7 @@ function addPage(arena: DrawArena, device: GPUDevice, align: number): ArenaPage 
         dirty: [],
         groups: [],
         allocation,
+        liveSlots: 0,
     };
     arena.pages.push(page);
     return page;

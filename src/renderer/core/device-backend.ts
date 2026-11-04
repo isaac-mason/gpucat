@@ -71,6 +71,9 @@ export interface DeviceBackend extends FrameBackend {
     /** Destroy the uniform block `key` names. Its owner calls this when it dies; a key with no block is a no-op. */
     /** @internal */ releaseUniformBlock(key: object): void;
 
+    /** Lets go of what the backend holds for `renderObject`, which is being disposed: its pipeline or program, counted. */
+    /** @internal */ releaseRenderObject(renderObject: RenderObject): void;
+
     /** Forgets what the backend assumes the device holds, for after other code used it. See `Renderer.resetState`. */
     /** @internal */ resetState(): void;
 

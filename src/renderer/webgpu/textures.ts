@@ -27,6 +27,7 @@ import {
 } from '../core/info';
 import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
 import { bytesPerTexel, gpuTextureBytes, mipLevelCountFor } from '../core/texture-size';
+import { type BindGroupCache, releaseGroupsNaming } from './bind-group-cache';
 import { type BindGroupData, clearBindGroupVariants } from './bindings';
 import { createMipmapState, disposeMipmapState, generateMipmaps, type MipmapState } from './mipmap-utils';
 
@@ -184,14 +185,18 @@ export type TextureCache = {
 
     /** The backend's memory tally, shared with its buffers. */
     tally: MemoryTally;
+
+    /** The bind group cache, whose entries naming a texture go when it is destroyed. */
+    bindGroups: BindGroupCache;
 };
 
-export function createTextureCache(tally: MemoryTally): TextureCache {
+export function createTextureCache(tally: MemoryTally, bindGroups: BindGroupCache): TextureCache {
     return {
         textureMap: new WeakMap(),
         defaultTextures: new Map(),
         mipmapState: null,
         tally,
+        bindGroups,
     };
 }
 
@@ -210,6 +215,7 @@ export function setupTextureDispose(cache: TextureCache, texture: GpuTexture): v
     texture._onDispose = () => {
         const data = cache.textureMap.get(texture);
         if (data && !data.isDefaultTexture) {
+            releaseGroupsNaming(cache.bindGroups, data.texture);
             data.texture.destroy();
             if (data.msaaTextures) for (const msaa of data.msaaTextures) if (msaa !== data.texture) msaa.destroy();
         }
@@ -390,6 +396,7 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
         } else {
             // Recreate at the new size: destroy the old GPU texture, swap in the new one,
             // and bump generation so dependent bind groups rebuild with the fresh view.
+            releaseGroupsNaming(cache.bindGroups, data.texture);
             data.texture.destroy();
             data.texture = gpuTextureResource;
             data.version = texture.version;
@@ -453,6 +460,7 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
             setAllocation(cache.tally, data.allocation, gpuTextureBytes(texture), data.allocation.category, texture.format);
         } else {
             // Resize (grow): destroy the old GPU texture and swap in the new (larger) one.
+            releaseGroupsNaming(cache.bindGroups, data.texture);
             data.texture.destroy();
             data.texture = gpuTextureResource;
             data.generation = texture.version;

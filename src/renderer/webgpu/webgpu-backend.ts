@@ -18,10 +18,12 @@ import type {
 import { GPUFeatureName } from '../core/gpu-constants';
 import * as Info from '../core/info';
 import { aimNodeFrame } from '../core/node-frame';
+import { setSharedPlacement } from '../core/node-manager';
 import type { RenderObject } from '../core/render-object';
 import type { RenderPassParams } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
 import * as ops from '../core/renderer-ops';
+import * as BindGroupCache from './bind-group-cache';
 import {
     type BindGroupLayoutCache,
     createBindGroupLayoutCache,
@@ -107,10 +109,15 @@ export class WebGPUBackend implements DeviceBackend {
     bindGroupLayoutCache: BindGroupLayoutCache = createBindGroupLayoutCache();
     /** Every GPU allocation this backend holds, shared by its buffer, texture and swapchain caches. @internal */
     readonly memoryTally: Info.MemoryTally = Info.createMemoryTally();
-    /** @internal */ textures: Textures.TextureCache = Textures.createTextureCache(this.memoryTally);
+    /** Every GPU bind group, by layout and resources; the caches that destroy what groups bind release them. @internal */
+    readonly bindGroupCache: BindGroupCache.BindGroupCache = BindGroupCache.createBindGroupCache();
+    /** @internal */ textures: Textures.TextureCache = Textures.createTextureCache(this.memoryTally, this.bindGroupCache);
     /** @internal */ samplers: Samplers.SamplerCache = Samplers.createSamplerCache();
     /** @internal */ pipelines: Pipelines.PipelinesState = Pipelines.createPipelinesState(this.bindGroupLayoutCache);
-    /** @internal */ bindings: Bindings.BindingsState = Bindings.createBindingsState(this.bindGroupLayoutCache);
+    /** @internal */ bindings: Bindings.BindingsState = Bindings.createBindingsState(
+        this.bindGroupLayoutCache,
+        this.bindGroupCache,
+    );
     /** @internal */ renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache = RenderObjectGpu.createRenderObjectGpuCache();
     /** @internal */ geometries: Geometries.GeometriesState = Geometries.createGeometriesState();
 
@@ -177,7 +184,7 @@ export class WebGPUBackend implements DeviceBackend {
     async init(renderer: Renderer<DeviceBackend>): Promise<void> {
         this.renderer = renderer;
 
-        this.buffers = Buffers.createBufferCache(renderer.info, this.memoryTally);
+        this.buffers = Buffers.createBufferCache(renderer.info, this.memoryTally, this.bindGroupCache);
 
         const opts = this._opts;
         if (opts.device) {
@@ -235,6 +242,7 @@ export class WebGPUBackend implements DeviceBackend {
         // own target, so only the colour one is published here.
         this.pipelines.canvasFormat = this.format;
         this._frame = FrameBackend.createWebGPUFrameBackendState(renderer, this);
+        setSharedPlacement(renderer._nodes, this.device.limits.maxUniformBufferBindingSize);
     }
 
     beginFrame(): void {
@@ -370,6 +378,14 @@ export class WebGPUBackend implements DeviceBackend {
     }
 
     /** @internal */
+    releaseRenderObject(renderObject: RenderObject): void {
+        const gpu = RenderObjectGpu.peekRenderObjectGpu(this.renderObjectGpu, renderObject);
+        if (gpu === undefined) return;
+        Pipelines.releaseRenderPipeline(this.pipelines, gpu);
+        gpu.pipeline = null;
+        this.renderObjectGpu.data.delete(renderObject);
+    }
+
     releaseUniformBlock(key: object): void {
         Buffers.releaseUniformBlock(this.buffers, key);
     }
@@ -397,6 +413,7 @@ export class WebGPUBackend implements DeviceBackend {
         Samplers.disposeSamplerCache(this.samplers);
         Buffers.disposeBufferCache(this.buffers);
         Pipelines.disposePipelines(this.pipelines);
+        BindGroupCache.disposeBindGroupCache(this.bindGroupCache);
         disposeBindGroupLayoutCache(this.bindGroupLayoutCache);
         Info.resetMemoryTally(this.memoryTally);
 

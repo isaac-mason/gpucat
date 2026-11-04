@@ -1,10 +1,11 @@
 import { expect, test } from 'vitest';
+import { WHOLE_TEXTURE } from '../src/core/gpu-texture-view';
 import { createRenderTarget } from '../src/index';
 import { CanvasTarget } from '../src/renderer/core/canvas-target';
 import { createMemoryTally } from '../src/renderer/core/info';
 import { estimatedBytesPerTexel } from '../src/renderer/core/texture-size';
+import { createBindGroupCache } from '../src/renderer/webgpu/bind-group-cache';
 import { attachmentsFor, createSwapchainState } from '../src/renderer/webgpu/render-pass';
-import { WHOLE_TEXTURE } from '../src/core/gpu-texture-view';
 import {
     ensureRenderTargetTexturesAllocated,
     getRenderTargetMsaaView,
@@ -50,7 +51,7 @@ function recordingDevice() {
 
 test('non-MSAA render target allocates a single single-sample color texture, no MSAA sibling', () => {
     const { device, created } = recordingDevice();
-    const cache = createTextureCache(createMemoryTally());
+    const cache = createTextureCache(createMemoryTally(), createBindGroupCache());
     const rt = createRenderTarget(64, 32); // samples defaults to 1
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);
@@ -66,7 +67,7 @@ test('non-MSAA render target allocates a single single-sample color texture, no 
 
 test('MSAA render target allocates a single-sample resolve texture plus a multisampled sibling', () => {
     const { device, created } = recordingDevice();
-    const cache = createTextureCache(createMemoryTally());
+    const cache = createTextureCache(createMemoryTally(), createBindGroupCache());
     const rt = createRenderTarget(64, 32, { samples: 4 });
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);
@@ -94,7 +95,7 @@ test('MSAA render target allocates a single-sample resolve texture plus a multis
 test('a render target tallies its resolve texture, MSAA sibling and multisampled depth, and a resize moves the bytes', () => {
     const { device } = recordingDevice();
     const tally = createMemoryTally();
-    const cache = createTextureCache(tally);
+    const cache = createTextureCache(tally, createBindGroupCache());
     const rt = createRenderTarget(64, 32, { samples: 4 });
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);
@@ -114,7 +115,7 @@ test('a render target tallies its resolve texture, MSAA sibling and multisampled
 
 test('a storage target allocates an sRGB colour in its linear twin with storage usage, and draws and samples it sRGB', () => {
     const { device, created, views } = recordingDevice();
-    const cache = createTextureCache(createMemoryTally());
+    const cache = createTextureCache(createMemoryTally(), createBindGroupCache());
     const rt = createRenderTarget(16, 16, { colorFormat: 'rgba8unorm-srgb', storage: true });
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);
@@ -148,7 +149,7 @@ test('a storage target allocates an sRGB colour in its linear twin with storage 
 
 test('a linear storage target is allocated in its own format with storage usage, its views in that format', () => {
     const { device, created } = recordingDevice();
-    const cache = createTextureCache(createMemoryTally());
+    const cache = createTextureCache(createMemoryTally(), createBindGroupCache());
     const rt = createRenderTarget(16, 16, { colorFormat: 'rgba16float', storage: true, depthBuffer: false });
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);
@@ -161,7 +162,7 @@ test('a linear storage target is allocated in its own format with storage usage,
 
 test('a target without storage has no storage usage', () => {
     const { device, created } = recordingDevice();
-    const cache = createTextureCache(createMemoryTally());
+    const cache = createTextureCache(createMemoryTally(), createBindGroupCache());
     const rt = createRenderTarget(16, 16, { colorFormat: 'rgba8unorm-srgb', depthBuffer: false });
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);
@@ -176,7 +177,7 @@ test('a storage target is single-sampled', () => {
 
 test('depth-only render target (count: 0) is allocated once and is idempotent', () => {
     const { device, created } = recordingDevice();
-    const cache = createTextureCache(createMemoryTally());
+    const cache = createTextureCache(createMemoryTally(), createBindGroupCache());
     const rt = createRenderTarget(1024, 1024, { count: 0, depthFormat: 'depth32float' });
 
     expect(rt.textures).toHaveLength(0);
@@ -200,7 +201,7 @@ test('depth-only render target (count: 0) is allocated once and is idempotent', 
 
 test('allocation is idempotent: a second ensure call creates no new textures', () => {
     const { device, created } = recordingDevice();
-    const cache = createTextureCache(createMemoryTally());
+    const cache = createTextureCache(createMemoryTally(), createBindGroupCache());
     const rt = createRenderTarget(64, 32, { samples: 4 });
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);
@@ -212,7 +213,7 @@ test('allocation is idempotent: a second ensure call creates no new textures', (
 
 test('resizing reallocates and bumps generation so sampling bind groups rebuild', () => {
     const { device, created } = recordingDevice();
-    const cache = createTextureCache(createMemoryTally());
+    const cache = createTextureCache(createMemoryTally(), createBindGroupCache());
     const rt = createRenderTarget(64, 32, { samples: 4 });
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);
@@ -232,7 +233,7 @@ test('resizing reallocates and bumps generation so sampling bind groups rebuild'
 test('a labelled target files its attachments under its label without renaming them', () => {
     const { device } = recordingDevice();
     const tally = createMemoryTally();
-    const cache = createTextureCache(tally);
+    const cache = createTextureCache(tally, createBindGroupCache());
     const rt = createRenderTarget(16, 16, { samples: 4, label: 'shadows' });
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);

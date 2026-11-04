@@ -2,11 +2,13 @@ import type { CompileResult, CompileSlots, UpdateNode } from '../../nodes/builde
 import { compileComputeWgsl } from '../../nodes/builder';
 import type { MRTNode } from '../../nodes/lib/mrt';
 import { type ComputeNode, NodeKind } from '../../nodes/nodes';
+import type { MemoryLayout } from '../../schema/pack';
 import type { DeviceBackend } from './device-backend';
 import type { BindingContext, NodeBuilderState } from './node-builder-state';
-import { createNodeBuilderState, createNodeBuilderStateForCompute } from './node-builder-state';
+import { createNodeBuilderState, createNodeBuilderStateForCompute, releaseNodeBuilderState } from './node-builder-state';
 import { createNodeFrame, type NodeFrame } from './node-frame';
 import type { RenderObject } from './render-object';
+import { createSharedBlocks, type SharedBlocks, type SharedPlacement } from './shared-blocks';
 
 /** A compiled render shader and how many RenderObjects hold it. */
 type RenderStateEntry = { nodeState: NodeBuilderState; users: number };
@@ -29,18 +31,34 @@ export type NodeManagerState = {
     /** the NodeFrame instance for this manager */
     nodeFrame: NodeFrame;
 
-    /** Frees the uniform blocks of the bind groups a RenderObject copies from its compiled shader. */
-    backend: Pick<DeviceBackend, 'releaseUniformBlock'>;
+    /** One block per shared uniform group, which every shader reading the group binds; see `shared-blocks.ts`. */
+    sharedBlocks: SharedBlocks;
+    /** What compiles place shared members with: set by the backend once its device's uniform block limit is known. */
+    shared: SharedPlacement | null;
+
+    /** Frees the uniform blocks of the bind groups a RenderObject copies from its compiled shader, and what the backend
+     *  holds for a RenderObject being disposed. */
+    backend: Pick<DeviceBackend, 'releaseUniformBlock' | 'releaseRenderObject'>;
 };
 
 /** create a new NodeManager state */
-export function createNodeManagerState(backend: Pick<DeviceBackend, 'releaseUniformBlock'>): NodeManagerState {
+export function createNodeManagerState(
+    backend: Pick<DeviceBackend, 'releaseUniformBlock' | 'releaseRenderObject'>,
+    layout: MemoryLayout,
+): NodeManagerState {
     return {
         renderStates: new Map(),
         computeStates: new Map(),
         nodeFrame: createNodeFrame(),
+        sharedBlocks: createSharedBlocks(layout),
+        shared: null,
         backend,
     };
+}
+
+/** Lets compiles place shared members, now that the device's uniform block limit is known. */
+export function setSharedPlacement(state: NodeManagerState, maxBytes: number): void {
+    state.shared = { blocks: state.sharedBlocks, maxBytes };
 }
 
 /**
@@ -78,7 +96,7 @@ function renderStateKey(renderObject: RenderObject): string {
 export function compileNodeState(
     state: NodeManagerState,
     renderObject: RenderObject,
-    compile: (slots: CompileSlots) => CompileResult,
+    compile: (slots: CompileSlots, shared: SharedPlacement | null) => CompileResult,
 ): NodeBuilderState {
     const material = renderObject.material;
 
@@ -109,11 +127,14 @@ export function compileNodeState(
     const key = renderStateKey(renderObject);
     let entry = state.renderStates.get(key);
     if (entry === undefined) {
-        const compileResult = compile({
-            vertex: material.vertex,
-            fragment: material.fragment,
-            depth: material.depth,
-        });
+        const compileResult = compile(
+            {
+                vertex: material.vertex,
+                fragment: material.fragment,
+                depth: material.depth,
+            },
+            state.shared,
+        );
         // the context is what the template's shared bind groups are cached against
         entry = { nodeState: createNodeBuilderState(compileResult, key, renderObject.renderContext), users: 0 };
         state.renderStates.set(key, entry);
@@ -157,7 +178,9 @@ export function releaseNodeState(state: NodeManagerState, renderObject: RenderOb
     const entry = state.renderStates.get(nodeState.cacheKey);
     if (entry === undefined || entry.nodeState !== nodeState) return;
     entry.users--;
-    if (entry.users === 0) state.renderStates.delete(nodeState.cacheKey);
+    if (entry.users > 0) return;
+    state.renderStates.delete(nodeState.cacheKey);
+    releaseNodeBuilderState(nodeState, state.sharedBlocks, (key) => state.backend.releaseUniformBlock(key));
 }
 
 /**
@@ -285,7 +308,7 @@ export function updateForCompute(state: NodeManagerState, computeNode: ComputeNo
  * @returns the compiled NodeBuilderState
  */
 function compileComputeNode(state: NodeManagerState, computeNode: ComputeNode, context: BindingContext): NodeBuilderState {
-    const compileResult = compileComputeWgsl(computeNode);
+    const compileResult = compileComputeWgsl(computeNode, { shared: state.shared ?? undefined });
 
     // extract update nodes from the compile result
     // for compute, we use the uniform update callbacks
@@ -325,5 +348,15 @@ function compileComputeNode(state: NodeManagerState, computeNode: ComputeNode, c
  * @param computeNode the ComputeNode being disposed
  */
 export function deleteForCompute(state: NodeManagerState, computeNode: ComputeNode): void {
+    const nodeState = state.computeStates.get(computeNode.id);
+    if (nodeState === undefined) return;
     state.computeStates.delete(computeNode.id);
+    // a dispatch binds its compiled groups directly, so its own groups' blocks are its, as the shared ones are
+    for (const group of nodeState.bindings) {
+        if (group.shared) continue;
+        for (const binding of group.bindings) {
+            if (binding.kind === 'uniform' && binding.bufferKey !== null) state.backend.releaseUniformBlock(binding.bufferKey);
+        }
+    }
+    releaseNodeBuilderState(nodeState, state.sharedBlocks, (key) => state.backend.releaseUniformBlock(key));
 }

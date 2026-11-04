@@ -16,8 +16,9 @@ import {
 import type { NodeManagerState } from '../core/node-manager';
 import * as NodeManager from '../core/node-manager';
 import type { RenderContext, ScissorValue, ViewportValue } from '../core/pass-context';
+import type { PassOrder } from '../core/pass-order';
 import { pipelineLabel } from '../core/render-object';
-import { formatHasStencil, type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
+import { formatHasStencil, type PreparedRenderObject, type RenderPassParams } from '../core/render-types';
 import type { View } from '../core/view';
 import { type DrawBindings, updateRenderBindings } from './bindings';
 import * as Buffers from './buffers';
@@ -406,6 +407,8 @@ export type PassScope = {
     currentSets: CurrentSets;
     viewport: ViewportValue;
     scissor: ScissorValue;
+    /** The pass order's view the rects were last set from, -1 before the first. */
+    view: number;
 };
 
 /** The draw loop's own scope, which a bundle recording satisfies with a bundle encoder. */
@@ -422,19 +425,23 @@ export function beginPass(b: WebGPUBackend, params: RenderPassParams): PassScope
     });
 
     // Fresh per pass: a pooled one needs resetting at the top of every pass, where this starts empty. A GPU pass
-    // starts with the whole target as both its viewport and scissor; each segment sets its own when they differ.
+    // starts with the whole target as both its viewport and scissor; each view sets its own when they differ.
     return {
         gpuPass,
         currentSets: createCurrentSets(b.renderer.info.state),
         viewport: { x: 0, y: 0, width: params.width, height: params.height, minDepth: 0, maxDepth: 1 },
         scissor: { x: 0, y: 0, width: params.width, height: params.height },
+        view: -1,
     };
 }
 
-/** Sets the viewport and scissor `segment` was recorded under where they differ from what the encoder has. A bundle
- *  keeps them: they are pass state, which `executeBundles` leaves alone. */
-function applySegmentRects(scope: PassScope, segment: PreparedSegment, width: number, height: number): void {
-    const want = segment.viewport ? segment.viewportValue : null;
+/** Sets the viewport and scissor of the pass order's view `index` where they differ from what the encoder has. A
+ *  bundle keeps them: they are pass state, which `executeBundles` leaves alone. */
+function applyView(scope: PassScope, order: PassOrder, index: number, width: number, height: number): void {
+    if (scope.view === index) return;
+    scope.view = index;
+    const view = order.views[index]!;
+    const want = view.viewport ? view.viewportValue : null;
     const x = want?.x ?? 0;
     const y = want?.y ?? 0;
     const w = want?.width ?? width;
@@ -459,7 +466,7 @@ function applySegmentRects(scope: PassScope, segment: PreparedSegment, width: nu
         viewport.maxDepth = maxDepth;
     }
 
-    const clip = segment.scissor ? segment.scissorValue : null;
+    const clip = view.scissor ? view.scissorValue : null;
     const sx = clip?.x ?? 0;
     const sy = clip?.y ?? 0;
     const sw = clip?.width ?? width;
@@ -488,30 +495,29 @@ export type EncodeContext = {
     preparedOpts: readonly (DrawOptions | null)[];
     /** What each prepared draw binds, resolved when it was recorded. */
     bindings: readonly DrawBindings[];
+    /** The order the draws encode in, and the view each was recorded under. */
+    order: PassOrder;
     inspector: InspectorBase | null;
     info: RendererInfo;
 };
 
-/** Encodes the pass's first `segmentCount` runs of draws, each under the viewport and scissor it was recorded with. */
-export function encodeDraws(
-    ctx: EncodeContext,
-    scope: PassScope,
-    segments: readonly PreparedSegment[],
-    segmentCount: number,
-): void {
+/** Encodes the pass's blocks in order, each draw under the viewport and scissor it was recorded with. */
+export function encodeDraws(ctx: EncodeContext, scope: PassScope): void {
     const inspector = ctx.inspector;
     if (inspector) inspector.perf.start('drawCalls');
 
-    for (let index = 0; index < segmentCount; index++) {
-        const segment = segments[index];
-        applySegmentRects(scope, segment, ctx.params.width, ctx.params.height);
-        const { bundle, start } = segment;
-        const end = start + segment.count;
+    const order = ctx.order;
+    for (let index = 0; index < order.blockCount; index++) {
+        const block = order.blocks[index]!;
+        const bundle = block.bundle;
         if (bundle === null) {
-            encodeDrawRange(ctx, start, end, scope);
+            encodeDrawList(ctx, block.draws, block.count, scope);
             continue;
         }
-        scope.gpuPass.executeBundles([getOrRecordBundle(ctx, start, end, bundle, segment.camera)]);
+        const from = block.draws[0]!;
+        const view = order.drawViews[from]!;
+        applyView(scope, order, view, ctx.params.width, ctx.params.height);
+        scope.gpuPass.executeBundles([getOrRecordBundle(ctx, from, from + block.count, bundle, order.views[view]!.camera)]);
         // A bundle sets its own pipeline and bindings, so what the pass had set no longer holds.
         resetCurrentSets(scope.currentSets);
     }
@@ -644,115 +650,127 @@ export function resolveDrawBindings(
     if (inspector) inspector.perf.end('updateForRender');
 }
 
-/** A range, not the whole array, because a bundle is a contiguous slice of it recorded against its own encoder. */
-function encodeDrawRange(ctx: EncodeContext, from: number, to: number, { gpuPass, currentSets }: DrawScope): void {
+/** A bundle's draws, `from` to `to`: a contiguous slice of the pass's, recorded against its own encoder. */
+function encodeDrawRange(ctx: EncodeContext, from: number, to: number, scope: DrawScope): void {
+    for (let index = from; index < to; index++) encodeDraw(ctx, index, scope);
+}
+
+/** A block's `count` draws, by index, each under the viewport and scissor it was recorded with. */
+function encodeDrawList(ctx: EncodeContext, draws: readonly number[], count: number, scope: PassScope): void {
+    const { order, params } = ctx;
+    for (let at = 0; at < count; at++) {
+        const index = draws[at]!;
+        applyView(scope, order, order.drawViews[index]!, params.width, params.height);
+        encodeDraw(ctx, index, scope);
+    }
+}
+
+function encodeDraw(ctx: EncodeContext, index: number, { gpuPass, currentSets }: DrawScope): void {
     const { b, nodes, passCtx, preparedObjects, preparedOpts, inspector, info } = ctx;
-    for (let index = from; index < to; index++) {
-        const renderObject = preparedObjects[index];
-        const { mesh, material, geometry } = renderObject;
+    const renderObject = preparedObjects[index];
+    const { mesh, material, geometry } = renderObject;
 
-        const opts = preparedOpts[index];
-        const draws = opts?.draws ?? mesh.draws;
-        const instances = opts?.instances ?? mesh.count;
-        const range = opts?.range;
+    const opts = preparedOpts[index];
+    const draws = opts?.draws ?? mesh.draws;
+    const instances = opts?.instances ?? mesh.count;
+    const range = opts?.range;
 
-        const gpu = RenderObjectGpu.getRenderObjectGpu(b.renderObjectGpu, renderObject);
+    const gpu = RenderObjectGpu.getRenderObjectGpu(b.renderObjectGpu, renderObject);
 
-        if (takesPipeline(currentSets.pass, gpu.pipeline!)) {
-            passSetPipeline(gpuPass, inspector, gpu.pipeline!, pipelineLabel(mesh, material));
+    if (takesPipeline(currentSets.pass, gpu.pipeline!)) {
+        passSetPipeline(gpuPass, inspector, gpu.pipeline!, pipelineLabel(mesh, material));
+    }
+
+    // The stencil reference is dynamic pass state (not baked into the pipeline); set it when a
+    // stencil-testing material's ref changes. Only meaningful on a stencil-capable attachment.
+    // A bundle encoder rejects it, which is why a stencil-ref material cannot be bundled.
+    if (passCtx.stencil && material.stencilTest && currentSets.stencilRef !== material.stencilRef) {
+        if (!('setStencilReference' in gpuPass)) {
+            throw new Error(`[bundle] "${mesh.name || 'mesh'}" sets a stencil reference, which a render bundle cannot`);
         }
+        gpuPass.setStencilReference(material.stencilRef);
+        currentSets.stencilRef = material.stencilRef;
+    }
 
-        // The stencil reference is dynamic pass state (not baked into the pipeline); set it when a
-        // stencil-testing material's ref changes. Only meaningful on a stencil-capable attachment.
-        // A bundle encoder rejects it, which is why a stencil-ref material cannot be bundled.
-        if (passCtx.stencil && material.stencilTest && currentSets.stencilRef !== material.stencilRef) {
-            if (!('setStencilReference' in gpuPass)) {
-                throw new Error(`[bundle] "${mesh.name || 'mesh'}" sets a stencil reference, which a render bundle cannot`);
-            }
-            gpuPass.setStencilReference(material.stencilRef);
-            currentSets.stencilRef = material.stencilRef;
+    const { groups: bindGroups, offsets: dynamicOffsets } = ctx.bindings[index];
+    setBindGroups(
+        currentSets.pass,
+        gpuPass,
+        bindGroups,
+        dynamicOffsets,
+        inspector === null ? null : (groupIndex) => inspector.setBindGroup(groupIndex, mesh.name || ''),
+    );
+
+    Geometries.resolveVertexBuffers(b.geometries, gpu, renderObject);
+    const { vertexBuffers, vertexBufferNames } = gpu;
+    for (let slot = 0; slot < vertexBuffers.length; slot++) {
+        const gpuBuf = Buffers.ensureUploaded(b.buffers, b.device, vertexBuffers[slot], vertexBufferNames[slot]);
+        if (currentSets.attributes[slot] !== gpuBuf) {
+            passSetVertexBuffer(gpuPass, inspector, slot, gpuBuf);
+            currentSets.attributes[slot] = gpuBuf;
         }
+    }
 
-        const { groups: bindGroups, offsets: dynamicOffsets } = ctx.bindings[index];
-        setBindGroups(
-            currentSets.pass,
-            gpuPass,
-            bindGroups,
-            dynamicOffsets,
-            inspector === null ? null : (groupIndex) => inspector.setBindGroup(groupIndex, mesh.name || ''),
-        );
-
-        Geometries.resolveVertexBuffers(b.geometries, gpu, renderObject);
-        const { vertexBuffers, vertexBufferNames } = gpu;
-        for (let slot = 0; slot < vertexBuffers.length; slot++) {
-            const gpuBuf = Buffers.ensureUploaded(b.buffers, b.device, vertexBuffers[slot], vertexBufferNames[slot]);
-            if (currentSets.attributes[slot] !== gpuBuf) {
-                passSetVertexBuffer(gpuPass, inspector, slot, gpuBuf);
-                currentSets.attributes[slot] = gpuBuf;
-            }
+    if (geometry.index) {
+        const idxBuf = Buffers.ensureUploaded(b.buffers, b.device, geometry.index, 'index');
+        if (currentSets.index !== idxBuf) {
+            passSetIndexBuffer(gpuPass, inspector, idxBuf, geometry.index.indexFormat!);
+            currentSets.index = idxBuf;
         }
-
-        if (geometry.index) {
-            const idxBuf = Buffers.ensureUploaded(b.buffers, b.device, geometry.index, 'index');
-            if (currentSets.index !== idxBuf) {
-                passSetIndexBuffer(gpuPass, inspector, idxBuf, geometry.index.indexFormat!);
-                currentSets.index = idxBuf;
+        if (draws !== undefined) {
+            // Batched: one instanced drawIndexed per entry, each carrying its own firstInstance
+            // (native — instance_index is base-inclusive on WebGPU).
+            for (const d of draws as IndexedMeshDraw[]) {
+                if (d.instanceCount <= 0) continue;
+                passDrawIndexed(
+                    gpuPass,
+                    inspector,
+                    info,
+                    d.indexCount,
+                    d.instanceCount,
+                    d.firstIndex,
+                    d.firstInstance,
+                    d.baseVertex ?? 0,
+                );
             }
-            if (draws !== undefined) {
-                // Batched: one instanced drawIndexed per entry, each carrying its own firstInstance
-                // (native — instance_index is base-inclusive on WebGPU).
-                for (const d of draws as IndexedMeshDraw[]) {
-                    if (d.instanceCount <= 0) continue;
-                    passDrawIndexed(
-                        gpuPass,
-                        inspector,
-                        info,
-                        d.indexCount,
-                        d.instanceCount,
-                        d.firstIndex,
-                        d.firstInstance,
-                        d.baseVertex ?? 0,
-                    );
-                }
-            } else if (geometry.indirect) {
-                const indirect = geometry.indirect;
-                const indBuf = Buffers.ensureUploaded(b.buffers, b.device, indirect, 'indirect');
-                const byteStride = indirect.itemSize * 4;
-                const baseOffset = geometry.indirectOffset;
-                const drawCount = geometry.indirectDrawCount ?? indirect.count;
-                for (let d = 0; d < drawCount; d++) {
-                    passDrawIndexedIndirect(gpuPass, inspector, info, indBuf, baseOffset + d * byteStride);
-                }
-            } else {
-                const { first, count } = resolveIndexedDrawRange(geometry, range);
-                passDrawIndexed(gpuPass, inspector, info, count, instances, first);
+        } else if (geometry.indirect) {
+            const indirect = geometry.indirect;
+            const indBuf = Buffers.ensureUploaded(b.buffers, b.device, indirect, 'indirect');
+            const byteStride = indirect.itemSize * 4;
+            const baseOffset = geometry.indirectOffset;
+            const drawCount = geometry.indirectDrawCount ?? indirect.count;
+            for (let d = 0; d < drawCount; d++) {
+                passDrawIndexedIndirect(gpuPass, inspector, info, indBuf, baseOffset + d * byteStride);
             }
         } else {
-            if (draws !== undefined) {
-                // Batched non-indexed: one instanced draw per entry, each carrying its own firstInstance.
-                for (const d of draws as NonIndexedMeshDraw[]) {
-                    if (d.instanceCount <= 0) continue;
-                    passDraw(gpuPass, inspector, info, d.vertexCount, d.instanceCount, d.firstVertex, d.firstInstance);
-                }
-            } else if (geometry.indirect) {
-                const indirect = geometry.indirect;
-                const indBuf = Buffers.ensureUploaded(b.buffers, b.device, indirect, 'indirect');
-                const byteStride = indirect.itemSize * 4;
-                const baseOffset = geometry.indirectOffset;
-                const drawCount = geometry.indirectDrawCount ?? indirect.count;
-                for (let d = 0; d < drawCount; d++) {
-                    passDrawIndirect(gpuPass, inspector, info, indBuf, baseOffset + d * byteStride);
-                }
-            } else {
-                const { first, count } = resolveVertexDrawRange(geometry, range);
-                passDraw(gpuPass, inspector, info, count, instances, first);
-            }
+            const { first, count } = resolveIndexedDrawRange(geometry, range);
+            passDrawIndexed(gpuPass, inspector, info, count, instances, first);
         }
-
-        if (inspector) inspector.perf.start('updateAfter');
-        NodeManager.updateAfter(nodes, renderObject);
-        if (inspector) inspector.perf.end('updateAfter');
+    } else {
+        if (draws !== undefined) {
+            // Batched non-indexed: one instanced draw per entry, each carrying its own firstInstance.
+            for (const d of draws as NonIndexedMeshDraw[]) {
+                if (d.instanceCount <= 0) continue;
+                passDraw(gpuPass, inspector, info, d.vertexCount, d.instanceCount, d.firstVertex, d.firstInstance);
+            }
+        } else if (geometry.indirect) {
+            const indirect = geometry.indirect;
+            const indBuf = Buffers.ensureUploaded(b.buffers, b.device, indirect, 'indirect');
+            const byteStride = indirect.itemSize * 4;
+            const baseOffset = geometry.indirectOffset;
+            const drawCount = geometry.indirectDrawCount ?? indirect.count;
+            for (let d = 0; d < drawCount; d++) {
+                passDrawIndirect(gpuPass, inspector, info, indBuf, baseOffset + d * byteStride);
+            }
+        } else {
+            const { first, count } = resolveVertexDrawRange(geometry, range);
+            passDraw(gpuPass, inspector, info, count, instances, first);
+        }
     }
+
+    if (inspector) inspector.perf.start('updateAfter');
+    NodeManager.updateAfter(nodes, renderObject);
+    if (inspector) inspector.perf.end('updateAfter');
 }
 
 // Teardown — release every device resource the renderer owns.

@@ -30,6 +30,7 @@ import {
     Fn,
     f32,
     frame,
+    frameGroup,
     fullscreen,
     Geometry,
     GpuBuffer,
@@ -87,6 +88,7 @@ import {
 } from '../../src/index';
 import { RendererInspector } from '../../src/inspector/renderer-inspector';
 import * as Programs from '../../src/renderer/webgl/programs';
+import * as TextureHomes from '../../src/renderer/webgl/texture-homes';
 import { bitBuiltinsFragment } from '../bit-builtins';
 import { voidFragmentMaterial } from '../void-fragment';
 
@@ -342,6 +344,79 @@ async function caseDrawsList(multiDraw: boolean): Promise<CaseResult> {
         pixel: green(list) && green(one) && used === multiDraw ? [0, 255, 0, 255] : [255, 0, 0, 255],
         expected: [0, 255, 0, 255],
         note: `list=${Array.from(list).slice(0, 4).join(',')} single=${Array.from(one).slice(0, 4).join(',')} multi-draw used=${used}`,
+    };
+}
+
+/**
+ * scene-switch: a renderer that drew a level, disposed it and drew another holds what a fresh one drawing only the
+ * second does: programs, compiled shaders, render objects, buffers, textures and geometries.
+ */
+async function caseSceneSwitch(): Promise<CaseResult> {
+    const level = (name: string, kinds: number) => {
+        const shared = new Uniform(d.f32, 0.5, frameGroup, `${name}Shared`);
+        const meshes: Mesh[] = [];
+        const textures: DataTexture[] = [];
+        for (let kind = 0; kind < kinds; kind++) {
+            const own = new Uniform(d.f32, kind / kinds, frameGroup, `${name}Own${kind}`);
+            const tex = new DataTexture(new Uint8Array([255, kind, 0, 255]), 1, 1, { format: 'rgba8unorm' });
+            textures.push(tex);
+            const mesh = fullscreen(vec4(texture(tex).sample(screenUV).x.mul(uniform(shared)), uniform(own), f32(kind), f32(1)));
+            mesh.material.depthTest = false;
+            mesh.updateWorldMatrix();
+            meshes.push(mesh);
+        }
+        return { meshes, textures };
+    };
+    const draw = (renderer: Renderer<WebGLBackend>, meshes: Mesh[]) => {
+        const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+        const f = frame(renderer);
+        const pass = f.pass({ target, clear: [0, 0, 0, 1] });
+        for (const mesh of meshes) pass.draw(mesh);
+        pass.end();
+        f.submit();
+        target.dispose();
+    };
+    const held = (renderer: Renderer<WebGLBackend>) => {
+        const memory = renderer.info.memory;
+        return [
+            Programs.getProgramCacheStats(renderer.backend.programs).programCount,
+            renderer._nodes.renderStates.size,
+            renderer._renderObjects.renderObjects.size,
+            memory.buffers,
+            memory.textures,
+            memory.geometries,
+            TextureHomes.getTextureHomeStats(renderer.backend.programs.homes).homes,
+        ].join(',');
+    };
+
+    const fresh = await newRenderer();
+    const b = level('b', 3);
+    draw(fresh, b.meshes);
+    draw(fresh, b.meshes);
+    const freshHeld = held(fresh);
+    fresh.dispose();
+
+    const switched = await newRenderer();
+    const a = level('a', 6);
+    draw(switched, a.meshes);
+    draw(switched, a.meshes);
+    for (const mesh of a.meshes) {
+        mesh.material.dispose();
+        mesh.geometry.dispose();
+    }
+    for (const tex of a.textures) tex.dispose();
+    const again = level('b', 3);
+    draw(switched, again.meshes);
+    draw(switched, again.meshes);
+    const switchedHeld = held(switched);
+    switched.dispose();
+
+    const ok = switchedHeld === freshHeld;
+    return {
+        name: 'scene-switch',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `programs,shaders,objects,buffers,textures,geometries,homes fresh=${freshHeld} switched=${switchedHeld}`,
     };
 }
 
@@ -5042,6 +5117,45 @@ async function caseFragCoordDirect(): Promise<CaseResult> {
 }
 
 /**
+ * fragcoord-two-sizes: one program draws a full-size target, then a half-size one, in one frame, red where raw
+ * gl_FragCoord.y < 2 (the top two rows, with the flip to WebGPU's top-left origin). The program carries over from the
+ * first pass, so the second must write its own flip height: with the first's, every row reads as below the half and
+ * the top comes out green.
+ */
+async function caseFragCoordTwoSizes(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const mesh = fullscreen(select(vec4(0, 1, 0, 1), vec4(1, 0, 0, 1), screenCoordinate.y.lessThan(f32(2))));
+    mesh.material.depthTest = false;
+    mesh.updateWorldMatrix();
+    const large = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const small = createRenderTarget(SIZE / 2, SIZE / 2, { colorFormat: 'rgba8unorm' });
+    const f = frame(renderer);
+    for (const target of [large, small]) {
+        const pass = f.pass({ target, clear: [0, 0, 0, 1] });
+        pass.draw(mesh);
+        pass.end();
+    }
+    f.submit();
+    const rows = async (target: typeof large, size: number) => {
+        const px = await read(renderer, target);
+        const at = (y: number) => Array.from(px.slice((y * size + size / 2) * 4, (y * size + size / 2) * 4 + 4));
+        return { top: at(0), bottom: at(size - 1) };
+    };
+    const a = await rows(large, SIZE);
+    const b = await rows(small, SIZE / 2);
+    renderer.dispose();
+    const red = (c: number[]) => c[0] > 200 && c[1] < 60;
+    const green = (c: number[]) => c[1] > 200 && c[0] < 60;
+    const ok = red(a.top) && green(a.bottom) && red(b.top) && green(b.bottom);
+    return {
+        name: 'fragcoord-two-sizes',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `large top=${a.top} bottom=${a.bottom} small top=${b.top} bottom=${b.bottom} (tops should be RED)`,
+    };
+}
+
+/**
  * geomuv-present: two-tone into an RT, then present sampling by the fullscreen triangle's GEOMETRY uv
  * attribute (top-left convention), NOT screenUV, to the default framebuffer. Isolates the render-target
  * V-flip for geometry-uv sampling (no fragCoord in the uv). Displayed-top MUST be RED.
@@ -5348,6 +5462,57 @@ async function casePassViews(): Promise<CaseResult> {
     };
 }
 
+/**
+ * bin-views: pass-views with its draws in a bin keyed by pipeline, then view, so the encode interleaves the cameras: a
+ * blue box from each, then a green box at the same spot from each. Each draw must keep the camera and rects it was
+ * drawn under, the camera through the pass's slot for its scope. The left centre is blue (the green box, as deep,
+ * fails the depth test), green when the blue box drew from the wrong camera, and the right centre is the clear.
+ */
+async function caseBinViews(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    const { box, facing, away } = boxBetweenCameras();
+    const green = new Mesh(box.geometry, new Material({ vertex: box.material.vertex, fragment: vec4(0, 1, 0, 1) }));
+    green.updateWorldMatrix();
+    const left = { x: 0, y: 0, width: SIZE / 2, height: SIZE };
+    const right = { x: SIZE / 2, y: 0, width: SIZE / 2, height: SIZE };
+
+    for (let frameIndex = 0; frameIndex < 2; frameIndex++) {
+        const f = frame(renderer);
+        const pass = f.pass({ target, clear: [0, 0, 0, 1], label: 'bin-views' });
+        const casters = pass.bin({ key: ['pipeline', 'view'] });
+        pass.setCamera(facing);
+        pass.setViewport(left);
+        pass.setScissor(left);
+        casters.draw(box);
+        casters.draw(green);
+        pass.setCamera(away);
+        pass.setViewport(right);
+        pass.setScissor(right);
+        casters.draw(box);
+        casters.draw(green);
+        pass.end();
+        f.submit();
+    }
+
+    const pixels = await read(renderer, target);
+    const at = (x: number, y: number) => {
+        const i = (y * SIZE + x) * 4;
+        return [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]];
+    };
+    const leftCentre = at(SIZE / 4, SIZE / 2);
+    const rightCentre = at((SIZE * 3) / 4, SIZE / 2);
+    renderer.dispose();
+    const blue = leftCentre[2] > 200 && leftCentre[0] < 60 && leftCentre[1] < 60;
+    const black = rightCentre[0] < 60 && rightCentre[1] < 60 && rightCentre[2] < 60;
+    return {
+        name: 'bin-views',
+        pixel: blue && black ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `left=${leftCentre.join(',')} (blue box) right=${rightCentre.join(',')} (clear, black)`,
+    };
+}
+
 export async function run(): Promise<RunResult> {
     try {
         const cases: CaseResult[] = [];
@@ -5358,6 +5523,7 @@ export async function run(): Promise<RunResult> {
             caseGeomUvPresent,
             caseViewportCellPresent,
             casePassViews,
+            caseBinViews,
             caseClear,
             caseClearIgnoresScissor,
             caseCompilePrewarm,
@@ -5375,6 +5541,8 @@ export async function run(): Promise<RunResult> {
             () => caseDrawsList(true),
             () => caseDrawsList(false),
             caseResetState,
+            caseSceneSwitch,
+            caseFragCoordTwoSizes,
             caseBufferSwap,
             caseClearDepth,
             caseClearDepthOnly,

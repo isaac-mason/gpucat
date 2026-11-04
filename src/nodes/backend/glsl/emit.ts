@@ -15,6 +15,7 @@
  * Nothing here touches GPUDevice or any runtime object — it is purely node-graph → text.
  */
 
+import { placeSharedMembers, type SharedPlacement, uniqueByUniform } from '../../../renderer/core/shared-blocks';
 import { layoutAlignOf, layoutSizeOf, layoutStrideOf, structFieldLayout } from '../../../schema/pack';
 import type { StructSchema } from '../../../schema/schema';
 import * as d from '../../../schema/schema';
@@ -304,6 +305,8 @@ export type StorageMirror = {
  * per-stage emission scratch (attributes, varyings, CSE vars, code lines).
  */
 export type GlslBuildContext = {
+    /** Where shared groups' members are placed, or null to lay each shared block out by itself. */
+    shared: SharedPlacement | null;
     stage: ShaderStage;
 
     // Discovered facts (shared-mutable across stages).
@@ -388,6 +391,7 @@ export function createGlslContext(stage: ShaderStage, discovery: Discovery): Gls
     const globalNames = seedGlslGlobalNames(discovery);
     return {
         stage,
+        shared: discovery.shared,
         uniforms: discovery.uniforms,
         usageCount: discovery.nodeIdToUsages,
         mutatedNodes: discovery.mutatedNodes,
@@ -1877,15 +1881,35 @@ export function emitGlslUniformBlocks(ctx: GlslBuildContext): { glsl: string; un
         // producing "Buffer for uniform block is smaller than UNIFORM_BLOCK_DATA_SIZE".
         let structAlign = 16;
         // A fixed group (the view's) is its declared members in their declared order, in every program. Another
-        // shared group backs one buffer reused across materials, cached by its uniform set, so it is ordered by stable
-        // node id (as the WGSL emit and three.js). Non-shared groups keep declaration order.
+        // shared group's members sit where the renderer's shared block placed them, the same in every program that
+        // reads them: std140 has no explicit offsets, so unread slots are `uvec4` gaps and a member short of its slot
+        // is followed by `uint` padding to the next. Without a placement a shared group lays its own members out, one
+        // per Uniform, by stable node id (as the WGSL emit). Non-shared groups keep declaration order.
         const fixed = fixedMembers(entry.group);
+        const shared = fixed === null && entry.group.shared;
+        const placed =
+            shared && ctx.shared !== null
+                ? placeSharedMembers(ctx.shared.blocks, entry.group, entry.uniforms, ctx.shared.maxBytes)
+                : null;
         const orderedUniforms =
-            fixed !== null
-                ? [...entry.uniforms].sort((a, b) => fixed.indexOf(a) - fixed.indexOf(b))
-                : entry.group.shared
-                  ? [...entry.uniforms].sort((a, b) => a.id - b.id)
-                  : entry.uniforms;
+            placed !== null
+                ? []
+                : fixed !== null
+                  ? [...entry.uniforms].sort((a, b) => fixed.indexOf(a) - fixed.indexOf(b))
+                  : shared
+                    ? uniqueByUniform(entry.uniforms).sort((a, b) => a.id - b.id)
+                    : entry.uniforms;
+        if (placed !== null) {
+            let gaps = 0;
+            for (const member of placed) {
+                if (member.offset > offset) lines.push(`    uvec4 _gap${gaps++}[${(member.offset - offset) / 16}];`);
+                lines.push(`    ${glslLocalDecl(member.schema, uniformMemberName(ctx, member.node))};`);
+                for (let pad = member.size; pad < member.slots * 16; pad += 4) lines.push(`    uint _gap${gaps++};`);
+                members.push(member);
+                offset = member.offset + member.slots * 16;
+                assertSchemaUniformValid(`Uniforms_${groupName}.${member.uniformId}`, member.schema);
+            }
+        }
         for (const u of orderedUniforms) {
             // std140 offsets/sizes come from pack.ts — the single memory-layout authority.
             const align = layoutAlignOf(u.type, 'std140');
@@ -1922,6 +1946,7 @@ export function emitGlslUniformBlocks(ctx: GlslBuildContext): { glsl: string; un
             members,
             totalBytes,
             group: entry.group,
+            sharedBlock: placed !== null && placed.length > 0 ? placed[0]!.owner : null,
         });
     });
 

@@ -15,6 +15,7 @@ import type {
     TransformFeedbackRecord,
 } from '../core/frame';
 import * as Info from '../core/info';
+import { setSharedPlacement } from '../core/node-manager';
 import type { RenderObject } from '../core/render-object';
 import { formatHasStencil, type RenderPassParams } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
@@ -25,6 +26,7 @@ import * as CopyTexture from './copy-texture';
 import * as DrawBases from './draw-bases';
 import * as FrameBackend from './frame-backend';
 import * as Geometries from './geometries';
+import * as PassUniforms from './pass-uniforms';
 import * as Prepare from './prepare';
 import * as Probe from './probe';
 import * as Programs from './programs';
@@ -34,6 +36,7 @@ import { createRenderObjectGlCache, type RenderObjectGlCache } from './render-ob
 import * as RenderTargets from './render-target';
 import * as Samplers from './samplers';
 import * as State from './state';
+import * as TextureHomes from './texture-homes';
 import * as Textures from './textures';
 import * as TransformFeedback from './transform-feedback';
 
@@ -142,6 +145,8 @@ export class WebGLBackend implements DeviceBackend {
     _maxTextureSize: number | undefined;
     /** The multi-draw state, null without WEBGL_multi_draw or with `multiDraw: false`. @internal */
     _drawBases: DrawBases.DrawBases | null = null;
+    /** Each pass's shared view and frame blocks, a slot per scope, made with the context. @internal */
+    _passUniforms: PassUniforms.PassUniforms | null = null;
 
     constructor(opts: WebGLBackendOptions) {
         this._opts = opts;
@@ -155,7 +160,7 @@ export class WebGLBackend implements DeviceBackend {
     async init(renderer: Renderer<DeviceBackend>): Promise<void> {
         this.renderer = renderer;
 
-        this.buffers = Buffers.createBufferCache(renderer.info, this.memoryTally);
+        this.buffers = Buffers.createBufferCache(renderer.info, this.memoryTally, this.glState);
 
         const { width, height } = this.target.getDrawingBufferSize();
         this._width = width || 1;
@@ -177,6 +182,9 @@ export class WebGLBackend implements DeviceBackend {
         const maxTex = this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE) as number;
         this._maxTextureSize = typeof maxTex === 'number' && maxTex > 0 ? maxTex : undefined;
         this._drawBases = this._opts.multiDraw === false ? null : DrawBases.createDrawBases(this.gl);
+        this._passUniforms = PassUniforms.createPassUniforms(this.gl);
+        Programs.setTextureUnitCount(this.programs, this.gl.getParameter(this.gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS) as number);
+        setSharedPlacement(renderer._nodes, this.gl.getParameter(this.gl.MAX_UNIFORM_BLOCK_SIZE) as number);
 
         // WebGL's parallel to WebGPU's `device.lost`: the canvas fires `webglcontextlost` when the
         // driver drops the context (GPU reset, tab backgrounding, `WEBGL_lose_context`). Preventing
@@ -280,6 +288,13 @@ export class WebGLBackend implements DeviceBackend {
     }
 
     /** @internal */
+    releaseRenderObject(renderObject: RenderObject): void {
+        const payload = this.renderObjectGl.data.get(renderObject);
+        if (payload === undefined) return;
+        if (this.gl) Programs.releaseProgram(this.gl, this.programs, this.glState, payload);
+        this.renderObjectGl.data.delete(renderObject);
+    }
+
     releaseUniformBlock(key: object): void {
         if (this.gl) Buffers.releaseUniformBlock(this.gl, this.buffers, key);
     }
@@ -293,12 +308,9 @@ export class WebGLBackend implements DeviceBackend {
         if (!gl) return;
         State.resetGlState(gl, this.glState, gl.drawingBufferWidth, gl.drawingBufferHeight);
         Textures.forgetTextureUnits(gl, this.textures);
-        gl.useProgram(null);
-        gl.bindVertexArray(null);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.bindRenderbuffer(gl.RENDERBUFFER, null);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
-        gl.bindBuffer(gl.UNIFORM_BUFFER, null);
         gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
         gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
         gl.bindBuffer(gl.COPY_READ_BUFFER, null);
@@ -331,6 +343,7 @@ export class WebGLBackend implements DeviceBackend {
         memory.samplers = Samplers.getSamplerCacheStats(this.samplers).samplerCount;
         // Keyed on source, so it does not compare with WebGPU's pipeline count, which adds fixed-function state.
         memory.backend.programs = Programs.getProgramCacheStats(this.programs).programCount;
+        memory.backend.textureHomes = TextureHomes.getTextureHomeStats(this.programs.homes).homes;
         memory.backend.framebuffers = renderTargets.fboCount;
         memory.backend.renderbuffers = renderTargets.renderbufferCount;
     }
@@ -358,7 +371,7 @@ export class WebGLBackend implements DeviceBackend {
 
     /** Release the shader-probe GL resources. @internal */
     clearProbe(): void {
-        Probe.disposeProbeState(this.gl, this.textures, this._probe);
+        Probe.disposeProbeState(this.gl, this.glState, this.textures, this._probe);
     }
 
     /**
@@ -507,14 +520,16 @@ export class WebGLBackend implements DeviceBackend {
         this._onContextRestored = null;
 
         if (this.gl) {
-            Probe.disposeProbeState(this.gl, this.textures, this._probe);
-            Programs.disposePrograms(this.gl, this.programs);
-            if (this._drawBases !== null) DrawBases.disposeDrawBases(this.gl, this._drawBases);
+            Probe.disposeProbeState(this.gl, this.glState, this.textures, this._probe);
+            Programs.disposePrograms(this.gl, this.programs, this.glState);
+            if (this._drawBases !== null) DrawBases.disposeDrawBases(this.gl, this._drawBases, this.glState);
             this._drawBases = null;
+            if (this._passUniforms !== null) PassUniforms.disposePassUniforms(this.gl, this._passUniforms, this.glState);
+            this._passUniforms = null;
             Textures.disposeTextureCache(this.gl, this.textures);
             Samplers.disposeSamplerCache(this.gl, this.samplers);
             RenderTargets.disposeGlRenderTargets(this.gl, this.renderTargets);
-            TransformFeedback.disposeTransformFeedback(this.gl, this._transformFeedback);
+            TransformFeedback.disposeTransformFeedback(this.gl, this.glState, this._transformFeedback);
             // Every GL buffer this renderer made: vertex, index and uniform-block. Individually they
             // are released when their GpuBuffer is disposed; this is the teardown sweep.
             Buffers.disposeBufferCache(this.gl, this.buffers);

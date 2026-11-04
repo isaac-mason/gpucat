@@ -32,7 +32,9 @@ import {
     recordBufferWrite,
     setAllocation,
 } from '../core/info';
+import { type SharedBlock, takeSharedDirty } from '../core/shared-blocks';
 import { mergeUpdateRanges } from '../core/update-ranges';
+import { deleteBuffer, type GlState, unbindVertexArray } from './state';
 
 type CacheEntry = {
     glBuffer: WebGLBuffer;
@@ -65,6 +67,8 @@ export type BufferCache = {
     /** Where upload volume is tallied. Held by reference so the frame boundary that zeroes it stays
      *  in one place (the renderer) and every reader sees the same numbers; see `core/info.ts`. */
     info: RendererInfo;
+    /** The context's binding record: an index buffer bind unbinds a draw's VAO through it, and a delete updates it. */
+    glState: GlState;
 };
 
 export type BufferCacheStats = {
@@ -72,7 +76,7 @@ export type BufferCacheStats = {
     rawCount: number;
 };
 
-export function createBufferCache(info: RendererInfo, tally: MemoryTally): BufferCache {
+export function createBufferCache(info: RendererInfo, tally: MemoryTally, glState: GlState): BufferCache {
     return {
         bufferMap: new WeakMap(),
         rawMap: new WeakMap(),
@@ -82,6 +86,7 @@ export function createBufferCache(info: RendererInfo, tally: MemoryTally): Buffe
         tally,
         textureOnly: new WeakSet(),
         info,
+        glState,
     };
 }
 
@@ -111,7 +116,7 @@ function setupBufferDispose(gl: WebGL2RenderingContext, cache: BufferCache, buff
         previous?.();
         const entry = cache.bufferMap.get(buffer);
         if (!entry) return;
-        gl.deleteBuffer(entry.glBuffer);
+        deleteBuffer(gl, cache.glState, entry.glBuffer);
         cache.all.delete(entry.glBuffer);
         clearAllocation(cache.tally, entry.allocation);
         cache.bufferCount--;
@@ -189,6 +194,8 @@ export function ensureUploaded(
             cache.bufferCount++;
             setupBufferDispose(gl, cache, buffer);
         }
+        // ELEMENT_ARRAY_BUFFER is VAO state: under a draw's VAO it would rewrite that VAO's index buffer
+        if (target === gl.ELEMENT_ARRAY_BUFFER) unbindVertexArray(gl, cache.glState);
         gl.bindBuffer(target, entry.glBuffer);
         if (array) {
             gl.bufferData(target, array, usageHint ?? glUsageHint(gl, buffer));
@@ -208,6 +215,7 @@ export function ensureUploaded(
 
     // only a `cpu: false` buffer plans past Skip without an array, and it only ever allocates
     if (!array) throw new Error(`[webgl] buffer '${label}': a write was planned with no array.`);
+    if (target === gl.ELEMENT_ARRAY_BUFFER) unbindVertexArray(gl, cache.glState);
     gl.bindBuffer(target, entry!.glBuffer);
     if (plan === BufferUpload.Partial) {
         uploadDirtyRanges(gl, cache, target, array, buffer, label);
@@ -232,10 +240,7 @@ export function writeBufferBytes(
     const label = buffer.label ?? 'write-buffer';
     let glBuffer = cache.bufferMap.get(buffer)?.glBuffer;
     if (glBuffer === undefined && buffer.usage.has('index')) {
-        const vao = gl.getParameter(gl.VERTEX_ARRAY_BINDING) as WebGLVertexArrayObject | null;
-        gl.bindVertexArray(null);
         glBuffer = ensureUploaded(gl, cache, buffer, gl.ELEMENT_ARRAY_BUFFER, label);
-        gl.bindVertexArray(vao);
     }
     glBuffer ??= ensureUploaded(gl, cache, buffer, gl.COPY_WRITE_BUFFER, label);
     gl.bindBuffer(gl.COPY_WRITE_BUFFER, glBuffer);
@@ -287,6 +292,42 @@ export type RawWriteDetail = {
     updateType?: string;
     changedBytes?: number;
 };
+
+const _dirty = { start: 0, end: 0 };
+
+/**
+ * Brings `shared`'s UBO up to its mirror: the dirty range, or all of it when the mirror outgrew the buffer. GL runs
+ * draws as issued, so a resize reallocates in place without disturbing draws already made.
+ */
+export function uploadSharedBlock(gl: WebGL2RenderingContext, cache: BufferCache, shared: SharedBlock): void {
+    let entry = cache.rawMap.get(shared);
+    const size = shared.mirror.byteLength;
+    if (entry === undefined || entry.byteLength < shared.block.totalBytes) {
+        if (entry === undefined) {
+            const glBuffer = gl.createBuffer();
+            if (!glBuffer) throw new Error('[webgl] gl.createBuffer returned null (shared block).');
+            entry = {
+                glBuffer,
+                byteLength: size,
+                allocation: createAllocation('buffer', 'uniform', `shared-${shared.group.name}`),
+            };
+            cache.rawMap.set(shared, entry);
+            cache.all.add(glBuffer);
+            cache.rawCount++;
+        }
+        entry.byteLength = size;
+        setAllocation(cache.tally, entry.allocation, size);
+        takeSharedDirty(shared, _dirty);
+        gl.bindBuffer(gl.UNIFORM_BUFFER, entry.glBuffer);
+        gl.bufferData(gl.UNIFORM_BUFFER, shared.mirror, gl.DYNAMIC_DRAW);
+        recordBufferWrite(cache.info, size, 'uniform', true, `shared-${shared.group.name}`);
+        return;
+    }
+    if (!takeSharedDirty(shared, _dirty)) return;
+    gl.bindBuffer(gl.UNIFORM_BUFFER, entry.glBuffer);
+    gl.bufferSubData(gl.UNIFORM_BUFFER, _dirty.start, new Uint8Array(shared.mirror, _dirty.start, _dirty.end - _dirty.start));
+    recordBufferWrite(cache.info, _dirty.end - _dirty.start, 'uniform', false, `shared-${shared.group.name}`);
+}
 
 /**
  * Upload one packed uniform block, identified by an arbitrary key.
@@ -350,7 +391,7 @@ export function getRaw(cache: BufferCache, key: object): WebGLBuffer | undefined
 export function releaseUniformBlock(gl: WebGL2RenderingContext, cache: BufferCache, key: object): void {
     const entry = cache.rawMap.get(key);
     if (!entry) return;
-    gl.deleteBuffer(entry.glBuffer);
+    deleteBuffer(gl, cache.glState, entry.glBuffer);
     cache.all.delete(entry.glBuffer);
     clearAllocation(cache.tally, entry.allocation);
     cache.rawMap.delete(key);
@@ -365,7 +406,7 @@ export function releaseUniformBlock(gl: WebGL2RenderingContext, cache: BufferCac
  * count that teardown had already zeroed. A fresh map makes that callback a no-op.
  */
 export function disposeBufferCache(gl: WebGL2RenderingContext, cache: BufferCache): void {
-    for (const glBuffer of cache.all) gl.deleteBuffer(glBuffer);
+    for (const glBuffer of cache.all) deleteBuffer(gl, cache.glState, glBuffer);
     cache.all.clear();
     cache.bufferMap = new WeakMap();
     cache.rawMap = new WeakMap();

@@ -29,8 +29,6 @@ import type { WebGLBackend } from './webgl-backend';
 
 /** The probe uploads each group as soon as it captures it, so one slot serves every group. */
 const _probeCaptures: Bindings.UniformCapture[] = [];
-/** The probe binds outside any pass, so nothing is known bound: reset before each probe. */
-const _probeBound = /*@__PURE__*/ Bindings.createBoundUniforms();
 
 /** A cached probe program: the linked GL program + its UBO binding points, plus the 1×1 readback FBO. */
 type ProbeGl = {
@@ -73,13 +71,14 @@ function compileShader(gl: WebGL2RenderingContext, type: number, source: string)
  */
 function buildProbeGl(
     gl: WebGL2RenderingContext,
+    glState: State.GlState,
     textures: TextureCache,
     ro: RenderObject,
     patchedFragment: string,
     previous: ProbeGl | null,
 ): ProbeGl {
     if (previous && previous.fragmentSrc === patchedFragment) return previous;
-    if (previous) disposeProbeGl(gl, textures, previous);
+    if (previous) disposeProbeGl(gl, glState, textures, previous);
 
     const nodeState = ro.nodeBuilderState;
     if (!nodeState || !nodeState.vertexCode) {
@@ -137,8 +136,8 @@ function buildProbeGl(
 }
 
 /** Free all GL resources of a probe program. */
-function disposeProbeGl(gl: WebGL2RenderingContext, textures: TextureCache, p: ProbeGl): void {
-    gl.deleteProgram(p.program);
+function disposeProbeGl(gl: WebGL2RenderingContext, glState: State.GlState, textures: TextureCache, p: ProbeGl): void {
+    State.deleteProgram(gl, glState, p.program);
     gl.deleteFramebuffer(p.fbo);
     deleteGlTexture(gl, textures, p.colorTex);
     gl.deleteRenderbuffer(p.depthRb);
@@ -153,8 +152,13 @@ export function createProbeState(): ProbeState {
     return { gl: null };
 }
 
-export function disposeProbeState(gl: WebGL2RenderingContext | null, textures: TextureCache, state: ProbeState): void {
-    if (gl && state.gl) disposeProbeGl(gl, textures, state.gl);
+export function disposeProbeState(
+    gl: WebGL2RenderingContext | null,
+    glState: State.GlState,
+    textures: TextureCache,
+    state: ProbeState,
+): void {
+    if (gl && state.gl) disposeProbeGl(gl, glState, textures, state.gl);
     state.gl = null;
 }
 
@@ -181,15 +185,16 @@ export function renderProbe(
     const geometry: Geometry = ro.geometry;
 
     // Build / reuse the probe program (compile errors surface as a thrown Error to the caller).
-    const p = buildProbeGl(gl, caches.textures, ro, patchedFragment, state.gl);
+    const p = buildProbeGl(gl, caches.glState, caches.textures, ro, patchedFragment, state.gl);
     state.gl = p;
 
     // Wrap the program in a ProgramInfo so the shared texture-binding path can reuse its texture-uniform
-    // cache. (bindTextures only reads `program` + `textureUniforms`.)
+    // cache, binding each texture at the unit the emitter numbered it.
     const programInfo: ProgramInfo = {
         program: p.program,
         uboBindingPoints: p.uboBindingPoints,
         textureUniforms: p.textureUniforms,
+        units: null,
     };
 
     // Bind the probe FBO + a 1×1 viewport and clear.
@@ -210,8 +215,7 @@ export function renderProbe(
     State.setCapability(gl, glState, 'blend', false);
     State.setCapability(gl, glState, 'rasterizerDiscard', false);
 
-    gl.useProgram(p.program);
-    Bindings.resetBoundUniforms(_probeBound);
+    State.useProgram(gl, glState, p.program);
 
     // Capture + upload + bind each uniform group's std140 UBO as the normal draw does, but at once: the
     // probe draws now rather than in a recorded pass. The groups were already updated this frame by the
@@ -223,18 +227,18 @@ export function renderProbe(
             const bindingPoint = p.uboBindingPoints.get(binding.block.groupName);
             if (bindingPoint === undefined) continue;
             Bindings.captureUniformGroup(caches, binding, frame, bindingPoint, ro.material, _probeCaptures, 0);
-            Bindings.uploadAndBindCapture(gl, caches, _probeCaptures[0], ro.material, _probeBound);
+            Bindings.uploadAndBindCapture(gl, caches, _probeCaptures[0], ro.material, glState);
         }
     }
 
-    if (caches._drawBases !== null && p.drawBases) DrawBases.bindZeroTable(gl, caches._drawBases, _probeBound);
+    if (caches._drawBases !== null && p.drawBases) DrawBases.bindZeroTable(gl, caches._drawBases, glState);
 
     // Textures + samplers → GL units + combined-sampler uniforms.
     bindTextures(gl, caches, ro, programInfo, null);
 
     // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
     const drawInfo = Geometries.prepareGeometry(gl, caches, geometry, nodeState, p.program);
-    gl.bindVertexArray(drawInfo.vao);
+    State.bindVertexArray(gl, glState, drawInfo.vao);
 
     // Draw (triangle list, instance count = mesh.count), mirroring the render-pass draw selection.
     const instances = mesh.count;
@@ -256,10 +260,8 @@ export function renderProbe(
     const pixel = new Uint8Array(4);
     gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
 
-    // Restore default bindings so the next main-loop frame is unaffected.
-    gl.bindVertexArray(null);
+    // Back to the default framebuffer; the program and VAO stay in `glState`'s record.
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.useProgram(null);
 
     return pixel;
 }

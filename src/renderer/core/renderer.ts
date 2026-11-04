@@ -39,7 +39,7 @@ export class Renderer<B extends DeviceBackend = DeviceBackend> implements Render
 
     constructor(backend: B) {
         this.backend = backend;
-        this._nodes = NodeManager.createNodeManagerState(backend);
+        this._nodes = NodeManager.createNodeManagerState(backend, backend.name === 'webgl' ? 'std140' : 'wgsl-uniform');
         this._renderObjects = RenderObjects.createRenderObjectsState(this._nodes);
     }
 

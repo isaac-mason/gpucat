@@ -121,12 +121,15 @@ test('a swap to a different vertex layout builds a new pipeline, not the cached 
     mesh.updateWorldMatrix();
 
     drawOnce(renderer, mesh, camera, target);
-    const afterFirst = getPipelineCacheStats(renderer.backend.pipelines).renderCount;
+    const firstKeys = [...renderer.backend.pipelines.renderPipelines.keys()];
 
     mesh.geometry = widerNormal;
     drawOnce(renderer, mesh, camera, target);
 
-    expect(getPipelineCacheStats(renderer.backend.pipelines).renderCount).toBeGreaterThan(afterFirst);
+    // a pipeline under a new key, the old one gone with its last user
+    const keys = [...renderer.backend.pipelines.renderPipelines.keys()];
+    expect(getPipelineCacheStats(renderer.backend.pipelines).renderCount).toBe(firstKeys.length);
+    expect(keys).not.toEqual(firstKeys);
     void stub;
 });
 

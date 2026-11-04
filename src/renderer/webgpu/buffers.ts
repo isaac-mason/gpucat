@@ -15,7 +15,8 @@ import {
     recordBufferWrite,
     setAllocation,
 } from '../core/info';
-
+import { type SharedBlock, takeSharedDirty } from '../core/shared-blocks';
+import { type BindGroupCache, releaseGroupsNaming } from './bind-group-cache';
 import { createDrawArena, type DrawArena, disposeDrawArena, releaseSlot, type SharedGroup, sharedGroup } from './draw-arena';
 
 type CacheEntry = { buf: GPUBuffer; version: number; allocation: Allocation };
@@ -45,6 +46,10 @@ export type BufferCache = {
 
     /** Where each render object's and dispatch's own uniform block lives. See `draw-arena.ts`. */
     drawArena: DrawArena;
+    /** The bind group cache, whose entries naming a buffer go when it is destroyed. */
+    bindGroups: BindGroupCache;
+    /** Buffers replaced while the frame may still read them, destroyed after its submit. */
+    retired: GPUBuffer[];
 };
 
 /**
@@ -116,7 +121,7 @@ export type BufferCacheStats = {
     rawCount: number;
 };
 
-export function createBufferCache(info: RendererInfo, tally: MemoryTally): BufferCache {
+export function createBufferCache(info: RendererInfo, tally: MemoryTally, bindGroups: BindGroupCache): BufferCache {
     return {
         bufferMap: new WeakMap(),
         rawMap: new WeakMap(),
@@ -125,7 +130,9 @@ export function createBufferCache(info: RendererInfo, tally: MemoryTally): Buffe
         tally,
         info,
         dynamicUniforms: createDynamicUniformBuffers(),
-        drawArena: createDrawArena(info, tally),
+        drawArena: createDrawArena(info, tally, bindGroups),
+        retired: [],
+        bindGroups,
     };
 }
 
@@ -139,6 +146,7 @@ function setupDispose(cache: BufferCache, buffer: GpuBuffer): void {
         previous?.();
         const entry = cache.bufferMap.get(buffer);
         if (!entry) return;
+        releaseGroupsNaming(cache.bindGroups, entry.buf);
         entry.buf.destroy();
         clearAllocation(cache.tally, entry.allocation);
         cache.bufferCount--;
@@ -197,6 +205,7 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
     const label = buffer.label ?? name;
 
     if (plan === BufferUpload.Allocate) {
+        if (entry) releaseGroupsNaming(cache.bindGroups, entry.buf);
         entry?.buf.destroy();
         // 4-byte alignment is a device requirement, so the size is decided here, not in the plan.
         const byteLength = alignTo4(arr?.byteLength ?? buffer.byteLength);
@@ -365,6 +374,7 @@ export function uploadUniformBlock(
     let created = false;
 
     if (!entry || entry.buf.size < byteLength) {
+        if (entry) releaseGroupsNaming(cache.bindGroups, entry.buf);
         entry?.buf.destroy();
         const buf = device.createBuffer({ size: byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         if (!entry) {
@@ -395,6 +405,49 @@ export function uploadUniformBlock(
     return { buffer: buf, created };
 }
 
+const _dirty = { start: 0, end: 0 };
+
+/**
+ * Brings `shared`'s buffer up to its mirror: the dirty range, or all of it into a new buffer when it outgrew the old
+ * one, which is destroyed after the submit since draws earlier in the frame read it. Whether the buffer is new.
+ */
+export function uploadSharedBlock(cache: BufferCache, device: GPUDevice, shared: SharedBlock): boolean {
+    let entry = cache.rawMap.get(shared);
+    if (entry === undefined || entry.buf.size < shared.block.totalBytes) {
+        const size = shared.mirror.byteLength;
+        const buf = device.createBuffer({
+            label: `shared-${shared.group.name}`,
+            size,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+        if (entry === undefined) {
+            entry = { buf, allocation: createAllocation('buffer', 'uniform', `shared-${shared.group.name}`) };
+            cache.rawMap.set(shared, entry);
+            cache.rawCount++;
+        } else {
+            releaseGroupsNaming(cache.bindGroups, entry.buf);
+            cache.retired.push(entry.buf);
+            entry.buf = buf;
+        }
+        setAllocation(cache.tally, entry.allocation, size);
+        takeSharedDirty(shared, _dirty);
+        device.queue.writeBuffer(buf, 0, shared.mirror, 0, shared.block.totalBytes);
+        recordBufferWrite(cache.info, shared.block.totalBytes, 'uniform', false, `shared-${shared.group.name}`);
+        return true;
+    }
+    if (takeSharedDirty(shared, _dirty)) {
+        device.queue.writeBuffer(entry.buf, _dirty.start, shared.mirror, _dirty.start, _dirty.end - _dirty.start);
+        recordBufferWrite(cache.info, _dirty.end - _dirty.start, 'uniform', false, `shared-${shared.group.name}`);
+    }
+    return false;
+}
+
+/** After a submit: destroys the buffers replaced during the frame. */
+export function destroyRetiredBuffers(cache: BufferCache): void {
+    for (const buffer of cache.retired) buffer.destroy();
+    cache.retired.length = 0;
+}
+
 /**
  * Get a previously created raw buffer, or undefined.
  * Does NOT upload, use uploadRaw for that.
@@ -408,6 +461,7 @@ export function releaseUniformBlock(cache: BufferCache, key: object): void {
     releaseSlot(cache.drawArena, key);
     const entry = cache.rawMap.get(key);
     if (!entry) return;
+    releaseGroupsNaming(cache.bindGroups, entry.buf);
     entry.buf.destroy();
     clearAllocation(cache.tally, entry.allocation);
     cache.rawMap.delete(key);

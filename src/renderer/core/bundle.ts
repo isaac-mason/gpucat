@@ -40,7 +40,14 @@ export function bundle(label?: string): BundleEncoder {
     return {
         draw(mesh, opts) {
             if (finished) throw new Error(`[bundle ${built.label}] draw after finish()`);
-            records.push({ kind: 'draw', mesh, material: opts?.material ?? mesh.material, opts: opts ?? null });
+            records.push({
+                kind: 'draw',
+                mesh,
+                material: opts?.material ?? mesh.material,
+                opts: opts ?? null,
+                bin: null,
+                sortKey: 0,
+            });
         },
         finish() {
             finished = true;

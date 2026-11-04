@@ -23,6 +23,8 @@ export type ComputePipelineEntry = {
 export type RenderPipelineEntry = {
     pipeline: GPURenderPipeline | null;
     cacheKey: string;
+    /** RenderObjects holding it: at 0 it leaves the cache, as three.js releases a program at zero `usedTimes`. */
+    users: number;
 };
 
 export type PipelinesStats = {
@@ -145,6 +147,7 @@ export function getForRender(
     entry = {
         pipeline: null,
         cacheKey,
+        users: 0,
     };
     state.renderPipelines.set(cacheKey, entry);
 
@@ -439,6 +442,27 @@ function getCachedPipelineKey(
     renderObject._pipelineKeyGeometryVersion = geometryVersion;
 
     return key;
+}
+
+/** Makes `entry` the pipeline `held` names, counting it there and releasing what was there before. */
+export function holdRenderPipeline(
+    state: PipelinesState,
+    held: { pipelineEntry: RenderPipelineEntry | null },
+    entry: RenderPipelineEntry,
+): void {
+    if (held.pipelineEntry === entry) return;
+    releaseRenderPipeline(state, held);
+    entry.users++;
+    held.pipelineEntry = entry;
+}
+
+/** Stops `held` counting its pipeline; one held by none leaves the cache. */
+export function releaseRenderPipeline(state: PipelinesState, held: { pipelineEntry: RenderPipelineEntry | null }): void {
+    const entry = held.pipelineEntry;
+    if (entry === null) return;
+    held.pipelineEntry = null;
+    entry.users--;
+    if (entry.users === 0 && state.renderPipelines.get(entry.cacheKey) === entry) state.renderPipelines.delete(entry.cacheKey);
 }
 
 /** Drop every cached pipeline (called on renderer dispose; `device.destroy()` frees the GPU side). */

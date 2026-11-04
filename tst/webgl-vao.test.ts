@@ -6,7 +6,8 @@ import { attribute, f32, vec4 } from '../src/nodes/nodes';
 import { createMemoryTally, createRendererInfo } from '../src/renderer/core/info';
 import type { NodeBuilderState } from '../src/renderer/core/node-builder-state';
 import { createBufferCache } from '../src/renderer/webgl/buffers';
-import { createGeometriesState, prepareGeometry, type VaoBinding } from '../src/renderer/webgl/geometries';
+import { createGeometriesState, prepareGeometry } from '../src/renderer/webgl/geometries';
+import { bindVertexArray, createGlState } from '../src/renderer/webgl/state';
 import type { WebGLBackend } from '../src/renderer/webgl/webgl-backend';
 
 /** Enough GL to build VAOs, recording which VAO each bind leaves bound and every index-buffer write. */
@@ -49,9 +50,11 @@ function fakeGl() {
 
 function setup() {
     const { gl, binds, indexWritesUnder, bound } = fakeGl();
+    const glState = createGlState();
     const b = {
         geometries: createGeometriesState(),
-        buffers: createBufferCache(createRendererInfo(), createMemoryTally()),
+        buffers: createBufferCache(createRendererInfo(), createMemoryTally(), glState),
+        glState,
     } as unknown as WebGLBackend;
     const compiled = compileGlsl({
         vertex: vec4(attribute('position', d.vec3f), f32(1)),
@@ -60,14 +63,10 @@ function setup() {
     const nodeState = compiled as unknown as NodeBuilderState;
     const program = {} as WebGLProgram;
     const geometry = createBoxGeometry(1, 1, 1);
-    const binding: VaoBinding = { vao: null };
-    /** What a draw does: prepare, then bind the VAO only if it is not the one bound. */
+    /** What a draw does: prepare, then bind the VAO through the record. */
     const draw = () => {
-        const info = prepareGeometry(gl, b, geometry, nodeState, program, 'box', binding);
-        if (binding.vao !== info.vao) {
-            gl.bindVertexArray(info.vao);
-            binding.vao = info.vao;
-        }
+        const info = prepareGeometry(gl, b, geometry, nodeState, program, 'box');
+        bindVertexArray(gl, glState, info.vao);
         return info;
     };
     return { gl, binds, indexWritesUnder, bound, geometry, draw };

@@ -14,8 +14,15 @@ import type {
     VertexBufferGroup,
 } from '../../nodes/builder';
 import { fixedMembers } from '../../nodes/lib/view';
-import { type BindGroup, cloneBindGroup, createResourceBindGroup, createUniformBindGroup } from './bind-group';
+import {
+    type BindGroup,
+    cloneBindGroup,
+    createResourceBindGroup,
+    createUniformBindGroup,
+    type UniformBinding,
+} from './bind-group';
 import type { ComputeContext, RenderContext } from './pass-context';
+import { addSharedReaders, releaseSharedReaders, type SharedBlock, type SharedBlocks, type SharedMember } from './shared-blocks';
 
 /**
  * Context type for bind group caching.
@@ -34,7 +41,13 @@ export type BindingContext = RenderContext | ComputeContext;
  *
  * This ensures currentSets comparison works correctly - shared groups have the same `id`.
  */
-const _bindingGroupsCache = new WeakMap<BindingContext, Map<string, BindGroup>>();
+const _bindingGroupsCache = new WeakMap<BindingContext, Map<string, SharedEntry>>();
+
+/** A cached shared group and the compiled states holding it: at 0 it leaves the cache and its uniform block goes. */
+type SharedEntry = { bindGroup: BindGroup; users: number };
+
+/** A state's hold on a cached shared group, to let go of when the state goes. */
+type SharedHold = { cache: Map<string, SharedEntry>; key: string; entry: SharedEntry };
 
 /**
  * Simple string hash function.
@@ -118,6 +131,12 @@ export type NodeBuilderState = {
     /** The key the NodeManager shares this render state under. Empty for compute. */
     cacheKey: string;
 
+    /** The cached shared groups among `bindings`, which count this state until `releaseNodeBuilderState`. */
+    sharedHolds: SharedHold[];
+
+    /** The shared block members this state's shaders read, which count it as a reader until it is released. */
+    sharedMembers: SharedMember[];
+
     readonly isNodeBuilderState: true;
 };
 
@@ -137,6 +156,8 @@ export function createNodeBuilderState(
     context: BindingContext,
 ): NodeBuilderState {
     // build template BindGroups from compile result
+    const sharedHolds: SharedHold[] = [];
+    const sharedMembers = readSharedMembers(compileResult.uniformGroups);
     const bindings = buildTemplateBindGroups(
         compileResult.uniformGroups,
         compileResult.storage,
@@ -144,6 +165,7 @@ export function createNodeBuilderState(
         compileResult.storageTextures,
         compileResult.samplers,
         context,
+        sharedHolds,
     );
 
     return {
@@ -167,6 +189,8 @@ export function createNodeBuilderState(
         updateAfterNodes: compileResult.updateAfterNodes,
         updateNodes: compileResult.updateNodes,
         cacheKey,
+        sharedHolds,
+        sharedMembers,
         isNodeBuilderState: true,
     };
 }
@@ -179,6 +203,8 @@ export function createNodeBuilderState(
  */
 export function createNodeBuilderStateForCompute(compileResult: ComputeCompileResult, context: BindingContext): NodeBuilderState {
     // build template BindGroups from compile result
+    const sharedHolds: SharedHold[] = [];
+    const sharedMembers = readSharedMembers(compileResult.uniformGroups);
     const bindings = buildTemplateBindGroups(
         compileResult.uniformGroups,
         compileResult.storage,
@@ -186,6 +212,7 @@ export function createNodeBuilderStateForCompute(compileResult: ComputeCompileRe
         compileResult.storageTextures,
         compileResult.samplers,
         context,
+        sharedHolds,
     );
 
     return {
@@ -209,6 +236,8 @@ export function createNodeBuilderStateForCompute(compileResult: ComputeCompileRe
         updateAfterNodes: [],
         updateNodes: [],
         cacheKey: '', // no cache key for compute pipelines
+        sharedHolds,
+        sharedMembers,
         isNodeBuilderState: true,
     };
 }
@@ -235,6 +264,7 @@ function buildTemplateBindGroups(
     storageTextures: StorageTextureEntry[],
     samplers: SamplerEntry[],
     context: BindingContext,
+    holds: SharedHold[],
 ): BindGroup[] {
     // Get or create the cache for this context
     let contextCache = _bindingGroupsCache.get(context);
@@ -279,22 +309,28 @@ function buildTemplateBindGroups(
         ) {
             // uniform-only group
             if (shared) {
-                // One bind group for a fixed group (its block is the same in every shader); otherwise one for each
-                // set of members a shader reads
+                // One bind group for a fixed group (its block is the same in every shader) or a shared block (every
+                // shader's block is a view of it); otherwise one for each set of members a shader reads
+                const sharedBlock = uniformGroup.sharedBlock ?? null;
                 const cacheKeyString =
                     fixedMembers(uniformGroup.group) !== null
                         ? `fixed:${uniformGroup.groupName}`
-                        : [...uniformGroup.members]
-                              .sort((a, b) => a.node.id - b.node.id)
-                              .map((m) => m.node.id)
-                              .join(',');
+                        : sharedBlock !== null
+                          ? `shared:${uniformGroup.groupName}`
+                          : [...uniformGroup.members]
+                                .sort((a, b) => a.node.id - b.node.id)
+                                .map((m) => m.node.id)
+                                .join(',');
                 const cacheKey = hashString(cacheKeyString);
-                let bindGroup = contextCache.get(cacheKey);
-                if (bindGroup === undefined) {
-                    bindGroup = createUniformBindGroup(uniformGroup);
-                    contextCache.set(cacheKey, bindGroup);
+                let entry = contextCache.get(cacheKey);
+                // a shared block emptied and made again is a new block: its group binds the new one
+                if (entry === undefined || (sharedBlock !== null && bindingBlock(entry.bindGroup) !== sharedBlock)) {
+                    entry = { bindGroup: uniformBindGroupFor(uniformGroup), users: 0 };
+                    contextCache.set(cacheKey, entry);
                 }
-                bindGroups.push(bindGroup);
+                entry.users++;
+                holds.push({ cache: contextCache, key: cacheKey, entry });
+                bindGroups.push(entry.bindGroup);
             } else {
                 // Non-shared: always create new
                 bindGroups.push(createUniformBindGroup(uniformGroup));
@@ -302,7 +338,7 @@ function buildTemplateBindGroups(
         } else if (uniformGroup) {
             // mixed group: uniform + other resources
             // create a combined bind group (not cached - has textures/storage which vary)
-            const bindGroup = createUniformBindGroup(uniformGroup);
+            const bindGroup = uniformBindGroupFor(uniformGroup);
             // add storage/texture/sampler bindings
             for (const s of groupStorage) {
                 bindGroup.bindings.push({ kind: 'storage', entry: s, lastBuffer: null });
@@ -389,4 +425,67 @@ export function assertVertexBuffers(
                 `Call geometry.setBuffer('${group.name}', ...), or stop the shader reading it.`,
         );
     }
+}
+
+/**
+ * Lets go of what a compiled state holds that its users don't: each cached shared group stops counting it, and one held
+ * by no other state leaves the cache. The uniform blocks of every shared group no state holds any more go to
+ * `releaseUniformBlock`, a cached group's with its last holder and another shared group's with this state.
+ */
+export function releaseNodeBuilderState(
+    nodeState: NodeBuilderState,
+    sharedBlocks: SharedBlocks,
+    releaseUniformBlock: (key: object) => void,
+): void {
+    releaseSharedReaders(sharedBlocks, nodeState.sharedMembers, releaseUniformBlock);
+    nodeState.sharedMembers.length = 0;
+    const cached = new Set<BindGroup>();
+    for (const hold of nodeState.sharedHolds) {
+        cached.add(hold.entry.bindGroup);
+        hold.entry.users--;
+        if (hold.entry.users > 0) continue;
+        if (hold.cache.get(hold.key) === hold.entry) hold.cache.delete(hold.key);
+        releaseGroupBlocks(hold.entry.bindGroup, releaseUniformBlock);
+    }
+    nodeState.sharedHolds.length = 0;
+    for (const group of nodeState.bindings) {
+        if (group.shared && !cached.has(group)) releaseGroupBlocks(group, releaseUniformBlock);
+    }
+}
+
+function releaseGroupBlocks(group: BindGroup, releaseUniformBlock: (key: object) => void): void {
+    for (const binding of group.bindings) {
+        // a shared block's buffer is the block's, released when its last member goes
+        if (binding.kind === 'uniform' && binding.bufferKey !== null && binding.sharedBlock === null) {
+            releaseUniformBlock(binding.bufferKey);
+        }
+    }
+}
+
+/** A uniform bind group for `block`: over its shared block's whole block, keyed by the shared block, if it has one. */
+function uniformBindGroupFor(block: UniformGroupBlock): BindGroup {
+    const sharedBlock = block.sharedBlock ?? null;
+    if (sharedBlock === null) return createUniformBindGroup(block);
+    const group = createUniformBindGroup(sharedBlock.block);
+    const binding = group.bindings[0] as UniformBinding;
+    binding.bufferKey = sharedBlock;
+    binding.sharedBlock = sharedBlock;
+    return group;
+}
+
+/** The shared block a uniform-only bind group reads, or null. */
+function bindingBlock(group: BindGroup): SharedBlock | null {
+    const binding = group.bindings[0];
+    return binding?.kind === 'uniform' ? binding.sharedBlock : null;
+}
+
+/** The shared block members `blocks` read, each counting the state reading them from here. */
+function readSharedMembers(blocks: readonly UniformGroupBlock[]): SharedMember[] {
+    const members: SharedMember[] = [];
+    for (const block of blocks) {
+        if (block.sharedBlock == null) continue;
+        for (const member of block.members) members.push(member as SharedMember);
+    }
+    addSharedReaders(members);
+    return members;
 }

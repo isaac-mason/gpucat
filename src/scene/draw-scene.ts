@@ -1,11 +1,17 @@
 import type { Object3D } from '../core/object3d';
-import type { Pass } from '../renderer/core/frame';
+import type { Bin, BinDesc, Pass } from '../renderer/core/frame';
 import { collectRenderList, type RenderItem } from '../renderer/core/render-list';
 import type { Renderer } from '../renderer/core/renderer';
 import { isRenderTarget } from '../renderer/core/target';
 import type { View } from '../renderer/core/view';
 
-/** Frustum culled, in render order, opaque before transparent, drawn through the public `pass.draw`. */
+// Opaque draws group by pipeline then material, nearest first within one, so the costliest state changes least and
+// nearer surfaces hide what is behind them early. Transparent draws go farthest first, as blending needs. A mesh's
+// `renderOrder` ranks above both.
+const OPAQUE: BinDesc = { key: ['sortKey', 'pipeline', 'material', { depthNear: 8 }], label: 'opaque' };
+const TRANSPARENT: BinDesc = { key: ['sortKey', 'depthFar'], label: 'transparent' };
+
+/** Frustum culled, opaque before transparent, each in its own bin, drawn through the public `pass.bin`. */
 export function drawScene(renderer: Renderer, pass: Pass, scene: Object3D, camera: View): void {
     // The scene tab's input, reported here so a pass recorded by hand correctly has no tree.
     if (renderer.inspector !== null) {
@@ -15,13 +21,14 @@ export function drawScene(renderer: Renderer, pass: Pass, scene: Object3D, camer
     }
 
     const list = collectRenderList(renderer._renderLists, scene, camera);
-    drawItems(pass, list.opaque);
-    drawItems(pass, list.transparent);
+    drawItems(pass.bin(OPAQUE), list.opaque);
+    drawItems(pass.bin(TRANSPARENT), list.transparent);
 }
 
-function drawItems(pass: Pass, items: readonly RenderItem[]): void {
+function drawItems(bin: Bin, items: readonly RenderItem[]): void {
     for (const item of items) {
-        if (item.mesh === null || item.material === null || item.geometry === null) continue;
-        pass.draw(item.mesh);
+        const mesh = item.mesh;
+        if (mesh === null || item.material === null || item.geometry === null) continue;
+        bin.draw(mesh, mesh.renderOrder === 0 ? undefined : { sortKey: mesh.renderOrder });
     }
 }

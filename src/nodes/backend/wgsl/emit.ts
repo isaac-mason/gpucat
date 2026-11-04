@@ -7,6 +7,7 @@
  * node-graph → text. compile()/compileCompute() (in ../../builder) orchestrate discover → emit.
  */
 
+import { placeSharedMembers, type SharedPlacement, uniqueByUniform } from '../../../renderer/core/shared-blocks';
 import { layoutAlignOf, layoutSizeOf } from '../../../schema/pack';
 import type { StructSchema } from '../../../schema/schema';
 import * as d from '../../../schema/schema';
@@ -88,6 +89,8 @@ export type TracedFn = {
 
 /** Build context - carries all state during code generation */
 export type BuildContext = {
+    /** Where shared groups' members are placed, or null to lay each shared block out by itself. */
+    shared: SharedPlacement | null;
     stage: ShaderStage;
     isRender: boolean;
 
@@ -160,6 +163,7 @@ export type BuildContext = {
  */
 function emptyDiscovery(): Discovery {
     return {
+        shared: null,
         nodeIdToUsages: new Map(),
         mutatedNodes: new Set(),
         fnDefs: new Map(),
@@ -196,6 +200,7 @@ export function createContext(stage: ShaderStage, isRender: boolean, discovery: 
     return {
         stage,
         isRender,
+        shared: discovery.shared,
         // Discovered facts — referenced directly (no throwaway empty maps).
         uniforms: discovery.uniforms,
         storages: discovery.storages,
@@ -1527,43 +1532,65 @@ export function emitAllBindings(
             let offset = 0;
 
             // A fixed group (the view's) is its declared members in their declared order, in every shader. Another
-            // shared group backs one buffer reused across materials and is cached by its uniform set, so its layout
-            // must be deterministic for a set whatever the traversal order: by stable node id (as three.js does).
-            // Non-shared groups are per-object and cloned, so their declaration order is fine.
+            // shared group's members sit where the renderer's shared block placed them, the same in every shader that
+            // reads them, with whole 16-byte slots of gap where it reads none. Without a placement (a compile outside
+            // a renderer) a shared group lays its own members out, one per Uniform, by stable node id. Non-shared
+            // groups are per-object and cloned, so their declaration order is fine.
             const fixed = fixedMembers(bindGroup.group);
-            const orderedUniforms =
-                fixed !== null
-                    ? [...bindGroup.uniforms].sort((a, b) => fixed.indexOf(a) - fixed.indexOf(b))
-                    : bindGroup.group.shared
-                      ? [...bindGroup.uniforms].sort((a, b) => a.id - b.id)
-                      : bindGroup.uniforms;
+            const shared = fixed === null && bindGroup.group.shared;
+            const placed =
+                shared && ctx.shared !== null
+                    ? placeSharedMembers(ctx.shared.blocks, bindGroup.group, bindGroup.uniforms, ctx.shared.maxBytes)
+                    : null;
 
-            // This block wrapper is gpucat's, not the user's, so gpucat owns its uniform-address-space
-            // layout: a struct/array member (and any member following one) starts on a 16-byte boundary,
-            // pinned with @align/@size so every driver matches the packer. Member *internal* layout is
-            // std430 (the one WGSL layout) — a user makes a nested struct uniform-valid with d.align.
-            let prevAggregate = false;
-            for (const u of orderedUniforms) {
-                const isAggregate = d.isStructDesc(u.type) || d.isSizedArrayDesc(u.type) || d.isArrayDesc(u.type);
-                let align = layoutAlignOf(u.type, 'wgsl-uniform');
-                if (isAggregate || prevAggregate) align = Math.max(align, 16);
-                const size = layoutSizeOf(u.type, 'wgsl-uniform');
+            if (placed !== null) {
+                let gaps = 0;
+                for (const member of placed) {
+                    if (member.offset > offset) {
+                        const gap = member.offset - offset;
+                        lines.push(`    @align(16) @size(${gap}) _gap${gaps++}: array<vec4<u32>, ${gap / 16}>,`);
+                    }
+                    lines.push(
+                        `    @align(16) @size(${member.slots * 16}) ${uniformMemberName(ctx, member.node)}: ${member.schema.wgslType},`,
+                    );
+                    members.push(member);
+                    offset = member.offset + member.slots * 16;
+                }
+            } else {
+                const orderedUniforms =
+                    fixed !== null
+                        ? [...bindGroup.uniforms].sort((a, b) => fixed.indexOf(a) - fixed.indexOf(b))
+                        : shared
+                          ? uniqueByUniform(bindGroup.uniforms).sort((a, b) => a.id - b.id)
+                          : bindGroup.uniforms;
 
-                // align offset
-                offset = Math.ceil(offset / align) * align;
+                // This block wrapper is gpucat's, not the user's, so gpucat owns its uniform-address-space
+                // layout: a struct/array member (and any member following one) starts on a 16-byte boundary,
+                // pinned with @align/@size so every driver matches the packer. Member *internal* layout is
+                // std430 (the one WGSL layout) — a user makes a nested struct uniform-valid with d.align.
+                let prevAggregate = false;
+                for (const u of orderedUniforms) {
+                    const isAggregate = d.isStructDesc(u.type) || d.isSizedArrayDesc(u.type) || d.isArrayDesc(u.type);
+                    let align = layoutAlignOf(u.type, 'wgsl-uniform');
+                    if (isAggregate || prevAggregate) align = Math.max(align, 16);
+                    const size = layoutSizeOf(u.type, 'wgsl-uniform');
 
-                const memberName = uniformMemberName(ctx, u);
-                lines.push(`    @align(${align}) @size(${size}) ${memberName}: ${u.type.wgslType},`);
-                members.push({
-                    uniformId: u.name,
-                    schema: u.type,
-                    offset,
-                    size,
-                    node: u,
-                });
+                    // align offset
+                    offset = Math.ceil(offset / align) * align;
 
-                offset += size;
-                prevAggregate = isAggregate;
+                    const memberName = uniformMemberName(ctx, u);
+                    lines.push(`    @align(${align}) @size(${size}) ${memberName}: ${u.type.wgslType},`);
+                    members.push({
+                        uniformId: u.name,
+                        schema: u.type,
+                        offset,
+                        size,
+                        node: u,
+                    });
+
+                    offset += size;
+                    prevAggregate = isAggregate;
+                }
             }
 
             lines.push(`}`);
@@ -1589,6 +1616,7 @@ export function emitAllBindings(
                 members,
                 totalBytes,
                 group: bindGroup.group,
+                sharedBlock: placed !== null && placed.length > 0 ? placed[0]!.owner : null,
             });
 
             bindingIndex++;

@@ -21,6 +21,7 @@ import { type ResolvedStorageBufferTexture, type StorageBufferTextureSource, sto
 import { getBindings, type RenderObject } from '../core/render-object';
 import type { ProgramInfo, TextureUniforms } from './programs';
 import { getSampler } from './samplers';
+import { unitOf } from './texture-homes';
 import {
     bindSamplerUnit,
     bindTextureUnit,
@@ -276,13 +277,14 @@ export function bindTextures(
                     `[webgl] texture slot '${entry.node.slot}' is filled by a compute dispatch, which WebGL2 has none of.`,
                 );
             }
-            const unit = entry.binding;
+            // The program's unit for the texture: its home, shared with every program reading it, or one of the
+            // program's own (`texture-homes.ts`). `entry.binding`, the emitter's number, pairs it with its sampler.
+            const unit = programInfo.units === null ? entry.binding : unitOf(programInfo.units, entry.shaderName, entry.binding);
             const capturedIndex = captured++;
 
-            // Guard the flat texture-unit assignment against the device cap. Units are `entry.binding`,
-            // a 0-based index across every texture + storage-buffer a material samples; once it reaches
-            // MAX_COMBINED_TEXTURE_IMAGE_UNITS, `activeTexture(TEXTURE0 + unit)` addresses a non-existent
-            // unit and the draw samples garbage. Turn that silent corruption into a clear, actionable error.
+            // Guard the unit against the device cap: past MAX_COMBINED_TEXTURE_IMAGE_UNITS,
+            // `activeTexture(TEXTURE0 + unit)` addresses a non-existent unit and the draw samples garbage. Turn that
+            // silent corruption into a clear, actionable error.
             if (b.textures.maxTextureUnits == null) {
                 b.textures.maxTextureUnits = gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS) as number;
             }
@@ -328,8 +330,8 @@ export function bindTextures(
             bindTextureUnit(gl, b.textures, unit, texData.target, texData.texture);
             applyLevelRange(gl, b.textures, unit, texData, gpuTexture, range);
 
-            // Find the sampler assigned to this same unit and bind its GL sampler object.
-            const gpuSampler = capture === null ? findSamplerForUnit(bindGroups, unit) : capture.samplers[capturedIndex];
+            // Find the sampler paired with it and bind its GL sampler object at its unit.
+            const gpuSampler = capture === null ? findSamplerForUnit(bindGroups, entry.binding) : capture.samplers[capturedIndex];
             // Reject a linear filter on a float32 texture when float-linear isn't available (would
             // sample as incomplete/black = wrong output, not just lower quality).
             assertFloatLinearFilterable(gl, gpuTexture.format, gpuSampler);

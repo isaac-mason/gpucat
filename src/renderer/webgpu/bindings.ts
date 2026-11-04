@@ -3,8 +3,6 @@ import type { GpuTexture } from '../../core/gpu-texture';
 import { type TextureViewRange, WHOLE_TEXTURE } from '../../core/gpu-texture-view';
 import type { Geometry } from '../../geometry/geometry';
 import type { Material } from '../../material/material';
-import type { UniformGroupBlock } from '../../nodes/builder';
-import { packToView } from '../../schema/pack';
 import type { Any } from '../../schema/schema';
 import type {
     BindGroup,
@@ -14,8 +12,7 @@ import type {
     TextureBinding,
     UniformBinding,
 } from '../core/bind-group';
-import { invokeUniformGroupCallbacks, readBlockStamp, sameStamp } from '../core/bind-group';
-
+import { invokeUniformGroupCallbacks } from '../core/bind-group';
 import type { DispatchOptions } from '../core/frame';
 import type { StateInfo } from '../core/info';
 import type { NodeBuilderState } from '../core/node-builder-state';
@@ -23,6 +20,16 @@ import type { NodeFrame } from '../core/node-frame';
 import type { RenderObject } from '../core/render-object';
 import { getBindings as getRenderObjectBindings } from '../core/render-object';
 import { formatHasStencil } from '../core/render-types';
+import { syncSharedBlock } from '../core/shared-blocks';
+import {
+    checkUniformStamp,
+    commitUniformStamp,
+    packAndCompare,
+    packUniformMembers,
+    resolvedThisScope,
+    type StampCheck,
+} from '../core/uniform-use';
+import { type BindGroupCache, type CachedGroup, cachedGroup, GROUP_KEEP_FRAMES, readmit, sweepGroups } from './bind-group-cache';
 import {
     type BindGroupLayoutCache,
     fillEmptyLayouts,
@@ -40,6 +47,7 @@ import {
     getUploaded,
     resolveStorageBuffer,
     ringGroup,
+    uploadSharedBlock,
     uploadUniformBlock,
 } from './buffers';
 import { type ArenaSlot, arenaSlot, inDrawArena, pageGroup, takeSlot, writeSlot } from './draw-arena';
@@ -48,32 +56,6 @@ import { getSampler, peekSampler, type SamplerCache } from './samplers';
 import type { TextureCache } from './textures';
 import { getTextureData, rangeView, type TextureData, updateTexture } from './textures';
 import type { WebGPUBackend } from './webgpu-backend';
-
-/**
- * The GPU bind groups over one layout and one set of resources, shared by every BindGroup binding that set: two render
- * objects drawing one material's textures bind one GPU group, which a pass then sets once for both. Keyed by the
- * layout and the GPU objects bound, by identity, so a recreated texture or buffer is a new key and a stale entry is
- * never found again; entries unused for {@link GROUP_KEEP_FRAMES} frames are dropped, as Granite's and Filament's
- * descriptor caches recycle theirs.
- */
-export type CachedGroup = {
-    key: string;
-    /** over the uniform block's own buffer, or for a group with none; built on first need */
-    bindGroup: GPUBindGroup | null;
-    /**
-     * For a group whose uniform block binds at a dynamic offset: one GPU bind group per dynamic uniform
-     * buffer a use has been allocated from, by buffer id. Those buffers are pooled, never replaced, so each
-     * stays valid.
-     */
-    dynamicBindGroups: (GPUBindGroup | undefined)[];
-    /** the frame it was last bound in */
-    lastFrame: number;
-    /** dropped from the cache: a group still holding it re-enters it on its next use */
-    evicted: boolean;
-};
-
-/** Frames an entry stays cached unused, and how often the cache is swept for them. */
-const GROUP_KEEP_FRAMES = 300;
 
 /**
  * Per-BindGroup data (GPU resources).
@@ -124,24 +106,21 @@ export type BindingsState = {
     objectIds: WeakMap<object, number>;
     nextObjectId: number;
 
-    /** every GPU bind group, by layout and resources bound. See {@link CachedGroup}. */
-    groups: Map<string, CachedGroup>;
-    /** the frame the cache was last swept for unused entries */
-    sweptFrame: number;
+    /** every GPU bind group, by layout and resources bound, shared with the caches that destroy what they bind */
+    cache: BindGroupCache;
 };
 
 /**
  * Create a new Bindings state. The shared bind group layout cache is owned by the backend and passed
  * in so the bindings and pipelines layers hit a single value-keyed layout cache.
  */
-export function createBindingsState(layoutCache: BindGroupLayoutCache): BindingsState {
+export function createBindingsState(layoutCache: BindGroupLayoutCache, cache: BindGroupCache): BindingsState {
     return {
         layoutCache,
         data: new WeakMap(),
         objectIds: new WeakMap(),
         nextObjectId: 1,
-        groups: new Map(),
-        sweptFrame: 0,
+        cache,
     };
 }
 
@@ -240,7 +219,7 @@ export function updateRenderBindings(b: WebGPUBackend, renderObject: RenderObjec
 
         const data = getData(state, bindGroup);
         const scope = sharedScope(bindGroup, frame);
-        if (scope >= 0 && data.resolvedScope === scope && data.resolvedGroup !== null) {
+        if (scope >= 0 && data.resolvedScope === scope && data.resolvedGroup !== null && !sharedBlockMoved(bindGroup)) {
             out.groups[bindGroup.groupIndex] = data.resolvedGroup;
             out.offsets[bindGroup.groupIndex] = data.resolvedOffset;
             continue;
@@ -288,7 +267,7 @@ export function updateComputeBindings(
 
         const data = getData(state, bindGroup);
         const scope = sharedScope(bindGroup, frame);
-        if (scope >= 0 && data.resolvedScope === scope && data.resolvedGroup !== null) {
+        if (scope >= 0 && data.resolvedScope === scope && data.resolvedGroup !== null && !sharedBlockMoved(bindGroup)) {
             out.groups[bindGroup.groupIndex] = data.resolvedGroup;
             out.offsets[bindGroup.groupIndex] = data.resolvedOffset;
             continue;
@@ -332,6 +311,12 @@ function sharedScope(bindGroup: BindGroup, frame: NodeFrame): number {
     return -1;
 }
 
+/** Whether the shared block `bindGroup` reads gained or lost a member since it last synced: its buffer may have grown. */
+function sharedBlockMoved(bindGroup: BindGroup): boolean {
+    const sharedBlock = (bindGroup.bindings[0] as UniformBinding).sharedBlock;
+    return sharedBlock !== null && sharedBlock.syncedVersion !== sharedBlock.version;
+}
+
 function keepResolved(data: BindGroupData, scope: number, group: GPUBindGroup, offset: number): void {
     data.resolvedScope = scope;
     data.resolvedGroup = group;
@@ -357,15 +342,16 @@ function currentGPUBindGroup(
     frameId: number,
     info: StateInfo,
 ): GPUBindGroup | null {
-    if (data.needsUpdate || data.current === null) {
-        data.current = cachedGroup(state, data, resourceKey(state, bufferCache, textureCache, bindGroup, geometry, inputs));
+    if (data.needsUpdate || data.current === null || data.current.released) {
+        const resources = resourceKey(state, bufferCache, textureCache, bindGroup, geometry, inputs, _keyObjects);
+        data.current = groupFor(state, data, resources, _keyObjects);
         data.needsUpdate = false;
     }
     const variant = data.current;
-    if (variant.evicted) readmit(state, variant);
+    if (variant.evicted) readmit(state.cache, variant);
     variant.lastFrame = frameId;
-    if (frameId - state.sweptFrame >= GROUP_KEEP_FRAMES) sweepGroups(state, frameId);
-    info.held = state.groups.size;
+    if (frameId - state.cache.sweptFrame >= GROUP_KEEP_FRAMES) sweepGroups(state.cache, frameId);
+    info.held = state.cache.groups.size;
 
     const uniform = dynamicUniformBinding(bindGroup);
     if (uniform !== null && bindGroup.bindings.length === 1 && data.bindGroupLayout !== null) {
@@ -413,31 +399,10 @@ function currentGPUBindGroup(
     return built;
 }
 
-/** The cached groups over `data`'s layout and the resources `resources` names, made empty on first need. */
-function cachedGroup(state: BindingsState, data: BindGroupData, resources: string): CachedGroup {
+/** The cache entry over `data`'s layout and the resources `resources` names, its GPU objects being `objects`. */
+function groupFor(state: BindingsState, data: BindGroupData, resources: string, objects: readonly object[]): CachedGroup {
     const key = `${data.bindGroupLayout === null ? 0 : objectId(state, data.bindGroupLayout)}|${resources}`;
-    let group = state.groups.get(key);
-    if (group === undefined) {
-        group = { key, bindGroup: null, dynamicBindGroups: [], lastFrame: 0, evicted: false };
-        state.groups.set(key, group);
-    }
-    return group;
-}
-
-/** An evicted entry a group still binds, back in the cache unless another took its key since. */
-function readmit(state: BindingsState, group: CachedGroup): void {
-    group.evicted = false;
-    if (!state.groups.has(group.key)) state.groups.set(group.key, group);
-}
-
-/** Drops entries no draw or dispatch has bound for {@link GROUP_KEEP_FRAMES} frames. */
-function sweepGroups(state: BindingsState, frameId: number): void {
-    state.sweptFrame = frameId;
-    for (const [key, group] of state.groups) {
-        if (frameId - group.lastFrame < GROUP_KEEP_FRAMES) continue;
-        group.evicted = true;
-        state.groups.delete(key);
-    }
+    return cachedGroup(state.cache, key, objects);
 }
 
 /** A group that bound a texture since disposed resolves again: no group may bind it again. */
@@ -454,6 +419,8 @@ type TextureBindingNodes = TextureBinding['entry']['node'] | StorageTextureBindi
 /** What a texture binding binds: written by {@link resolveTextureBinding}, read before the next call. */
 export type ResolvedTexture = { texture: GpuTexture | null; range: TextureViewRange };
 const _resolved: ResolvedTexture = { texture: null, range: null! };
+/** The GPU objects the last `resourceKey` named, read before the next one. */
+const _keyObjects: object[] = [];
 
 /**
  * The texture and range `node` binds: its own, or for a named binding what the dispatch's `textures` fills its slot
@@ -490,8 +457,14 @@ function resourceKey(
     bindGroup: BindGroup,
     geometry: Geometry | null,
     inputs: DispatchInputs | null,
+    objects: object[],
 ): string {
-    const id = (object: object | null | undefined): number => (object ? objectId(state, object) : 0);
+    objects.length = 0;
+    const id = (object: object | null | undefined): number => {
+        if (!object) return 0;
+        objects.push(object);
+        return objectId(state, object);
+    };
     let key = '';
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
@@ -738,23 +711,18 @@ function updateUniformBinding(
 ): void {
     const block = binding.block;
 
-    // Deduplication gate: skip if this binding was already processed at the current frame/render ID.
-    // Based on group.updateType:
-    //   'frame'  - check frameId (once per animation frame)
-    //   'render' - check renderId (once per render() call)
-    //   'object' - always process (content changes per-mesh)
-    //   'none'   - always process
-    if (block.group.shared) {
-        const updateType = block.group.updateType;
-        if (updateType === 'frame') {
-            if (binding.lastFrameId === frame.frameId) return;
-            binding.lastFrameId = frame.frameId;
-        } else if (updateType === 'render') {
-            if (binding.lastRenderId === frame.renderId) return;
-            binding.lastRenderId = frame.renderId;
-        }
-        // 'object' and 'none' always process
+    // A shared block's members are synced by the block itself, once a frame and again after one joins, and only what
+    // moved uploads: every shader's draws bind its one buffer whole
+    const sharedBlock = binding.sharedBlock;
+    if (sharedBlock !== null) {
+        syncSharedBlock(sharedBlock, frame);
+        if (uploadSharedBlock(bufferCache, device, sharedBlock)) data.needsUpdate = true;
+        binding.sliceBufferId = -1;
+        return;
     }
+
+    // a shared frame or render block already resolved in this scope: this use reads what that one wrote
+    if (resolvedThisScope(binding, frame)) return;
 
     // A shared block bound at a dynamic offset (the view block) is packed at every use, straight into a ring
     // allocation: it has no buffer of its own, as PlayCanvas's view uniform buffers are not persistent
@@ -762,7 +730,7 @@ function updateUniformBinding(
         invokeUniformGroupCallbacks(block, frame);
         const offset = allocDynamicUniform(bufferCache, device, block.totalBytes);
         const active = bufferCache.dynamicUniforms.active!;
-        packMembers(block, new DataView(active.staging.view.buffer, offset, block.totalBytes), material);
+        packUniformMembers(block, new DataView(active.staging.view.buffer, offset, block.totalBytes), material, 'wgsl-uniform');
         binding.sliceBufferId = active.gpuBuffer.id;
         binding.sliceOffset = offset;
         info.packed++;
@@ -771,11 +739,11 @@ function updateUniformBinding(
 
     // A per-object block whose versions all hold has the bytes it last packed, which its slot holds: nothing to pack
     const inArena = inDrawArena(block.group);
-    const stamped = inArena && readBlockStamp(block, frame, material, _stamp);
-    if (stamped && sameStamp(_stamp, binding.stamp) && data.slot !== null) {
+    // a stamp is committed only once the slot holds the bytes it names, so a kept block always has its slot
+    const stamp: StampCheck = inArena ? checkUniformStamp(binding, frame, material, info) : 'unstamped';
+    if (stamp === 'kept') {
         binding.lastUseFrameId = frame.frameId;
         binding.sliceBufferId = -1;
-        info.kept++;
         return;
     }
 
@@ -795,16 +763,13 @@ function updateUniformBinding(
     }
 
     // Pack into scratch buffer, then compare with what the block's own buffer holds
-    const changedBytes = packAndCompare(block, binding.currentBuffer, binding.scratchBuffer!, material);
+    const changedBytes = packAndCompare(block, binding.currentBuffer, binding.scratchBuffer!, material, 'wgsl-uniform');
     const changed = changedBytes > 0;
 
     info.packed++;
     if (inArena) {
         // the stamp names what the slot holds, which a use reading a dynamic allocation leaves as it was
-        if (updateArenaBlock(bufferCache, device, binding, frame, data, changed)) {
-            if (stamped) copyStamp(binding.stamp, _stamp);
-            else binding.stamp.length = 0;
-        }
+        if (updateArenaBlock(bufferCache, device, binding, frame, data, changed)) commitUniformStamp(binding, stamp);
         return;
     }
 
@@ -875,64 +840,6 @@ function updateArenaBlock(
     }
     if (changed || placed) writeSlot(slot!, binding.currentBuffer!);
     return true;
-}
-
-/** `into` as a copy of `from`, filled index by index so it stays packed. */
-function copyStamp(into: number[], from: readonly number[]): void {
-    for (let index = 0; index < from.length; index++) into[index] = from[index]!;
-    into.length = from.length;
-}
-
-/** The stamp a draw reads before deciding to pack: one per backend, read before the next draw's. */
-const _stamp: number[] = [];
-
-/** Writes every member that has a value, from the uniform or the material, at its compiled offset. */
-function packMembers(block: UniformGroupBlock, view: DataView, material: Material | null): void {
-    for (const m of block.members) {
-        let value = m.node.uniform.value;
-        if (value === null && material) {
-            const matUniform = material.uniforms.get(m.node.name);
-            if (matUniform) {
-                value = matUniform.value;
-            }
-        }
-        if (value === null || value === undefined) continue;
-
-        packToView(m.schema, view, m.offset, value, 'wgsl-uniform');
-    }
-}
-
-/**
- * Pack uniforms into scratch buffer and compare against current buffer.
- * Uses compiled layout for correct WGSL alignment.
- * Returns true if any values changed.
- */
-/** packs the block into `scratchBuffer` and returns how many BYTES differ from
- *  `currentBuffer`. Zero means nothing changed. */
-function packAndCompare(
-    block: UniformGroupBlock,
-    currentBuffer: ArrayBuffer,
-    scratchBuffer: ArrayBuffer,
-    material: Material | null,
-): number {
-    const current = new Uint32Array(currentBuffer);
-    const scratch = new Uint32Array(scratchBuffer);
-
-    // Seeded with the current bytes, so a member with no value this time keeps its last one rather
-    // than whatever the scratch held two packs ago, which would read as a change and upload it.
-    scratch.set(current);
-    packMembers(block, new DataView(scratchBuffer), material);
-
-    // Compare word by word, COUNTING rather than early-returning. The count is what
-    // separates "a few bytes of a large block moved" - a per-frame value dragging a
-    // static payload up with it, fixable by splitting the block - from "the block
-    // genuinely changed". Same single pass either way; only the exit differs.
-    const len = current.length;
-    let changedWords = 0;
-    for (let i = 0; i < len; i++) {
-        if (current[i] !== scratch[i]) changedWords++;
-    }
-    return changedWords * 4;
 }
 
 /** Update a texture binding. */

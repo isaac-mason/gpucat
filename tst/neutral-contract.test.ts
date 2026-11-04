@@ -75,6 +75,7 @@ const EXPECTED: Record<string, string[]> = {
         'copyBuffer',
         'copyTexture',
         'readMemoryStats',
+        'releaseRenderObject',
         'releaseUniformBlock',
         // forgets what the backend assumes the device holds: WebGL resets its context, WebGPU has nothing to forget
         'resetState',

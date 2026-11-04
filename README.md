@@ -669,11 +669,12 @@ Cameras carry the projection: `PerspectiveCamera(fov, aspect, near, far)` or `Or
 
 ### The tree is a layer, and you can skip it
 
-`drawScene(renderer, pass, scene, camera)` is the walk, and it is an ordinary public function built on `pass.draw`. It is what gives a scene the behaviour you would expect of one:
+`drawScene(renderer, pass, scene, camera)` is the walk, and it is an ordinary public function built on `pass.bin`. It is what gives a scene the behaviour you would expect of one:
 
 - objects with `visible === false`, and their whole subtree, are skipped
 - frustum culling, unless a mesh sets `frustumCulled = false`
-- opaque draws first, sorted by `renderOrder` then front-to-back; transparent after, back-to-front
+- opaque draws first, in a bin grouped by pipeline and material, nearest first within one; transparent after, in a bin farthest first
+- a mesh's `renderOrder` ranks above both, lowest first (see [Ordering draws with bins](#ordering-draws-with-bins))
 
 ```ts
 const pass = f.pass({ target: view, camera });
@@ -1235,6 +1236,41 @@ pass.end();
 This is cheaper than a pass per view: on a tile-based GPU (every phone, Apple silicon) each pass loads and stores its attachments, and these share one. The three cost differently, which is why they are separate. A viewport or scissor is one encoder command. A camera gives the draws after it camera uniforms of their own: on WebGPU they land in a slice of the shared per-frame uniform buffer, bound at a dynamic offset, so nothing is rewritten under a draw already recorded. Setting the camera the pass already draws from changes nothing.
 
 Rects are physical pixels from the target's top left, as on `PassDesc`; `undefined` puts the whole target back. A viewport reaching outside the target throws, naming the pass. A bundle replayed between two changes draws under the view before it, and records once per camera it is replayed under. The clear is the pass's, over the whole target; nothing clears a single rect.
+
+### Ordering draws with bins
+
+A pass draws in the order you record. A bin draws in the order its key gives. Make one with `pass.bin`, and draw into it as you would into the pass. Its draws run together at the point in the pass where you made it.
+
+```ts
+const opaque = pass.bin({ key: 'state' });
+const glass = pass.bin({ key: 'back-to-front' });
+for (const mesh of meshes) (mesh.material.transparent ? glass : opaque).draw(mesh);
+glass.draw(window, { sortKey: 1 });
+pass.end();
+```
+
+A key is a list of fields, highest rank first. The order the draws were made in breaks ties.
+
+- `pipeline`, `material` and `geometry` group the draws that share each one. The first is the costliest to change.
+- `view` groups draws by the camera, viewport and scissor they were drawn under.
+- `depthNear` puts the draw nearest its camera first. `depthFar` puts the farthest first.
+- `sortKey` orders by the number given to each draw, lowest first. It defaults to 0.
+
+`'state'` is `['sortKey', 'pipeline', 'material', 'geometry']`, for opaque draws. `'back-to-front'` is `['sortKey', 'depthFar']`, for blended ones. `'submission'` keeps the order you drew in. A field can name its bits, as in `{ depthNear: 8 }`. A depth is rounded to them (16 by default). A field with more distinct values than its bits fails at `end()`.
+
+Each draw keeps the camera, viewport and scissor set when you drew it, wherever its bin puts it. So a shadow atlas can group its casters by pipeline across every view:
+
+```ts
+const casters = pass.bin({ key: ['pipeline', 'material', 'geometry', 'view'] });
+for (const shadow of shadows) {
+    pass.setCamera(shadow.camera);
+    pass.setViewport(shadow.rect);
+    for (const mesh of shadow.casters) casters.draw(mesh);
+}
+pass.end();
+```
+
+A camera's uniforms are written once, when you set it. A draw moved next to another camera's draws binds its own camera's at a known place, so nothing is written again. Reordering is yours to choose. Blending, equal depths under `less`, and stencil effects can depend on order. Use `'back-to-front'` or `'submission'` for those.
 
 ### Tonemapping and post-processing
 

@@ -15,8 +15,17 @@
  * pipeline by its cache key).
  */
 
-import type { UniformGroupBlock } from '../../nodes/builder';
+import type { TextureEntry, UniformGroupBlock } from '../../nodes/builder';
 import { FRAGMENT_STAGE_MARKER } from './constants';
+import { deleteProgram, type GlState } from './state';
+import {
+    clearTextureHomes,
+    createTextureHomes,
+    linkProgramUnits,
+    type ProgramUnits,
+    releaseProgramUnits,
+    type TextureHomes,
+} from './texture-homes';
 
 /** A linked GL program plus the resolved per-group UBO binding points. */
 export type ProgramInfo = {
@@ -32,6 +41,9 @@ export type ProgramInfo = {
      * the first draw that binds it (a location is a property of the linked program).
      */
     textureUniforms: Map<string, TextureUniforms>;
+    /** The units its textures bind at (`texture-homes.ts`); null for a program no cache holds, which binds each at
+     *  the unit the emitter numbered it. */
+    units: ProgramUnits | null;
     /**
      * Location of the batched-draw base uniform (`u_drawBase`), or `null` when the program doesn't
      * use `instanceIndex` (so the uniform isn't declared). Resolved at link time. The batched draw
@@ -46,6 +58,14 @@ export type ProgramInfo = {
      * to the current framebuffer height so gl_FragCoord / screenUV match WebGPU's top-left origin.
      */
     fragCoordFlipHeightLocation?: WebGLUniformLocation | null;
+    /** The height last written to that uniform: a uniform's value is the program's, kept across passes. */
+    fragCoordFlipHeight?: number;
+    /**
+     * For a program in the source cache, its source and the RenderObjects holding it: at 0 it is deleted, as three.js
+     * releases a program at zero `usedTimes`. Null for a program no cache holds (a probe's, a kernel's).
+     */
+    source?: string;
+    users?: number;
 };
 
 /**
@@ -63,14 +83,20 @@ export type TextureUniforms = {
     flipped: number;
 };
 
-/** Program cache, keyed by the combined GLSL source string. */
+/** Program cache, keyed by the combined GLSL source string, and the texture homes its programs read. */
 export type ProgramCache = {
     programs: Map<string, ProgramInfo>;
+    homes: TextureHomes;
 };
 
-/** Create an empty program cache. */
+/** Create an empty program cache; its homes wait for the context's unit count ({@link setTextureUnitCount}). */
 export function createProgramCache(): ProgramCache {
-    return { programs: new Map() };
+    return { programs: new Map(), homes: createTextureHomes(0) };
+}
+
+/** Gives the cache's programs homes when the device has the units for them. */
+export function setTextureUnitCount(cache: ProgramCache, maxCombinedUnits: number): void {
+    cache.homes = createTextureHomes(maxCombinedUnits);
 }
 
 /** Split the emitter's combined `code` into its vertex and fragment sources. */
@@ -119,6 +145,7 @@ export function getProgram(
     cache: ProgramCache,
     code: string,
     uniformGroups: UniformGroupBlock[],
+    textures: readonly TextureEntry[],
 ): ProgramInfo {
     const existing = cache.programs.get(code);
     if (existing) return existing;
@@ -159,9 +186,13 @@ export function getProgram(
         program,
         uboBindingPoints,
         textureUniforms: new Map(),
+        units: linkProgramUnits(cache.homes, textures),
         drawBaseLocation,
         drawBases,
         fragCoordFlipHeightLocation,
+        fragCoordFlipHeight: -1,
+        source: code,
+        users: 0,
     };
     cache.programs.set(code, info);
     return info;
@@ -215,7 +246,7 @@ export function createTransformFeedbackProgram(
     // Same std140 UBO binding points as getProgram, so kernels using uniform() work.
     const uboBindingPoints = bindUniformBlocks(gl, program, uniformGroups);
 
-    return { program, uboBindingPoints, textureUniforms: new Map() };
+    return { program, uboBindingPoints, textureUniforms: new Map(), units: null };
 }
 
 /**
@@ -258,12 +289,49 @@ export function bindDrawBases(gl: WebGL2RenderingContext, program: WebGLProgram)
     return true;
 }
 
+/** The cached program for `code`, counted for `held`, releasing what `held` had before. */
+export function holdProgram(
+    gl: WebGL2RenderingContext,
+    cache: ProgramCache,
+    state: GlState,
+    held: { program: ProgramInfo | null },
+    code: string,
+    uniformGroups: UniformGroupBlock[],
+    textures: readonly TextureEntry[],
+): ProgramInfo {
+    const info = getProgram(gl, cache, code, uniformGroups, textures);
+    if (held.program === info) return info;
+    releaseProgram(gl, cache, state, held);
+    info.users = (info.users ?? 0) + 1;
+    held.program = info;
+    return info;
+}
+
+/** Stops `held` counting its program; one held by none is deleted. */
+export function releaseProgram(
+    gl: WebGL2RenderingContext,
+    cache: ProgramCache,
+    state: GlState,
+    held: { program: ProgramInfo | null },
+): void {
+    const info = held.program;
+    if (info === null) return;
+    held.program = null;
+    if (info.source === undefined || info.users === undefined) return;
+    info.users--;
+    if (info.users > 0 || cache.programs.get(info.source) !== info) return;
+    cache.programs.delete(info.source);
+    if (info.units !== null) releaseProgramUnits(cache.homes, info.units);
+    deleteProgram(gl, state, info.program);
+}
+
 /** Delete all cached programs (called on renderer dispose). */
-export function disposePrograms(gl: WebGL2RenderingContext, cache: ProgramCache): void {
+export function disposePrograms(gl: WebGL2RenderingContext, cache: ProgramCache, state: GlState): void {
     for (const { program } of cache.programs.values()) {
-        gl.deleteProgram(program);
+        deleteProgram(gl, state, program);
     }
     cache.programs.clear();
+    clearTextureHomes(cache.homes);
 }
 
 /** Number of linked GL programs currently cached. */

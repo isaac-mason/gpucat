@@ -435,7 +435,11 @@ export function createStubGPU(): StubGPUResult {
     const features = new Set<GPUFeatureName>() as GPUSupportedFeatures;
 
     // Stub limits: the ones the renderer reads, at the spec defaults every device reports.
-    const limits = { minUniformBufferOffsetAlignment: 256, maxDynamicUniformBuffersPerPipelineLayout: 8 } as GPUSupportedLimits;
+    const limits = {
+        minUniformBufferOffsetAlignment: 256,
+        maxDynamicUniformBuffersPerPipelineLayout: 8,
+        maxUniformBufferBindingSize: 65536,
+    } as GPUSupportedLimits;
 
     // Stub adapter info
     const adapterInfo = {

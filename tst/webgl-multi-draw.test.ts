@@ -2,7 +2,6 @@ import { expect, test } from 'vitest';
 import { attribute, compileGlsl, d, f32, instanceIndex, storage, vec4 } from '../src/index';
 import type { IndexedMeshDraw } from '../src/objects/mesh';
 import { createRendererInfo } from '../src/renderer/core/info';
-import { createBoundUniforms } from '../src/renderer/webgl/bindings';
 import {
     addListTable,
     beginPassTables,
@@ -12,6 +11,7 @@ import {
     uploadPassTables,
 } from '../src/renderer/webgl/draw-bases';
 import { DRAW_BASES_BINDING } from '../src/renderer/webgl/programs';
+import { createGlState } from '../src/renderer/webgl/state';
 
 const UNIFORM_BUFFER = 0x8a11;
 const UNIFORM_BUFFER_OFFSET_ALIGNMENT = 0x8a34;
@@ -106,7 +106,7 @@ test("a pass's lists upload once, each table at an aligned start, and a list dra
     const { gl, uploads, ranges, multiDraws } = fakeGl();
     const bases = createDrawBases(gl)!;
     uploads.length = 0;
-    const bound = createBoundUniforms();
+    const bound = createGlState();
     const terrain = list([
         [6, 1, 0, 0],
         [12, 1, 6, 40],
@@ -143,7 +143,7 @@ test("a pass's lists upload once, each table at an aligned start, and a list dra
 test('a list past the block draws in a call per block, each with its block of the table', () => {
     const { gl, ranges, multiDraws } = fakeGl();
     const bases = createDrawBases(gl)!;
-    const bound = createBoundUniforms();
+    const bound = createGlState();
     const long = list(Array.from({ length: 4100 }, (_, index) => [6, 1, index * 6, index] as [number, number, number, number]));
 
     beginPassTables(bases);
@@ -159,7 +159,7 @@ test('a list past the block draws in a call per block, each with its block of th
 test('a single draw binds the zero table, and a repeat bind is skipped', () => {
     const { gl, ranges } = fakeGl();
     const bases = createDrawBases(gl)!;
-    const bound = createBoundUniforms();
+    const bound = createGlState();
     bindZeroTable(gl, bases, bound);
     bindZeroTable(gl, bases, bound);
     expect(ranges).toEqual([[DRAW_BASES_BINDING, bases.zero as unknown as number, 0, 16384]]);

@@ -63,6 +63,7 @@ export function getRenderObject(
 
         // Set up disposal callback: walk the nested chain and delete the leaf.
         renderObject.onDispose = () => {
+            state.nodes.backend.releaseRenderObject(renderObject!);
             releaseNodeState(state.nodes, renderObject!);
             cache.get(mesh)?.get(material)?.delete(renderContext);
             state.renderObjects.delete(renderObject!);

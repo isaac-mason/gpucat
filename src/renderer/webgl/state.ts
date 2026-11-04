@@ -57,7 +57,19 @@ export type GlState = {
     clearA: number | null;
     clearDepth: number | null;
     clearStencil: number | null;
+    /** The program in use (null for none), the vertex array bound (null for VAO 0); undefined where not known. */
+    program: WebGLProgram | null | undefined;
+    vao: WebGLVertexArrayObject | null | undefined;
+    /**
+     * Each uniform buffer binding point's buffer (undefined where not known) and offset (-1 for the whole buffer), as
+     * three.js's `uboBindings`: a pass reuses what the last left bound.
+     */
+    uniformBuffers: (WebGLBuffer | null | undefined)[];
+    uniformOffsets: number[];
 };
+
+/** Uniform buffer binding points the record tracks: the groups' and the multi-draw base table's (see programs.ts). */
+const TRACKED_BINDING_POINTS = 24;
 
 /** One face's stencil test and ops; null where not known. */
 type StencilFace = {
@@ -116,6 +128,10 @@ export function createGlState(): GlState {
         clearA: null,
         clearDepth: null,
         clearStencil: null,
+        program: undefined,
+        vao: undefined,
+        uniformBuffers: new Array(TRACKED_BINDING_POINTS).fill(undefined),
+        uniformOffsets: new Array(TRACKED_BINDING_POINTS).fill(-1),
     };
 }
 
@@ -594,5 +610,72 @@ export function resetGlState(gl: WebGL2RenderingContext, state: GlState, width: 
     setClearColor(gl, state, 0, 0, 0, 0);
     setClearDepth(gl, state, 1);
     setClearStencil(gl, state, 0);
+    useProgram(gl, state, null);
+    bindVertexArray(gl, state, null);
+    for (let point = 0; point < state.uniformBuffers.length; point++) {
+        bindUniformBuffer(gl, state, point, null, -1, 0);
+    }
+    gl.bindBuffer(gl.UNIFORM_BUFFER, null);
     // the rest is GL's default now, which the record learns as each is next set
+}
+
+/** Makes `program` current, skipped if it is: the record lives for the context, so a pass reuses the last one's. */
+export function useProgram(gl: WebGL2RenderingContext, state: GlState, program: WebGLProgram | null): void {
+    if (state.program === program) return;
+    gl.useProgram(program);
+    state.program = program;
+}
+
+/** Binds `vao`, skipped if bound. */
+export function bindVertexArray(gl: WebGL2RenderingContext, state: GlState, vao: WebGLVertexArrayObject | null): void {
+    if (state.vao === vao) return;
+    gl.bindVertexArray(vao);
+    state.vao = vao;
+}
+
+/**
+ * Binds VAO 0 if another is bound, before an `ELEMENT_ARRAY_BUFFER` bind, which is VAO state: under a draw's VAO it would
+ * rewrite that VAO's index buffer. Babylon's `_unbindVertexArrayObject`, so uploads can land mid-pass.
+ */
+export function unbindVertexArray(gl: WebGL2RenderingContext, state: GlState): void {
+    bindVertexArray(gl, state, null);
+}
+
+/** Binds `buffer` at `point`, whole for an `offset` of -1, else its `size` bytes from `offset`; skipped if bound so. */
+export function bindUniformBuffer(
+    gl: WebGL2RenderingContext,
+    state: GlState,
+    point: number,
+    buffer: WebGLBuffer | null,
+    offset: number,
+    size: number,
+): void {
+    if (state.uniformBuffers[point] === buffer && state.uniformOffsets[point] === offset) return;
+    if (offset < 0) gl.bindBufferBase(gl.UNIFORM_BUFFER, point, buffer);
+    else gl.bindBufferRange(gl.UNIFORM_BUFFER, point, buffer, offset, size);
+    state.uniformBuffers[point] = buffer;
+    state.uniformOffsets[point] = offset;
+}
+
+/** Deletes `program`, made not current first so GL frees it now rather than when it next stops being current. */
+export function deleteProgram(gl: WebGL2RenderingContext, state: GlState, program: WebGLProgram): void {
+    if (state.program === program) useProgram(gl, state, null);
+    gl.deleteProgram(program);
+}
+
+/** Deletes `vao`; GL reverts a bound one's binding to VAO 0, and the record follows. */
+export function deleteVertexArray(gl: WebGL2RenderingContext, state: GlState, vao: WebGLVertexArrayObject): void {
+    if (state.vao === vao) state.vao = null;
+    gl.deleteVertexArray(vao);
+}
+
+/** Deletes `buffer`; GL unbinds it from the context's binding points, and the record follows. */
+export function deleteBuffer(gl: WebGL2RenderingContext, state: GlState, buffer: WebGLBuffer): void {
+    for (let point = 0; point < state.uniformBuffers.length; point++) {
+        if (state.uniformBuffers[point] === buffer) {
+            state.uniformBuffers[point] = null;
+            state.uniformOffsets[point] = -1;
+        }
+    }
+    gl.deleteBuffer(buffer);
 }

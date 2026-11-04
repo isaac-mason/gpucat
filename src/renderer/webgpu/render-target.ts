@@ -14,6 +14,7 @@ import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
 import { clearAllocation, createAllocation, setAllocation } from '../core/info';
 import { estimatedBytesPerTexel } from '../core/texture-size';
+import { releaseGroupsNaming } from './bind-group-cache';
 import { setupTextureDispose, type TextureCache, type TextureData, textureAllocations, viewUsage } from './textures';
 
 /** What the device was asked for: every layer and mip level, times the sample count. */
@@ -87,6 +88,7 @@ export function setRenderTargetTexture(
 
     if (existing) {
         if (existing.texture !== gpuTextureResource && !existing.isDefaultTexture) {
+            releaseGroupsNaming(cache.bindGroups, existing.texture);
             existing.texture.destroy();
         }
         if (existing.msaaTextures) {

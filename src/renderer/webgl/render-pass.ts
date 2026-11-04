@@ -21,12 +21,14 @@ import type { RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import * as NodeManager from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
+import type { PassOrder } from '../core/pass-order';
 import { getBindings, pipelineLabel } from '../core/render-object';
 import * as RenderState from '../core/render-state';
-import { formatHasStencil, type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
+import { formatHasStencil, type PreparedRenderObject, type RenderPassParams } from '../core/render-types';
 import * as Bindings from './bindings';
 import * as DrawBases from './draw-bases';
 import * as Geometries from './geometries';
+import * as PassUniforms from './pass-uniforms';
 import { getRenderObjectGl } from './render-object-gl';
 import { bindRenderTargetFramebuffer, resolveActiveRenderTarget } from './render-target';
 import * as State from './state';
@@ -235,12 +237,11 @@ export function beginPass(caches: WebGLBackend, passCtx: RenderContext, params: 
 }
 
 /**
- * Unbinds the VAO so later buffer mutations cannot record into it, invalidates the depth and stencil the pass doesn't
- * store, then resolves an MSAA target (its colour alone, so they can go first).
+ * Invalidates the depth and stencil the pass doesn't store, then resolves an MSAA target (its colour alone, so they can
+ * go first). The VAO stays bound: index uploads unbind it through `glState` first.
  */
 export function endPass(caches: WebGLBackend, params: RenderPassParams): void {
     const gl = caches.gl!;
-    gl.bindVertexArray(null);
     invalidateUnstored(gl, params);
     resolveActiveRenderTarget(gl, caches.renderTargets, caches.glState);
 }
@@ -296,9 +297,6 @@ export function captureDraw(
     captureTextures(renderObject, out.textures);
 }
 
-/** What the pass has bound at each uniform buffer binding point, reset as each pass's draws begin. */
-const _bound = /*@__PURE__*/ Bindings.createBoundUniforms();
-
 /** Where each of a pass's draws' multi-draw tables starts, by draw, or -1 for a draw that reads none. */
 const _tableStarts: number[] = [];
 
@@ -312,18 +310,17 @@ export function encodeDraws(
     preparedOpts: readonly (DrawOptions | null)[],
     captures: readonly Bindings.RecordCapture[],
     count: number,
-    segments: readonly PreparedSegment[],
-    segmentCount: number,
+    order: PassOrder,
     inspector: InspectorBase | null,
     info: RendererInfo,
     { passBlend }: PassScope,
 ): void {
     const hasStencil = !!passCtx.stencil;
-    let currentProgram: WebGLProgram | null = null;
+    // The program, VAO and uniform buffers carry over from the last pass in `glState`; these are for the inspector,
+    // which reports switches within the pass.
+    let passProgram: WebGLProgram | null = null;
     let currentVao: WebGLVertexArrayObject | null = null;
-    // Nothing is known bound when the loop starts, so its first draw binds.
-    const bound: Geometries.VaoBinding = { vao: null };
-    Bindings.resetBoundUniforms(_bound);
+    const glState = caches.glState;
 
     // Every draw list's table is in the pass's buffer before the first draw reads one.
     const drawBases = caches._drawBases;
@@ -337,168 +334,182 @@ export function encodeDraws(
         DrawBases.uploadPassTables(gl, drawBases, info);
     }
 
-    // the runs cover the draws in order, each starting where the last ended
-    let segmentIndex = 0;
+    // Each scope's shared view and frame blocks into the pass's slots, in recorded order, ahead of every draw: a draw
+    // then binds its scope's slot wherever its bin put it
+    const passUniforms = caches._passUniforms!;
+    PassUniforms.beginPassUniforms(passUniforms);
     for (let i = 0; i < count; i++) {
-        if (segmentIndex < segmentCount && segments[segmentIndex].start === i) {
-            applyViewportScissor(gl, caches.glState, params.width, params.height, segments[segmentIndex++]);
-        }
-        const renderObject = prepared[i];
-        const { mesh, material, geometry } = renderObject;
-        const nodeState = renderObject.nodeBuilderState!;
-
-        const opts = preparedOpts[i];
-        const draws = opts?.draws ?? mesh.draws;
-        const instances = opts?.instances ?? mesh.count;
-        const range = opts?.range;
-
         const capture = captures[i];
-
-        const payload = getRenderObjectGl(caches.renderObjectGl, renderObject);
-        const programInfo = payload.program;
-        if (!programInfo) {
-            throw new Error(`[webgl] '${mesh.name || 'mesh'}' reached the draw loop with no linked program.`);
-        }
-
-        // Program (deduped). Inspector: a program switch is the WebGL analogue of a pipeline switch.
-        if (currentProgram !== programInfo.program) {
-            gl.useProgram(programInfo.program);
-            currentProgram = programInfo.program;
-            // gl_FragCoord Y-flip height: @builtin(position)/screenUV lower to a flip against the
-            // framebuffer height so they match WebGPU's top-left origin. Constant per pass; set on
-            // each program bind. null location = program doesn't use the builtin.
-            if (programInfo.fragCoordFlipHeightLocation != null) {
-                gl.uniform1f(programInfo.fragCoordFlipHeightLocation, params.height);
-            }
-            if (inspector) inspector.setPipeline(pipelineLabel(mesh, material));
-        }
-
-        // Uniform groups → std140 UBOs: each group's bytes as the draw recorded them, uploaded if they
-        // differ from what its UBO holds and bound to its program binding point.
         for (let u = 0; u < capture.uniformCount; u++) {
-            Bindings.uploadAndBindCapture(gl, caches, capture.uniforms[u], material, _bound);
+            const uniform = capture.uniforms[u];
+            if (uniform.scope !== -1) PassUniforms.placeCapture(passUniforms, uniform);
         }
-        if (inspector) {
-            const groupCount = getBindings(renderObject).length;
-            for (let g = 0; g < groupCount; g++) inspector.setBindGroup(g, mesh.name || '');
-        }
+    }
+    PassUniforms.uploadPassUniforms(gl, passUniforms, info);
 
-        // Texture + sampler bindings → GL texture units + combined-sampler uniforms, as recorded.
-        bindTextures(gl, caches, renderObject, programInfo, capture.textures);
+    let currentView = -1;
+    for (let blockIndex = 0; blockIndex < order.blockCount; blockIndex++) {
+        const block = order.blocks[blockIndex]!;
+        for (let at = 0; at < block.count; at++) {
+            const i = block.draws[at]!;
+            const view = order.drawViews[i]!;
+            if (view !== currentView) {
+                currentView = view;
+                applyViewportScissor(gl, caches.glState, params.width, params.height, order.views[view]!);
+            }
+            const renderObject = prepared[i];
+            const { mesh, material, geometry } = renderObject;
+            const nodeState = renderObject.nodeBuilderState!;
 
-        // Geometry VAO (uploads buffers + builds/reuses the VAO for this program). `bound` follows what is
-        // bound in GL, which `prepareGeometry` may unbind to upload safely; `currentVao` is the VAO the
-        // draws switched to, for the inspector.
-        const drawInfo = Geometries.prepareGeometry(
-            gl,
-            caches,
-            geometry,
-            nodeState,
-            programInfo.program,
-            renderObject.mesh.name || 'mesh',
-            bound,
-        );
-        if (bound.vao !== drawInfo.vao) {
-            gl.bindVertexArray(drawInfo.vao);
-            bound.vao = drawInfo.vao;
-        }
-        if (currentVao !== drawInfo.vao) {
-            currentVao = drawInfo.vao;
-            // Inspector: a VAO carries all vertex (+index) buffer bindings; log it as a single
-            // vertex-buffer bind (slot 0) plus an index bind when the geometry is indexed.
+            const opts = preparedOpts[i];
+            const draws = opts?.draws ?? mesh.draws;
+            const instances = opts?.instances ?? mesh.count;
+            const range = opts?.range;
+
+            const capture = captures[i];
+
+            const payload = getRenderObjectGl(caches.renderObjectGl, renderObject);
+            const programInfo = payload.program;
+            if (!programInfo) {
+                throw new Error(`[webgl] '${mesh.name || 'mesh'}' reached the draw loop with no linked program.`);
+            }
+
+            // Program (deduped). Inspector: a program switch is the WebGL analogue of a pipeline switch.
+            State.useProgram(gl, glState, programInfo.program);
+            // gl_FragCoord Y-flip height: @builtin(position)/screenUV lower to a flip against the framebuffer height so
+            // they match WebGPU's top-left origin. A uniform keeps its value with its program, which passes share, so it
+            // is written when this pass's height differs. null location = program doesn't use the builtin.
+            if (programInfo.fragCoordFlipHeightLocation != null && programInfo.fragCoordFlipHeight !== params.height) {
+                gl.uniform1f(programInfo.fragCoordFlipHeightLocation, params.height);
+                programInfo.fragCoordFlipHeight = params.height;
+            }
+            if (passProgram !== programInfo.program) {
+                passProgram = programInfo.program;
+                if (inspector) inspector.setPipeline(pipelineLabel(mesh, material));
+            }
+
+            // Uniform groups → std140 UBOs: each group's bytes as the draw recorded them, uploaded if they
+            // differ from what its UBO holds and bound to its program binding point.
+            for (let u = 0; u < capture.uniformCount; u++) {
+                Bindings.uploadAndBindCapture(gl, caches, capture.uniforms[u], material, glState);
+            }
             if (inspector) {
-                inspector.setVertexBuffer(0);
-                if (geometry.index && drawInfo.indexType !== null) inspector.setIndexBuffer();
+                const groupCount = getBindings(renderObject).length;
+                for (let g = 0; g < groupCount; g++) inspector.setBindGroup(g, mesh.name || '');
             }
-        }
 
-        // Fixed-function GL state from the material (depth/cull/blend/colorMask/stencil).
-        // A mixed 'material'/'no' MRT only agrees across attachments while the material is opaque.
-        if (passBlend.opaqueOnly && material.transparent) {
-            throw new Error('[webgl] per-attachment blend modes are not supported on the WebGL2 backend.');
-        }
-        const blend = RenderState.resolveTargetBlend(material, passCtx.mrt, passBlend.targetName);
-        State.applyMaterialState(gl, caches.glState, material, hasStencil, blend);
+            // Texture + sampler bindings → GL texture units + combined-sampler uniforms, as recorded.
+            bindTextures(gl, caches, renderObject, programInfo, capture.textures);
 
-        // Draw. Topology is a triangle list (the GLSL render path targets triangles).
-        // `u_drawBase` feeds instanceIndex's base-inclusive lowering (`u_drawBase + gl_InstanceID`).
-        const drawBaseLoc = programInfo.drawBaseLocation ?? null;
+            // Geometry VAO (uploads buffers + builds/reuses the VAO for this program, unbinding through `glState` to upload
+            // safely); `currentVao` is the VAO the draws switched to, for the inspector.
+            const drawInfo = Geometries.prepareGeometry(
+                gl,
+                caches,
+                geometry,
+                nodeState,
+                programInfo.program,
+                renderObject.mesh.name || 'mesh',
+            );
+            State.bindVertexArray(gl, glState, drawInfo.vao);
+            if (currentVao !== drawInfo.vao) {
+                currentVao = drawInfo.vao;
+                // Inspector: a VAO carries all vertex (+index) buffer bindings; log it as a single
+                // vertex-buffer bind (slot 0) plus an index bind when the geometry is indexed.
+                if (inspector) {
+                    inspector.setVertexBuffer(0);
+                    if (geometry.index && drawInfo.indexType !== null) inspector.setIndexBuffer();
+                }
+            }
 
-        if (draws !== undefined && drawBases !== null) {
-            // Batched under WEBGL_multi_draw: the list as one call, each entry's base from the pass's table
-            if (geometry.index && drawInfo.indexType !== null) {
-                const bytesPerIndex =
-                    drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
-                const list = draws as IndexedMeshDraw[];
-                DrawBases.drawIndexedList(gl, drawBases, _bound, list, drawInfo.indexType, bytesPerIndex, _tableStarts[i]!);
-                for (const d of list) {
-                    if (d.instanceCount <= 0) continue;
-                    if (inspector) inspector.drawIndexed(d.indexCount, d.instanceCount);
-                    countDraw(info, d.indexCount, d.instanceCount);
+            // Fixed-function GL state from the material (depth/cull/blend/colorMask/stencil).
+            // A mixed 'material'/'no' MRT only agrees across attachments while the material is opaque.
+            if (passBlend.opaqueOnly && material.transparent) {
+                throw new Error('[webgl] per-attachment blend modes are not supported on the WebGL2 backend.');
+            }
+            const blend = RenderState.resolveTargetBlend(material, passCtx.mrt, passBlend.targetName);
+            State.applyMaterialState(gl, caches.glState, material, hasStencil, blend);
+
+            // Draw. Topology is a triangle list (the GLSL render path targets triangles).
+            // `u_drawBase` feeds instanceIndex's base-inclusive lowering (`u_drawBase + gl_InstanceID`).
+            const drawBaseLoc = programInfo.drawBaseLocation ?? null;
+
+            if (draws !== undefined && drawBases !== null) {
+                // Batched under WEBGL_multi_draw: the list as one call, each entry's base from the pass's table
+                if (geometry.index && drawInfo.indexType !== null) {
+                    const bytesPerIndex =
+                        drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+                    const list = draws as IndexedMeshDraw[];
+                    DrawBases.drawIndexedList(gl, drawBases, glState, list, drawInfo.indexType, bytesPerIndex, _tableStarts[i]!);
+                    for (const d of list) {
+                        if (d.instanceCount <= 0) continue;
+                        if (inspector) inspector.drawIndexed(d.indexCount, d.instanceCount);
+                        countDraw(info, d.indexCount, d.instanceCount);
+                    }
+                } else {
+                    const list = draws as NonIndexedMeshDraw[];
+                    DrawBases.drawList(gl, drawBases, glState, list, _tableStarts[i]!);
+                    for (const d of list) {
+                        if (d.instanceCount <= 0) continue;
+                        if (inspector) inspector.draw(d.vertexCount, d.instanceCount);
+                        countDraw(info, d.vertexCount, d.instanceCount);
+                    }
+                }
+            } else if (draws !== undefined) {
+                // Batched: one instanced draw per entry, each with its own firstInstance base. The VAO is
+                // already bound once above, so the loop only sets u_drawBase + issues the draw. The mesh's
+                // geometry selects indexed (drawElements) vs non-indexed (drawArrays) draws.
+                if (geometry.index && drawInfo.indexType !== null) {
+                    // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
+                    // 4 (uint32) bytes.
+                    const bytesPerIndex =
+                        drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+                    for (const d of draws as IndexedMeshDraw[]) {
+                        if (d.instanceCount <= 0) continue;
+                        if (drawBaseLoc !== null) gl.uniform1ui(drawBaseLoc, d.firstInstance);
+                        gl.drawElementsInstanced(
+                            gl.TRIANGLES,
+                            d.indexCount,
+                            drawInfo.indexType,
+                            d.firstIndex * bytesPerIndex,
+                            d.instanceCount,
+                        );
+                        if (inspector) inspector.drawIndexed(d.indexCount, d.instanceCount);
+                        countDraw(info, d.indexCount, d.instanceCount);
+                    }
+                } else {
+                    for (const d of draws as NonIndexedMeshDraw[]) {
+                        if (d.instanceCount <= 0) continue;
+                        if (drawBaseLoc !== null) gl.uniform1ui(drawBaseLoc, d.firstInstance);
+                        gl.drawArraysInstanced(gl.TRIANGLES, d.firstVertex, d.vertexCount, d.instanceCount);
+                        if (inspector) inspector.draw(d.vertexCount, d.instanceCount);
+                        countDraw(info, d.vertexCount, d.instanceCount);
+                    }
                 }
             } else {
-                const list = draws as NonIndexedMeshDraw[];
-                DrawBases.drawList(gl, drawBases, _bound, list, _tableStarts[i]!);
-                for (const d of list) {
-                    if (d.instanceCount <= 0) continue;
-                    if (inspector) inspector.draw(d.vertexCount, d.instanceCount);
-                    countDraw(info, d.vertexCount, d.instanceCount);
-                }
-            }
-        } else if (draws !== undefined) {
-            // Batched: one instanced draw per entry, each with its own firstInstance base. The VAO is
-            // already bound once above, so the loop only sets u_drawBase + issues the draw. The mesh's
-            // geometry selects indexed (drawElements) vs non-indexed (drawArrays) draws.
-            if (geometry.index && drawInfo.indexType !== null) {
-                // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
-                // 4 (uint32) bytes.
-                const bytesPerIndex =
-                    drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
-                for (const d of draws as IndexedMeshDraw[]) {
-                    if (d.instanceCount <= 0) continue;
-                    if (drawBaseLoc !== null) gl.uniform1ui(drawBaseLoc, d.firstInstance);
-                    gl.drawElementsInstanced(
-                        gl.TRIANGLES,
-                        d.indexCount,
-                        drawInfo.indexType,
-                        d.firstIndex * bytesPerIndex,
-                        d.instanceCount,
-                    );
-                    if (inspector) inspector.drawIndexed(d.indexCount, d.instanceCount);
-                    countDraw(info, d.indexCount, d.instanceCount);
-                }
-            } else {
-                for (const d of draws as NonIndexedMeshDraw[]) {
-                    if (d.instanceCount <= 0) continue;
-                    if (drawBaseLoc !== null) gl.uniform1ui(drawBaseLoc, d.firstInstance);
-                    gl.drawArraysInstanced(gl.TRIANGLES, d.firstVertex, d.vertexCount, d.instanceCount);
-                    if (inspector) inspector.draw(d.vertexCount, d.instanceCount);
-                    countDraw(info, d.vertexCount, d.instanceCount);
-                }
-            }
-        } else {
-            // Reset u_drawBase to 0 so a prior batched draw sharing this program can't leak its
-            // firstInstance into instanceIndex here; under multi-draw, its base is the zero table's entry 0.
-            if (drawBaseLoc !== null) gl.uniform1ui(drawBaseLoc, 0);
-            else if (drawBases !== null && programInfo.drawBases) DrawBases.bindZeroTable(gl, drawBases, _bound);
+                // Reset u_drawBase to 0 so a prior batched draw sharing this program can't leak its
+                // firstInstance into instanceIndex here; under multi-draw, its base is the zero table's entry 0.
+                if (drawBaseLoc !== null) gl.uniform1ui(drawBaseLoc, 0);
+                else if (drawBases !== null && programInfo.drawBases) DrawBases.bindZeroTable(gl, drawBases, glState);
 
-            if (geometry.index && drawInfo.indexType !== null) {
-                const { first, count } = resolveIndexedDrawRange(geometry, range);
-                // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
-                // 4 (uint32) bytes.
-                const bytesPerIndex =
-                    drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
-                gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, first * bytesPerIndex, instances);
-                if (inspector) inspector.drawIndexed(count, instances);
-                countDraw(info, count, instances);
-            } else {
-                const { first, count } = resolveVertexDrawRange(geometry, range);
-                gl.drawArraysInstanced(gl.TRIANGLES, first, count, instances);
-                if (inspector) inspector.draw(count, instances);
-                countDraw(info, count, instances);
+                if (geometry.index && drawInfo.indexType !== null) {
+                    const { first, count } = resolveIndexedDrawRange(geometry, range);
+                    // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
+                    // 4 (uint32) bytes.
+                    const bytesPerIndex =
+                        drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+                    gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, first * bytesPerIndex, instances);
+                    if (inspector) inspector.drawIndexed(count, instances);
+                    countDraw(info, count, instances);
+                } else {
+                    const { first, count } = resolveVertexDrawRange(geometry, range);
+                    gl.drawArraysInstanced(gl.TRIANGLES, first, count, instances);
+                    if (inspector) inspector.draw(count, instances);
+                    countDraw(info, count, instances);
+                }
             }
+
+            NodeManager.updateAfter(nodes, renderObject);
         }
-
-        NodeManager.updateAfter(nodes, renderObject);
     }
 }

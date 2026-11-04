@@ -208,5 +208,9 @@ test('a call that throws inside a pass it recorded marks that pass as never ende
     expect(call.error).not.toBeNull();
     expect(call.passes).toHaveLength(1);
     expect(call.passes[0].error).toBe('never ended');
-    expect(call.passes[0].calls.map((inner) => [inner.name, inner.error !== null])).toEqual([['broken', true]]);
+    // the walk makes its opaque bin, then the broken draw into it throws
+    expect(call.passes[0].calls.map((inner) => [inner.name, inner.error !== null])).toEqual([
+        ['opaque', false],
+        ['broken', true],
+    ]);
 });

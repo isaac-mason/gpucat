@@ -1,5 +1,6 @@
 import type { GpuBuffer } from '../core/gpu-buffer';
 import type { NodeFrame } from '../renderer/core/node-frame';
+import type { SharedBlock, SharedPlacement } from '../renderer/core/shared-blocks';
 import type { StructSchema } from '../schema/schema';
 import * as d from '../schema/schema';
 import {
@@ -79,7 +80,7 @@ function drawBaseDeclaration(ctx: GlslBuildContext): string {
     return 'uniform highp uint u_drawBase;';
 }
 
-export function compileWgsl(slots: CompileSlots): CompileResult {
+export function compileWgsl(slots: CompileSlots, opts: CompileWgslOptions = {}): CompileResult {
     // A fragment-less material (depth/stencil-only) may leave the slot null or undefined.
     const hasFragment = slots.fragment != null;
     // A frag_depth override is a fragment-stage value; a fragment shader must run to write it, even in
@@ -94,7 +95,7 @@ export function compileWgsl(slots: CompileSlots): CompileResult {
 
     // single discovery pass across all roots, then a context per stage that references the
     // discovered facts (both stages share one binding set — see createContext).
-    const discovered = discover(roots);
+    const discovered = discover(roots, opts.shared ?? null);
     const vertexCtx = createContext('vertex', true, discovered);
     const fragmentCtx = createContext('fragment', true, discovered);
 
@@ -229,7 +230,16 @@ export function compileWgsl(slots: CompileSlots): CompileResult {
  * Options for the GLSL emitter. WGSL has no precision qualifier, so these are GLSL-only (grammar-
  * native): a WebGL-backend concern that never touches the WGSL path.
  */
+/** Options for a WGSL compile. */
+export type CompileWgslOptions = {
+    /** Where shared groups' members are placed: the renderer's shared blocks. Without it a shared group's block holds
+     *  the members this shader reads, laid out by itself. */
+    shared?: SharedPlacement;
+};
+
 export type CompileGlslOptions = {
+    /** As {@link CompileWgslOptions.shared}. */
+    shared?: SharedPlacement;
     /**
      * Fragment-stage default precision qualifier (`precision <p> float;` / `precision <p> int;`).
      * Default: 'highp', keeping the emitted GLSL byte-identical to the golden snapshots.
@@ -314,7 +324,7 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
     if (slots.depth) roots.push(slots.depth);
 
     // Shared, neutral analysis — identical to the WGSL path.
-    const discovered = discover(roots);
+    const discovered = discover(roots, opts.shared ?? null);
 
     // discover() only registers struct defs reached through storage bindings (the WGSL path's needs).
     // GLSL declares a `struct` for ANY struct-typed value — e.g. a local struct construct in a
@@ -566,7 +576,7 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
     };
 }
 
-export function compileComputeWgsl(node: ComputeNode): ComputeCompileResult {
+export function compileComputeWgsl(node: ComputeNode, opts: CompileWgslOptions = {}): ComputeCompileResult {
     // trace the FnNode to get roots
     const fn = node.fn;
     const traced = fn.trace();
@@ -575,7 +585,7 @@ export function compileComputeWgsl(node: ComputeNode): ComputeCompileResult {
     const roots: Node<d.Any>[] = [traced.body, traced.output].filter((n): n is Node<d.Any> => n != null);
 
     // single discovery pass, then a context referencing the discovered facts (see createContext).
-    const discovered = discover(roots);
+    const discovered = discover(roots, opts.shared ?? null);
     const ctx = createContext('compute', false, discovered);
 
     // generate compute shader body (reuse the trace above, re-tracing would
@@ -828,6 +838,8 @@ export type UniformGroupBlock = {
     members: UniformMember[];
     totalBytes: number;
     group: UniformGroup;
+    /** The renderer's shared block this shader's block is a view of, when its members were placed there. */
+    sharedBlock?: SharedBlock | null;
 };
 
 export type StorageEntry = {
@@ -1034,6 +1046,8 @@ function groupAttributesByBuffer(entries: AttributeEntry[]): VertexBufferGroup[]
 
 /** result of a single DFS pass that discovers all metadata needed before code generation */
 export type Discovery = {
+    /** Where shared groups' members are placed, or null to lay each shader's shared blocks out by themselves. */
+    shared: SharedPlacement | null;
     nodeIdToUsages: Map<number, number>;
     mutatedNodes: Set<number>;
     fnDefs: Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>;
@@ -1152,14 +1166,21 @@ function nameBindings(
     // so they allocate from their own scope, free to reuse a name a binding took.
     const memberScope = createNameScope();
     let unnamedUniforms = 0;
-    for (const [identity, { node }] of uniforms) {
-        uniformNames.set(identity, allocName(memberScope, node.uniform.label || `uniform${unnamedUniforms++}`));
+    // In a shared group a Uniform is one member however many nodes read it (`uniform(u)` makes a node per call), so
+    // every node of it takes the one name.
+    const sharedUniformToName = new Map<UniformNode<d.Any>['uniform'], string>();
+    for (const [identity, { node, group }] of uniforms) {
+        const shared = group.shared && fixedMembers(group) === null;
+        const known = shared ? sharedUniformToName.get(node.uniform) : undefined;
+        const name = known ?? allocName(memberScope, node.uniform.label || `uniform${unnamedUniforms++}`);
+        if (shared) sharedUniformToName.set(node.uniform, name);
+        uniformNames.set(identity, name);
     }
 
     return { textureNames, samplerNames, uniformNames, bindingNames: scope };
 }
 
-function discover(roots: Node<d.Any>[]): Discovery {
+function discover(roots: Node<d.Any>[], shared: SharedPlacement | null = null): Discovery {
     const nodeIdToNode = new Map<number, Node<d.Any>>();
     const nodeIdToUsages = new Map<number, number>();
 
@@ -1405,6 +1426,7 @@ function discover(roots: Node<d.Any>[]): Discovery {
     );
 
     return {
+        shared,
         nodeIdToNode,
         nodeIdToUsages,
         mutatedNodes,

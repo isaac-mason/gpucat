@@ -9,6 +9,7 @@ import type { NodeManagerState } from '../core/node-manager';
 import { compileNodeState, needsNodeUpdate } from '../core/node-manager';
 import type { RenderObject } from '../core/render-object';
 import { getBindings } from '../core/render-object';
+import type { SharedPlacement } from '../core/shared-blocks';
 import { assertDynamicUniformLimit } from './bind-group-layout';
 import { getRenderBindGroupLayouts, initRenderBindings } from './bindings';
 import * as pipelines from './pipelines';
@@ -35,7 +36,7 @@ export function initRenderObject(
     b: WebGPUBackend,
     nodes: NodeManagerState,
     renderObject: RenderObject,
-    compile: (slots: CompileSlots) => CompileResult,
+    compile: (slots: CompileSlots, shared: SharedPlacement | null) => CompileResult,
 ): boolean {
     const { bindings: bindingsState, pipelines: pipelinesState, device, renderObjectGpu: renderObjectGpuCache } = b;
     // Check if we need to (re)compile using fast version comparison
@@ -65,6 +66,7 @@ export function initRenderObject(
             bindGroupLayouts,
             null, // sync
         );
+        pipelines.holdRenderPipeline(pipelinesState, gpu, entry);
         gpu.pipeline = entry.pipeline;
     }
 
@@ -77,7 +79,7 @@ export function initRenderObjectWithPromises(
     nodes: NodeManagerState,
     renderObject: RenderObject,
     promises: Promise<void>[],
-    compile: (slots: CompileSlots) => CompileResult,
+    compile: (slots: CompileSlots, shared: SharedPlacement | null) => CompileResult,
 ): boolean {
     const { bindings: bindingsState, pipelines: pipelinesState, device, renderObjectGpu: renderObjectGpuCache } = b;
     // Check if we need to (re)compile using fast version comparison
@@ -111,6 +113,7 @@ export function initRenderObjectWithPromises(
         );
         // Pipeline will be set when promise resolves, but we track the entry
         // The actual pipeline assignment happens after promises resolve
+        pipelines.holdRenderPipeline(pipelinesState, gpu, entry);
         promises.push(
             Promise.resolve().then(() => {
                 if (entry.pipeline) {

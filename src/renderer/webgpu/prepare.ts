@@ -1,8 +1,9 @@
 import type { Geometry } from '../../geometry/geometry';
-import { compileWgsl } from '../../nodes/builder';
+import { type CompileResult, type CompileSlots, compileWgsl } from '../../nodes/builder';
 import type { NodeFrame } from '../core/node-frame';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderObject } from '../core/render-object';
+import type { SharedPlacement } from '../core/shared-blocks';
 import { createDrawBindings, type DrawBindings, updateRenderBindings } from './bindings';
 import * as Buffers from './buffers';
 import * as RenderObjectGpu from './render-object-gpu';
@@ -15,7 +16,7 @@ import type { WebGPUBackend } from './webgpu-backend';
  * render-loop orchestration.
  */
 export function prepareRenderObject(b: WebGPUBackend, nodes: NodeManagerState, renderObject: RenderObject): void {
-    const initialized = RenderObjects.initRenderObject(b, nodes, renderObject, compileWgsl);
+    const initialized = RenderObjects.initRenderObject(b, nodes, renderObject, compileWithShared);
     const gpu = RenderObjectGpu.getRenderObjectGpu(b.renderObjectGpu, renderObject);
     if (!initialized || !gpu.pipeline || !renderObject.nodeBuilderState) {
         throw new Error(
@@ -36,7 +37,7 @@ export function compileRenderObject(
     renderObject: RenderObject,
     promises: Promise<void>[],
 ): void {
-    RenderObjects.initRenderObjectWithPromises(b, nodes, renderObject, promises, compileWgsl);
+    RenderObjects.initRenderObjectWithPromises(b, nodes, renderObject, promises, compileWithShared);
 }
 
 /**
@@ -91,3 +92,8 @@ export function uploadRenderObjectResources(
 
 /** The pre-warm builds bind groups ahead of any draw, so what they resolve to has no draw to go to. */
 const _prewarmBindings: DrawBindings = createDrawBindings();
+
+/** A WGSL render compile placing shared members in the renderer's shared blocks. */
+function compileWithShared(slots: CompileSlots, shared: SharedPlacement | null): CompileResult {
+    return compileWgsl(slots, { shared: shared ?? undefined });
+}

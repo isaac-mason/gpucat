@@ -4,6 +4,7 @@ import { UniformUpdateType } from '../../core/uniform';
 import type { Material } from '../../material/material';
 import type { SamplerEntry, StorageEntry, StorageTextureEntry, TextureEntry, UniformGroupBlock } from '../../nodes/builder';
 import type { NodeFrame } from './node-frame';
+import type { SharedBlock } from './shared-blocks';
 
 let bindGroupIdCounter = 0;
 
@@ -55,6 +56,11 @@ export type UniformBinding = {
      * packed again.
      */
     stamp: number[];
+    /**
+     * The renderer's shared block this binding reads, for a shared group whose uniforms live there: its bytes are the
+     * block's, synced and uploaded by the block, and its buffer is keyed by the block. Null for any other.
+     */
+    sharedBlock: SharedBlock | null;
 };
 
 /** Storage buffer binding (SSBO) */
@@ -143,6 +149,7 @@ export function createUniformBindGroup(block: UniformGroupBlock): BindGroup {
         currentBuffer: null,
         scratchBuffer: null,
         stamp: [],
+        sharedBlock: null,
     };
 
     return {
@@ -213,6 +220,7 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
                     currentBuffer: null,
                     scratchBuffer: null,
                     stamp: [],
+                    sharedBlock: binding.sharedBlock,
                 };
             case 'storage':
                 return {

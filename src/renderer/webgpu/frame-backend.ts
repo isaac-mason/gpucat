@@ -6,31 +6,29 @@ import type { ComputeNode } from '../../nodes/nodes';
 import type * as d from '../../schema/schema';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DeviceBackend } from '../core/device-backend';
-import type { ComputePassDesc, DispatchRecord, DrawOptions, DrawRecord, PassDesc, PassEntry, RenderBundle } from '../core/frame';
+import type { ComputePassDesc, DispatchRecord, DrawOptions, DrawRecord, PassDesc, PassEntry } from '../core/frame';
 import { aimNodeFrame } from '../core/node-frame';
 import type { RenderContext } from '../core/pass-context';
+import { alignCameraToBackend, applyViewRecord, isViewRecord, resolvePassContext, resolvePassParams } from '../core/pass-desc';
 import {
-    alignCameraToBackend,
-    applyViewRecord,
-    isViewRecord,
-    resolvePassContext,
-    resolvePassParams,
-    writeSegment,
-} from '../core/pass-desc';
-import {
-    createPassParams,
-    createSegment,
-    type PreparedRenderObject,
-    type PreparedSegment,
-    type RenderPassParams,
-} from '../core/render-types';
+    addBin,
+    addBinDraw,
+    addBundle,
+    addPassDraw,
+    createPassOrder,
+    markViewChanged,
+    orderBins,
+    type PassOrder,
+    resetPassOrder,
+} from '../core/pass-order';
+import { createPassParams, type PreparedRenderObject, type RenderPassParams } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
 import { drawsNothing, prepareRecordedDraw } from '../core/renderer-ops';
 import { renderTargetOf } from '../core/target';
 import { createDrawBindings, type DrawBindings } from './bindings';
 import * as Buffers from './buffers';
 import * as Compute from './compute';
-import { flushDrawArena } from './draw-arena';
+import { flushDrawArena, releaseEmptyPages } from './draw-arena';
 import * as Prepare from './prepare';
 import * as RenderObjectGpu from './render-object-gpu';
 import * as RenderPass from './render-pass';
@@ -69,11 +67,8 @@ type OpenRenderPass = {
     preparedOpts: (DrawOptions | null)[];
     bindings: DrawBindings[];
     count: number;
-    /** Runs of `prepared`: one per bundle, and the direct draws between them, split where the camera or a rect
-     *  changed. Pooled; the first `segmentCount` are this pass's. */
-    segments: PreparedSegment[];
-    segmentCount: number;
-    runStart: number;
+    /** The order the draws encode in, and the view each was recorded under. */
+    order: PassOrder;
 };
 
 /** A compute pass between `beginComputePass` and `encodeComputePass`, holding its dispatches as they resolved. */
@@ -163,26 +158,48 @@ export function beginPass(s: WebGPUFrameBackendState, desc: PassDesc): void {
     backend._openValidationScope();
 }
 
-/** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded; a camera or rect
- *  change ends the run of draws before it. */
+/** Resolves a recorded draw, or every draw of a replayed bundle, into the pass being recorded, in the place in its
+ *  order the draw or bundle takes; a camera or rect change applies to the draws recorded after it. */
 export function recordEntry(s: WebGPUFrameBackendState, entry: PassEntry): void {
     const depth = s.depth;
     const open = s.openByDepth[depth - 1];
     if (open.skipped) return;
     if (isViewRecord(entry)) {
-        closeRun(open, null);
+        markViewChanged(open.order);
         applyViewRecord(s.renderer, open.params, entry, CoordinateSystem.WEBGPU);
         return;
     }
+    if (entry.kind === 'bin') {
+        addBin(open.order, entry.bin);
+        return;
+    }
     try {
-        if (entry.kind !== 'bundle') {
-            resolveDraw(s, open, entry);
+        if (entry.kind === 'draw') {
+            const index = resolveDraw(s, open, entry);
+            if (index < 0) return;
+            const bin = entry.bin;
+            if (bin === null) addPassDraw(open.order, index, open.params);
+            else {
+                const renderObject = open.prepared[index]!;
+                const gpu = RenderObjectGpu.getRenderObjectGpu(s.backend.renderObjectGpu, renderObject);
+                addBinDraw(
+                    open.order,
+                    index,
+                    bin,
+                    gpu.pipeline!,
+                    renderObject.material,
+                    renderObject.geometry,
+                    entry.sortKey,
+                    renderObject.mesh,
+                    open.params,
+                );
+            }
             return;
         }
-        closeRun(open, null);
+        const start = open.count;
         const { records, count } = entry.bundle;
         for (let index = 0; index < count; index++) resolveDraw(s, open, records[index] as DrawRecord);
-        closeRun(open, entry.bundle);
+        addBundle(open.order, entry.bundle, start, open.count - start, open.params);
     } catch (error) {
         // A throw inside a nested pass (a render texture's contents) left it begun; this pass records on.
         unwindTo(s, depth);
@@ -198,14 +215,15 @@ function unwindTo(s: WebGPUFrameBackendState, depth: number): void {
     }
 }
 
-function resolveDraw(s: WebGPUFrameBackendState, open: OpenRenderPass, entry: DrawRecord): void {
+/** Resolves `entry` into the pass's prepared arrays: the index it took, or -1 when it draws nothing. */
+function resolveDraw(s: WebGPUFrameBackendState, open: OpenRenderPass, entry: DrawRecord): number {
     const { renderer, backend } = s;
     const renderObject = prepareRecordedDraw(renderer, entry, open.params.camera!, open.ctx, (nodes, object) =>
         Prepare.prepareRenderObject(backend, nodes, object),
     );
     if (drawsNothing(renderObject, entry.opts)) {
         renderer.inspector?.resolvedDraw(renderObject, true);
-        return;
+        return -1;
     }
 
     // A nested pass recorded by `updateBefore` aimed the frame at its own target.
@@ -219,6 +237,7 @@ function resolveDraw(s: WebGPUFrameBackendState, open: OpenRenderPass, entry: Dr
         keepProbeBindings(backend.renderObjectGpu, renderObject, bindings);
         renderer.inspector.resolvedDraw(renderObject, false);
     }
+    return index;
 }
 
 function keepProbeBindings(
@@ -234,18 +253,6 @@ function keepProbeBindings(
     gpu.probeBindings.offsets.push(...bindings.offsets);
 }
 
-function closeRun(open: OpenRenderPass, bundle: RenderBundle | null): void {
-    if (open.count === open.runStart) return;
-    let segment = open.segments[open.segmentCount];
-    if (segment === undefined) {
-        segment = createSegment();
-        open.segments[open.segmentCount] = segment;
-    }
-    open.segmentCount++;
-    writeSegment(segment, bundle, open.runStart, open.count - open.runStart, open.params);
-    open.runStart = open.count;
-}
-
 /** Encodes what the pass resolved, then closes the scopes `beginPass` opened. */
 export function encodePass(s: WebGPUFrameBackendState, desc: PassDesc): void {
     const open = s.openByDepth[--s.depth];
@@ -255,12 +262,12 @@ export function encodePass(s: WebGPUFrameBackendState, desc: PassDesc): void {
     const passId = open.params.passId;
 
     try {
-        closeRun(open, null);
+        orderBins(open.order, passId);
         aimNodeFrame(renderer, desc.camera ?? null, open.params.width, open.params.height);
 
         const scope = RenderPass.beginPass(backend, open.params);
         try {
-            if (open.count > 0) RenderPass.encodeDraws(contextAt(s, open), scope, open.segments, open.segmentCount);
+            if (open.count > 0) RenderPass.encodeDraws(contextAt(s, open), scope);
         } finally {
             RenderPass.endPass(scope);
         }
@@ -381,6 +388,8 @@ export function submitFrame(s: WebGPUFrameBackendState): void {
         const frameCommands = backend._currentEncoder!.finish();
         backend.device.queue.submit(dynamicUniformCopies === null ? [frameCommands] : [dynamicUniformCopies, frameCommands]);
         Buffers.onDynamicUniformsSubmitted(backend.buffers);
+        releaseEmptyPages(backend.buffers.drawArena);
+        Buffers.destroyRetiredBuffers(backend.buffers);
     } finally {
         backend._closeValidationScope('submit');
     }
@@ -419,9 +428,7 @@ function openAt(pool: OpenRenderPass[], depth: number, desc: PassDesc, ctx: Rend
             preparedOpts: [],
             bindings: [],
             count: 0,
-            segments: [],
-            segmentCount: 0,
-            runStart: 0,
+            order: createPassOrder(),
         };
         pool[depth] = open;
     }
@@ -429,8 +436,7 @@ function openAt(pool: OpenRenderPass[], depth: number, desc: PassDesc, ctx: Rend
     open.ctx = ctx;
     open.skipped = true;
     open.count = 0;
-    open.segmentCount = 0;
-    open.runStart = 0;
+    resetPassOrder(open.order);
     return open;
 }
 
@@ -480,6 +486,7 @@ function contextAt(s: WebGPUFrameBackendState, open: OpenRenderPass): RenderPass
             preparedObjects: open.prepared,
             preparedOpts: open.preparedOpts,
             bindings: open.bindings,
+            order: open.order,
             inspector: null,
             info: renderer.info,
         };
@@ -492,6 +499,7 @@ function contextAt(s: WebGPUFrameBackendState, open: OpenRenderPass): RenderPass
     ctx.preparedObjects = open.prepared;
     ctx.preparedOpts = open.preparedOpts;
     ctx.bindings = open.bindings;
+    ctx.order = open.order;
     ctx.inspector = renderer.inspector;
     ctx.info = renderer.info;
     return ctx;

@@ -66,7 +66,63 @@ export type DrawRecord = {
     mesh: Mesh;
     material: Material;
     opts: DrawOptions | null;
+    /** The bin it was drawn into, or null for a draw in the pass's own order. */
+    bin: Bin | null;
+    /** Its `sortKey` in the bin, 0 when none was given. */
+    sortKey: number;
 };
+
+/**
+ * What a bin orders its draws by. Each field ranks above the ones after it, and the order they were drawn in breaks
+ * ties. `pipeline`, `material` and `geometry` group draws sharing what each names; `view` groups draws by the camera,
+ * viewport and scissor they were drawn under; `depthNear` puts the nearest to its camera first, `depthFar` the
+ * farthest; `sortKey` orders by the number a draw was given, lowest first.
+ */
+export type BinField = 'sortKey' | 'pipeline' | 'material' | 'geometry' | 'view' | 'depthNear' | 'depthFar';
+
+/**
+ * A field, or a field with the bits its value packs into. A depth is quantized into that many bits (16 when not given);
+ * a field with more distinct values than its bits hold fails at `end()`.
+ */
+export type BinKeyField = BinField | Partial<Record<BinField, number>>;
+
+/**
+ * How a bin orders its draws. `'state'` is `['sortKey', 'pipeline', 'material', 'geometry']`, for opaque draws, changing
+ * the costliest state least. `'back-to-front'` is `['sortKey', 'depthFar']`, for blended draws. `'submission'` keeps the
+ * order they were drawn in.
+ */
+export type BinKey = 'state' | 'back-to-front' | 'submission' | readonly BinKeyField[];
+
+export type BinDesc = { key: BinKey; label?: string };
+
+export type BinDrawOptions = DrawOptions & {
+    /** What `sortKey` in the bin's key orders this draw by: lower first. Default 0. */
+    sortKey?: number;
+};
+
+/**
+ * Draws a pass orders by key. Its draws run together at the point in the pass the bin was made, in the order its key
+ * gives, however they were drawn into it. Each draw keeps the camera, viewport and scissor set when it was drawn.
+ */
+export type Bin = {
+    readonly kind: 'bin';
+    /** The desc this bin was made with; rewritten when its pool slot is reused. */
+    desc: BinDesc;
+    /** Its place among its pass's bins this frame. @internal */
+    index: number;
+    /** The fields its key orders by, and the bits each was given (0 for as many as it needs). @internal */
+    fields: BinField[];
+    /** @internal */ bits: number[];
+    /** The key `fields` were read from, so a desc handed in again is not read twice. @internal */
+    keyRead: BinKey | null;
+    /** Whether a field needs each draw's depth from its camera. @internal */
+    usesDepth: boolean;
+    /** @internal */ ended: boolean;
+    draw(mesh: Mesh, opts?: BinDrawOptions): void;
+};
+
+/** A bin made at this point in the pass. */
+export type BinRecord = { kind: 'bin'; bin: Bin };
 
 /**
  * Draws recorded once and replayed into any pass of the same attachment shape. Holds its meshes and
@@ -96,7 +152,7 @@ export type ScissorRecord = { kind: 'scissor'; scissor: Rect | undefined };
 
 /** What a pass records: a draw it was handed, a bundle it was told to replay, or a change to what the draws after it
  *  are drawn with. */
-export type PassEntry = DrawRecord | BundleRecord | CameraRecord | ViewportRecord | ScissorRecord;
+export type PassEntry = DrawRecord | BundleRecord | BinRecord | CameraRecord | ViewportRecord | ScissorRecord;
 
 export type ComputePassDesc = {
     label?: string;
@@ -181,6 +237,11 @@ export type Pass = {
     bundleRecord: BundleRecord | null;
     /** Handed to the backend by every `setCamera()`, created by the first. @internal */
     cameraRecord: CameraRecord | null;
+    /** Handed to the backend by every `bin()`, created by the first. @internal */
+    binRecord: BinRecord | null;
+    /** Every bin made in this pass's slot, the first `binCount` this frame's. @internal */
+    bins: Bin[];
+    /** @internal */ binCount: number;
     /** Handed to the backend by every `setViewport()` and `setScissor()`. @internal */
     /** @internal */ viewportRecord: ViewportRecord;
     /** @internal */ scissorRecord: ScissorRecord;
@@ -193,6 +254,8 @@ export type Pass = {
     execute(bundle: RenderBundle): void;
     /** Walks a tree here: frustum culled, `visible` honoured, opaque before transparent. */
     scene(root: Object3D, camera?: View): void;
+    /** A bin here: what is drawn into it runs at this point in the pass, ordered by its key. */
+    bin(desc: BinDesc): Bin;
     /**
      * Draws what is recorded after this from `camera`, until the next. Its matrices are uniforms of their own for
      * those draws, so one pass draws several views: a shadow atlas, cascades. The same camera again changes nothing.
@@ -419,6 +482,7 @@ function openRenderPass(frame: Frame, desc: PassDesc): Pass {
         pass.ended = false;
     }
     pass.camera = desc.camera;
+    pass.binCount = 0;
     frame.poolIndex++;
     beginOnBackend(frame, pass);
     frame.open = pass;
@@ -432,6 +496,9 @@ function createRenderPass(frame: Frame, desc: PassDesc): Pass {
         drawRecord: null,
         bundleRecord: null,
         cameraRecord: null,
+        binRecord: null,
+        bins: [],
+        binCount: 0,
         viewportRecord: { kind: 'viewport', viewport: undefined },
         scissorRecord: { kind: 'scissor', scissor: undefined },
         camera: desc.camera,
@@ -439,6 +506,7 @@ function createRenderPass(frame: Frame, desc: PassDesc): Pass {
         draw: (mesh, opts) => recordDraw(frame, pass, mesh, opts),
         execute: (bundle) => recordBundle(frame, pass, bundle),
         scene: (root, camera) => recordScene(frame, pass, root, camera),
+        bin: (desc) => recordBin(frame, pass, desc),
         setCamera: (camera) => recordCamera(frame, pass, camera),
         setViewport: (viewport) => recordViewport(frame, pass, viewport),
         setScissor: (scissor) => recordScissor(frame, pass, scissor),
@@ -458,6 +526,79 @@ function recordCamera(frame: Frame, pass: Pass, camera: View): void {
         record.camera = camera;
     }
     resolveCall(frame, pass, record);
+}
+
+function recordBin(frame: Frame, pass: Pass, desc: BinDesc): Bin {
+    if (pass.ended) throw new Error(`[pass ${passLabel(pass)}] bin after end()`);
+    let bin = pass.bins[pass.binCount];
+    if (bin === undefined) {
+        const created: Bin = {
+            kind: 'bin',
+            desc,
+            index: pass.binCount,
+            fields: [],
+            bits: [],
+            keyRead: null,
+            usesDepth: false,
+            ended: false,
+            draw: (mesh, opts) => recordDraw(frame, pass, mesh, opts, created),
+        };
+        bin = created;
+        pass.bins.push(bin);
+    }
+    bin.desc = desc;
+    bin.ended = false;
+    if (bin.keyRead !== desc.key) readBinKey(bin, desc.key, passLabel(pass));
+    pass.binCount++;
+
+    let record = pass.binRecord;
+    if (record === null) {
+        record = { kind: 'bin', bin };
+        pass.binRecord = record;
+    } else {
+        record.bin = bin;
+    }
+    resolveCall(frame, pass, record);
+    return bin;
+}
+
+const BIN_KEY_PRESETS: Record<'state' | 'back-to-front' | 'submission', readonly BinField[]> = {
+    state: ['sortKey', 'pipeline', 'material', 'geometry'],
+    'back-to-front': ['sortKey', 'depthFar'],
+    submission: [],
+};
+
+const BIN_FIELDS: readonly BinField[] = ['sortKey', 'pipeline', 'material', 'geometry', 'view', 'depthNear', 'depthFar'];
+
+/** `key` into `bin`'s fields and bits, refusing a field it does not know or one named twice. */
+function readBinKey(bin: Bin, key: BinKey, label: string): void {
+    bin.fields.length = 0;
+    bin.bits.length = 0;
+    bin.usesDepth = false;
+    const fields = typeof key === 'string' ? BIN_KEY_PRESETS[key] : key;
+    if (fields === undefined)
+        throw new Error(`[pass ${label}] bin key '${key}' is none of 'state', 'back-to-front', 'submission'`);
+    for (const entry of fields) {
+        let field: BinField;
+        let bits = 0;
+        if (typeof entry === 'string') field = entry;
+        else {
+            const names = Object.keys(entry) as BinField[];
+            if (names.length !== 1)
+                throw new Error(`[pass ${label}] a bin key field with bits names one field, not ${names.length}`);
+            field = names[0]!;
+            bits = entry[field]!;
+            if (!Number.isInteger(bits) || bits < 1 || bits > 52) {
+                throw new Error(`[pass ${label}] bin key field '${field}' takes 1 to 52 bits, not ${bits}`);
+            }
+        }
+        if (!BIN_FIELDS.includes(field)) throw new Error(`[pass ${label}] '${field}' is not a bin key field`);
+        if (bin.fields.includes(field)) throw new Error(`[pass ${label}] bin key names '${field}' twice`);
+        bin.fields.push(field);
+        bin.bits.push(bits);
+        if (field === 'depthNear' || field === 'depthFar') bin.usesDepth = true;
+    }
+    bin.keyRead = key;
 }
 
 function recordViewport(frame: Frame, pass: Pass, viewport: ViewportRect | undefined): void {
@@ -636,8 +777,14 @@ function resolveCall(frame: Frame, pass: AnyPass, record: CallRecord): void {
     inspector?.endRecordedCall(null);
 }
 
-function recordDraw(frame: Frame, pass: Pass, mesh: Mesh, opts?: DrawOptions): void {
+function recordDraw(frame: Frame, pass: Pass, mesh: Mesh, opts: BinDrawOptions | undefined, bin: Bin | null = null): void {
     if (pass.ended) throw new Error(`[pass ${passLabel(pass)}] draw after end()`);
+    if (bin?.ended) throw new Error(`[pass ${passLabel(pass)}] draw into a bin after its pass ended`);
+    if (bin === null && opts?.sortKey !== undefined) {
+        throw new Error(
+            `[pass ${passLabel(pass)}] '${mesh.name || 'mesh'}' passes a sortKey to the pass; a sortKey orders draws in a bin`,
+        );
+    }
     if (opts?.draws !== undefined && (opts.instances !== undefined || opts.range !== undefined)) {
         throw new Error(
             `[pass ${passLabel(pass)}] '${mesh.name || 'mesh'}' passes draws alongside instances or range; ` +
@@ -648,12 +795,14 @@ function recordDraw(frame: Frame, pass: Pass, mesh: Mesh, opts?: DrawOptions): v
     const material = opts?.material ?? mesh.material;
     let record = pass.drawRecord;
     if (record === null) {
-        record = { kind: 'draw', mesh, material, opts: opts ?? null };
+        record = { kind: 'draw', mesh, material, opts: opts ?? null, bin, sortKey: opts?.sortKey ?? 0 };
         pass.drawRecord = record;
     } else {
         record.mesh = mesh;
         record.material = material;
         record.opts = opts ?? null;
+        record.bin = bin;
+        record.sortKey = opts?.sortKey ?? 0;
     }
     resolveCall(frame, pass, record);
 }
@@ -681,6 +830,7 @@ function endPass(frame: Frame, pass: AnyPass): void {
         );
     }
     pass.ended = true;
+    if (pass.kind === 'render') for (let index = 0; index < pass.binCount; index++) pass.bins[index]!.ended = true;
     frame.open = null; // cleared first: encoding evaluates the graph, which may open a nested pass
     inspectorOf(frame)?.endRecordedPass(null);
 

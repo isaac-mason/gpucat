@@ -1,8 +1,8 @@
 import { DRAW_BASES_ENTRIES } from '../../nodes/builder';
 import type { IndexedMeshDraw, MeshDraw, NonIndexedMeshDraw } from '../../objects/mesh';
 import { type RendererInfo, recordBufferWrite } from '../core/info';
-import { type BoundUniforms, bindUniformBuffer } from './bindings';
 import { DRAW_BASES_BINDING } from './programs';
+import { bindUniformBuffer, deleteBuffer, type GlState } from './state';
 
 // A mesh's draw list as WEBGL_multi_draw calls, as three.js's BatchedMesh and PlayCanvas's DrawCommands issue theirs:
 // one call per list, where without the extension each entry is a draw of its own with `u_drawBase` set before it.
@@ -57,9 +57,9 @@ export function createDrawBases(gl: WebGL2RenderingContext): DrawBases | null {
     };
 }
 
-export function disposeDrawBases(gl: WebGL2RenderingContext, bases: DrawBases): void {
-    gl.deleteBuffer(bases.stream);
-    gl.deleteBuffer(bases.zero);
+export function disposeDrawBases(gl: WebGL2RenderingContext, bases: DrawBases, state: GlState): void {
+    deleteBuffer(gl, state, bases.stream);
+    deleteBuffer(gl, state, bases.zero);
 }
 
 /** A pass begins: no tables written. */
@@ -100,8 +100,8 @@ export function uploadPassTables(gl: WebGL2RenderingContext, bases: DrawBases, i
 }
 
 /** Binds the zero table, for a single draw on a program that reads the table. */
-export function bindZeroTable(gl: WebGL2RenderingContext, bases: DrawBases, bound: BoundUniforms): void {
-    bindUniformBuffer(gl, bound, DRAW_BASES_BINDING, bases.zero, 0, TABLE_BYTES);
+export function bindZeroTable(gl: WebGL2RenderingContext, bases: DrawBases, state: GlState): void {
+    bindUniformBuffer(gl, state, DRAW_BASES_BINDING, bases.zero, 0, TABLE_BYTES);
 }
 
 /**
@@ -111,7 +111,7 @@ export function bindZeroTable(gl: WebGL2RenderingContext, bases: DrawBases, boun
 export function drawIndexedList(
     gl: WebGL2RenderingContext,
     bases: DrawBases,
-    bound: BoundUniforms,
+    state: GlState,
     draws: readonly IndexedMeshDraw[],
     indexType: number,
     bytesPerIndex: number,
@@ -127,7 +127,7 @@ export function drawIndexedList(
         drawn++;
     }
     for (let first = 0; first < drawn; first += DRAW_BASES_ENTRIES) {
-        if (table >= 0) bindTable(gl, bases, bound, table + first * 4);
+        if (table >= 0) bindTable(gl, bases, state, table + first * 4);
         bases.extension.multiDrawElementsInstancedWEBGL(
             gl.TRIANGLES,
             bases.counts,
@@ -146,7 +146,7 @@ export function drawIndexedList(
 export function drawList(
     gl: WebGL2RenderingContext,
     bases: DrawBases,
-    bound: BoundUniforms,
+    state: GlState,
     draws: readonly NonIndexedMeshDraw[],
     table: number,
 ): void {
@@ -160,7 +160,7 @@ export function drawList(
         drawn++;
     }
     for (let first = 0; first < drawn; first += DRAW_BASES_ENTRIES) {
-        if (table >= 0) bindTable(gl, bases, bound, table + first * 4);
+        if (table >= 0) bindTable(gl, bases, state, table + first * 4);
         bases.extension.multiDrawArraysInstancedWEBGL(
             gl.TRIANGLES,
             bases.offsets,
@@ -175,8 +175,8 @@ export function drawList(
 }
 
 /** The pass's table from byte `offset`, one block. */
-function bindTable(gl: WebGL2RenderingContext, bases: DrawBases, bound: BoundUniforms, offset: number): void {
-    bindUniformBuffer(gl, bound, DRAW_BASES_BINDING, bases.stream, offset, TABLE_BYTES);
+function bindTable(gl: WebGL2RenderingContext, bases: DrawBases, state: GlState, offset: number): void {
+    bindUniformBuffer(gl, state, DRAW_BASES_BINDING, bases.stream, offset, TABLE_BYTES);
 }
 
 /** `drawn`, with the lists grown to hold one more entry. */

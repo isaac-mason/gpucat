@@ -19,7 +19,7 @@
  *   - invoking each member node's `update` callback through `invokeUniformGroupCallbacks`, which both
  *     backends share from `core/bind-group.ts`,
  *   - reading each member's value from `m.node.uniform.value`, falling back to the material's named
- *     uniforms, then packing it with `packToView(schema, view, offset, value, 'std140')`.
+ *     uniforms, then packing it in std140 through `packUniformMembers` (`core/uniform-use.ts`), as WebGPU does.
  * Per-group GL state (the latest packed values, what the UBO holds, change tracking) is cached in a
  * WeakMap keyed by the binding's `bufferKey`, the same key `buffers.ts` holds the UBO under, so shared
  * groups (camera) share one entry and per-object groups get their own, exactly as WebGPU.
@@ -27,10 +27,19 @@
 
 import type { Material } from '../../material/material';
 import type { UniformGroupBlock } from '../../nodes/builder';
-import { packToView } from '../../schema/pack';
-import { invokeUniformGroupCallbacks, readBlockStamp, sameStamp, type UniformBinding } from '../core/bind-group';
+import { invokeUniformGroupCallbacks, type UniformBinding } from '../core/bind-group';
 import type { NodeFrame } from '../core/node-frame';
+import { syncSharedBlock } from '../core/shared-blocks';
+import {
+    changedByteCount,
+    checkUniformStamp,
+    commitUniformStamp,
+    packUniformMembers,
+    resolvedThisScope,
+} from '../core/uniform-use';
 import * as Buffers from './buffers';
+import * as PassUniforms from './pass-uniforms';
+import { bindUniformBuffer, type GlState } from './state';
 import type { TextureCapture } from './texture-bindings';
 import type { WebGLBackend } from './webgl-backend';
 
@@ -51,7 +60,23 @@ type UboData = {
  * One uniform group's bytes as a draw or dispatch recorded them, and where they bind. Captured at the
  * call so it uses the values set before it, uploaded when its pass executes. Pooled per record.
  */
-export type UniformCapture = { key: object; block: UniformGroupBlock; bindingPoint: number; bytes: Uint8Array<ArrayBuffer> };
+/**
+ * A recorded use of a uniform block: its bytes as packed for the draw, or for a shared block's, `shared`, whose buffer
+ * is already up to date and binds alone. `scope` names what the bytes hold for (a render id, or the frame) when the
+ * block resolves once per scope, -1 when per use; such a use binds the pass's `slot` for its scope (`pass-uniforms.ts`).
+ */
+export type UniformCapture = {
+    key: object;
+    block: UniformGroupBlock;
+    bindingPoint: number;
+    bytes: Uint8Array<ArrayBuffer>;
+    shared: boolean;
+    scope: number;
+    slot: number;
+};
+
+/** The scope of a block resolved once per frame: below every render id. */
+const FRAME_SCOPE = -2;
 
 /**
  * Bindings state: the CPU half of a uniform binding.
@@ -83,41 +108,6 @@ function getUboData(state: BindingsState, key: object, byteLength: number): UboD
     return data;
 }
 
-/**
- * Pack a uniform group's current member values into `view` at their std140 offsets. Mirrors
- * `webgpu/bindings.ts` `packAndCompare`'s value sourcing: `m.node.uniform.value`, else the material's
- * named uniform, then `packToView(..., 'std140')`.
- */
-function packGroup(block: UniformGroupBlock, view: DataView, material: Material | null): void {
-    for (const m of block.members) {
-        let value = m.node.uniform.value;
-        if (value === null && material) {
-            const matUniform = material.uniforms.get(m.node.name);
-            if (matUniform) value = matUniform.value;
-        }
-        if (value === null || value === undefined) continue;
-        // Cast: UniformValue is broader than Infer<schema> but matches at runtime. std140 for UBOs.
-        packToView(m.schema, view, m.offset, value as never, 'std140');
-    }
-}
-
-/** True if two ArrayBuffers of equal length differ in any 32-bit word. */
-/**
- * Bytes differing between two equally-sized packed blocks, or 0 when identical. Counted at 32-bit word
- * granularity because that is the comparison unit, matching the WebGPU backend's `packAndCompare`.
- * A count rather than a boolean so the upload can be attributed: a 64 kB block where four bytes moved
- * is a different problem from one where half of it did.
- */
-function changedByteCount(a: ArrayBuffer, b: ArrayBuffer): number {
-    const av = new Uint32Array(a);
-    const bv = new Uint32Array(b);
-    let changed = 0;
-    for (let i = 0; i < av.length; i++) {
-        if (av[i] !== bv[i]) changed += 4;
-    }
-    return changed;
-}
-
 /** Identity for a uniform-block upload: the material it belongs to and the block's update scope. */
 function uniformDetail(block: UniformGroupBlock, material: Material | null, changedBytes: number): Buffers.RawWriteDetail {
     return { material: material?.name, updateType: block.group?.updateType, changedBytes };
@@ -141,19 +131,27 @@ export function captureUniformGroup(
 ): void {
     const block = binding.block;
 
-    // Update-type gate (identical to webgpu/bindings.ts updateUniformBinding).
-    let skipCallbacks = false;
-    if (block.group.shared) {
-        const updateType = block.group.updateType;
-        if (updateType === 'frame') {
-            if (binding.lastFrameId === frame.frameId) skipCallbacks = true;
-            else binding.lastFrameId = frame.frameId;
-        } else if (updateType === 'render') {
-            if (binding.lastRenderId === frame.renderId) skipCallbacks = true;
-            else binding.lastRenderId = frame.renderId;
+    // A shared block's members are synced by the block itself, once a frame and again after one joins, and what moved
+    // uploads now, which GL orders before the draws that read it: the use binds its one buffer
+    const sharedBlock = binding.sharedBlock;
+    if (sharedBlock !== null) {
+        syncSharedBlock(sharedBlock, frame);
+        Buffers.uploadSharedBlock(b.gl!, b.buffers, sharedBlock);
+        let capture = pool[index];
+        if (capture === undefined) {
+            capture = { key: sharedBlock, block, bindingPoint, bytes: new Uint8Array(0), shared: true, scope: -1, slot: -1 };
+            pool[index] = capture;
         }
-        // 'object' / 'none' always process.
+        capture.key = sharedBlock;
+        capture.block = block;
+        capture.bindingPoint = bindingPoint;
+        capture.shared = true;
+        capture.scope = -1;
+        return;
     }
+
+    // a shared frame or render block already resolved in this scope captures the bytes that resolve packed
+    const resolved = resolvedThisScope(binding, frame);
 
     // Lazily claim the neutral key slot; `webgpu/bindings.ts` does the same, so both backends key a
     // uniform block's device buffer the same way.
@@ -162,36 +160,21 @@ export function captureUniformGroup(
 
     // A per-object block whose versions all hold has the bytes it last packed: nothing to pack. A shared one packs at
     // each use its update type allows, and only changed bytes upload.
-    let stamped = false;
-    const info = b.renderer.info.state;
-    if (!skipCallbacks) {
-        stamped = !block.group.shared && readBlockStamp(block, frame, material, _stamp);
-        if (stamped && sameStamp(_stamp, binding.stamp)) {
-            skipCallbacks = true;
-            info.kept++;
-        } else {
+    if (!resolved) {
+        const info = b.renderer.info.state;
+        const stamp = block.group.shared ? 'unstamped' : checkUniformStamp(binding, frame, material, info);
+        if (stamp !== 'kept') {
             info.packed++;
+            invokeUniformGroupCallbacks(block, frame);
+            packUniformMembers(block, new DataView(data.packed), material, 'std140');
+            commitUniformStamp(binding, stamp);
         }
     }
-
-    if (!skipCallbacks) {
-        // Invoke each member node's update callback (assigns node.value, respects updateType).
-        invokeUniformGroupCallbacks(block, frame);
-        packGroup(block, new DataView(data.packed), material);
-        if (stamped) copyStamp(binding.stamp, _stamp);
-        else binding.stamp.length = 0;
-    }
     captureInto(pool, index, binding.bufferKey, block, bindingPoint, data.packed);
+    const updateType = block.group.updateType;
+    if (block.group.shared)
+        pool[index]!.scope = updateType === 'render' ? frame.renderId : updateType === 'frame' ? FRAME_SCOPE : -1;
 }
-
-/** `into` as a copy of `from`, filled index by index so it stays packed. */
-function copyStamp(into: number[], from: readonly number[]): void {
-    for (let index = 0; index < from.length; index++) into[index] = from[index]!;
-    into.length = from.length;
-}
-
-/** The stamp a draw reads before deciding to pack, read before the next draw's. */
-const _stamp: number[] = [];
 
 /**
  * Captures a STANDALONE kernel's uniform group (transform feedback) for one recorded dispatch into
@@ -210,7 +193,7 @@ export function captureStandaloneUniformGroup(
 ): void {
     invokeUniformGroupCallbacks(block, frame);
     const data = getUboData(b.uniforms, block, block.totalBytes);
-    packGroup(block, new DataView(data.packed), null);
+    packUniformMembers(block, new DataView(data.packed), null, 'std140');
     captureInto(pool, index, block, block, bindingPoint, data.packed);
 }
 
@@ -223,9 +206,18 @@ export function uploadAndBindCapture(
     b: WebGLBackend,
     capture: UniformCapture,
     material: Material | null,
-    bound: BoundUniforms,
+    state: GlState,
 ): void {
     const { key, block, bytes } = capture;
+    if (capture.shared) {
+        const ubo = Buffers.getRaw(b.buffers, key);
+        if (ubo) bindUniformBuffer(gl, state, capture.bindingPoint, ubo, -1, 0);
+        return;
+    }
+    if (capture.scope !== -1) {
+        PassUniforms.bindCaptureSlot(gl, b._passUniforms!, state, capture);
+        return;
+    }
     const data = getUboData(b.uniforms, key, block.totalBytes);
     const changedBytes = data.uploaded ? changedByteCount(bytes.buffer, data.staging) : block.totalBytes;
     if (changedBytes > 0) {
@@ -235,50 +227,7 @@ export function uploadAndBindCapture(
     }
 
     const ubo = Buffers.getRaw(b.buffers, key);
-    if (ubo) bindUniformBuffer(gl, bound, capture.bindingPoint, ubo, -1, 0);
-}
-
-/**
- * What a pass has bound at each uniform buffer binding point, so a draw binds only what differs, as three.js's
- * `WebGLState` keeps its UBO bindings: a pass starts with none known and each binding point is set once until another
- * buffer or range takes it.
- */
-export type BoundUniforms = { buffers: (WebGLBuffer | null)[]; offsets: number[] };
-
-/** Binding points a pass tracks: the groups' and the multi-draw base table's (see programs.ts). */
-const TRACKED_BINDING_POINTS = 24;
-
-export function createBoundUniforms(): BoundUniforms {
-    const bound: BoundUniforms = { buffers: [], offsets: [] };
-    for (let point = 0; point < TRACKED_BINDING_POINTS; point++) {
-        bound.buffers.push(null);
-        bound.offsets.push(-1);
-    }
-    return bound;
-}
-
-/** Nothing known bound, as a pass begins. Emptied in place, its arrays' length and packing kept. */
-export function resetBoundUniforms(bound: BoundUniforms): void {
-    for (let point = 0; point < bound.buffers.length; point++) {
-        bound.buffers[point] = null;
-        bound.offsets[point] = -1;
-    }
-}
-
-/** Binds `buffer` at `point`, whole for an `offset` of -1, else its `size` bytes from `offset`; skipped if bound so. */
-export function bindUniformBuffer(
-    gl: WebGL2RenderingContext,
-    bound: BoundUniforms,
-    point: number,
-    buffer: WebGLBuffer,
-    offset: number,
-    size: number,
-): void {
-    if (bound.buffers[point] === buffer && bound.offsets[point] === offset) return;
-    if (offset < 0) gl.bindBufferBase(gl.UNIFORM_BUFFER, point, buffer);
-    else gl.bindBufferRange(gl.UNIFORM_BUFFER, point, buffer, offset, size);
-    bound.buffers[point] = buffer;
-    bound.offsets[point] = offset;
+    if (ubo) bindUniformBuffer(gl, state, capture.bindingPoint, ubo, -1, 0);
 }
 
 /** Fills the pooled capture at `index`, creating it on first use. */
@@ -292,9 +241,11 @@ function captureInto(
 ): void {
     let capture = pool[index];
     if (capture === undefined) {
-        capture = { key, block, bindingPoint, bytes: new Uint8Array(packed.byteLength) };
+        capture = { key, block, bindingPoint, bytes: new Uint8Array(packed.byteLength), shared: false, scope: -1, slot: -1 };
         pool[index] = capture;
     }
+    capture.shared = false;
+    capture.scope = -1;
     capture.key = key;
     capture.block = block;
     capture.bindingPoint = bindingPoint;

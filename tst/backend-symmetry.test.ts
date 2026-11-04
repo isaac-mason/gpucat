@@ -24,10 +24,15 @@ const EARNED_SOLO: Record<string, string> = {
     'webgl/context.ts': 'getContext plus extension probing has no WebGPU counterpart',
     'webgl/draw-bases.ts':
         'WEBGL_multi_draw has no base instance, so entries read theirs from a table; WebGPU draws carry firstInstance',
+    'webgl/pass-uniforms.ts':
+        'a pass slot per scope for shared view and frame blocks; WebGPU draws bind those at their ring offsets',
     'webgl/probe.ts': 'the inspector value probe re-renders through GL; the WebGPU path is in inspector.ts',
     'webgl/state.ts': 'fixed-function state is live on the context; WebGPU bakes it into the pipeline',
+    'webgl/texture-homes.ts':
+        'texture units shared across programs, assigned at link; WebGPU binds textures in bind groups, not units',
     'webgl/texture-bindings.ts': 'combined-sampler uniforms and texture units; WebGPU binds through a bind group',
     'webgl/transform-feedback.ts': 'WebGL2-only API, the mirror of compute being WebGPU-only',
+    'webgpu/bind-group-cache.ts': 'WebGPU-only object; WebGL2 has no bind groups to cache',
     'webgpu/bind-group-layout.ts': 'WebGPU-only object; WebGL2 has no bind-group concept',
     'webgpu/compute.ts': 'WebGPU-only; WebGL2 has no compute shaders',
     'webgpu/draw-arena.ts':

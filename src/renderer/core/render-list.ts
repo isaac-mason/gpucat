@@ -1,15 +1,6 @@
 /**
- * render-list.ts - Sorted render item list with object pooling and scene collection.
- *
- * - Object pooling for RenderItems (avoids GC pressure)
- * - Sorted opaque and transparent lists
- * - Cached per scene/camera using nested WeakMaps
- * - Frustum culling integration
- * - Scene graph traversal
- *
- * RenderList collects meshes from a scene graph and sorts them for rendering:
- * - Opaque: sorted by material/pipeline key to minimize state changes
- * - Transparent: sorted back-to-front by view-space Z
+ * The meshes of a tree a camera sees, frustum culled, opaque apart from transparent, with pooled items cached per
+ * (tree, camera). The pass's bins order them (`draw-scene.ts`).
  */
 
 import { type Box3, box3, type Sphere } from 'math/shapes';
@@ -22,15 +13,8 @@ import type { View } from './view';
 
 // Types
 
-/**
- * RenderItem - A single item in the render list.
- *
- * Pooled and reused across frames to avoid GC pressure.
- */
+/** A mesh the walk found, pooled and reused across frames. */
 export type RenderItem = {
-    /** Unique ID for this item (stable across frames). */
-    id: number;
-
     /** The mesh to render. */
     mesh: Mesh | null;
 
@@ -39,18 +23,6 @@ export type RenderItem = {
 
     /** The material (cached from mesh.material). */
     material: Material | null;
-
-    /** Group order for render order sorting (layer-based). */
-    groupOrder: number;
-
-    /** Render order for manual sorting. */
-    renderOrder: number;
-
-    /**
-     * View-space Z coordinate.
-     * Used for transparent sorting (back-to-front).
-     */
-    z: number;
 };
 
 /**
@@ -71,15 +43,11 @@ export type RenderList = {
     /** Current index into the pool (number of active items). */
     renderItemsIndex: number;
 
-    // Sorted Lists
-
-    /** Opaque items (sorted by pipeline key). */
+    /** Opaque items, in walk order. */
     opaque: RenderItem[];
 
-    /** Transparent items (sorted back-to-front by Z). */
+    /** Transparent items, in walk order. */
     transparent: RenderItem[];
-
-    // Statistics
 };
 
 /**
@@ -91,9 +59,6 @@ export type RenderListsState = {
 };
 
 // Factories
-
-/** ID counter for RenderItems. */
-let renderItemIdCounter = 0;
 
 /**
  * Create a new RenderList.
@@ -166,15 +131,7 @@ function getNextRenderItem(list: RenderList): RenderItem {
 
     let item = list.renderItems[index];
     if (item === undefined) {
-        item = {
-            id: renderItemIdCounter++,
-            mesh: null,
-            geometry: null,
-            material: null,
-            groupOrder: 0,
-            renderOrder: 0,
-            z: 0,
-        };
+        item = { mesh: null, geometry: null, material: null };
         list.renderItems.push(item);
     }
 
@@ -182,124 +139,19 @@ function getNextRenderItem(list: RenderList): RenderItem {
     return item;
 }
 
-/**
- * Push a mesh into the render list.
- *
- * @param list - The RenderList
- * @param mesh - The mesh to add
- * @param geometry - The mesh's geometry
- * @param material - The mesh's material
- * @param groupOrder - Group order for layer-based sorting
- * @param z - View-space Z for transparent sorting
- */
-export function pushRenderItem(
-    list: RenderList,
-    mesh: Mesh,
-    geometry: Geometry,
-    material: Material,
-    groupOrder: number,
-    z: number,
-): void {
+/** Push a mesh into the render list, with the transparent ones if its material is. */
+export function pushRenderItem(list: RenderList, mesh: Mesh, geometry: Geometry, material: Material): void {
     const item = getNextRenderItem(list);
 
     item.mesh = mesh;
     item.geometry = geometry;
     item.material = material;
-    item.groupOrder = groupOrder;
-    item.renderOrder = mesh.renderOrder;
-    item.z = z;
 
     if (material.transparent) {
         list.transparent.push(item);
     } else {
         list.opaque.push(item);
     }
-}
-
-/**
- * Finish building the render list.
- *
- * This doesn't do anything special currently, but could be used
- * for finalization tasks.
- */
-export function finishRenderList(_list: RenderList): void {
-    // Future: could reset unused pool items to null references for GC
-}
-
-// Sorting
-
-/**
- * Sort the render list.
- *
- * @param list - The RenderList to sort
- * @param customOpaqueSort - Optional custom sort for opaque items
- * @param customTransparentSort - Optional custom sort for transparent items
- */
-export function sortRenderList(
-    list: RenderList,
-    customOpaqueSort?: (a: RenderItem, b: RenderItem) => number,
-    customTransparentSort?: (a: RenderItem, b: RenderItem) => number,
-): void {
-    if (list.opaque.length > 1) {
-        list.opaque.sort(customOpaqueSort ?? painterSortStable);
-    }
-
-    if (list.transparent.length > 1) {
-        list.transparent.sort(customTransparentSort ?? reversePainterSortStable);
-    }
-}
-
-/**
- * Default sort for opaque items.
- *
- * Sort priority:
- * 1. groupOrder (render layers)
- * 2. renderOrder (manual ordering)
- * 3. Z (front-to-back for early-z rejection)
- * 4. ID (stability)
- *
- * Note: we do NOT sort by material/pipeline. Pipeline switching is
- * minimized at draw time by tracking the active pipeline in setPipeline().
- */
-export function painterSortStable(a: RenderItem, b: RenderItem): number {
-    if (a.groupOrder !== b.groupOrder) {
-        return a.groupOrder - b.groupOrder;
-    }
-
-    if (a.renderOrder !== b.renderOrder) {
-        return a.renderOrder - b.renderOrder;
-    }
-
-    if (a.z !== b.z) {
-        return a.z - b.z;
-    }
-
-    return a.id - b.id;
-}
-
-/**
- * Default sort for transparent items (back-to-front).
- *
- * "Reverse painter sort stable" - sorts back-to-front for proper alpha blending.
- */
-export function reversePainterSortStable(a: RenderItem, b: RenderItem): number {
-    // Sort by groupOrder first (render layers)
-    if (a.groupOrder !== b.groupOrder) {
-        return a.groupOrder - b.groupOrder;
-    }
-
-    // Then by renderOrder
-    if (a.renderOrder !== b.renderOrder) {
-        return a.renderOrder - b.renderOrder;
-    }
-
-    // Then by Z (back-to-front for transparent = larger Z first)
-    if (a.z !== b.z) {
-        return b.z - a.z;
-    }
-
-    // Finally by ID for stability
-    return a.id - b.id;
 }
 
 // Scene Collection
@@ -321,8 +173,8 @@ const _worldSphere: Sphere = { center: [0, 0, 0], radius: 0 };
  *
  * @param state - The RenderLists state
  * @param object - The object to collect from (Scene, Mesh, or any Object3D)
- * @param camera - The camera for frustum culling and Z sorting
- * @returns The populated and sorted RenderList
+ * @param camera - The camera for frustum culling
+ * @returns The populated RenderList
  */
 export function collectRenderList(state: RenderListsState, object: Object3D, camera: View): RenderList {
     const list = getRenderList(state, object, camera);
@@ -334,11 +186,7 @@ export function collectRenderList(state: RenderListsState, object: Object3D, cam
     frustum.setFromViewProjectionMatrix(_frustum, camera.projectionMatrix, camera.matrixWorldInverse, camera.coordinateSystem);
 
     // Walk object and collect visible meshes
-    walkObject(list, object, camera);
-
-    // Finish and sort
-    finishRenderList(list);
-    sortRenderList(list);
+    walkObject(list, object);
 
     return list;
 }
@@ -346,28 +194,17 @@ export function collectRenderList(state: RenderListsState, object: Object3D, cam
 /**
  * Walk the scene graph and collect visible meshes.
  */
-function walkObject(list: RenderList, obj: Object3D, camera: View): void {
+function walkObject(list: RenderList, obj: Object3D): void {
     if (!obj.visible) return;
 
     if (obj.isMesh) {
         const mesh = obj as Mesh;
-        if (isMeshVisible(mesh)) {
-            const material = mesh.material;
-            const z = computeViewZ(mesh, camera);
-            pushRenderItem(
-                list,
-                mesh,
-                mesh.geometry,
-                material,
-                0, // groupOrder - could be mesh.renderOrder or layer
-                z,
-            );
-        }
+        if (isMeshVisible(mesh)) pushRenderItem(list, mesh, mesh.geometry, mesh.material);
     }
 
     // Recurse into children
     for (const child of obj.children) {
-        walkObject(list, child, camera);
+        walkObject(list, child);
     }
 }
 
@@ -418,26 +255,4 @@ function isMeshVisible(mesh: Mesh): boolean {
 
     // no bounds, always draw
     return true;
-}
-
-/**
- * Compute the view-space Z of a mesh for transparent sorting.
- *
- * Uses the mesh world-position (column 12, 13, 14 of matrixWorld)
- * and the camera view matrix.
- *
- * Returns the view-space Z coordinate (negative = in front of camera in a
- * right-handed system; we sort from largest (furthest) to smallest).
- */
-function computeViewZ(mesh: Mesh, camera: View): number {
-    const wm = mesh.matrixWorld;
-    const vm = camera.matrixWorldInverse;
-
-    // World position of mesh origin
-    const wx = wm[12];
-    const wy = wm[13];
-    const wz = wm[14];
-
-    // Transform world position by view matrix (only z row needed)
-    return vm[2] * wx + vm[6] * wy + vm[10] * wz + vm[14];
 }

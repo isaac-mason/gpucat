@@ -1002,6 +1002,8 @@ function callName(record: CallRecord): string {
             return record.mesh.name || `Mesh #${record.mesh.objectId}`;
         case 'bundle':
             return record.bundle.label;
+        case 'bin':
+            return record.bin.desc.label ?? 'bin';
         case 'camera':
         case 'viewport':
         case 'scissor':
@@ -1029,6 +1031,11 @@ function callDetail(record: CallRecord): string {
         case 'bundle':
             parts.push(`${record.bundle.count} draws`);
             break;
+        case 'bin': {
+            const key = record.bin.desc.key;
+            parts.push(`key ${typeof key === 'string' ? key : record.bin.fields.join(', ')}`);
+            break;
+        }
         case 'camera': {
             const world = record.camera.matrixWorld;
             parts.push(`at ${world[12].toFixed(2)}, ${world[13].toFixed(2)}, ${world[14].toFixed(2)}`);

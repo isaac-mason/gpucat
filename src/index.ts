@@ -71,6 +71,7 @@ export {
     type CompileGlslOptions,
     type CompileResult,
     type CompileSlots,
+    type CompileWgslOptions,
     type ComputeCompileResult,
     type ComputeStorageEntry,
     compileComputeWgsl,
@@ -442,6 +443,13 @@ export type { DeviceBackend } from './renderer/core/device-backend';
 export {
     type AnyPass,
     type BackendName,
+    type Bin,
+    type BinDesc,
+    type BinDrawOptions,
+    type BinField,
+    type BinKey,
+    type BinKeyField,
+    type BinRecord,
     type BundleRecord,
     type CallRecord,
     type CameraRecord,
@@ -486,6 +494,7 @@ export type { NodeFrame } from './renderer/core/node-frame';
 export { type ReadBufferOptions, type ReadOptions, read, readBuffer } from './renderer/core/read';
 export { type DeviceLostInfo, memoryReport, Renderer } from './renderer/core/renderer';
 export type { RendererBackend } from './renderer/core/renderer-interface';
+export type { SharedBlock, SharedBlocks, SharedMember, SharedPlacement } from './renderer/core/shared-blocks';
 export { isRenderTarget, renderTargetOf, type Target } from './renderer/core/target';
 export type { View } from './renderer/core/view';
 export { writeBuffer } from './renderer/core/write-buffer';

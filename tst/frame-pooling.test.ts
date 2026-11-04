@@ -29,6 +29,7 @@ import { Mesh } from '../src/objects/mesh';
 import { bundle } from '../src/renderer/core/bundle';
 import { createCanvasTarget } from '../src/renderer/core/canvas-target';
 import { frame } from '../src/renderer/core/frame';
+import type { PassOrder } from '../src/renderer/core/pass-order';
 import { Renderer } from '../src/renderer/core/renderer';
 import { WebGPUBackend } from '../src/renderer/webgpu/webgpu-backend';
 import * as d from '../src/schema/schema';
@@ -95,7 +96,7 @@ test('a second frame reuses the first frame object and its pass objects', async 
 /** What each draw resolved to lives in the backend's open pass, pooled per nesting depth. */
 type OpenPassSlots = {
     _frame: {
-        openByDepth: { bindings: unknown[]; segments: unknown[] }[];
+        openByDepth: { bindings: unknown[]; order: PassOrder }[];
         openComputeByDepth: { resolved: unknown[] }[];
     };
 };
@@ -195,7 +196,7 @@ test('a frame whose passes hold bundles pools its resolved draw slots too', asyn
 });
 
 /** The segments array is pooled with its open pass, so a bundled frame reuses it as well. */
-test('the prepared-segment pool is reused across frames', async () => {
+test('the pass order block pool is reused across frames', async () => {
     const { renderer, mesh, camera, view } = await scene();
 
     const encoder = bundle('segmented');
@@ -211,12 +212,14 @@ test('the prepared-segment pool is reused across frames', async () => {
         f.submit();
     };
 
-    const segmentsAtDepth0 = () => slotsOf(renderer).openByDepth[0].segments;
+    const orderAtDepth0 = () => slotsOf(renderer).openByDepth[0].order;
 
     run();
-    const segments = segmentsAtDepth0();
-    // One run for the direct draw, one for the bundle that follows it.
-    expect(segments).toHaveLength(2);
+    const blocks = orderAtDepth0().blocks;
+    const first = blocks[0];
+    // One block for the direct draw, one for the bundle that follows it.
+    expect(orderAtDepth0().blockCount).toBe(2);
     run();
-    expect(segmentsAtDepth0()).toBe(segments);
+    expect(orderAtDepth0().blocks).toBe(blocks);
+    expect(orderAtDepth0().blocks[0]).toBe(first);
 });

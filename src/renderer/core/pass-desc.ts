@@ -3,7 +3,7 @@ import type { CubeRenderTarget } from '../../core/cube-render-target';
 import { assertSubresource, deadAttachment, type RenderTarget } from '../../core/render-target';
 import type { CanvasTarget } from './canvas-target';
 import type { DeviceBackend } from './device-backend';
-import type { CameraRecord, PassDesc, PassEntry, Rect, RenderBundle, ScissorRecord, ViewportRecord, ViewportRect } from './frame';
+import type { CameraRecord, PassDesc, PassEntry, Rect, ScissorRecord, ViewportRecord, ViewportRect } from './frame';
 import { aimNodeFrame } from './node-frame';
 import {
     getRenderContext,
@@ -12,7 +12,7 @@ import {
     type ScissorValue,
     type ViewportValue,
 } from './pass-context';
-import { formatHasStencil, type PreparedSegment, type RenderPassParams } from './render-types';
+import { formatHasStencil, type RenderPassParams } from './render-types';
 import type { Renderer } from './renderer';
 import { isRenderTarget, renderTargetOf, type Target } from './target';
 import type { View } from './view';
@@ -164,34 +164,6 @@ export function applyViewRecord(
 /** Whether a record changes what the draws after it are drawn with, rather than drawing. */
 export function isViewRecord(entry: PassEntry): entry is CameraRecord | ViewportRecord | ScissorRecord {
     return entry.kind === 'camera' || entry.kind === 'viewport' || entry.kind === 'scissor';
-}
-
-/** The run of draws `start` to `start + count` into `out`, with the camera and rects `params` holds while they draw. */
-export function writeSegment(
-    out: PreparedSegment,
-    bundle: RenderBundle | null,
-    start: number,
-    count: number,
-    params: RenderPassParams,
-): void {
-    out.bundle = bundle;
-    out.start = start;
-    out.count = count;
-    out.camera = params.camera;
-    out.viewport = params.viewport;
-    const viewport = params.viewportValue;
-    out.viewportValue.x = viewport.x;
-    out.viewportValue.y = viewport.y;
-    out.viewportValue.width = viewport.width;
-    out.viewportValue.height = viewport.height;
-    out.viewportValue.minDepth = viewport.minDepth;
-    out.viewportValue.maxDepth = viewport.maxDepth;
-    out.scissor = params.scissor;
-    const scissor = params.scissorValue;
-    out.scissorValue.x = scissor.x;
-    out.scissorValue.y = scissor.y;
-    out.scissorValue.width = scissor.width;
-    out.scissorValue.height = scissor.height;
 }
 
 /**
