@@ -191,7 +191,7 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
     ) {
         return entry.buf;
     }
-    const plan = planBufferUpload(buffer, entry !== undefined, entry?.buf.size ?? 0, entry?.version ?? -1);
+    const plan = planBufferUpload(buffer, buffer, entry !== undefined, entry?.buf.size ?? 0, entry?.version ?? -1);
 
     if (plan === BufferUpload.Skip) {
         if (!entry) {

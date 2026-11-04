@@ -5,6 +5,7 @@ import { compileGlsl } from '../src/nodes/builder';
 import { attribute, f32, vec4 } from '../src/nodes/nodes';
 import { createMemoryTally, createRendererInfo } from '../src/renderer/core/info';
 import type { NodeBuilderState } from '../src/renderer/core/node-builder-state';
+import { createBufferCopies } from '../src/renderer/webgl/buffer-copies';
 import { createBufferCache } from '../src/renderer/webgl/buffers';
 import { createGeometriesState, prepareGeometry } from '../src/renderer/webgl/geometries';
 import { bindVertexArray, createGlState } from '../src/renderer/webgl/state';
@@ -53,7 +54,7 @@ function setup() {
     const glState = createGlState();
     const b = {
         geometries: createGeometriesState(),
-        buffers: createBufferCache(createRendererInfo(), createMemoryTally(), glState),
+        buffers: createBufferCache(createRendererInfo(), createMemoryTally(), glState, createBufferCopies()),
         glState,
     } as unknown as WebGLBackend;
     const compiled = compileGlsl({

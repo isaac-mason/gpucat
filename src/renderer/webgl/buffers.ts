@@ -21,7 +21,7 @@
  */
 
 import type { GpuBuffer, GpuTypedArray } from '../../core/gpu-buffer';
-import { BufferUpload, planBufferUpload } from '../core/buffer-upload';
+import { BufferUpload, planBufferUpload, type RangeQueue } from '../core/buffer-upload';
 import {
     type Allocation,
     clearAllocation,
@@ -33,7 +33,7 @@ import {
     setAllocation,
 } from '../core/info';
 import { type SharedBlock, takeSharedDirty } from '../core/shared-blocks';
-import { mergeUpdateRanges } from '../core/update-ranges';
+import { addCopy, type BufferCopies, handOut, removeCopy } from './buffer-copies';
 import { deleteBuffer, type GlState, unbindVertexArray } from './state';
 
 type CacheEntry = {
@@ -43,6 +43,8 @@ type CacheEntry = {
     /** last allocated byte size, the resize guard. */
     byteLength: number;
     allocation: Allocation;
+    /** the ranges written to the buffer since this GL buffer last took them */
+    queue: RangeQueue;
 };
 
 type RawEntry = {
@@ -64,6 +66,8 @@ export type BufferCache = {
     tally: MemoryTally;
     /** `cpu: false` storage buffers written with no GL buffer: one made for them later would hold zeroes. */
     textureOnly: WeakSet<GpuBuffer>;
+    /** each buffer's copies, this GL buffer and its `storage()` texture, which its written ranges are handed out to */
+    copies: BufferCopies;
     /** Where upload volume is tallied. Held by reference so the frame boundary that zeroes it stays
      *  in one place (the renderer) and every reader sees the same numbers; see `core/info.ts`. */
     info: RendererInfo;
@@ -76,7 +80,7 @@ export type BufferCacheStats = {
     rawCount: number;
 };
 
-export function createBufferCache(info: RendererInfo, tally: MemoryTally, glState: GlState): BufferCache {
+export function createBufferCache(info: RendererInfo, tally: MemoryTally, glState: GlState, copies: BufferCopies): BufferCache {
     return {
         bufferMap: new WeakMap(),
         rawMap: new WeakMap(),
@@ -85,6 +89,7 @@ export function createBufferCache(info: RendererInfo, tally: MemoryTally, glStat
         rawCount: 0,
         tally,
         textureOnly: new WeakSet(),
+        copies,
         info,
         glState,
     };
@@ -119,22 +124,24 @@ function setupBufferDispose(gl: WebGL2RenderingContext, cache: BufferCache, buff
         deleteBuffer(gl, cache.glState, entry.glBuffer);
         cache.all.delete(entry.glBuffer);
         clearAllocation(cache.tally, entry.allocation);
+        removeCopy(cache.copies, buffer, entry.queue);
         cache.bufferCount--;
         cache.bufferMap.delete(buffer);
     };
 }
 
-/** Push the buffer's pending `updateRanges` as partial `bufferSubData` uploads, one per merged span. */
+/** Push `queue`'s ranges, which `planBufferUpload` merged, as partial `bufferSubData` uploads, one per span. */
 function uploadDirtyRanges(
     gl: WebGL2RenderingContext,
     cache: BufferCache,
     target: GLenum,
     array: GpuTypedArray,
     buffer: GpuBuffer,
+    queue: RangeQueue,
     label: string,
 ): void {
-    const ranges = buffer.updateRanges;
-    const count = mergeUpdateRanges(ranges, buffer.updateRangeCount);
+    const ranges = queue.updateRanges;
+    const count = queue.updateRangeCount;
     const bytesPerElement = array.BYTES_PER_ELEMENT;
     const usage = primaryBufferUsage(buffer);
     for (let i = 0; i < count; i++) {
@@ -142,7 +149,7 @@ function uploadDirtyRanges(
         gl.bufferSubData(target, r.start * bytesPerElement, array, r.start, r.count);
         recordBufferWrite(cache.info, r.count * bytesPerElement, usage, false, label);
     }
-    buffer.clearUpdateRanges();
+    queue.updateRangeCount = 0;
 }
 
 /**
@@ -170,7 +177,14 @@ export function ensureUploaded(
 
     const label = buffer.label ?? name;
     let entry = cache.bufferMap.get(buffer);
-    const plan = planBufferUpload(buffer, entry !== undefined, entry?.byteLength ?? -1, entry?.version ?? -1);
+    handOut(cache.copies, buffer);
+    const plan = planBufferUpload(
+        buffer,
+        entry?.queue ?? buffer,
+        entry !== undefined,
+        entry?.byteLength ?? -1,
+        entry?.version ?? -1,
+    );
     if (plan === BufferUpload.Skip && entry) return entry.glBuffer;
 
     if (plan === BufferUpload.Allocate) {
@@ -188,6 +202,7 @@ export function ensureUploaded(
                 version: -1,
                 byteLength: -1,
                 allocation: createAllocation('buffer', primaryBufferUsage(buffer), label),
+                queue: addCopy(cache.copies, buffer),
             };
             cache.bufferMap.set(buffer, entry);
             cache.all.add(created);
@@ -208,7 +223,9 @@ export function ensureUploaded(
         entry.byteLength = array?.byteLength ?? buffer.byteLength;
         entry.version = buffer.version;
         setAllocation(cache.tally, entry.allocation, entry.byteLength);
-        // the allocate path wrote everything, so pending ranges are already covered.
+        // the allocate path wrote everything, so pending ranges are already covered: this copy's, and the buffer's
+        // own where it had no copy to hand them to
+        entry.queue.updateRangeCount = 0;
         buffer.clearUpdateRanges();
         return entry.glBuffer;
     }
@@ -218,8 +235,9 @@ export function ensureUploaded(
     if (target === gl.ELEMENT_ARRAY_BUFFER) unbindVertexArray(gl, cache.glState);
     gl.bindBuffer(target, entry!.glBuffer);
     if (plan === BufferUpload.Partial) {
-        uploadDirtyRanges(gl, cache, target, array, buffer, label);
+        uploadDirtyRanges(gl, cache, target, array, buffer, entry!.queue, label);
     } else {
+        entry!.queue.updateRangeCount = 0;
         gl.bufferSubData(target, 0, array);
         recordBufferWrite(cache.info, array.byteLength, primaryBufferUsage(buffer), true, label);
     }
@@ -277,7 +295,8 @@ export function getUploaded(cache: BufferCache, buffer: GpuBuffer): WebGLBuffer 
 /** Whether `ensureUploaded` would find `buffer` current, binding and writing nothing. */
 export function isCurrent(cache: BufferCache, buffer: GpuBuffer): boolean {
     const entry = cache.bufferMap.get(buffer);
-    return entry !== undefined && planBufferUpload(buffer, true, entry.byteLength, entry.version) === BufferUpload.Skip;
+    if (entry === undefined || buffer.updateRangeCount > 0) return false;
+    return planBufferUpload(buffer, entry.queue, true, entry.byteLength, entry.version) === BufferUpload.Skip;
 }
 
 export type UploadRawResult = {

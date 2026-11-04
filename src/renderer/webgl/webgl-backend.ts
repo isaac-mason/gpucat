@@ -20,6 +20,7 @@ import type { RenderObject } from '../core/render-object';
 import { formatHasStencil, type RenderPassParams } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
 import * as Bindings from './bindings';
+import { createBufferCopies } from './buffer-copies';
 import * as Buffers from './buffers';
 import { createContext } from './context';
 import * as CopyTexture from './copy-texture';
@@ -113,8 +114,10 @@ export class WebGLBackend implements DeviceBackend {
     renderObjectGl: RenderObjectGlCache = createRenderObjectGlCache();
     /** Every GPU allocation this backend holds, shared by its buffer, texture and render-target caches. @internal */
     readonly memoryTally: Info.MemoryTally = Info.createMemoryTally();
+    /** each buffer's copies: its GL buffer and its `storage()` texture */
+    private readonly bufferCopies = createBufferCopies();
     /** Per-GpuTexture GL texture cache (upload + allocation). @internal */
-    textures: Textures.TextureCache = Textures.createTextureCache(this.memoryTally);
+    textures: Textures.TextureCache = Textures.createTextureCache(this.memoryTally, this.bufferCopies);
     /** What the context holds of each fixed-function state. @internal */
     glState: State.GlState = State.createGlState();
     /** Per-GpuSampler GL sampler-object cache. @internal */
@@ -160,7 +163,7 @@ export class WebGLBackend implements DeviceBackend {
     async init(renderer: Renderer<DeviceBackend>): Promise<void> {
         this.renderer = renderer;
 
-        this.buffers = Buffers.createBufferCache(renderer.info, this.memoryTally, this.glState);
+        this.buffers = Buffers.createBufferCache(renderer.info, this.memoryTally, this.glState, this.bufferCopies);
 
         const { width, height } = this.target.getDrawingBufferSize();
         this._width = width || 1;

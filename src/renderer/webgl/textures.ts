@@ -26,6 +26,7 @@ import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
 import { type ResolvedStorageBufferTexture, storageMirrorBytesPerTexel, storageMirrorGrid } from '../../nodes/lib/texture';
 import type { Any } from '../../schema/schema';
+import type { RangeQueue } from '../core/buffer-upload';
 import {
     type Allocation,
     clearAllocation,
@@ -37,6 +38,7 @@ import {
 import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
 import { bytesPerTexel, gpuTextureBytes, mipLevelCountFor } from '../core/texture-size';
 import { mergeUpdateRanges } from '../core/update-ranges';
+import { addCopy, type BufferCopies, handOut, removeCopy } from './buffer-copies';
 
 /** GL format triple for a color/depth texture: the sized internal format + upload format + type. */
 type GlFormat = {
@@ -291,6 +293,9 @@ export type GlBufferTextureData = {
     width: number;
     height: number;
     bytesPerTexel: number;
+    /** the ranges written to the buffer since this texture last took them; none for a `cpu: false` buffer, which
+     *  only `writeBuffer` fills */
+    queue: RangeQueue | null;
 };
 
 /** Textures state: per-GpuTexture GL data, keyed by GpuTexture identity, plus a disposal set. */
@@ -298,6 +303,8 @@ export type TextureCache = {
     data: WeakMap<GpuTexture, GlTextureData>;
     /** Storage-buffer-backed GL textures, keyed by the `GpuBuffer` (WebGL storage() read-lowering). */
     bufferData: WeakMap<GpuBuffer, GlBufferTextureData>;
+    /** each buffer's copies, its GL buffer and this texture, which its written ranges are handed out to */
+    copies: BufferCopies;
     all: Set<WebGLTexture>;
     /** The backend's memory tally, shared with its buffers and renderbuffers. */
     tally: MemoryTally;
@@ -426,8 +433,8 @@ export function deleteGlTexture(gl: WebGL2RenderingContext, state: TextureCache,
 }
 
 /** Create an empty textures state. */
-export function createTextureCache(tally: MemoryTally): TextureCache {
-    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set(), tally, units: createTextureUnits() };
+export function createTextureCache(tally: MemoryTally, copies: BufferCopies): TextureCache {
+    return { data: new WeakMap(), bufferData: new WeakMap(), copies, all: new Set(), tally, units: createTextureUnits() };
 }
 
 /** The storage-backing texture a storage buffer's reads go through, sized as the grid it is allocated as. */
@@ -530,6 +537,7 @@ function setupStorageTextureDispose(gl: WebGL2RenderingContext, state: TextureCa
         if (!data) return;
         deleteGlTexture(gl, state, data.texture);
         clearAllocation(state.tally, data.allocation);
+        if (data.queue !== null) removeCopy(state.copies, buffer, data.queue);
         state.bufferData.delete(buffer);
     };
 }
@@ -597,6 +605,7 @@ export function updateStorageBufferTexture(
     // grid's last row is partly padding; uploads clamp to `totalTexels` and never touch it.
     const totalTexels = arr.byteLength / bytesPerTexel;
 
+    handOut(state.copies, buffer);
     let data = state.bufferData.get(buffer);
     if (!data) {
         const texture = gl.createTexture();
@@ -615,7 +624,10 @@ export function updateStorageBufferTexture(
             width,
             height,
             bytesPerTexel,
+            queue: addCopy(state.copies, buffer),
         };
+        // written whole, so what was queued is covered: the buffer's own where it had no copy to hand it to
+        buffer.clearUpdateRanges();
         // A storage() read-lowering IS a resident texture, so it counts like any other, under the u32 format
         // it actually is and the buffer's label; WebGPU reads the buffer directly and has no counterpart.
         setStorageBacking(state, data);
@@ -624,9 +636,10 @@ export function updateStorageBufferTexture(
         return texture;
     }
 
+    const queue = data.queue!;
     const sizeChanged = data.width !== width || data.height !== height;
     // Clean (version matched, no queued ranges, same size) → the cached texture is already current.
-    if (!sizeChanged && data.version === buffer.version && buffer.updateRangeCount === 0) {
+    if (!sizeChanged && data.version === buffer.version && queue.updateRangeCount === 0) {
         return data.texture;
     }
 
@@ -646,8 +659,8 @@ export function updateStorageBufferTexture(
         // spans are kept SEPARATE rather than hulled together: a streaming arena dirties a handful of
         // small, far-apart regions per frame, and one covering span over those is the whole buffer.
         // A bare version bump, or more dirty texels than half the buffer, takes one full upload instead.
-        const ranges = buffer.updateRanges;
-        const rangeCount = mergeUpdateRanges(ranges, buffer.updateRangeCount);
+        const ranges = queue.updateRanges;
+        const rangeCount = mergeUpdateRanges(ranges, queue.updateRangeCount);
         let dirtyTexels = 0;
         for (let i = 0; i < rangeCount; i++) {
             const r = ranges[i]!;
@@ -668,7 +681,7 @@ export function updateStorageBufferTexture(
             uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
         }
     }
-    buffer.clearUpdateRanges();
+    queue.updateRangeCount = 0;
     data.version = buffer.version;
     return data.texture;
 }
@@ -717,6 +730,7 @@ function ensureCpuLessStorageTexture(
         width,
         height,
         bytesPerTexel,
+        queue: null,
     };
     setStorageBacking(state, data);
     setupStorageTextureDispose(gl, state, buffer);

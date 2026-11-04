@@ -17,10 +17,10 @@ test('a dirty range plans a partial upload, whatever the version says', () => {
     const buffer = batchBuffer();
     const uploadedBytes = buffer.array!.byteLength;
 
-    expect(planBufferUpload(buffer, false, 0, -1)).toBe(BufferUpload.Allocate);
+    expect(planBufferUpload(buffer, buffer, false, 0, -1)).toBe(BufferUpload.Allocate);
 
     buffer.addUpdateRange(0, 64 * 4);
-    expect(planBufferUpload(buffer, true, uploadedBytes, buffer.version)).toBe(BufferUpload.Partial);
+    expect(planBufferUpload(buffer, buffer, true, uploadedBytes, buffer.version)).toBe(BufferUpload.Partial);
 });
 
 /** Bumping the version instead is what uploads the whole capacity every frame. */
@@ -29,12 +29,12 @@ test('a version bump with no range plans a full upload', () => {
     const uploadedBytes = buffer.array!.byteLength;
 
     buffer.needsUpdate = true;
-    expect(planBufferUpload(buffer, true, uploadedBytes, buffer.version - 1)).toBe(BufferUpload.Full);
+    expect(planBufferUpload(buffer, buffer, true, uploadedBytes, buffer.version - 1)).toBe(BufferUpload.Full);
 });
 
 test('an unchanged buffer plans nothing', () => {
     const buffer = batchBuffer();
-    expect(planBufferUpload(buffer, true, buffer.array!.byteLength, buffer.version)).toBe(BufferUpload.Skip);
+    expect(planBufferUpload(buffer, buffer, true, buffer.array!.byteLength, buffer.version)).toBe(BufferUpload.Skip);
 });
 
 /** Ranges are flat component indices, so a consumer sizes them in components and not bytes. */
@@ -43,6 +43,6 @@ test('ranges are recorded in components and merge before upload', () => {
     buffer.addUpdateRange(0, 12);
     buffer.addUpdateRange(12, 12);
 
-    planBufferUpload(buffer, true, buffer.array!.byteLength, buffer.version);
+    planBufferUpload(buffer, buffer, true, buffer.array!.byteLength, buffer.version);
     expect(buffer.updateRanges.slice(0, buffer.updateRangeCount)).toEqual([{ start: 0, count: 24 }]);
 });

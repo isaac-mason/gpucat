@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 import { GpuBuffer } from '../src/core/gpu-buffer';
 import { d } from '../src/index';
 import { createMemoryTally, createRendererInfo } from '../src/renderer/core/info';
+import { createBufferCopies } from '../src/renderer/webgl/buffer-copies';
 import { createBufferCache, ensureUploaded, getUploaded } from '../src/renderer/webgl/buffers';
 import { createGlState } from '../src/renderer/webgl/state';
 
@@ -22,7 +23,7 @@ function fakeGl() {
 }
 
 function cacheAndBuffer() {
-    const cache = createBufferCache(createRendererInfo(), createMemoryTally(), createGlState());
+    const cache = createBufferCache(createRendererInfo(), createMemoryTally(), createGlState(), createBufferCopies());
     const buffer = new GpuBuffer(d.vec3f, { data: new Float32Array(9), usage: 'vertex' });
     return { cache, buffer };
 }

@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 import { createIndexBuffer } from '../src/index';
 import { createMemoryTally, createRendererInfo } from '../src/renderer/core/info';
+import { createBufferCopies } from '../src/renderer/webgl/buffer-copies';
 import { createBufferCache, writeBufferBytes } from '../src/renderer/webgl/buffers';
 import {
     bindUniformBuffer,
@@ -78,7 +79,7 @@ test('a VAO bound is not bound again; deleting the bound one leaves the record a
 test('an index upload under a bound VAO unbinds it through the record, with no query', () => {
     const { gl, calls } = fakeGl();
     const state = createGlState();
-    const cache = createBufferCache(createRendererInfo(), createMemoryTally(), state);
+    const cache = createBufferCache(createRendererInfo(), createMemoryTally(), state, createBufferCopies());
     bindVertexArray(gl, state, vao('box'));
     calls.length = 0;
     const index = createIndexBuffer(new Uint16Array([0, 1, 2]));
