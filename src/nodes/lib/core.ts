@@ -1337,7 +1337,7 @@ export class InspectorNode<D extends Any> extends Node<D> {
      */
     override update = (frame: NodeFrame): void => {
         const inspector = frame.renderer!.inspector;
-        if (inspector) inspector.inspect(this as unknown as InspectorNode<Any>);
+        if (inspector) inspector.inspect(this.wrappedNode, this.inspectorName);
     };
 
     /**

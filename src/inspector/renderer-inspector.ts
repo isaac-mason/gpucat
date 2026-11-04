@@ -28,7 +28,7 @@
  */
 
 import type { Object3D } from '../core/object3d';
-import type { ComputeNode, InspectorNode } from '../nodes/nodes';
+import type { ComputeNode, Node } from '../nodes/nodes';
 import type { AnyPass, CallRecord, Rect } from '../renderer/core/frame';
 import type { RenderObject } from '../renderer/core/render-object';
 import type { Any } from '../schema/schema';
@@ -37,6 +37,9 @@ import { type InspectableRenderer, InspectorBase } from './inspector-base';
 // Frame data types
 
 /** Base fields shared by all timeline entries */
+/** A node the Viewer shows this frame, and the name it shows it under. */
+export type InspectedNode = { node: Node<Any>; name: string };
+
 export type TimelineEntryBase = {
     /** Entry name (pass ID or marker name) */
     name: string;
@@ -137,8 +140,8 @@ export type FrameRecord = {
     gpuMs: number | null;
     /** Hierarchical timeline of all entries (markers, render passes, compute passes) */
     timeline: TimelineEntry[];
-    /** Inspectable nodes encountered this frame */
-    inspectableNodes: InspectorNode<Any>[];
+    /** Nodes shown in the Viewer this frame */
+    inspectableNodes: InspectedNode[];
     /** Scene render calls encountered this frame, one entry per renderScene() call. */
     scenes: SceneRecord[];
     /** Every pass the frame was asked for, in call order; a nested pass sits under the call that opened it. */
@@ -250,7 +253,7 @@ export class RendererInspector extends InspectorBase {
     // Per-frame working state
     private _frameStart = 0;
     private _currentQuerySlot = 0;
-    private _pendingInspectables: InspectorNode<Any>[] = [];
+    private _pendingInspectables: InspectedNode[] = [];
     private _pendingScenes: SceneRecord[] = [];
     /** Top-level recorded passes this frame. */
     private _recordedPasses: RecordedPass[] = [];
@@ -730,8 +733,8 @@ export class RendererInspector extends InspectorBase {
         }
     }
 
-    override inspect(node: InspectorNode<Any>): void {
-        this._pendingInspectables.push(node);
+    override inspect(node: Node<Any>, name: string): void {
+        this._pendingInspectables.push({ node, name });
     }
 
     override beginRenderScene(passId: string, scene: Object3D, samples: number, colorFormat: string): void {

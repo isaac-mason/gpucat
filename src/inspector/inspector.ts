@@ -9,7 +9,7 @@
  *  - Viewer tab: inspectable node canvases
  */
 
-import type { FrameRecord, RecordedPass } from './renderer-inspector';
+import type { FrameRecord, InspectedNode, RecordedPass } from './renderer-inspector';
 import { RendererInspector } from './renderer-inspector';
 import type { TreelessPass } from './tabs/scene-hierarchy';
 
@@ -25,7 +25,7 @@ export type {
     TimelineEntry,
 } from './renderer-inspector';
 
-import type { ComputeNode, InspectorNode } from '../nodes/nodes';
+import type { ComputeNode, Node } from '../nodes/nodes';
 import { type CanvasTarget, createCanvasTarget } from '../renderer/core/canvas-target';
 import type { RenderObject } from '../renderer/core/render-object';
 import * as Bindings from '../renderer/webgpu/bindings';
@@ -128,7 +128,7 @@ export class Inspector extends RendererInspector {
     private _lastUpdateTime = 0;
 
     /** Cache of CanvasData per inspectable node. */
-    private _canvasNodes: Map<InspectorNode<Any>, CanvasData> = new Map();
+    private _canvasNodes: Map<Node<Any>, CanvasData> = new Map();
 
     /** Active probe entry, if any. */
     private _activeProbe: ProbeEntry | null = null;
@@ -262,9 +262,7 @@ export class Inspector extends RendererInspector {
      */
     async dispose(): Promise<void> {
         const probeDrained = this.clearProbe();
-        for (const cd of this._canvasNodes.values()) {
-            cd.canvasTarget.dispose();
-        }
+        this.viewer.dispose();
         this._canvasNodes.clear();
         this.profiler.dispose();
         this.domElement.remove();
@@ -703,7 +701,7 @@ export class Inspector extends RendererInspector {
      * Build canvasData for each inspectable node and call viewer.update().
      */
     /** @internal */
-    resolveViewer(nodes: InspectorNode<Any>[]): void {
+    resolveViewer(nodes: InspectedNode[]): void {
         const renderer = this.getRenderer();
         if (!renderer) return;
 
@@ -717,22 +715,16 @@ export class Inspector extends RendererInspector {
      * and builds a fullscreen Material. Cached per node, never recreated.
      */
     /** @internal */
-    getCanvasDataByNode(node: InspectorNode<Any>): CanvasData {
+    getCanvasDataByNode(inspected: InspectedNode): CanvasData {
+        const node = inspected.node;
         let canvasData = this._canvasNodes.get(node);
 
         if (canvasData === undefined) {
-            const canvas = document.createElement('canvas');
-            canvas.style.display = 'block';
-
-            const previewTarget = createCanvasTarget(canvas);
-            previewTarget.setPixelRatio(window.devicePixelRatio);
-            previewTarget.setSize(140, 140);
-
             const id = node.id;
-            const rawName = node.getName();
+            const rawName = inspected.name;
             const { path, name } = splitPath(splitCamelCase(rawName));
 
-            const mesh = createPreviewMesh(node.wrappedNode);
+            const mesh = createPreviewMesh(node);
             mesh.name = `Viewer - ${name}`;
 
             canvasData = {
@@ -741,7 +733,6 @@ export class Inspector extends RendererInspector {
                 path,
                 node,
                 mesh,
-                canvasTarget: previewTarget,
             };
 
             this._canvasNodes.set(node, canvasData);

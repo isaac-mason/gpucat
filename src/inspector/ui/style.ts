@@ -1690,4 +1690,157 @@ label.gui-controller {
 	padding-left: 16px;
 	font-size: var(--font-size-sm);
 }
+
+/* ============================================================
+   Viewer tab: a toolbar, a focused view, then a grid of tiles per folder
+   ============================================================ */
+
+.viewer-content {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.viewer-toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	padding: var(--space-2) var(--space-3);
+	border-bottom: 1px solid var(--border-color);
+	background: var(--header-bg);
+}
+
+.viewer-toolbar-label {
+	color: var(--text-secondary);
+	font-size: var(--font-size-sm);
+	margin-right: var(--space-2);
+}
+
+.viewer-size,
+.viewer-focus-close {
+	height: var(--control-h);
+	min-width: var(--control-h);
+	padding: 0 var(--space-2);
+	background: var(--panel-bg);
+	border: 1px solid var(--border-color);
+	border-radius: var(--radius);
+	color: var(--text-secondary);
+	font: inherit;
+	font-size: var(--font-size-sm);
+	cursor: pointer;
+}
+
+.viewer-size:hover,
+.viewer-focus-close:hover {
+	color: var(--text-primary);
+}
+
+.viewer-size.active {
+	background: var(--accent-dim);
+	border-color: var(--accent-color);
+	color: var(--text-primary);
+}
+
+.viewer-body {
+	overflow: auto;
+	padding: var(--space-3);
+}
+
+.viewer-focus {
+	margin-bottom: var(--space-3);
+	border: 1px solid var(--accent-color);
+}
+
+.viewer-focus-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: var(--space-1) var(--space-2);
+	background: var(--header-bg);
+	color: var(--text-primary);
+}
+
+.viewer-focus-zoom {
+	margin-left: auto;
+	margin-right: var(--space-2);
+	color: var(--text-secondary);
+	font-size: var(--font-size-sm);
+}
+
+.viewer-focus-stage {
+	position: relative;
+	overflow: hidden;
+	background: #000;
+	cursor: grab;
+	touch-action: none;
+}
+
+.viewer-focus-stage:active {
+	cursor: grabbing;
+}
+
+.viewer-focus-canvas {
+	position: absolute;
+	left: 0;
+	top: 0;
+	display: block;
+	transform-origin: 0 0;
+	image-rendering: pixelated;
+}
+
+.viewer-section + .viewer-section {
+	margin-top: var(--space-3);
+}
+
+.viewer-section-title {
+	display: flex;
+	gap: var(--space-2);
+	align-items: baseline;
+	margin-bottom: var(--space-2);
+	color: var(--text-secondary);
+	font-size: var(--font-size-sm);
+	text-transform: lowercase;
+}
+
+.viewer-section-count {
+	color: var(--text-muted);
+}
+
+.viewer-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, var(--viewer-tile, 140px));
+	gap: var(--space-2);
+}
+
+.viewer-tile {
+	display: flex;
+	flex-direction: column;
+	width: var(--viewer-tile, 140px);
+	border: 1px solid var(--border-color);
+	background: var(--panel-bg);
+	cursor: zoom-in;
+}
+
+.viewer-tile:hover {
+	border-color: var(--text-secondary);
+}
+
+.viewer-tile.focused {
+	border-color: var(--accent-color);
+}
+
+.viewer-tile-canvas {
+	display: block;
+	image-rendering: pixelated;
+}
+
+.viewer-tile-label {
+	padding: var(--space-1) var(--space-2);
+	color: var(--text-secondary);
+	font-size: var(--font-size-sm);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
 `;
