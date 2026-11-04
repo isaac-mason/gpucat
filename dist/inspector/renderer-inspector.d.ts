@@ -27,12 +27,17 @@
  *   than the just-finished one, whose gpuMs is always still pending.
  */
 import type { Object3D } from '../core/object3d';
-import type { ComputeNode, InspectorNode } from '../nodes/nodes';
+import type { ComputeNode, Node } from '../nodes/nodes';
 import type { AnyPass, CallRecord } from '../renderer/core/frame';
 import type { RenderObject } from '../renderer/core/render-object';
 import type { Any } from '../schema/schema';
 import { type InspectableRenderer, InspectorBase } from './inspector-base';
 /** Base fields shared by all timeline entries */
+/** A node the Viewer shows this frame, and the name it shows it under. */
+export type InspectedNode = {
+    node: Node<Any>;
+    name: string;
+};
 export type TimelineEntryBase = {
     /** Entry name (pass ID or marker name) */
     name: string;
@@ -124,8 +129,8 @@ export type FrameRecord = {
     gpuMs: number | null;
     /** Hierarchical timeline of all entries (markers, render passes, compute passes) */
     timeline: TimelineEntry[];
-    /** Inspectable nodes encountered this frame */
-    inspectableNodes: InspectorNode<Any>[];
+    /** Nodes shown in the Viewer this frame */
+    inspectableNodes: InspectedNode[];
     /** Scene render calls encountered this frame, one entry per renderScene() call. */
     scenes: SceneRecord[];
     /** Every pass the frame was asked for, in call order; a nested pass sits under the call that opened it. */
@@ -256,7 +261,7 @@ export declare class RendererInspector extends InspectorBase {
     private _innermostRecord;
     /** Closes every recorded entry above `depth`, marking the passes among them as never ended. */
     private _unwindRecordsTo;
-    inspect(node: InspectorNode<Any>): void;
+    inspect(node: Node<Any>, name: string): void;
     beginRenderScene(passId: string, scene: Object3D, samples: number, colorFormat: string): void;
     /** Public API for adding performance markers from user code */
     readonly perf: {

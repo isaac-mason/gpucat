@@ -8644,10 +8644,11 @@ class InspectorBase {
     endRecordedPass(_error) { }
     // Node inspection
     /**
-     * Called when a node marked with .inspect() is encountered during rendering.
-     * Subclasses override this to register the node for Viewer tab preview.
+     * Shows `node` in this frame's Viewer under `name` ('folder/name' groups it), drawn fullscreen into its own preview.
+     * A node's `.inspect()` calls it every frame its graph runs; a caller with a node in no shader calls it each frame
+     * it wants the node shown. Subclasses that have a Viewer override it.
      */
-    inspect(_node) { }
+    inspect(_node, _name) { }
     // Per-draw-call hooks (inside a render pass)
     /**
      * Called whenever a new pipeline is bound (i.e. renderObject.pipeline changed).
@@ -9279,8 +9280,8 @@ class RendererInspector extends InspectorBase {
                 entry.error ??= 'never ended';
         }
     }
-    inspect(node) {
-        this._pendingInspectables.push(node);
+    inspect(node, name) {
+        this._pendingInspectables.push({ node, name });
     }
     beginRenderScene(passId, scene, samples, colorFormat) {
         // Deduplicate: if the same passId fires more than once this frame (shouldn't
@@ -11052,7 +11053,7 @@ class InspectorNode extends Node {
     update = (frame) => {
         const inspector = frame.renderer.inspector;
         if (inspector)
-            inspector.inspect(this);
+            inspector.inspect(this.wrappedNode, this.inspectorName);
     };
     /**
      * Returns the display name for the inspector.
@@ -13352,13 +13353,14 @@ var BufferUpload;
     BufferUpload[BufferUpload["Skip"] = 0] = "Skip";
     /** no GPU buffer yet, or the data outgrew it: (re)allocate and write the whole array, or zeroes for a `cpu: false` buffer. */
     BufferUpload[BufferUpload["Allocate"] = 1] = "Allocate";
-    /** write only the pending `buffer.updateRanges`, which `planBufferUpload` has already merged. */
+    /** write only the queue's pending ranges, which `planBufferUpload` has already merged. */
     BufferUpload[BufferUpload["Partial"] = 2] = "Partial";
     /** the version moved with no ranges queued: rewrite the whole array in place. */
     BufferUpload[BufferUpload["Full"] = 3] = "Full";
 })(BufferUpload || (BufferUpload = {}));
 /**
- * Decide how `buffer` reaches the GPU, and merge its pending ranges in place.
+ * Decide how `buffer` reaches the GPU, and merge `queue`'s pending ranges in place: the buffer's own, or the share of
+ * them a backend keeping several copies of it gave this one.
  *
  * Precedence:
  *
@@ -13369,9 +13371,9 @@ var BufferUpload;
  *   3. FULL for a version bump with nothing queued. Correct, but re-sends the whole allocation.
  *
  * `capacityBytes` and `lastVersion` describe what the backend holds, and are ignored when `exists` is
- * false. Merging mutates `buffer.updateRanges` in place, keeping the hot path allocation-free.
+ * false. Merging mutates the queue in place, keeping the hot path allocation-free.
  */
-function planBufferUpload(buffer, exists, capacityBytes, lastVersion) {
+function planBufferUpload(buffer, queue, exists, capacityBytes, lastVersion) {
     if (!buffer.cpu)
         return exists ? BufferUpload.Skip : BufferUpload.Allocate;
     const array = buffer.array;
@@ -13380,8 +13382,8 @@ function planBufferUpload(buffer, exists, capacityBytes, lastVersion) {
         return BufferUpload.Skip;
     if (!exists || capacityBytes < array.byteLength)
         return BufferUpload.Allocate;
-    if (buffer.updateRangeCount > 0) {
-        buffer.updateRangeCount = mergeUpdateRanges(buffer.updateRanges, buffer.updateRangeCount);
+    if (queue.updateRangeCount > 0) {
+        queue.updateRangeCount = mergeUpdateRanges(queue.updateRanges, queue.updateRangeCount);
         return BufferUpload.Partial;
     }
     return buffer.version !== lastVersion ? BufferUpload.Full : BufferUpload.Skip;
@@ -14151,7 +14153,7 @@ function ensureUploaded$1(cache, device, buffer, name) {
         (buffer.array === null || entry.buf.size >= buffer.array.byteLength)) {
         return entry.buf;
     }
-    const plan = planBufferUpload(buffer, entry !== undefined, entry?.buf.size ?? 0, entry?.version ?? -1);
+    const plan = planBufferUpload(buffer, buffer, entry !== undefined, entry?.buf.size ?? 0, entry?.version ?? -1);
     if (plan === BufferUpload.Skip) {
         if (!entry) {
             throw new Error('[gpucat] ensureUploaded: buffer.array is null but GPU buffer was never created');
@@ -21993,10 +21995,12 @@ function generateTextureCall(ctx, node) {
             throw new Error(`[glsl] ${node.fn} is a GLSL ES 3.10 builtin with no GLSL ES 3.00 form; not supported on the WebGL2 backend`);
         }
         case 'textureLoad': {
-            // (t, coords, level) → texelFetch(name, ivec2(coords), level).
+            // (t, coords, level) → texelFetch(name, ivec2(coords), level). WGSL loads a depth texture as its f32
+            // depth, where texelFetch of its plain sampler2D gives the depth in .r of a vec4
             const level = rawArgs[2] ? generateExpr$1(ctx, rawArgs[2]) : '0';
             const coordExpr = f.texel(texelCoord(ctx, rawArgs[1]), `textureSize(${name}, ${level}).y`);
-            return `texelFetch(${name}, ${coordExpr}, ${level})`;
+            const fetch = `texelFetch(${name}, ${coordExpr}, ${level})`;
+            return isDepthTextureDesc(tex.type) ? `${fetch}.x` : fetch;
         }
         case 'textureDimensions': {
             // WGSL textureDimensions(t [, level:u32]) → vec{2,3}<u32>; GLSL textureSize(sampler, int) →
@@ -32692,500 +32696,6 @@ class Timeline extends Tab {
     }
 }
 
-function createFrame(backend) {
-    const frame = {
-        backend,
-        renderer: null,
-        pool: [],
-        poolIndex: 0,
-        computePool: [],
-        computePoolIndex: 0,
-        transformFeedbackPool: [],
-        transformFeedbackPoolIndex: 0,
-        open: null,
-        targets: [],
-        completion: null,
-        everSubmitted: false,
-        closed: true,
-        pass: (desc) => openRenderPass(frame, desc),
-        compute: (desc) => openComputePass(frame, desc ?? {}),
-        transformFeedback: (desc) => openTransformFeedbackPass(frame, desc ?? {}),
-        clearBuffer: (buffer, byteOffset = 0, byteSize = buffer.byteLength - byteOffset) => clearFrameBuffer(frame, buffer, byteOffset, byteSize),
-        submit: () => submitFrame$2(frame),
-        abandon: () => abandonFrame(frame),
-        get done() {
-            if (!frame.closed) {
-                throw new Error(frame.everSubmitted
-                    ? '[frame] done is readable between submit() and the next frame(); this one has been reopened.'
-                    : '[frame] done read before submit(); there is no work to wait on yet');
-            }
-            frame.completion ??= frame.backend.awaitCompletion();
-            return frame.completion;
-        },
-    };
-    return frame;
-}
-/** True between `gpu.frame()` and `frame.submit()`, when recorded work has not reached the queue yet. */
-function isFrameOpen(frame) {
-    return frame !== null && !frame.closed;
-}
-function passLabel(pass) {
-    return pass.desc.label ?? pass.kind;
-}
-/**
- * Opens the renderer's frame for recording. A free function because every other operation on a
- * renderer is one; `Frame` and `Pass` keep their verbs because they are the recording context, not
- * the device handle.
- *
- * One `Frame` per renderer for its lifetime, so a steady-state frame allocates nothing.
- */
-function frame(renderer) {
-    renderer._assertInitialized('frame');
-    renderer._frameState ??= createFrame(renderer.backend);
-    renderer._frameState.renderer = renderer;
-    beginFrame$2(renderer._frameState);
-    return renderer._frameState;
-}
-function beginFrame$2(frame) {
-    if (!frame.closed) {
-        // Recovery rather than a throw, so a frame a throw escaped from does not wedge the renderer.
-        // Silent recovery would hide a missing submit() forever, which is the failure this reports.
-        const dropped = frame.open === null ? '' : `, with "${passLabel(frame.open)}" still open`;
-        console.warn(`[frame] the previous frame was never submitted${dropped}; dropping its work`);
-        abandonFrame(frame);
-    }
-    frame.closed = false;
-    frame.poolIndex = 0;
-    frame.computePoolIndex = 0;
-    frame.transformFeedbackPoolIndex = 0;
-    frame.targets.length = 0;
-    frame.completion = null; // the reused frame object must not hand out the last frame's promise
-    frame.backend.beginFrame();
-}
-/** Runs before a pool slot is claimed, so a rejected open leaves the pool untouched. */
-function assertCanOpen(frame, verb) {
-    if (frame.closed)
-        throw new Error(`[frame] ${verb} after the frame was closed`);
-    if (frame.open !== null) {
-        throw new Error(`[frame] ${verb} while "${passLabel(frame.open)}" is still open; end it first`);
-    }
-}
-function clearFrameBuffer(frame, buffer, byteOffset, byteSize) {
-    assertCanOpen(frame, 'frame.clearBuffer()');
-    const what = `[frame] clearBuffer '${buffer.label ?? 'unlabelled'}'`;
-    if (buffer.cpu) {
-        throw new Error(`${what}: it keeps a CPU array, which the clear would leave stale; make it \`cpu: false\`.`);
-    }
-    if (buffer.disposed)
-        throw new Error(`${what}: it is disposed.`);
-    if (byteOffset % 4 !== 0 || byteSize % 4 !== 0) {
-        throw new Error(`${what}: the offset (${byteOffset}) and size (${byteSize}) must be multiples of 4.`);
-    }
-    if (byteOffset < 0 || byteSize < 0 || byteOffset + byteSize > buffer.byteLength) {
-        throw new Error(`${what}: bytes ${byteOffset}..${byteOffset + byteSize} overrun its ${buffer.byteLength} bytes.`);
-    }
-    if (byteSize === 0)
-        return;
-    frame.backend.clearBuffer(buffer, byteOffset, byteSize);
-}
-/** A WebGL2 context belongs to one canvas for its lifetime, so a pass naming another would draw nowhere visible. */
-function assertTargetReachable(frame, desc) {
-    const deviceCanvas = frame.backend.deviceCanvasTarget;
-    if (deviceCanvas === null || isRenderTarget(desc.target) || desc.target === deviceCanvas)
-        return;
-    throw new Error('[frame] this pass names a canvas the device was not created on; a WebGL2 context cannot present ' +
-        'to a second canvas. Use one pass per viewport on the device canvas, or a renderer per canvas.');
-}
-function openRenderPass(frame, desc) {
-    assertCanOpen(frame, 'frame.pass()');
-    assertTargetReachable(frame, desc);
-    let pass = frame.pool[frame.poolIndex];
-    if (pass === undefined) {
-        pass = createRenderPass(frame, desc);
-        frame.pool.push(pass);
-    }
-    else {
-        pass.desc = desc;
-        pass.ended = false;
-    }
-    pass.camera = desc.camera;
-    pass.binCount = 0;
-    frame.poolIndex++;
-    beginOnBackend(frame, pass);
-    frame.open = pass;
-    return pass;
-}
-function createRenderPass(frame, desc) {
-    const pass = {
-        kind: 'render',
-        desc,
-        drawRecord: null,
-        bundleRecord: null,
-        cameraRecord: null,
-        binRecord: null,
-        bins: [],
-        binCount: 0,
-        viewportRecord: { kind: 'viewport', viewport: undefined },
-        scissorRecord: { kind: 'scissor', scissor: undefined },
-        camera: desc.camera,
-        ended: false,
-        draw: (mesh, opts) => recordDraw(frame, pass, mesh, opts),
-        execute: (bundle) => recordBundle(frame, pass, bundle),
-        scene: (root, camera) => recordScene(frame, pass, root, camera),
-        bin: (desc) => recordBin(frame, pass, desc),
-        setCamera: (camera) => recordCamera(frame, pass, camera),
-        setViewport: (viewport) => recordViewport(frame, pass, viewport),
-        setScissor: (scissor) => recordScissor(frame, pass, scissor),
-        end: () => endPass$2(frame, pass),
-    };
-    return pass;
-}
-function recordCamera(frame, pass, camera) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] setCamera after end()`);
-    pass.camera = camera;
-    let record = pass.cameraRecord;
-    if (record === null) {
-        record = { kind: 'camera', camera };
-        pass.cameraRecord = record;
-    }
-    else {
-        record.camera = camera;
-    }
-    resolveCall(frame, pass, record);
-}
-function recordBin(frame, pass, desc) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] bin after end()`);
-    let bin = pass.bins[pass.binCount];
-    if (bin === undefined) {
-        const created = {
-            kind: 'bin',
-            desc,
-            index: pass.binCount,
-            fields: [],
-            bits: [],
-            keyRead: null,
-            usesDepth: false,
-            ended: false,
-            draw: (mesh, opts) => recordDraw(frame, pass, mesh, opts, created),
-        };
-        bin = created;
-        pass.bins.push(bin);
-    }
-    bin.desc = desc;
-    bin.ended = false;
-    if (bin.keyRead !== desc.key)
-        readBinKey(bin, desc.key, passLabel(pass));
-    pass.binCount++;
-    let record = pass.binRecord;
-    if (record === null) {
-        record = { kind: 'bin', bin };
-        pass.binRecord = record;
-    }
-    else {
-        record.bin = bin;
-    }
-    resolveCall(frame, pass, record);
-    return bin;
-}
-const BIN_KEY_PRESETS = {
-    state: ['sortKey', 'pipeline', 'material', 'geometry'],
-    'back-to-front': ['sortKey', 'depthFar'],
-    submission: [],
-};
-const BIN_FIELDS = ['sortKey', 'pipeline', 'material', 'geometry', 'view', 'depthNear', 'depthFar'];
-/** `key` into `bin`'s fields and bits, refusing a field it does not know or one named twice. */
-function readBinKey(bin, key, label) {
-    bin.fields.length = 0;
-    bin.bits.length = 0;
-    bin.usesDepth = false;
-    const fields = typeof key === 'string' ? BIN_KEY_PRESETS[key] : key;
-    if (fields === undefined)
-        throw new Error(`[pass ${label}] bin key '${key}' is none of 'state', 'back-to-front', 'submission'`);
-    for (const entry of fields) {
-        let field;
-        let bits = 0;
-        if (typeof entry === 'string')
-            field = entry;
-        else {
-            const names = Object.keys(entry);
-            if (names.length !== 1)
-                throw new Error(`[pass ${label}] a bin key field with bits names one field, not ${names.length}`);
-            field = names[0];
-            bits = entry[field];
-            if (!Number.isInteger(bits) || bits < 1 || bits > 52) {
-                throw new Error(`[pass ${label}] bin key field '${field}' takes 1 to 52 bits, not ${bits}`);
-            }
-        }
-        if (!BIN_FIELDS.includes(field))
-            throw new Error(`[pass ${label}] '${field}' is not a bin key field`);
-        if (bin.fields.includes(field))
-            throw new Error(`[pass ${label}] bin key names '${field}' twice`);
-        bin.fields.push(field);
-        bin.bits.push(bits);
-        if (field === 'depthNear' || field === 'depthFar')
-            bin.usesDepth = true;
-    }
-    bin.keyRead = key;
-}
-function recordViewport(frame, pass, viewport) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] setViewport after end()`);
-    pass.viewportRecord.viewport = viewport;
-    resolveCall(frame, pass, pass.viewportRecord);
-}
-function recordScissor(frame, pass, scissor) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] setScissor after end()`);
-    pass.scissorRecord.scissor = scissor;
-    resolveCall(frame, pass, pass.scissorRecord);
-}
-function recordScene(frame, pass, root, camera) {
-    if (frame.renderer === null)
-        throw new Error('[pass] scene() needs a frame opened with frame(renderer).');
-    const view = camera ?? pass.camera;
-    if (view === undefined)
-        throw new Error('[pass] scene() needs a camera, on the pass desc or as its second argument.');
-    drawScene(frame.renderer, pass, root, view);
-}
-function openComputePass(frame, desc) {
-    assertCanOpen(frame, 'frame.compute()');
-    if (frame.backend.name === 'webgl') {
-        throw new Error('[frame] compute passes need the webgpu backend; WebGL2 has no compute shaders');
-    }
-    let pass = frame.computePool[frame.computePoolIndex];
-    if (pass === undefined) {
-        pass = createComputePass(frame, desc);
-        frame.computePool.push(pass);
-    }
-    else {
-        pass.desc = desc;
-        pass.ended = false;
-    }
-    frame.computePoolIndex++;
-    beginOnBackend(frame, pass);
-    frame.open = pass;
-    return pass;
-}
-function openTransformFeedbackPass(frame, desc) {
-    assertCanOpen(frame, 'frame.transformFeedback()');
-    if (frame.backend.name === 'webgpu') {
-        throw new Error('[frame] transform feedback is WebGL2-only; use frame.compute() on the webgpu backend');
-    }
-    let pass = frame.transformFeedbackPool[frame.transformFeedbackPoolIndex];
-    if (pass === undefined) {
-        pass = createTransformFeedbackPass(frame, desc);
-        frame.transformFeedbackPool.push(pass);
-    }
-    else {
-        pass.desc = desc;
-        pass.ended = false;
-    }
-    frame.transformFeedbackPoolIndex++;
-    beginOnBackend(frame, pass);
-    frame.open = pass;
-    return pass;
-}
-function createTransformFeedbackPass(frame, desc) {
-    const pass = {
-        kind: 'transform-feedback',
-        desc,
-        record: null,
-        ended: false,
-        dispatch: (node, opts) => recordTransformFeedback$1(frame, pass, node, opts),
-        end: () => endPass$2(frame, pass),
-    };
-    return pass;
-}
-function recordTransformFeedback$1(frame, pass, node, opts) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
-    let record = pass.record;
-    if (record === null) {
-        record = { kind: 'transform-feedback', node, ...opts };
-        pass.record = record;
-    }
-    else {
-        record.node = node;
-        record.inputs = opts.inputs;
-        record.outputs = opts.outputs;
-        record.count = opts.count;
-        record.instanceCount = opts.instanceCount;
-    }
-    resolveCall(frame, pass, record);
-}
-function createComputePass(frame, desc) {
-    const pass = {
-        kind: 'compute',
-        desc,
-        record: null,
-        ended: false,
-        dispatch: (node, counts, opts) => recordDispatch$1(frame, pass, node, counts, undefined, 0, opts),
-        dispatchIndirect: (node, indirect, opts) => recordDispatch$1(frame, pass, node, undefined, indirect, opts?.offset ?? 0, opts),
-        end: () => endPass$2(frame, pass),
-    };
-    return pass;
-}
-function recordDispatch$1(frame, pass, node, counts, indirect, indirectOffset, opts) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
-    let record = pass.record;
-    if (record === null) {
-        record = { kind: 'dispatch', node, counts, indirect, indirectOffset, buffers: opts?.buffers, textures: opts?.textures };
-        pass.record = record;
-    }
-    else {
-        record.node = node;
-        record.counts = counts;
-        record.indirect = indirect;
-        record.indirectOffset = indirectOffset;
-        record.buffers = opts?.buffers;
-        record.textures = opts?.textures;
-    }
-    resolveCall(frame, pass, record);
-}
-function inspectorOf(frame) {
-    return frame.renderer?.inspector ?? null;
-}
-function errorMessage(error) {
-    return error instanceof Error ? error.message : String(error);
-}
-/** Opens `pass` on the backend, telling an attached inspector first, so a pass the backend skips or refuses is still seen. */
-function beginOnBackend(frame, pass) {
-    const inspector = inspectorOf(frame);
-    inspector?.beginRecordedPass(pass.kind, passLabel(pass));
-    try {
-        if (pass.kind === 'render')
-            frame.backend.beginPass(pass.desc);
-        else if (pass.kind === 'compute')
-            frame.backend.beginComputePass(pass.desc);
-        else
-            frame.backend.beginTransformFeedbackPass(pass.desc);
-    }
-    catch (error) {
-        inspector?.endRecordedPass(errorMessage(error));
-        throw error;
-    }
-}
-/**
- * Resolves a just-recorded call, so it takes the values set before it. The open pass is set aside
- * meanwhile: resolving evaluates the node graph, which may record a nested pass.
- */
-function resolveCall(frame, pass, record) {
-    const inspector = inspectorOf(frame);
-    inspector?.beginRecordedCall(record);
-    frame.open = null;
-    try {
-        if (record.kind === 'dispatch')
-            frame.backend.recordDispatch(record);
-        else if (record.kind === 'transform-feedback')
-            frame.backend.recordTransformFeedback(record);
-        else
-            frame.backend.recordEntry(record);
-    }
-    catch (error) {
-        inspector?.endRecordedCall(errorMessage(error));
-        throw error;
-    }
-    finally {
-        frame.open = pass;
-    }
-    inspector?.endRecordedCall(null);
-}
-function recordDraw(frame, pass, mesh, opts, bin = null) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] draw after end()`);
-    if (bin?.ended)
-        throw new Error(`[pass ${passLabel(pass)}] draw into a bin after its pass ended`);
-    if (bin === null && opts?.sortKey !== undefined) {
-        throw new Error(`[pass ${passLabel(pass)}] '${mesh.name || 'mesh'}' passes a sortKey to the pass; a sortKey orders draws in a bin`);
-    }
-    if (opts?.draws !== undefined && (opts.instances !== undefined || opts.range !== undefined)) {
-        throw new Error(`[pass ${passLabel(pass)}] '${mesh.name || 'mesh'}' passes draws alongside instances or range; ` +
-            'each MeshDraw carries its own instanceCount and index range, so the single-draw fields are unreachable.');
-    }
-    const material = opts?.material ?? mesh.material;
-    let record = pass.drawRecord;
-    if (record === null) {
-        record = { kind: 'draw', mesh, material, opts: opts ?? null, bin, sortKey: opts?.sortKey ?? 0 };
-        pass.drawRecord = record;
-    }
-    else {
-        record.mesh = mesh;
-        record.material = material;
-        record.opts = opts ?? null;
-        record.bin = bin;
-        record.sortKey = opts?.sortKey ?? 0;
-    }
-    resolveCall(frame, pass, record);
-}
-function recordBundle(frame, pass, bundle) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] execute after end()`);
-    if (bundle.disposed)
-        throw new Error(`[bundle ${bundle.label}] execute after dispose()`);
-    let record = pass.bundleRecord;
-    if (record === null) {
-        record = { kind: 'bundle', bundle };
-        pass.bundleRecord = record;
-    }
-    else {
-        record.bundle = bundle;
-    }
-    resolveCall(frame, pass, record);
-}
-function endPass$2(frame, pass) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] end() called twice`);
-    if (frame.closed) {
-        throw new Error(`[pass ${passLabel(pass)}] the frame this pass belongs to was closed while it was open; ` +
-            'its draws were never encoded. A frame opened between this pass and its end() is what does this.');
-    }
-    pass.ended = true;
-    if (pass.kind === 'render')
-        for (let index = 0; index < pass.binCount; index++)
-            pass.bins[index].ended = true;
-    frame.open = null; // cleared first: encoding evaluates the graph, which may open a nested pass
-    inspectorOf(frame)?.endRecordedPass(null);
-    if (pass.kind === 'compute') {
-        frame.backend.encodeComputePass(pass.desc);
-    }
-    else if (pass.kind === 'transform-feedback') {
-        frame.backend.encodeTransformFeedbackPass(pass.desc);
-    }
-    else {
-        const target = pass.desc.target;
-        frame.targets.push(target);
-        frame.backend.encodePass(pass.desc);
-    }
-}
-function submitFrame$2(frame) {
-    if (frame.closed)
-        throw new Error('[frame] submit() called twice');
-    if (frame.open !== null) {
-        throw new Error(`[frame] submit() while "${passLabel(frame.open)}" is still open; end it first`);
-    }
-    // `abandon()` is the answer to a mid-frame room swap, not a disposal race.
-    for (const target of frame.targets) {
-        const dead = isRenderTarget(target) ? deadAttachment(target) : target.disposed ? 'canvas' : null;
-        if (dead !== null) {
-            throw new Error(`[frame] '${dead}' was disposed after its pass recorded into it; abandon() the frame instead of disposing mid-frame.`);
-        }
-    }
-    frame.closed = true;
-    frame.everSubmitted = true;
-    frame.backend.submitFrame();
-}
-/** A recorded-but-unencoded pass is dropped with the frame; atomic encoding leaves no GPU pass open. */
-function abandonFrame(frame) {
-    if (frame.closed)
-        return;
-    frame.open = null;
-    frame.closed = true;
-    frame.backend.discardFrame();
-}
-
 class Material {
     /** Material name, for debugging. */
     name;
@@ -33690,117 +33200,928 @@ function fullscreen(fragment) {
     return mesh;
 }
 
-// Viewer Tab
+function createFrame(backend) {
+    const frame = {
+        backend,
+        renderer: null,
+        pool: [],
+        poolIndex: 0,
+        computePool: [],
+        computePoolIndex: 0,
+        transformFeedbackPool: [],
+        transformFeedbackPoolIndex: 0,
+        open: null,
+        targets: [],
+        completion: null,
+        everSubmitted: false,
+        closed: true,
+        pass: (desc) => openRenderPass(frame, desc),
+        compute: (desc) => openComputePass(frame, desc ?? {}),
+        transformFeedback: (desc) => openTransformFeedbackPass(frame, desc ?? {}),
+        clearBuffer: (buffer, byteOffset = 0, byteSize = buffer.byteLength - byteOffset) => clearFrameBuffer(frame, buffer, byteOffset, byteSize),
+        submit: () => submitFrame$2(frame),
+        abandon: () => abandonFrame(frame),
+        get done() {
+            if (!frame.closed) {
+                throw new Error(frame.everSubmitted
+                    ? '[frame] done is readable between submit() and the next frame(); this one has been reopened.'
+                    : '[frame] done read before submit(); there is no work to wait on yet');
+            }
+            frame.completion ??= frame.backend.awaitCompletion();
+            return frame.completion;
+        },
+    };
+    return frame;
+}
+/** True between `gpu.frame()` and `frame.submit()`, when recorded work has not reached the queue yet. */
+function isFrameOpen(frame) {
+    return frame !== null && !frame.closed;
+}
+function passLabel(pass) {
+    return pass.desc.label ?? pass.kind;
+}
+/**
+ * Opens the renderer's frame for recording. A free function because every other operation on a
+ * renderer is one; `Frame` and `Pass` keep their verbs because they are the recording context, not
+ * the device handle.
+ *
+ * One `Frame` per renderer for its lifetime, so a steady-state frame allocates nothing.
+ */
+function frame(renderer) {
+    renderer._assertInitialized('frame');
+    renderer._frameState ??= createFrame(renderer.backend);
+    renderer._frameState.renderer = renderer;
+    beginFrame$2(renderer._frameState);
+    return renderer._frameState;
+}
+function beginFrame$2(frame) {
+    if (!frame.closed) {
+        // Recovery rather than a throw, so a frame a throw escaped from does not wedge the renderer.
+        // Silent recovery would hide a missing submit() forever, which is the failure this reports.
+        const dropped = frame.open === null ? '' : `, with "${passLabel(frame.open)}" still open`;
+        console.warn(`[frame] the previous frame was never submitted${dropped}; dropping its work`);
+        abandonFrame(frame);
+    }
+    frame.closed = false;
+    frame.poolIndex = 0;
+    frame.computePoolIndex = 0;
+    frame.transformFeedbackPoolIndex = 0;
+    frame.targets.length = 0;
+    frame.completion = null; // the reused frame object must not hand out the last frame's promise
+    frame.backend.beginFrame();
+}
+/** Runs before a pool slot is claimed, so a rejected open leaves the pool untouched. */
+function assertCanOpen(frame, verb) {
+    if (frame.closed)
+        throw new Error(`[frame] ${verb} after the frame was closed`);
+    if (frame.open !== null) {
+        throw new Error(`[frame] ${verb} while "${passLabel(frame.open)}" is still open; end it first`);
+    }
+}
+function clearFrameBuffer(frame, buffer, byteOffset, byteSize) {
+    assertCanOpen(frame, 'frame.clearBuffer()');
+    const what = `[frame] clearBuffer '${buffer.label ?? 'unlabelled'}'`;
+    if (buffer.cpu) {
+        throw new Error(`${what}: it keeps a CPU array, which the clear would leave stale; make it \`cpu: false\`.`);
+    }
+    if (buffer.disposed)
+        throw new Error(`${what}: it is disposed.`);
+    if (byteOffset % 4 !== 0 || byteSize % 4 !== 0) {
+        throw new Error(`${what}: the offset (${byteOffset}) and size (${byteSize}) must be multiples of 4.`);
+    }
+    if (byteOffset < 0 || byteSize < 0 || byteOffset + byteSize > buffer.byteLength) {
+        throw new Error(`${what}: bytes ${byteOffset}..${byteOffset + byteSize} overrun its ${buffer.byteLength} bytes.`);
+    }
+    if (byteSize === 0)
+        return;
+    frame.backend.clearBuffer(buffer, byteOffset, byteSize);
+}
+/** A WebGL2 context belongs to one canvas for its lifetime, so a pass naming another would draw nowhere visible. */
+function assertTargetReachable(frame, desc) {
+    const deviceCanvas = frame.backend.deviceCanvasTarget;
+    if (deviceCanvas === null || isRenderTarget(desc.target) || desc.target === deviceCanvas)
+        return;
+    throw new Error('[frame] this pass names a canvas the device was not created on; a WebGL2 context cannot present ' +
+        'to a second canvas. Use one pass per viewport on the device canvas, or a renderer per canvas.');
+}
+function openRenderPass(frame, desc) {
+    assertCanOpen(frame, 'frame.pass()');
+    assertTargetReachable(frame, desc);
+    let pass = frame.pool[frame.poolIndex];
+    if (pass === undefined) {
+        pass = createRenderPass(frame, desc);
+        frame.pool.push(pass);
+    }
+    else {
+        pass.desc = desc;
+        pass.ended = false;
+    }
+    pass.camera = desc.camera;
+    pass.binCount = 0;
+    frame.poolIndex++;
+    beginOnBackend(frame, pass);
+    frame.open = pass;
+    return pass;
+}
+function createRenderPass(frame, desc) {
+    const pass = {
+        kind: 'render',
+        desc,
+        drawRecord: null,
+        bundleRecord: null,
+        cameraRecord: null,
+        binRecord: null,
+        bins: [],
+        binCount: 0,
+        viewportRecord: { kind: 'viewport', viewport: undefined },
+        scissorRecord: { kind: 'scissor', scissor: undefined },
+        camera: desc.camera,
+        ended: false,
+        draw: (mesh, opts) => recordDraw(frame, pass, mesh, opts),
+        execute: (bundle) => recordBundle(frame, pass, bundle),
+        scene: (root, camera) => recordScene(frame, pass, root, camera),
+        bin: (desc) => recordBin(frame, pass, desc),
+        setCamera: (camera) => recordCamera(frame, pass, camera),
+        setViewport: (viewport) => recordViewport(frame, pass, viewport),
+        setScissor: (scissor) => recordScissor(frame, pass, scissor),
+        end: () => endPass$2(frame, pass),
+    };
+    return pass;
+}
+function recordCamera(frame, pass, camera) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] setCamera after end()`);
+    pass.camera = camera;
+    let record = pass.cameraRecord;
+    if (record === null) {
+        record = { kind: 'camera', camera };
+        pass.cameraRecord = record;
+    }
+    else {
+        record.camera = camera;
+    }
+    resolveCall(frame, pass, record);
+}
+function recordBin(frame, pass, desc) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] bin after end()`);
+    let bin = pass.bins[pass.binCount];
+    if (bin === undefined) {
+        const created = {
+            kind: 'bin',
+            desc,
+            index: pass.binCount,
+            fields: [],
+            bits: [],
+            keyRead: null,
+            usesDepth: false,
+            ended: false,
+            draw: (mesh, opts) => recordDraw(frame, pass, mesh, opts, created),
+        };
+        bin = created;
+        pass.bins.push(bin);
+    }
+    bin.desc = desc;
+    bin.ended = false;
+    if (bin.keyRead !== desc.key)
+        readBinKey(bin, desc.key, passLabel(pass));
+    pass.binCount++;
+    let record = pass.binRecord;
+    if (record === null) {
+        record = { kind: 'bin', bin };
+        pass.binRecord = record;
+    }
+    else {
+        record.bin = bin;
+    }
+    resolveCall(frame, pass, record);
+    return bin;
+}
+const BIN_KEY_PRESETS = {
+    state: ['sortKey', 'pipeline', 'material', 'geometry'],
+    'back-to-front': ['sortKey', 'depthFar'],
+    submission: [],
+};
+const BIN_FIELDS = ['sortKey', 'pipeline', 'material', 'geometry', 'view', 'depthNear', 'depthFar'];
+/** `key` into `bin`'s fields and bits, refusing a field it does not know or one named twice. */
+function readBinKey(bin, key, label) {
+    bin.fields.length = 0;
+    bin.bits.length = 0;
+    bin.usesDepth = false;
+    const fields = typeof key === 'string' ? BIN_KEY_PRESETS[key] : key;
+    if (fields === undefined)
+        throw new Error(`[pass ${label}] bin key '${key}' is none of 'state', 'back-to-front', 'submission'`);
+    for (const entry of fields) {
+        let field;
+        let bits = 0;
+        if (typeof entry === 'string')
+            field = entry;
+        else {
+            const names = Object.keys(entry);
+            if (names.length !== 1)
+                throw new Error(`[pass ${label}] a bin key field with bits names one field, not ${names.length}`);
+            field = names[0];
+            bits = entry[field];
+            if (!Number.isInteger(bits) || bits < 1 || bits > 52) {
+                throw new Error(`[pass ${label}] bin key field '${field}' takes 1 to 52 bits, not ${bits}`);
+            }
+        }
+        if (!BIN_FIELDS.includes(field))
+            throw new Error(`[pass ${label}] '${field}' is not a bin key field`);
+        if (bin.fields.includes(field))
+            throw new Error(`[pass ${label}] bin key names '${field}' twice`);
+        bin.fields.push(field);
+        bin.bits.push(bits);
+        if (field === 'depthNear' || field === 'depthFar')
+            bin.usesDepth = true;
+    }
+    bin.keyRead = key;
+}
+function recordViewport(frame, pass, viewport) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] setViewport after end()`);
+    pass.viewportRecord.viewport = viewport;
+    resolveCall(frame, pass, pass.viewportRecord);
+}
+function recordScissor(frame, pass, scissor) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] setScissor after end()`);
+    pass.scissorRecord.scissor = scissor;
+    resolveCall(frame, pass, pass.scissorRecord);
+}
+function recordScene(frame, pass, root, camera) {
+    if (frame.renderer === null)
+        throw new Error('[pass] scene() needs a frame opened with frame(renderer).');
+    const view = camera ?? pass.camera;
+    if (view === undefined)
+        throw new Error('[pass] scene() needs a camera, on the pass desc or as its second argument.');
+    drawScene(frame.renderer, pass, root, view);
+}
+function openComputePass(frame, desc) {
+    assertCanOpen(frame, 'frame.compute()');
+    if (frame.backend.name === 'webgl') {
+        throw new Error('[frame] compute passes need the webgpu backend; WebGL2 has no compute shaders');
+    }
+    let pass = frame.computePool[frame.computePoolIndex];
+    if (pass === undefined) {
+        pass = createComputePass(frame, desc);
+        frame.computePool.push(pass);
+    }
+    else {
+        pass.desc = desc;
+        pass.ended = false;
+    }
+    frame.computePoolIndex++;
+    beginOnBackend(frame, pass);
+    frame.open = pass;
+    return pass;
+}
+function openTransformFeedbackPass(frame, desc) {
+    assertCanOpen(frame, 'frame.transformFeedback()');
+    if (frame.backend.name === 'webgpu') {
+        throw new Error('[frame] transform feedback is WebGL2-only; use frame.compute() on the webgpu backend');
+    }
+    let pass = frame.transformFeedbackPool[frame.transformFeedbackPoolIndex];
+    if (pass === undefined) {
+        pass = createTransformFeedbackPass(frame, desc);
+        frame.transformFeedbackPool.push(pass);
+    }
+    else {
+        pass.desc = desc;
+        pass.ended = false;
+    }
+    frame.transformFeedbackPoolIndex++;
+    beginOnBackend(frame, pass);
+    frame.open = pass;
+    return pass;
+}
+function createTransformFeedbackPass(frame, desc) {
+    const pass = {
+        kind: 'transform-feedback',
+        desc,
+        record: null,
+        ended: false,
+        dispatch: (node, opts) => recordTransformFeedback$1(frame, pass, node, opts),
+        end: () => endPass$2(frame, pass),
+    };
+    return pass;
+}
+function recordTransformFeedback$1(frame, pass, node, opts) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
+    let record = pass.record;
+    if (record === null) {
+        record = { kind: 'transform-feedback', node, ...opts };
+        pass.record = record;
+    }
+    else {
+        record.node = node;
+        record.inputs = opts.inputs;
+        record.outputs = opts.outputs;
+        record.count = opts.count;
+        record.instanceCount = opts.instanceCount;
+    }
+    resolveCall(frame, pass, record);
+}
+function createComputePass(frame, desc) {
+    const pass = {
+        kind: 'compute',
+        desc,
+        record: null,
+        ended: false,
+        dispatch: (node, counts, opts) => recordDispatch$1(frame, pass, node, counts, undefined, 0, opts),
+        dispatchIndirect: (node, indirect, opts) => recordDispatch$1(frame, pass, node, undefined, indirect, opts?.offset ?? 0, opts),
+        end: () => endPass$2(frame, pass),
+    };
+    return pass;
+}
+function recordDispatch$1(frame, pass, node, counts, indirect, indirectOffset, opts) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
+    let record = pass.record;
+    if (record === null) {
+        record = { kind: 'dispatch', node, counts, indirect, indirectOffset, buffers: opts?.buffers, textures: opts?.textures };
+        pass.record = record;
+    }
+    else {
+        record.node = node;
+        record.counts = counts;
+        record.indirect = indirect;
+        record.indirectOffset = indirectOffset;
+        record.buffers = opts?.buffers;
+        record.textures = opts?.textures;
+    }
+    resolveCall(frame, pass, record);
+}
+function inspectorOf(frame) {
+    return frame.renderer?.inspector ?? null;
+}
+function errorMessage(error) {
+    return error instanceof Error ? error.message : String(error);
+}
+/** Opens `pass` on the backend, telling an attached inspector first, so a pass the backend skips or refuses is still seen. */
+function beginOnBackend(frame, pass) {
+    const inspector = inspectorOf(frame);
+    inspector?.beginRecordedPass(pass.kind, passLabel(pass));
+    try {
+        if (pass.kind === 'render')
+            frame.backend.beginPass(pass.desc);
+        else if (pass.kind === 'compute')
+            frame.backend.beginComputePass(pass.desc);
+        else
+            frame.backend.beginTransformFeedbackPass(pass.desc);
+    }
+    catch (error) {
+        inspector?.endRecordedPass(errorMessage(error));
+        throw error;
+    }
+}
+/**
+ * Resolves a just-recorded call, so it takes the values set before it. The open pass is set aside
+ * meanwhile: resolving evaluates the node graph, which may record a nested pass.
+ */
+function resolveCall(frame, pass, record) {
+    const inspector = inspectorOf(frame);
+    inspector?.beginRecordedCall(record);
+    frame.open = null;
+    try {
+        if (record.kind === 'dispatch')
+            frame.backend.recordDispatch(record);
+        else if (record.kind === 'transform-feedback')
+            frame.backend.recordTransformFeedback(record);
+        else
+            frame.backend.recordEntry(record);
+    }
+    catch (error) {
+        inspector?.endRecordedCall(errorMessage(error));
+        throw error;
+    }
+    finally {
+        frame.open = pass;
+    }
+    inspector?.endRecordedCall(null);
+}
+function recordDraw(frame, pass, mesh, opts, bin = null) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] draw after end()`);
+    if (bin?.ended)
+        throw new Error(`[pass ${passLabel(pass)}] draw into a bin after its pass ended`);
+    if (bin === null && opts?.sortKey !== undefined) {
+        throw new Error(`[pass ${passLabel(pass)}] '${mesh.name || 'mesh'}' passes a sortKey to the pass; a sortKey orders draws in a bin`);
+    }
+    if (opts?.draws !== undefined && (opts.instances !== undefined || opts.range !== undefined)) {
+        throw new Error(`[pass ${passLabel(pass)}] '${mesh.name || 'mesh'}' passes draws alongside instances or range; ` +
+            'each MeshDraw carries its own instanceCount and index range, so the single-draw fields are unreachable.');
+    }
+    const material = opts?.material ?? mesh.material;
+    let record = pass.drawRecord;
+    if (record === null) {
+        record = { kind: 'draw', mesh, material, opts: opts ?? null, bin, sortKey: opts?.sortKey ?? 0 };
+        pass.drawRecord = record;
+    }
+    else {
+        record.mesh = mesh;
+        record.material = material;
+        record.opts = opts ?? null;
+        record.bin = bin;
+        record.sortKey = opts?.sortKey ?? 0;
+    }
+    resolveCall(frame, pass, record);
+}
+function recordBundle(frame, pass, bundle) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] execute after end()`);
+    if (bundle.disposed)
+        throw new Error(`[bundle ${bundle.label}] execute after dispose()`);
+    let record = pass.bundleRecord;
+    if (record === null) {
+        record = { kind: 'bundle', bundle };
+        pass.bundleRecord = record;
+    }
+    else {
+        record.bundle = bundle;
+    }
+    resolveCall(frame, pass, record);
+}
+function endPass$2(frame, pass) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] end() called twice`);
+    if (frame.closed) {
+        throw new Error(`[pass ${passLabel(pass)}] the frame this pass belongs to was closed while it was open; ` +
+            'its draws were never encoded. A frame opened between this pass and its end() is what does this.');
+    }
+    pass.ended = true;
+    if (pass.kind === 'render')
+        for (let index = 0; index < pass.binCount; index++)
+            pass.bins[index].ended = true;
+    frame.open = null; // cleared first: encoding evaluates the graph, which may open a nested pass
+    inspectorOf(frame)?.endRecordedPass(null);
+    if (pass.kind === 'compute') {
+        frame.backend.encodeComputePass(pass.desc);
+    }
+    else if (pass.kind === 'transform-feedback') {
+        frame.backend.encodeTransformFeedbackPass(pass.desc);
+    }
+    else {
+        const target = pass.desc.target;
+        frame.targets.push(target);
+        frame.backend.encodePass(pass.desc);
+    }
+}
+function submitFrame$2(frame) {
+    if (frame.closed)
+        throw new Error('[frame] submit() called twice');
+    if (frame.open !== null) {
+        throw new Error(`[frame] submit() while "${passLabel(frame.open)}" is still open; end it first`);
+    }
+    // `abandon()` is the answer to a mid-frame room swap, not a disposal race.
+    for (const target of frame.targets) {
+        const dead = isRenderTarget(target) ? deadAttachment(target) : target.disposed ? 'canvas' : null;
+        if (dead !== null) {
+            throw new Error(`[frame] '${dead}' was disposed after its pass recorded into it; abandon() the frame instead of disposing mid-frame.`);
+        }
+    }
+    frame.closed = true;
+    frame.everSubmitted = true;
+    frame.backend.submitFrame();
+}
+/** A recorded-but-unencoded pass is dropped with the frame; atomic encoding leaves no GPU pass open. */
+function abandonFrame(frame) {
+    if (frame.closed)
+        return;
+    frame.open = null;
+    frame.closed = true;
+    frame.backend.discardFrame();
+}
+
+/**
+ * Reads a colour attachment back as tightly-packed, top-to-bottom RGBA8. Call it after the frame that
+ * wrote the target has been submitted; reading with one open throws rather than returning stale pixels.
+ */
+function read(renderer, target, opts = {}) {
+    renderer._assertInitialized('read');
+    if (isFrameOpen(renderer._frameState)) {
+        return Promise.reject(new Error('[read] reading while a frame is open gives stale pixels; submit() first.'));
+    }
+    const layer = opts.layer ?? 0;
+    const mipLevel = opts.mipLevel ?? 0;
+    assertSubresource(target, mipLevel, layer, 'read');
+    return renderer.backend.readPixels(target, opts.attachment ?? 0, layer, mipLevel);
+}
+/**
+ * Reads a buffer back as its own typed array (a struct array's as floats, which a view over the same bytes
+ * reinterprets), the buffer counterpart of `read()` for targets. Call it after the frame that wrote the buffer has
+ * been submitted; reading with one open throws rather than returning stale data. On WebGL2 it reads a buffer a
+ * transform feedback wrote; a storage buffer there lives in a texture and is not read back yet.
+ */
+function readBuffer$2(renderer, buffer, opts = {}) {
+    renderer._assertInitialized('readBuffer');
+    if (isFrameOpen(renderer._frameState)) {
+        return Promise.reject(new Error('[readBuffer] reading while a frame is open gives stale data; submit() first.'));
+    }
+    const offset = opts.offset ?? 0;
+    const count = opts.count ?? buffer.count - offset;
+    if (offset < 0 || count < 0 || offset + count > buffer.count) {
+        return Promise.reject(new Error(`[readBuffer] elements ${offset} to ${offset + count} are outside the buffer's ${buffer.count}.`));
+    }
+    return renderer.backend.readBuffer(buffer, offset, count);
+}
+
+/** Tile sizes the toolbar offers, in CSS pixels. */
+const TILE_SIZES = { S: 96, M: 140, L: 220 };
+/** The most the focused view zooms in: CSS pixels to one of its canvas's pixels. */
+const ZOOM_MAX = 64;
+/** CSS pixels the focused view leaves below it in the panel, so the panel's bottom never cuts it off. */
+const FOCUS_MARGIN = 8;
 class Viewer extends Tab {
-    nodeList;
-    nodes;
-    /** Cached item DOM rows, keyed by canvasData.id */
-    _itemLibrary = new Map();
-    /** Cached folder items, keyed by path name. */
-    _folderLibrary = new Map();
-    /** Current list of canvasData shown in the viewer */
-    _currentDataList = [];
+    _tileSize = 'M';
+    _sizeButtons = new Map();
+    _sections = new Map();
+    _tiles = new Map();
+    _body;
+    _focus;
+    _focusTitle;
+    _focusZoom;
+    _focusStage;
+    _focusCanvas;
+    /** Whether the canvas fits the stage, refitted every draw, until a wheel or drag sets its own view. */
+    _fitted = true;
+    /** CSS pixels to one canvas pixel, and where the canvas's top left sits. */
+    _zoom = 1;
+    _panX = 0;
+    _panY = 0;
+    /** The focused view's surface, made when it first draws and released when it closes. */
+    _focusSurface = null;
+    /** Whether previews draw offscreen and are read back: the renderer cannot present to their canvases. */
+    _offscreen = false;
+    /** The node the focused view draws, or null when it is closed. */
+    _focused = null;
     constructor(options = {}) {
         super('Viewer', options);
-        const nodeList = new List('Viewer', 'Name');
-        nodeList.setGridStyle('150px minmax(200px, 2fr)');
-        nodeList.domElement.style.minWidth = '400px';
-        const scrollWrapper = document.createElement('div');
-        scrollWrapper.className = 'list-scroll-wrapper';
-        scrollWrapper.appendChild(nodeList.domElement);
-        this.content.appendChild(scrollWrapper);
-        const nodes = new Item('Nodes');
-        nodeList.add(nodes);
-        this.nodeList = nodeList;
-        this.nodes = nodes;
-    }
-    // Public API, called by Inspector each frame
-    /**
-     * Get or create a folder item for the given path name.
-     */
-    getFolder(name) {
-        let folder = this._folderLibrary.get(name);
-        if (folder === undefined) {
-            folder = new Item(name);
-            this._folderLibrary.set(name, folder);
-            this.nodeList.add(folder);
+        const toolbar = document.createElement('div');
+        toolbar.className = 'viewer-toolbar';
+        const label = document.createElement('span');
+        label.className = 'viewer-toolbar-label';
+        label.textContent = 'size';
+        toolbar.appendChild(label);
+        for (const size of Object.keys(TILE_SIZES)) {
+            const button = document.createElement('button');
+            button.className = 'viewer-size';
+            button.textContent = size;
+            button.addEventListener('click', () => this._setTileSize(size));
+            this._sizeButtons.set(size, button);
+            toolbar.appendChild(button);
         }
-        return folder;
+        const focus = document.createElement('div');
+        focus.className = 'viewer-focus';
+        focus.hidden = true;
+        const focusHeader = document.createElement('div');
+        focusHeader.className = 'viewer-focus-header';
+        const focusTitle = document.createElement('span');
+        const focusZoom = document.createElement('span');
+        focusZoom.className = 'viewer-focus-zoom';
+        const close = document.createElement('button');
+        close.className = 'viewer-focus-close';
+        close.textContent = 'x';
+        close.title = 'close';
+        close.addEventListener('click', () => this._setFocus(null));
+        focusHeader.append(focusTitle, focusZoom, close);
+        // the node drawn at the screen's size, a canvas pixel to a screen pixel, zoomed and panned in the stage
+        const focusStage = document.createElement('div');
+        focusStage.className = 'viewer-focus-stage';
+        focusStage.title = 'wheel to zoom, drag to pan, double-click to fit';
+        const focusCanvas = document.createElement('canvas');
+        focusCanvas.className = 'viewer-focus-canvas';
+        focusStage.appendChild(focusCanvas);
+        focus.append(focusHeader, focusStage);
+        this._listenToStage(focusStage);
+        const body = document.createElement('div');
+        body.className = 'viewer-body';
+        body.append(focus);
+        this.content.classList.add('viewer-content');
+        this.content.append(toolbar, body);
+        this._body = body;
+        this._focus = focus;
+        this._focusTitle = focusTitle;
+        this._focusZoom = focusZoom;
+        this._focusStage = focusStage;
+        this._focusCanvas = focusCanvas;
+        this._setTileSize('M');
     }
-    /**
-     * Each preview draws a `fullscreen` mesh wrapping the node, never the node's own graph: a
-     * `RenderTextureNode` in it would open its pass inside the preview's and recurse.
-     */
+    /** Draws every tile, and the focused view, for this frame's nodes; while the tab is hidden, nothing. */
     update(inspector, canvasDataList) {
         if (!this.isActive && !this.isDetached)
             return;
         const renderer = inspector.getRenderer();
         if (!renderer)
             return;
-        // Remove items for nodes no longer in the list
-        // Remove old items + clean up empty folders
-        const previousDataList = [...this._currentDataList];
-        for (const canvasData of previousDataList) {
-            if (this._itemLibrary.has(canvasData.id) && canvasDataList.indexOf(canvasData) === -1) {
-                const item = this._itemLibrary.get(canvasData.id);
-                const parent = item.parent;
-                if (parent) {
-                    parent.remove(item);
-                    // Remove empty folder from nodeList
-                    if (canvasData.path && this._folderLibrary.has(canvasData.path)) {
-                        const folder = this._folderLibrary.get(canvasData.path);
-                        if (folder.children?.length === 0) {
-                            if (folder.parent)
-                                folder.parent.remove(folder);
-                            this._folderLibrary.delete(canvasData.path);
-                        }
-                    }
-                }
-                this._itemLibrary.delete(canvasData.id);
-            }
-        }
-        this._currentDataList = canvasDataList;
-        // Add / render each node
-        // indexes tracks insertion order within each folder
-        const indexes = {};
-        // Every preview is a pass on one frame; this opened a frame per preview and submitted each.
+        // a WebGL2 context presents to the one canvas it was made on
+        this._offscreen = renderer.api === 'webgl';
+        this._placeTiles(canvasDataList);
+        const tile = TILE_SIZES[this._tileSize];
+        const drawn = [];
+        // every preview is a pass on one frame
         const f = frame(renderer);
-        for (const canvasData of canvasDataList) {
-            const item = this._addNodeItem(canvasData);
-            const path = canvasData.path;
-            if (path) {
-                const folder = this.getFolder(path);
-                if (indexes[path] === undefined) {
-                    indexes[path] = 0;
-                }
-                if (!item.parent || item.parent !== folder) {
-                    folder.add(item);
-                }
-                indexes[path]++;
-            }
-            else {
-                if (!item.parent) {
-                    this.nodes.add(item);
-                }
-            }
-            const pass = f.pass({ target: canvasData.canvasTarget, clear: [0, 0, 0, 1], label: 'viewer' });
-            pass.draw(canvasData.mesh);
+        for (const data of canvasDataList) {
+            const surface = this._tiles.get(data.id).surface;
+            if (surface.reading)
+                continue;
+            sizeTile(surface, tile);
+            const pass = f.pass({ target: surfaceTarget(surface), clear: [0, 0, 0, 1], label: 'viewer' });
+            pass.draw(data.mesh);
             pass.end();
+            drawn.push(surface);
+        }
+        const focused = this._focused;
+        if (focused !== null && canvasDataList.includes(focused)) {
+            const surface = this._focusSurfaceSized();
+            if (!surface.reading) {
+                const pass = f.pass({ target: surfaceTarget(surface), clear: [0, 0, 0, 1], label: 'viewer-focus' });
+                pass.draw(focused.mesh);
+                pass.end();
+                drawn.push(surface);
+            }
+            this._placeFocusCanvas();
         }
         f.submit();
+        for (const surface of drawn)
+            presentSurface(renderer, surface);
     }
-    // Private helpers
-    _addNodeItem(canvasData) {
-        let item = this._itemLibrary.get(canvasData.id);
-        if (!item) {
-            // Inspector previews are always real on-page canvases (never an OffscreenCanvas).
-            const domElement = canvasData.canvasTarget.canvas;
-            item = new Item(domElement, canvasData.name);
-            item.itemRow.children[1].style.justifyContent = 'flex-start';
-            this._itemLibrary.set(canvasData.id, item);
+    /** Wheel zooms about the cursor, a drag pans, a double-click fits the canvas to the stage again. */
+    _listenToStage(stage) {
+        stage.addEventListener('wheel', (event) => {
+            event.preventDefault();
+            const rect = stage.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            const fit = this._fitZoom();
+            if (this._fitted) {
+                this._zoom = fit;
+                this._panX = 0;
+                this._panY = 0;
+            }
+            this._fitted = false;
+            const zoom = Math.min(ZOOM_MAX, Math.max(fit, this._zoom * Math.exp(-event.deltaY * 0.002)));
+            // the canvas pixel under the cursor stays under it
+            this._panX = x - ((x - this._panX) / this._zoom) * zoom;
+            this._panY = y - ((y - this._panY) / this._zoom) * zoom;
+            this._zoom = zoom;
+            this._placeFocusCanvas();
+        }, { passive: false });
+        stage.addEventListener('pointerdown', (event) => {
+            stage.setPointerCapture(event.pointerId);
+            let lastX = event.clientX;
+            let lastY = event.clientY;
+            const move = (moved) => {
+                this._fitted = false;
+                this._panX += moved.clientX - lastX;
+                this._panY += moved.clientY - lastY;
+                lastX = moved.clientX;
+                lastY = moved.clientY;
+                this._placeFocusCanvas();
+            };
+            const up = () => {
+                stage.removeEventListener('pointermove', move);
+                stage.removeEventListener('pointerup', up);
+            };
+            stage.addEventListener('pointermove', move);
+            stage.addEventListener('pointerup', up);
+        });
+        stage.addEventListener('dblclick', () => {
+            this._fitted = true;
+            this._placeFocusCanvas();
+        });
+    }
+    /** The zoom at which the whole canvas fits the stage's width and the height the panel has left below its top. */
+    _fitZoom() {
+        const canvas = this._focusCanvas;
+        const room = this._visibleBottom() - this._focusStage.getBoundingClientRect().top - FOCUS_MARGIN;
+        const byWidth = this._focusStage.clientWidth / Math.max(1, canvas.width);
+        const byHeight = Math.max(1, room) / Math.max(1, canvas.height);
+        return Math.min(byWidth, byHeight);
+    }
+    /** Where the panel stops showing the stage: the bottom of the nearest ancestor that scrolls, else the window's. */
+    _visibleBottom() {
+        for (let element = this._focusStage.parentElement; element !== null; element = element.parentElement) {
+            const overflow = getComputedStyle(element).overflowY;
+            if ((overflow === 'auto' || overflow === 'scroll') && element.clientHeight < element.scrollHeight + 1) {
+                return Math.min(window.innerHeight, element.getBoundingClientRect().bottom);
+            }
         }
-        return item;
+        return window.innerHeight;
     }
+    /** The canvas at its zoom and pan, its stage as tall as the fitted canvas, and the zoom shown. */
+    _placeFocusCanvas() {
+        const canvas = this._focusCanvas;
+        const fit = this._fitZoom();
+        if (this._fitted) {
+            this._zoom = fit;
+            this._panX = 0;
+            this._panY = 0;
+        }
+        this._focusStage.style.height = `${Math.round(canvas.height * fit)}px`;
+        canvas.style.width = `${canvas.width * this._zoom}px`;
+        canvas.style.height = `${canvas.height * this._zoom}px`;
+        canvas.style.transform = `translate(${this._panX}px, ${this._panY}px)`;
+        this._focusZoom.textContent = `${Math.round(this._zoom * window.devicePixelRatio * 100)}%`;
+    }
+    /** Each node's tile in its folder's section, in the order given; tiles and sections no longer shown go. */
+    _placeTiles(canvasDataList) {
+        const shown = new Set();
+        for (const data of canvasDataList) {
+            shown.add(data.id);
+            let tile = this._tiles.get(data.id);
+            if (tile === undefined) {
+                tile = this._createTile(data);
+                this._tiles.set(data.id, tile);
+            }
+            const section = this._sectionOf(data.path ?? 'nodes');
+            if (tile.element.parentElement !== section.grid)
+                section.grid.appendChild(tile.element);
+        }
+        for (const [id, tile] of this._tiles) {
+            if (shown.has(id))
+                continue;
+            tile.element.remove();
+            releaseSurface(tile.surface);
+            this._tiles.delete(id);
+            if (this._focused === tile.data)
+                this._setFocus(null);
+        }
+        for (const [path, section] of this._sections) {
+            const count = section.grid.childElementCount;
+            if (count === 0) {
+                section.element.remove();
+                this._sections.delete(path);
+            }
+            else {
+                section.count.textContent = String(count);
+            }
+        }
+    }
+    _createTile(data) {
+        const element = document.createElement('div');
+        element.className = 'viewer-tile';
+        element.title = data.path ? `${data.path}/${data.name}` : data.name;
+        const surface = this._surfaceFor();
+        surface.canvas.classList.add('viewer-tile-canvas');
+        const label = document.createElement('span');
+        label.className = 'viewer-tile-label';
+        label.textContent = data.name;
+        element.append(surface.canvas, label);
+        element.addEventListener('click', () => this._setFocus(this._focused === data ? null : data));
+        return { element, data, surface };
+    }
+    /** A tile's surface, a canvas of its own presented to directly or read back into. */
+    _surfaceFor() {
+        const canvas = document.createElement('canvas');
+        canvas.style.display = 'block';
+        if (this._offscreen) {
+            const offscreen = createRenderTarget(1, 1, { colorFormat: 'rgba8unorm', label: 'viewer/tile' });
+            return { canvas, direct: null, offscreen, reading: false };
+        }
+        const direct = createCanvasTarget(canvas);
+        direct.setPixelRatio(window.devicePixelRatio);
+        return { canvas, direct, offscreen: null, reading: false };
+    }
+    /** Every tile's and the focused view's renderer objects released, for the inspector's own disposal. */
+    dispose() {
+        for (const tile of this._tiles.values())
+            releaseSurface(tile.surface);
+        this._tiles.clear();
+        if (this._focusSurface !== null)
+            releaseSurface(this._focusSurface);
+        this._focusSurface = null;
+    }
+    _sectionOf(path) {
+        let section = this._sections.get(path);
+        if (section === undefined) {
+            const element = document.createElement('div');
+            element.className = 'viewer-section';
+            const title = document.createElement('div');
+            title.className = 'viewer-section-title';
+            const name = document.createElement('span');
+            name.textContent = path;
+            const count = document.createElement('span');
+            count.className = 'viewer-section-count';
+            title.append(name, count);
+            const grid = document.createElement('div');
+            grid.className = 'viewer-grid';
+            element.append(title, grid);
+            this._body.appendChild(element);
+            section = { element, grid, count };
+            this._sections.set(path, section);
+        }
+        return section;
+    }
+    _setTileSize(size) {
+        this._tileSize = size;
+        this.content.style.setProperty('--viewer-tile', `${TILE_SIZES[size]}px`);
+        for (const [each, button] of this._sizeButtons)
+            button.classList.toggle('active', each === size);
+    }
+    _setFocus(data) {
+        if (data !== this._focused)
+            this._fitted = true;
+        // a closed view holds nothing on the renderer
+        if (data === null && this._focusSurface !== null) {
+            releaseSurface(this._focusSurface);
+            this._focusSurface = null;
+        }
+        this._focused = data;
+        this._focus.hidden = data === null;
+        for (const tile of this._tiles.values())
+            tile.element.classList.toggle('focused', tile.data === data);
+        if (data !== null)
+            this._focusTitle.textContent = data.path ? `${data.path}/${data.name}` : data.name;
+    }
+    /**
+     * The focused view's surface, the window's size in device pixels: an inspected screen-space node (a render target,
+     * a visibility buffer) draws a pixel of its own to each canvas pixel.
+     */
+    _focusSurfaceSized() {
+        let surface = this._focusSurface;
+        if (surface === null) {
+            const canvas = this._focusCanvas;
+            surface = this._offscreen
+                ? {
+                    canvas,
+                    direct: null,
+                    offscreen: createRenderTarget(1, 1, { colorFormat: 'rgba8unorm', label: 'viewer/focus' }),
+                    reading: false,
+                }
+                : // its size is the screen's whatever its CSS size, which the zoom sets
+                    { canvas, direct: createCanvasTarget(canvas, { autoResize: false }), offscreen: null, reading: false };
+            surface.direct?.setPixelRatio(1);
+            this._focusSurface = surface;
+        }
+        const width = Math.max(1, Math.round(window.innerWidth * window.devicePixelRatio));
+        const height = Math.max(1, Math.round(window.innerHeight * window.devicePixelRatio));
+        if (canvasSize(surface).width !== width || canvasSize(surface).height !== height) {
+            if (surface.direct !== null)
+                surface.direct.setSize(width, height, false);
+            else {
+                surface.offscreen.setSize(width, height);
+                surface.canvas.width = width;
+                surface.canvas.height = height;
+            }
+            this._fitted = true;
+        }
+        return surface;
+    }
+}
+/** What a pass on `surface` draws into. */
+function surfaceTarget(surface) {
+    return surface.direct ?? surface.offscreen;
+}
+/** The pixels `surface`'s canvas holds. */
+function canvasSize(surface) {
+    return { width: surface.canvas.width, height: surface.canvas.height };
+}
+/** A tile's surface at `tile` CSS pixels square. */
+function sizeTile(surface, tile) {
+    if (surface.direct !== null) {
+        const size = surface.direct.getSize();
+        if (size.width !== tile || size.height !== tile)
+            surface.direct.setSize(tile, tile);
+        return;
+    }
+    const pixels = Math.round(tile * window.devicePixelRatio);
+    if (surface.canvas.width === pixels && surface.canvas.height === pixels)
+        return;
+    surface.offscreen.setSize(pixels, pixels);
+    surface.canvas.width = pixels;
+    surface.canvas.height = pixels;
+    surface.canvas.style.width = `${tile}px`;
+    surface.canvas.style.height = `${tile}px`;
+}
+/** After the frame: an offscreen surface's pixels read back into its canvas; a direct one is already there. */
+function presentSurface(renderer, surface) {
+    const target = surface.offscreen;
+    if (target === null)
+        return;
+    surface.reading = true;
+    const { width, height } = target;
+    read(renderer, target)
+        .then((bytes) => {
+        // a resize since the draw leaves the canvas to the next one
+        if (surface.canvas.width !== width || surface.canvas.height !== height)
+            return;
+        const pixels = new ImageData(width, height);
+        pixels.data.set(bytes);
+        surface.canvas.getContext('2d')?.putImageData(pixels, 0, 0);
+    })
+        .catch((error) => console.warn('[viewer] a preview could not be read back', error))
+        .finally(() => {
+        surface.reading = false;
+    });
+}
+/** The renderer's objects `surface` made, released. */
+function releaseSurface(surface) {
+    surface.direct?.dispose();
+    surface.direct = null;
+    surface.offscreen?.dispose();
+    surface.offscreen = null;
 }
 // Module-level helpers, used by Inspector.getCanvasDataByNode()
 /**
@@ -33832,45 +34153,28 @@ function splitPath(str) {
         return { path: undefined, name: str };
     return { path: str.slice(0, idx), name: str.slice(idx + 1) };
 }
-/**
- * Convert any node to a vec4f suitable for fullscreen preview display.
- */
+/** Any node as a colour a fullscreen preview can draw, in node code so it compiles on either backend. */
 function nodeToVec4f(node) {
     const t = node.type.wgslType;
-    // scalars
-    if (t === 'f32') {
-        return wgsl(vec4f$1) `vec4f(${node}, ${node}, ${node}, 1.0)`;
+    const one = f32(1);
+    // integers and booleans convert to float, as a colour channel reads them
+    const channel = (value) => (value.type.wgslType === 'f32' ? value : f32(value));
+    const vector = node;
+    if (t === 'f32' || t === 'i32' || t === 'u32' || t === 'bool') {
+        const value = channel(node);
+        return vec4(value, value, value, one);
     }
-    if (t === 'i32' || t === 'u32' || t === 'bool') {
-        return wgsl(vec4f$1) `vec4f(f32(${node}), f32(${node}), f32(${node}), 1.0)`;
-    }
-    // vec2
-    if (t === 'vec2f') {
-        return wgsl(vec4f$1) `vec4f((${node}).x, (${node}).y, 0.0, 1.0)`;
-    }
-    if (t === 'vec2i' || t === 'vec2u') {
-        return wgsl(vec4f$1) `vec4f(f32((${node}).x), f32((${node}).y), 0.0, 1.0)`;
-    }
-    // vec3
-    if (t === 'vec3f') {
-        return wgsl(vec4f$1) `vec4f((${node}).xyz, 1.0)`;
-    }
-    if (t === 'vec3i' || t === 'vec3u') {
-        return wgsl(vec4f$1) `vec4f(f32((${node}).x), f32((${node}).y), f32((${node}).z), 1.0)`;
-    }
-    // vec4
-    if (t === 'vec4f') {
-        return wgsl(vec4f$1) `vec4f((${node}).xyz, 1.0)`;
-    }
-    if (t === 'vec4i' || t === 'vec4u') {
-        return wgsl(vec4f$1) `vec4f(f32((${node}).x), f32((${node}).y), f32((${node}).z), 1.0)`;
-    }
-    // matrices, show first column as RGB
+    if (t.startsWith('vec2'))
+        return vec4(channel(vector.x), channel(vector.y), f32(0), one);
+    if (t.startsWith('vec3') || t.startsWith('vec4'))
+        return vec4(channel(vector.x), channel(vector.y), channel(vector.z), one);
+    // a matrix shows its first column
     if (t.startsWith('mat')) {
-        return wgsl(vec4f$1) `vec4f(f32((${node})[0][0]), f32((${node})[0][1]), f32((${node})[0][2]), 1.0)`;
+        const column = node.element(u32(0));
+        return vec4(column.x, column.y, column.z, one);
     }
-    // texture / sampler / unknown, assume textureSample gives vec4f
-    return wgsl(vec4f$1) `vec4f((${node}).xyz, 1.0)`;
+    // a texture or anything else: what it samples to, as the node's own value
+    return vec4(vector.xyz, one);
 }
 /** A bufferless fullscreen draw of `node`, coerced to vec4f. */
 function createPreviewMesh(node) {
@@ -35566,6 +35870,159 @@ label.gui-controller {
 	padding-left: 16px;
 	font-size: var(--font-size-sm);
 }
+
+/* ============================================================
+   Viewer tab: a toolbar, a focused view, then a grid of tiles per folder
+   ============================================================ */
+
+.viewer-content {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.viewer-toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	padding: var(--space-2) var(--space-3);
+	border-bottom: 1px solid var(--border-color);
+	background: var(--header-bg);
+}
+
+.viewer-toolbar-label {
+	color: var(--text-secondary);
+	font-size: var(--font-size-sm);
+	margin-right: var(--space-2);
+}
+
+.viewer-size,
+.viewer-focus-close {
+	height: var(--control-h);
+	min-width: var(--control-h);
+	padding: 0 var(--space-2);
+	background: var(--panel-bg);
+	border: 1px solid var(--border-color);
+	border-radius: var(--radius);
+	color: var(--text-secondary);
+	font: inherit;
+	font-size: var(--font-size-sm);
+	cursor: pointer;
+}
+
+.viewer-size:hover,
+.viewer-focus-close:hover {
+	color: var(--text-primary);
+}
+
+.viewer-size.active {
+	background: var(--accent-dim);
+	border-color: var(--accent-color);
+	color: var(--text-primary);
+}
+
+.viewer-body {
+	overflow: auto;
+	padding: var(--space-3);
+}
+
+.viewer-focus {
+	margin-bottom: var(--space-3);
+	border: 1px solid var(--accent-color);
+}
+
+.viewer-focus-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: var(--space-1) var(--space-2);
+	background: var(--header-bg);
+	color: var(--text-primary);
+}
+
+.viewer-focus-zoom {
+	margin-left: auto;
+	margin-right: var(--space-2);
+	color: var(--text-secondary);
+	font-size: var(--font-size-sm);
+}
+
+.viewer-focus-stage {
+	position: relative;
+	overflow: hidden;
+	background: #000;
+	cursor: grab;
+	touch-action: none;
+}
+
+.viewer-focus-stage:active {
+	cursor: grabbing;
+}
+
+.viewer-focus-canvas {
+	position: absolute;
+	left: 0;
+	top: 0;
+	display: block;
+	transform-origin: 0 0;
+	image-rendering: pixelated;
+}
+
+.viewer-section + .viewer-section {
+	margin-top: var(--space-3);
+}
+
+.viewer-section-title {
+	display: flex;
+	gap: var(--space-2);
+	align-items: baseline;
+	margin-bottom: var(--space-2);
+	color: var(--text-secondary);
+	font-size: var(--font-size-sm);
+	text-transform: lowercase;
+}
+
+.viewer-section-count {
+	color: var(--text-muted);
+}
+
+.viewer-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, var(--viewer-tile, 140px));
+	gap: var(--space-2);
+}
+
+.viewer-tile {
+	display: flex;
+	flex-direction: column;
+	width: var(--viewer-tile, 140px);
+	border: 1px solid var(--border-color);
+	background: var(--panel-bg);
+	cursor: zoom-in;
+}
+
+.viewer-tile:hover {
+	border-color: var(--text-secondary);
+}
+
+.viewer-tile.focused {
+	border-color: var(--accent-color);
+}
+
+.viewer-tile-canvas {
+	display: block;
+	image-rendering: pixelated;
+}
+
+.viewer-tile-label {
+	padding: var(--space-1) var(--space-2);
+	color: var(--text-secondary);
+	font-size: var(--font-size-sm);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
 `;
 
 class Profiler {
@@ -36733,9 +37190,7 @@ class Inspector extends RendererInspector {
      */
     async dispose() {
         const probeDrained = this.clearProbe();
-        for (const cd of this._canvasNodes.values()) {
-            cd.canvasTarget.dispose();
-        }
+        this.viewer.dispose();
         this._canvasNodes.clear();
         this.profiler.dispose();
         this.domElement.remove();
@@ -37125,18 +37580,14 @@ class Inspector extends RendererInspector {
      * and builds a fullscreen Material. Cached per node, never recreated.
      */
     /** @internal */
-    getCanvasDataByNode(node) {
+    getCanvasDataByNode(inspected) {
+        const node = inspected.node;
         let canvasData = this._canvasNodes.get(node);
         if (canvasData === undefined) {
-            const canvas = document.createElement('canvas');
-            canvas.style.display = 'block';
-            const previewTarget = createCanvasTarget(canvas);
-            previewTarget.setPixelRatio(window.devicePixelRatio);
-            previewTarget.setSize(140, 140);
             const id = node.id;
-            const rawName = node.getName();
+            const rawName = inspected.name;
             const { path, name } = splitPath(splitCamelCase(rawName));
-            const mesh = createPreviewMesh(node.wrappedNode);
+            const mesh = createPreviewMesh(node);
             mesh.name = `Viewer - ${name}`;
             canvasData = {
                 id,
@@ -37144,7 +37595,6 @@ class Inspector extends RendererInspector {
                 path,
                 node,
                 mesh,
-                canvasTarget: previewTarget,
             };
             this._canvasNodes.set(node, canvasData);
         }
@@ -38673,39 +39123,6 @@ function init(backend) {
     return new Renderer(backend).init();
 }
 
-/**
- * Reads a colour attachment back as tightly-packed, top-to-bottom RGBA8. Call it after the frame that
- * wrote the target has been submitted; reading with one open throws rather than returning stale pixels.
- */
-function read(renderer, target, opts = {}) {
-    renderer._assertInitialized('read');
-    if (isFrameOpen(renderer._frameState)) {
-        return Promise.reject(new Error('[read] reading while a frame is open gives stale pixels; submit() first.'));
-    }
-    const layer = opts.layer ?? 0;
-    const mipLevel = opts.mipLevel ?? 0;
-    assertSubresource(target, mipLevel, layer, 'read');
-    return renderer.backend.readPixels(target, opts.attachment ?? 0, layer, mipLevel);
-}
-/**
- * Reads a buffer back as its own typed array (a struct array's as floats, which a view over the same bytes
- * reinterprets), the buffer counterpart of `read()` for targets. Call it after the frame that wrote the buffer has
- * been submitted; reading with one open throws rather than returning stale data. On WebGL2 it reads a buffer a
- * transform feedback wrote; a storage buffer there lives in a texture and is not read back yet.
- */
-function readBuffer$2(renderer, buffer, opts = {}) {
-    renderer._assertInitialized('readBuffer');
-    if (isFrameOpen(renderer._frameState)) {
-        return Promise.reject(new Error('[readBuffer] reading while a frame is open gives stale data; submit() first.'));
-    }
-    const offset = opts.offset ?? 0;
-    const count = opts.count ?? buffer.count - offset;
-    if (offset < 0 || count < 0 || offset + count > buffer.count) {
-        return Promise.reject(new Error(`[readBuffer] elements ${offset} to ${offset + count} are outside the buffer's ${buffer.count}.`));
-    }
-    return renderer.backend.readBuffer(buffer, offset, count);
-}
-
 /** copies `data` into a `cpu: false` buffer at `byteOffset` before returning; `dataOffset` and `size` count elements of `data`. */
 function writeBuffer(renderer, buffer, byteOffset, data, dataOffset = 0, size = data.length - dataOffset) {
     renderer._assertInitialized('writeBuffer');
@@ -38782,6 +39199,67 @@ function yieldToMain() {
     }
     // fallback: setTimeout with 0ms delay yields to the event loop
     return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function createBufferCopies() {
+    return new WeakMap();
+}
+/** A copy of `buffer` made, current as of now: the queue the ranges written to `buffer` from here on are handed to. */
+function addCopy(copies, buffer) {
+    const queue = { updateRanges: [], updateRangeCount: 0 };
+    let entry = copies.get(buffer);
+    if (entry === undefined) {
+        entry = { queues: [], version: buffer.version };
+        copies.set(buffer, entry);
+    }
+    entry.queues.push(queue);
+    return queue;
+}
+function removeCopy(copies, buffer, queue) {
+    const entry = copies.get(buffer);
+    if (entry === undefined)
+        return;
+    const at = entry.queues.indexOf(queue);
+    if (at >= 0)
+        entry.queues.splice(at, 1);
+    if (entry.queues.length === 0)
+        copies.delete(buffer);
+}
+/**
+ * `buffer`'s queued ranges handed to every copy of it, and its queue cleared. A version moved with none queued is a
+ * whole rewrite (`pack()`, `needsUpdate`), which no copy's earlier ranges describe, so each copy drops them and its
+ * own version check rewrites it whole.
+ */
+function handOut(copies, buffer) {
+    const entry = copies.get(buffer);
+    if (entry === undefined)
+        return;
+    const queued = buffer.updateRangeCount;
+    if (queued === 0) {
+        if (buffer.version !== entry.version)
+            for (const queue of entry.queues)
+                queue.updateRangeCount = 0;
+        entry.version = buffer.version;
+        return;
+    }
+    const ranges = buffer.updateRanges;
+    for (const queue of entry.queues) {
+        for (let i = 0; i < queued; i++) {
+            const from = ranges[i];
+            const into = queue.updateRanges[queue.updateRangeCount];
+            if (into === undefined)
+                queue.updateRanges.push({ start: from.start, count: from.count });
+            else {
+                into.start = from.start;
+                into.count = from.count;
+            }
+            queue.updateRangeCount++;
+        }
+        // a copy no pass syncs for a while keeps its spans, not every write
+        queue.updateRangeCount = mergeUpdateRanges(queue.updateRanges, queue.updateRangeCount);
+    }
+    buffer.clearUpdateRanges();
+    entry.version = buffer.version;
 }
 
 /**
@@ -39339,7 +39817,7 @@ function deleteBuffer(gl, state, buffer) {
  * upload. It matters because `ELEMENT_ARRAY_BUFFER` bindings are captured into whatever VAO is bound,
  * so callers must upload with VAO 0 bound (see `prepareGeometry`).
  */
-function createBufferCache(info, tally, glState) {
+function createBufferCache(info, tally, glState, copies) {
     return {
         bufferMap: new WeakMap(),
         rawMap: new WeakMap(),
@@ -39348,6 +39826,7 @@ function createBufferCache(info, tally, glState) {
         rawCount: 0,
         tally,
         textureOnly: new WeakSet(),
+        copies,
         info,
         glState,
     };
@@ -39384,14 +39863,15 @@ function setupBufferDispose(gl, cache, buffer) {
         deleteBuffer(gl, cache.glState, entry.glBuffer);
         cache.all.delete(entry.glBuffer);
         clearAllocation(cache.tally, entry.allocation);
+        removeCopy(cache.copies, buffer, entry.queue);
         cache.bufferCount--;
         cache.bufferMap.delete(buffer);
     };
 }
-/** Push the buffer's pending `updateRanges` as partial `bufferSubData` uploads, one per merged span. */
-function uploadDirtyRanges(gl, cache, target, array, buffer, label) {
-    const ranges = buffer.updateRanges;
-    const count = mergeUpdateRanges(ranges, buffer.updateRangeCount);
+/** Push `queue`'s ranges, which `planBufferUpload` merged, as partial `bufferSubData` uploads, one per span. */
+function uploadDirtyRanges(gl, cache, target, array, buffer, queue, label) {
+    const ranges = queue.updateRanges;
+    const count = queue.updateRangeCount;
     const bytesPerElement = array.BYTES_PER_ELEMENT;
     const usage = primaryBufferUsage(buffer);
     for (let i = 0; i < count; i++) {
@@ -39399,7 +39879,7 @@ function uploadDirtyRanges(gl, cache, target, array, buffer, label) {
         gl.bufferSubData(target, r.start * bytesPerElement, array, r.start, r.count);
         recordBufferWrite(cache.info, r.count * bytesPerElement, usage, false, label);
     }
-    buffer.clearUpdateRanges();
+    queue.updateRangeCount = 0;
 }
 /**
  * Get (or create) the GL buffer for a `GpuBuffer`, uploading whatever changed since last time.
@@ -39419,7 +39899,8 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
         throw new Error(`[webgl] buffer '${buffer.label ?? name}' has no CPU array to upload.`);
     const label = buffer.label ?? name;
     let entry = cache.bufferMap.get(buffer);
-    const plan = planBufferUpload(buffer, entry !== undefined, entry?.byteLength ?? -1, entry?.version ?? -1);
+    handOut(cache.copies, buffer);
+    const plan = planBufferUpload(buffer, entry?.queue ?? buffer, entry !== undefined, entry?.byteLength ?? -1, entry?.version ?? -1);
     if (plan === BufferUpload.Skip && entry)
         return entry.glBuffer;
     if (plan === BufferUpload.Allocate) {
@@ -39436,6 +39917,7 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
                 version: -1,
                 byteLength: -1,
                 allocation: createAllocation('buffer', primaryBufferUsage(buffer), label),
+                queue: addCopy(cache.copies, buffer),
             };
             cache.bufferMap.set(buffer, entry);
             cache.all.add(created);
@@ -39458,7 +39940,9 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
         entry.byteLength = array?.byteLength ?? buffer.byteLength;
         entry.version = buffer.version;
         setAllocation(cache.tally, entry.allocation, entry.byteLength);
-        // the allocate path wrote everything, so pending ranges are already covered.
+        // the allocate path wrote everything, so pending ranges are already covered: this copy's, and the buffer's
+        // own where it had no copy to hand them to
+        entry.queue.updateRangeCount = 0;
         buffer.clearUpdateRanges();
         return entry.glBuffer;
     }
@@ -39469,9 +39953,10 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
         unbindVertexArray(gl, cache.glState);
     gl.bindBuffer(target, entry.glBuffer);
     if (plan === BufferUpload.Partial) {
-        uploadDirtyRanges(gl, cache, target, array, buffer, label);
+        uploadDirtyRanges(gl, cache, target, array, buffer, entry.queue, label);
     }
     else {
+        entry.queue.updateRangeCount = 0;
         gl.bufferSubData(target, 0, array);
         recordBufferWrite(cache.info, array.byteLength, primaryBufferUsage(buffer), true, label);
     }
@@ -39509,7 +39994,9 @@ function getUploaded(cache, buffer) {
 /** Whether `ensureUploaded` would find `buffer` current, binding and writing nothing. */
 function isCurrent(cache, buffer) {
     const entry = cache.bufferMap.get(buffer);
-    return entry !== undefined && planBufferUpload(buffer, true, entry.byteLength, entry.version) === BufferUpload.Skip;
+    if (entry === undefined || buffer.updateRangeCount > 0)
+        return false;
+    return planBufferUpload(buffer, entry.queue, true, entry.byteLength, entry.version) === BufferUpload.Skip;
 }
 const _dirty = { start: 0, end: 0 };
 /**
@@ -40162,8 +40649,8 @@ function deleteGlTexture(gl, state, texture) {
             textures[slot] = null;
 }
 /** Create an empty textures state. */
-function createTextureCache(tally) {
-    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set(), tally, units: createTextureUnits() };
+function createTextureCache(tally, copies) {
+    return { data: new WeakMap(), bufferData: new WeakMap(), copies, all: new Set(), tally, units: createTextureUnits() };
 }
 /** The storage-backing texture a storage buffer's reads go through, sized as the grid it is allocated as. */
 function setStorageBacking(state, data) {
@@ -40247,6 +40734,8 @@ function setupStorageTextureDispose(gl, state, buffer) {
             return;
         deleteGlTexture(gl, state, data.texture);
         clearAllocation(state.tally, data.allocation);
+        if (data.queue !== null)
+            removeCopy(state.copies, buffer, data.queue);
         state.bufferData.delete(buffer);
     };
 }
@@ -40306,6 +40795,7 @@ function updateStorageBufferTexture(gl, state, source) {
     // The buffer is a whole number of texels (guarded at compile). `width` may not divide it, so the
     // grid's last row is partly padding; uploads clamp to `totalTexels` and never touch it.
     const totalTexels = arr.byteLength / bytesPerTexel;
+    handOut(state.copies, buffer);
     let data = state.bufferData.get(buffer);
     if (!data) {
         const texture = gl.createTexture();
@@ -40325,7 +40815,10 @@ function updateStorageBufferTexture(gl, state, source) {
             width,
             height,
             bytesPerTexel,
+            queue: addCopy(state.copies, buffer),
         };
+        // written whole, so what was queued is covered: the buffer's own where it had no copy to hand it to
+        buffer.clearUpdateRanges();
         // A storage() read-lowering IS a resident texture, so it counts like any other, under the u32 format
         // it actually is and the buffer's label; WebGPU reads the buffer directly and has no counterpart.
         setStorageBacking(state, data);
@@ -40333,9 +40826,10 @@ function updateStorageBufferTexture(gl, state, source) {
         state.bufferData.set(buffer, data);
         return texture;
     }
+    const queue = data.queue;
     const sizeChanged = data.width !== width || data.height !== height;
     // Clean (version matched, no queued ranges, same size) → the cached texture is already current.
-    if (!sizeChanged && data.version === buffer.version && buffer.updateRangeCount === 0) {
+    if (!sizeChanged && data.version === buffer.version && queue.updateRangeCount === 0) {
         return data.texture;
     }
     bindUploadTexture(gl, state, gl.TEXTURE_2D, data.texture);
@@ -40355,8 +40849,8 @@ function updateStorageBufferTexture(gl, state, source) {
         // spans are kept SEPARATE rather than hulled together: a streaming arena dirties a handful of
         // small, far-apart regions per frame, and one covering span over those is the whole buffer.
         // A bare version bump, or more dirty texels than half the buffer, takes one full upload instead.
-        const ranges = buffer.updateRanges;
-        const rangeCount = mergeUpdateRanges(ranges, buffer.updateRangeCount);
+        const ranges = queue.updateRanges;
+        const rangeCount = mergeUpdateRanges(ranges, queue.updateRangeCount);
         let dirtyTexels = 0;
         for (let i = 0; i < rangeCount; i++) {
             const r = ranges[i];
@@ -40377,7 +40871,7 @@ function updateStorageBufferTexture(gl, state, source) {
             uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
         }
     }
-    buffer.clearUpdateRanges();
+    queue.updateRangeCount = 0;
     data.version = buffer.version;
     return data.texture;
 }
@@ -40413,6 +40907,7 @@ function ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel) {
         width,
         height,
         bytesPerTexel,
+        queue: null,
     };
     setStorageBacking(state, data);
     setupStorageTextureDispose(gl, state, buffer);
@@ -44595,8 +45090,10 @@ class WebGLBackend {
     renderObjectGl = createRenderObjectGlCache();
     /** Every GPU allocation this backend holds, shared by its buffer, texture and render-target caches. @internal */
     memoryTally = createMemoryTally();
+    /** each buffer's copies: its GL buffer and its `storage()` texture */
+    bufferCopies = createBufferCopies();
     /** Per-GpuTexture GL texture cache (upload + allocation). @internal */
-    textures = createTextureCache(this.memoryTally);
+    textures = createTextureCache(this.memoryTally, this.bufferCopies);
     /** What the context holds of each fixed-function state. @internal */
     glState = createGlState();
     /** Per-GpuSampler GL sampler-object cache. @internal */
@@ -44631,7 +45128,7 @@ class WebGLBackend {
     // eslint-disable-next-line @typescript-eslint/require-await
     async init(renderer) {
         this.renderer = renderer;
-        this.buffers = createBufferCache(renderer.info, this.memoryTally, this.glState);
+        this.buffers = createBufferCache(renderer.info, this.memoryTally, this.glState, this.bufferCopies);
         const { width, height } = this.target.getDrawingBufferSize();
         this._width = width || 1;
         this._height = height || 1;

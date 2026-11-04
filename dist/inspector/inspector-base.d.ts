@@ -47,7 +47,7 @@
  *   encodeComputePass       → inspector.dispatchWorkgroups(x, y, z)
  */
 import type { Object3D } from '../core/object3d';
-import type { ComputeNode, InspectorNode } from '../nodes/nodes';
+import type { ComputeNode, Node } from '../nodes/nodes';
 import type { AnyPass, CallRecord } from '../renderer/core/frame';
 import type { RenderObject } from '../renderer/core/render-object';
 import type { Renderer } from '../renderer/core/renderer';
@@ -146,10 +146,11 @@ export declare class InspectorBase {
     /** The open pass ended, or its begin was refused with `error`. */
     endRecordedPass(_error: string | null): void;
     /**
-     * Called when a node marked with .inspect() is encountered during rendering.
-     * Subclasses override this to register the node for Viewer tab preview.
+     * Shows `node` in this frame's Viewer under `name` ('folder/name' groups it), drawn fullscreen into its own preview.
+     * A node's `.inspect()` calls it every frame its graph runs; a caller with a node in no shader calls it each frame
+     * it wants the node shown. Subclasses that have a Viewer override it.
      */
-    inspect(_node: InspectorNode<Any>): void;
+    inspect(_node: Node<Any>, _name: string): void;
     /**
      * Called whenever a new pipeline is bound (i.e. renderObject.pipeline changed).
      * `label` is the mesh/material label for the object that triggered the switch.

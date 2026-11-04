@@ -73,6 +73,8 @@ export declare class WebGLBackend implements DeviceBackend {
     renderObjectGl: RenderObjectGlCache;
     /** Every GPU allocation this backend holds, shared by its buffer, texture and render-target caches. @internal */
     readonly memoryTally: Info.MemoryTally;
+    /** each buffer's copies: its GL buffer and its `storage()` texture */
+    private readonly bufferCopies;
     /** Per-GpuTexture GL texture cache (upload + allocation). @internal */
     textures: Textures.TextureCache;
     /** What the context holds of each fixed-function state. @internal */

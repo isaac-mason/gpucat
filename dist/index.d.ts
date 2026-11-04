@@ -21,7 +21,7 @@ export * from './geometry/geometry';
 export * from './geometry/geometry-helpers';
 export * from './inspector/inspector';
 export type { InspectableRenderer, InspectorBase } from './inspector/inspector-base';
-export type { TimelineEntryBase } from './inspector/renderer-inspector';
+export type { InspectedNode, TimelineEntryBase } from './inspector/renderer-inspector';
 export * from './material/blend-mode';
 export * from './material/material';
 export type { Frustum } from './math/frustum';

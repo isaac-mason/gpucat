@@ -8,11 +8,11 @@
  *  - Console monkey-patching of console.warn / console.error
  *  - Viewer tab: inspectable node canvases
  */
+import type { InspectedNode } from './renderer-inspector';
 import { RendererInspector } from './renderer-inspector';
 export type { ComputeEntry, FrameRecord, MarkerEntry, PassRecord, RecordedCall, RecordedPass, RenderEntry, SceneRecord, TimelineEntry, } from './renderer-inspector';
-import type { ComputeNode, InspectorNode } from '../nodes/nodes';
+import type { ComputeNode } from '../nodes/nodes';
 import type { RenderObject } from '../renderer/core/render-object';
-import type { Any } from '../schema/schema';
 import type { GUI } from './gui/GUI';
 import type { InspectableRenderer } from './inspector-base';
 import type { ProbeTarget } from './probe-wgsl';
@@ -129,14 +129,14 @@ export declare class Inspector extends RendererInspector {
      * Build canvasData for each inspectable node and call viewer.update().
      */
     /** @internal */
-    resolveViewer(nodes: InspectorNode<Any>[]): void;
+    resolveViewer(nodes: InspectedNode[]): void;
     /**
      * Get or create the CanvasData for an inspectable node.
      * Creates a 140×140 CanvasTarget, wraps the node as vec4(vec3(node), 1),
      * and builds a fullscreen Material. Cached per node, never recreated.
      */
     /** @internal */
-    getCanvasDataByNode(node: InspectorNode<Any>): CanvasData;
+    getCanvasDataByNode(inspected: InspectedNode): CanvasData;
     private _tickCycle;
     /**
      * Encode and submit a single render pass for the active probe.
