@@ -24,9 +24,7 @@ import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
 import { type ResolvedStorageBufferTexture } from '../../nodes/lib/texture';
-import type { RangeQueue } from '../core/buffer-upload';
 import { type Allocation, type MemoryTally } from '../core/info';
-import { type BufferCopies } from './buffer-copies';
 /** GL format triple for a color/depth texture: the sized internal format + upload format + type. */
 type GlFormat = {
     /** Sized internal format for texStorage/texImage (e.g. gl.RGBA8, gl.RGBA16F, gl.DEPTH_COMPONENT24). */
@@ -90,17 +88,12 @@ export type GlBufferTextureData = {
     width: number;
     height: number;
     bytesPerTexel: number;
-    /** the ranges written to the buffer since this texture last took them; none for a `cpu: false` buffer, which
-     *  only `writeBuffer` fills */
-    queue: RangeQueue | null;
 };
 /** Textures state: per-GpuTexture GL data, keyed by GpuTexture identity, plus a disposal set. */
 export type TextureCache = {
     data: WeakMap<GpuTexture, GlTextureData>;
     /** Storage-buffer-backed GL textures, keyed by the `GpuBuffer` (WebGL storage() read-lowering). */
     bufferData: WeakMap<GpuBuffer, GlBufferTextureData>;
-    /** each buffer's copies, its GL buffer and this texture, which its written ranges are handed out to */
-    copies: BufferCopies;
     all: Set<WebGLTexture>;
     /** The backend's memory tally, shared with its buffers and renderbuffers. */
     tally: MemoryTally;
@@ -141,7 +134,7 @@ export declare function forgetTextureUnits(gl: WebGL2RenderingContext, state: Te
 /** Deletes a GL texture this cache made, which GL unbinds from every unit: the record forgets it too. */
 export declare function deleteGlTexture(gl: WebGL2RenderingContext, state: TextureCache, texture: WebGLTexture): void;
 /** Create an empty textures state. */
-export declare function createTextureCache(tally: MemoryTally, copies: BufferCopies): TextureCache;
+export declare function createTextureCache(tally: MemoryTally): TextureCache;
 /**
  * Resolve (create/upload/re-sync) the GL texture for a read-only storage `GpuBuffer` bound AS an
  * rgba32uint texture, and return it bound-ready. The pixel data is a ZERO-COPY `Uint32Array` view over
@@ -182,8 +175,6 @@ export declare function copyStorageTextureSpan(gl: WebGL2RenderingContext, state
  * so every whole row of the destination unpacks in one call.
  */
 export declare function unpackStorageTextureSpan(gl: WebGL2RenderingContext, state: TextureCache, source: WebGLBuffer, sourceByteOffset: number, destination: GpuBuffer, destinationByteOffset: number, byteSize: number): void;
-/** whether a storage buffer has a mirror texture yet. */
-export declare function hasStorageTexture(state: TextureCache, buffer: GpuBuffer): boolean;
 /** runs `body` with the copy framebuffer bound for reading, then restores the read binding. */
 export declare function withCopyFramebuffer(gl: WebGL2RenderingContext, state: TextureCache, body: () => void): void;
 /**

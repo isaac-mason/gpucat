@@ -73,8 +73,6 @@ export declare class WebGLBackend implements DeviceBackend {
     renderObjectGl: RenderObjectGlCache;
     /** Every GPU allocation this backend holds, shared by its buffer, texture and render-target caches. @internal */
     readonly memoryTally: Info.MemoryTally;
-    /** each buffer's copies: its GL buffer and its `storage()` texture */
-    private readonly bufferCopies;
     /** Per-GpuTexture GL texture cache (upload + allocation). @internal */
     textures: Textures.TextureCache;
     /** What the context holds of each fixed-function state. @internal */
@@ -177,14 +175,13 @@ export declare class WebGLBackend implements DeviceBackend {
      * A synchronous spin never signals on a single-threaded backend, which `readBuffer` found first.
      */
     awaitCompletion(): Promise<void>;
-    /** writes the mirror texture of a storage buffer and the GL buffer of any other usage, or of one transform feedback made. */
+    /** writes the one form the buffer has: a storage buffer's texture, or the GL buffer of any other usage. */
     writeBuffer(buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void;
     writeTexture(texture: GpuTexture, region: TextureRegion, data: ArrayBufferView): void;
     /**
-     * fills each form the destination keeps, as `writeBuffer` would: a storage buffer's mirror texture,
-     * and its GL buffer when it has one or another usage needs one. A `cpu: true` source copies from its
-     * array, which is what its GPU forms are uploaded from; any other from its mirror when it has one,
-     * else from its GL buffer.
+     * fills the destination's one form, as `writeBuffer` would. A `cpu: true` source copies from its array,
+     * which is what its GPU form is uploaded from; any other from its texture when it is a storage buffer,
+     * else from its GL buffer. A storage buffer's texture copies only into another storage buffer.
      */
     copyBuffer(source: GpuBuffer, sourceByteOffset: number, destination: GpuBuffer, destinationByteOffset: number, byteSize: number): void;
     copyTexture(source: GpuTexture, region: TextureRegion, destination: GpuTexture, origin: TextureOrigin): void;

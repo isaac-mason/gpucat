@@ -13353,14 +13353,13 @@ var BufferUpload;
     BufferUpload[BufferUpload["Skip"] = 0] = "Skip";
     /** no GPU buffer yet, or the data outgrew it: (re)allocate and write the whole array, or zeroes for a `cpu: false` buffer. */
     BufferUpload[BufferUpload["Allocate"] = 1] = "Allocate";
-    /** write only the queue's pending ranges, which `planBufferUpload` has already merged. */
+    /** write only the pending `buffer.updateRanges`, which `planBufferUpload` has already merged. */
     BufferUpload[BufferUpload["Partial"] = 2] = "Partial";
     /** the version moved with no ranges queued: rewrite the whole array in place. */
     BufferUpload[BufferUpload["Full"] = 3] = "Full";
 })(BufferUpload || (BufferUpload = {}));
 /**
- * Decide how `buffer` reaches the GPU, and merge `queue`'s pending ranges in place: the buffer's own, or the share of
- * them a backend keeping several copies of it gave this one.
+ * Decide how `buffer` reaches the GPU, and merge its pending ranges in place.
  *
  * Precedence:
  *
@@ -13371,9 +13370,9 @@ var BufferUpload;
  *   3. FULL for a version bump with nothing queued. Correct, but re-sends the whole allocation.
  *
  * `capacityBytes` and `lastVersion` describe what the backend holds, and are ignored when `exists` is
- * false. Merging mutates the queue in place, keeping the hot path allocation-free.
+ * false. Merging mutates `buffer.updateRanges` in place, keeping the hot path allocation-free.
  */
-function planBufferUpload(buffer, queue, exists, capacityBytes, lastVersion) {
+function planBufferUpload(buffer, exists, capacityBytes, lastVersion) {
     if (!buffer.cpu)
         return exists ? BufferUpload.Skip : BufferUpload.Allocate;
     const array = buffer.array;
@@ -13382,8 +13381,8 @@ function planBufferUpload(buffer, queue, exists, capacityBytes, lastVersion) {
         return BufferUpload.Skip;
     if (!exists || capacityBytes < array.byteLength)
         return BufferUpload.Allocate;
-    if (queue.updateRangeCount > 0) {
-        queue.updateRangeCount = mergeUpdateRanges(queue.updateRanges, queue.updateRangeCount);
+    if (buffer.updateRangeCount > 0) {
+        buffer.updateRangeCount = mergeUpdateRanges(buffer.updateRanges, buffer.updateRangeCount);
         return BufferUpload.Partial;
     }
     return buffer.version !== lastVersion ? BufferUpload.Full : BufferUpload.Skip;
@@ -14153,7 +14152,7 @@ function ensureUploaded$1(cache, device, buffer, name) {
         (buffer.array === null || entry.buf.size >= buffer.array.byteLength)) {
         return entry.buf;
     }
-    const plan = planBufferUpload(buffer, buffer, entry !== undefined, entry?.buf.size ?? 0, entry?.version ?? -1);
+    const plan = planBufferUpload(buffer, entry !== undefined, entry?.buf.size ?? 0, entry?.version ?? -1);
     if (plan === BufferUpload.Skip) {
         if (!entry) {
             throw new Error('[gpucat] ensureUploaded: buffer.array is null but GPU buffer was never created');
@@ -39201,67 +39200,6 @@ function yieldToMain() {
     return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function createBufferCopies() {
-    return new WeakMap();
-}
-/** A copy of `buffer` made, current as of now: the queue the ranges written to `buffer` from here on are handed to. */
-function addCopy(copies, buffer) {
-    const queue = { updateRanges: [], updateRangeCount: 0 };
-    let entry = copies.get(buffer);
-    if (entry === undefined) {
-        entry = { queues: [], version: buffer.version };
-        copies.set(buffer, entry);
-    }
-    entry.queues.push(queue);
-    return queue;
-}
-function removeCopy(copies, buffer, queue) {
-    const entry = copies.get(buffer);
-    if (entry === undefined)
-        return;
-    const at = entry.queues.indexOf(queue);
-    if (at >= 0)
-        entry.queues.splice(at, 1);
-    if (entry.queues.length === 0)
-        copies.delete(buffer);
-}
-/**
- * `buffer`'s queued ranges handed to every copy of it, and its queue cleared. A version moved with none queued is a
- * whole rewrite (`pack()`, `needsUpdate`), which no copy's earlier ranges describe, so each copy drops them and its
- * own version check rewrites it whole.
- */
-function handOut(copies, buffer) {
-    const entry = copies.get(buffer);
-    if (entry === undefined)
-        return;
-    const queued = buffer.updateRangeCount;
-    if (queued === 0) {
-        if (buffer.version !== entry.version)
-            for (const queue of entry.queues)
-                queue.updateRangeCount = 0;
-        entry.version = buffer.version;
-        return;
-    }
-    const ranges = buffer.updateRanges;
-    for (const queue of entry.queues) {
-        for (let i = 0; i < queued; i++) {
-            const from = ranges[i];
-            const into = queue.updateRanges[queue.updateRangeCount];
-            if (into === undefined)
-                queue.updateRanges.push({ start: from.start, count: from.count });
-            else {
-                into.start = from.start;
-                into.count = from.count;
-            }
-            queue.updateRangeCount++;
-        }
-        // a copy no pass syncs for a while keeps its spans, not every write
-        queue.updateRangeCount = mergeUpdateRanges(queue.updateRanges, queue.updateRangeCount);
-    }
-    buffer.clearUpdateRanges();
-    entry.version = buffer.version;
-}
-
 /**
  * state.ts (webgl) - GL pipeline-state helpers, driven by gpucat material fields.
  *
@@ -39804,7 +39742,9 @@ function deleteBuffer(gl, state, buffer) {
  *  - `bufferMap` keys by `GpuBuffer` identity, for anything a GpuBuffer backs: vertex attributes,
  *    indices, transform-feedback IO. One GpuBuffer therefore means exactly one GL buffer, no matter
  *    how many geometries or passes reach it. `readBuffer` in `webgl-backend.ts` has always
- *    documented that invariant; before this module there was nothing to enforce it.
+ *    documented that invariant; before this module there was nothing to enforce it. A `storage`
+ *    buffer is never one of them: WebGL2 has no storage buffers, so it lives in the texture its
+ *    `storage()` reads go through (`textures.ts`), and nothing else may bind it.
  *  - `rawMap` keys by an arbitrary object, for device buffers with no GpuBuffer behind them. Uniform
  *    blocks are the only case: a block is a byte blob packed from many uniform nodes through a
  *    compile-time layout, with no version of its own, so change detection belongs to the caller.
@@ -39817,7 +39757,7 @@ function deleteBuffer(gl, state, buffer) {
  * upload. It matters because `ELEMENT_ARRAY_BUFFER` bindings are captured into whatever VAO is bound,
  * so callers must upload with VAO 0 bound (see `prepareGeometry`).
  */
-function createBufferCache(info, tally, glState, copies) {
+function createBufferCache(info, tally, glState) {
     return {
         bufferMap: new WeakMap(),
         rawMap: new WeakMap(),
@@ -39825,8 +39765,6 @@ function createBufferCache(info, tally, glState, copies) {
         bufferCount: 0,
         rawCount: 0,
         tally,
-        textureOnly: new WeakSet(),
-        copies,
         info,
         glState,
     };
@@ -39840,8 +39778,6 @@ function createBufferCache(info, tally, glState, copies) {
  */
 function glUsageHint(gl, buffer) {
     if (buffer.usage.has('indirect'))
-        return gl.DYNAMIC_COPY;
-    if (buffer.usage.has('storage'))
         return gl.DYNAMIC_COPY;
     if (buffer.usage.has('uniform'))
         return gl.DYNAMIC_DRAW;
@@ -39863,15 +39799,14 @@ function setupBufferDispose(gl, cache, buffer) {
         deleteBuffer(gl, cache.glState, entry.glBuffer);
         cache.all.delete(entry.glBuffer);
         clearAllocation(cache.tally, entry.allocation);
-        removeCopy(cache.copies, buffer, entry.queue);
         cache.bufferCount--;
         cache.bufferMap.delete(buffer);
     };
 }
-/** Push `queue`'s ranges, which `planBufferUpload` merged, as partial `bufferSubData` uploads, one per span. */
-function uploadDirtyRanges(gl, cache, target, array, buffer, queue, label) {
-    const ranges = queue.updateRanges;
-    const count = queue.updateRangeCount;
+/** Push the buffer's pending `updateRanges` as partial `bufferSubData` uploads, one per merged span. */
+function uploadDirtyRanges(gl, cache, target, array, buffer, label) {
+    const ranges = buffer.updateRanges;
+    const count = mergeUpdateRanges(ranges, buffer.updateRangeCount);
     const bytesPerElement = array.BYTES_PER_ELEMENT;
     const usage = primaryBufferUsage(buffer);
     for (let i = 0; i < count; i++) {
@@ -39879,7 +39814,7 @@ function uploadDirtyRanges(gl, cache, target, array, buffer, queue, label) {
         gl.bufferSubData(target, r.start * bytesPerElement, array, r.start, r.count);
         recordBufferWrite(cache.info, r.count * bytesPerElement, usage, false, label);
     }
-    queue.updateRangeCount = 0;
+    buffer.clearUpdateRanges();
 }
 /**
  * Get (or create) the GL buffer for a `GpuBuffer`, uploading whatever changed since last time.
@@ -39899,14 +39834,14 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
         throw new Error(`[webgl] buffer '${buffer.label ?? name}' has no CPU array to upload.`);
     const label = buffer.label ?? name;
     let entry = cache.bufferMap.get(buffer);
-    handOut(cache.copies, buffer);
-    const plan = planBufferUpload(buffer, entry?.queue ?? buffer, entry !== undefined, entry?.byteLength ?? -1, entry?.version ?? -1);
+    const plan = planBufferUpload(buffer, entry !== undefined, entry?.byteLength ?? -1, entry?.version ?? -1);
     if (plan === BufferUpload.Skip && entry)
         return entry.glBuffer;
     if (plan === BufferUpload.Allocate) {
-        if (!array && cache.textureOnly.has(buffer)) {
-            throw new Error(`[webgl] buffer '${label}' is a \`cpu: false\` storage buffer already written into the texture its reads ` +
-                'use, so a GL buffer for it now would hold none of that; on WebGL2 it can only be read through storage().');
+        if (buffer.usage.has('storage')) {
+            throw new Error(`[webgl] buffer '${label}' has storage usage, so on WebGL2 it is the texture its storage() reads go ` +
+                'through and cannot also be a GL buffer, as a vertex, index or uniform buffer, a transform feedback ' +
+                'buffer or a copy. Read it through storage() everywhere, or keep the two uses in separate buffers.');
         }
         if (!entry) {
             const created = gl.createBuffer();
@@ -39917,7 +39852,6 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
                 version: -1,
                 byteLength: -1,
                 allocation: createAllocation('buffer', primaryBufferUsage(buffer), label),
-                queue: addCopy(cache.copies, buffer),
             };
             cache.bufferMap.set(buffer, entry);
             cache.all.add(created);
@@ -39940,9 +39874,7 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
         entry.byteLength = array?.byteLength ?? buffer.byteLength;
         entry.version = buffer.version;
         setAllocation(cache.tally, entry.allocation, entry.byteLength);
-        // the allocate path wrote everything, so pending ranges are already covered: this copy's, and the buffer's
-        // own where it had no copy to hand them to
-        entry.queue.updateRangeCount = 0;
+        // the allocate path wrote everything, so pending ranges are already covered.
         buffer.clearUpdateRanges();
         return entry.glBuffer;
     }
@@ -39953,10 +39885,9 @@ function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
         unbindVertexArray(gl, cache.glState);
     gl.bindBuffer(target, entry.glBuffer);
     if (plan === BufferUpload.Partial) {
-        uploadDirtyRanges(gl, cache, target, array, buffer, entry.queue, label);
+        uploadDirtyRanges(gl, cache, target, array, buffer, label);
     }
     else {
-        entry.queue.updateRangeCount = 0;
         gl.bufferSubData(target, 0, array);
         recordBufferWrite(cache.info, array.byteLength, primaryBufferUsage(buffer), true, label);
     }
@@ -39994,9 +39925,7 @@ function getUploaded(cache, buffer) {
 /** Whether `ensureUploaded` would find `buffer` current, binding and writing nothing. */
 function isCurrent(cache, buffer) {
     const entry = cache.bufferMap.get(buffer);
-    if (entry === undefined || buffer.updateRangeCount > 0)
-        return false;
-    return planBufferUpload(buffer, entry.queue, true, entry.byteLength, entry.version) === BufferUpload.Skip;
+    return entry !== undefined && planBufferUpload(buffer, true, entry.byteLength, entry.version) === BufferUpload.Skip;
 }
 const _dirty = { start: 0, end: 0 };
 /**
@@ -40649,8 +40578,8 @@ function deleteGlTexture(gl, state, texture) {
             textures[slot] = null;
 }
 /** Create an empty textures state. */
-function createTextureCache(tally, copies) {
-    return { data: new WeakMap(), bufferData: new WeakMap(), copies, all: new Set(), tally, units: createTextureUnits() };
+function createTextureCache(tally) {
+    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set(), tally, units: createTextureUnits() };
 }
 /** The storage-backing texture a storage buffer's reads go through, sized as the grid it is allocated as. */
 function setStorageBacking(state, data) {
@@ -40734,8 +40663,6 @@ function setupStorageTextureDispose(gl, state, buffer) {
             return;
         deleteGlTexture(gl, state, data.texture);
         clearAllocation(state.tally, data.allocation);
-        if (data.queue !== null)
-            removeCopy(state.copies, buffer, data.queue);
         state.bufferData.delete(buffer);
     };
 }
@@ -40773,6 +40700,10 @@ function setupTextureDispose(gl, state, texture) {
  */
 function updateStorageBufferTexture(gl, state, source) {
     const { buffer, width, height, bytesPerTexel } = source;
+    if (!buffer.usage.has('storage')) {
+        throw new Error(`[webgl] storage() read-lowering: buffer '${buffer.label ?? 'unlabelled'}' is read through storage() without ` +
+            'storage usage; give it storage usage, which on WebGL2 makes it this texture and nothing else.');
+    }
     if (!buffer.cpu)
         return ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel).texture;
     const arr = buffer.array;
@@ -40795,7 +40726,6 @@ function updateStorageBufferTexture(gl, state, source) {
     // The buffer is a whole number of texels (guarded at compile). `width` may not divide it, so the
     // grid's last row is partly padding; uploads clamp to `totalTexels` and never touch it.
     const totalTexels = arr.byteLength / bytesPerTexel;
-    handOut(state.copies, buffer);
     let data = state.bufferData.get(buffer);
     if (!data) {
         const texture = gl.createTexture();
@@ -40815,9 +40745,8 @@ function updateStorageBufferTexture(gl, state, source) {
             width,
             height,
             bytesPerTexel,
-            queue: addCopy(state.copies, buffer),
         };
-        // written whole, so what was queued is covered: the buffer's own where it had no copy to hand it to
+        // written whole, so what was queued is covered
         buffer.clearUpdateRanges();
         // A storage() read-lowering IS a resident texture, so it counts like any other, under the u32 format
         // it actually is and the buffer's label; WebGPU reads the buffer directly and has no counterpart.
@@ -40826,10 +40755,9 @@ function updateStorageBufferTexture(gl, state, source) {
         state.bufferData.set(buffer, data);
         return texture;
     }
-    const queue = data.queue;
     const sizeChanged = data.width !== width || data.height !== height;
     // Clean (version matched, no queued ranges, same size) → the cached texture is already current.
-    if (!sizeChanged && data.version === buffer.version && queue.updateRangeCount === 0) {
+    if (!sizeChanged && data.version === buffer.version && buffer.updateRangeCount === 0) {
         return data.texture;
     }
     bindUploadTexture(gl, state, gl.TEXTURE_2D, data.texture);
@@ -40849,8 +40777,8 @@ function updateStorageBufferTexture(gl, state, source) {
         // spans are kept SEPARATE rather than hulled together: a streaming arena dirties a handful of
         // small, far-apart regions per frame, and one covering span over those is the whole buffer.
         // A bare version bump, or more dirty texels than half the buffer, takes one full upload instead.
-        const ranges = queue.updateRanges;
-        const rangeCount = mergeUpdateRanges(ranges, queue.updateRangeCount);
+        const ranges = buffer.updateRanges;
+        const rangeCount = mergeUpdateRanges(ranges, buffer.updateRangeCount);
         let dirtyTexels = 0;
         for (let i = 0; i < rangeCount; i++) {
             const r = ranges[i];
@@ -40871,7 +40799,7 @@ function updateStorageBufferTexture(gl, state, source) {
             uploadStorageSpan(gl, arr.buffer, arr.byteOffset, width, 0, totalTexels, bytesPerTexel, glFormat);
         }
     }
-    queue.updateRangeCount = 0;
+    buffer.clearUpdateRanges();
     data.version = buffer.version;
     return data.texture;
 }
@@ -40907,7 +40835,6 @@ function ensureCpuLessStorageTexture(gl, state, buffer, bytesPerTexel) {
         width,
         height,
         bytesPerTexel,
-        queue: null,
     };
     setStorageBacking(state, data);
     setupStorageTextureDispose(gl, state, buffer);
@@ -41448,10 +41375,6 @@ function unpackStorageTextureSpan(gl, state, source, sourceByteOffset, destinati
         gl.texSubImage2D(gl.TEXTURE_2D, 0, toX, toY, width, rows, glFormat, gl.UNSIGNED_INT, offset);
     });
     gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
-}
-/** whether a storage buffer has a mirror texture yet. */
-function hasStorageTexture(state, buffer) {
-    return state.bufferData.has(buffer);
 }
 function storageElement(buffer) {
     return buffer.schema.element ?? buffer.schema;
@@ -45090,10 +45013,8 @@ class WebGLBackend {
     renderObjectGl = createRenderObjectGlCache();
     /** Every GPU allocation this backend holds, shared by its buffer, texture and render-target caches. @internal */
     memoryTally = createMemoryTally();
-    /** each buffer's copies: its GL buffer and its `storage()` texture */
-    bufferCopies = createBufferCopies();
     /** Per-GpuTexture GL texture cache (upload + allocation). @internal */
-    textures = createTextureCache(this.memoryTally, this.bufferCopies);
+    textures = createTextureCache(this.memoryTally);
     /** What the context holds of each fixed-function state. @internal */
     glState = createGlState();
     /** Per-GpuSampler GL sampler-object cache. @internal */
@@ -45128,7 +45049,7 @@ class WebGLBackend {
     // eslint-disable-next-line @typescript-eslint/require-await
     async init(renderer) {
         this.renderer = renderer;
-        this.buffers = createBufferCache(renderer.info, this.memoryTally, this.glState, this.bufferCopies);
+        this.buffers = createBufferCache(renderer.info, this.memoryTally, this.glState);
         const { width, height } = this.target.getDrawingBufferSize();
         this._width = width || 1;
         this._height = height || 1;
@@ -45354,28 +45275,23 @@ class WebGLBackend {
             return Promise.resolve();
         return clientWaitAsync(gl, sync, 'frame.done').finally(() => gl.deleteSync(sync));
     }
-    /** writes the mirror texture of a storage buffer and the GL buffer of any other usage, or of one transform feedback made. */
+    /** writes the one form the buffer has: a storage buffer's texture, or the GL buffer of any other usage. */
     writeBuffer(buffer, byteOffset, data, dataByteOffset, byteSize) {
         const gl = this.gl;
         if (buffer.usage.has('storage')) {
             writeStorageTexture(gl, this.textures, buffer, byteOffset, data, dataByteOffset, byteSize);
         }
-        const storageOnly = buffer.usage.size === 1 && buffer.usage.has('storage');
-        if (!storageOnly || getUploaded(this.buffers, buffer) !== undefined) {
-            writeBufferBytes(gl, this.buffers, buffer, byteOffset, data, dataByteOffset, byteSize);
-        }
         else {
-            this.buffers.textureOnly.add(buffer);
+            writeBufferBytes(gl, this.buffers, buffer, byteOffset, data, dataByteOffset, byteSize);
         }
     }
     writeTexture(texture, region, data) {
         writeTextureRegion(this.gl, this.textures, texture, region, data);
     }
     /**
-     * fills each form the destination keeps, as `writeBuffer` would: a storage buffer's mirror texture,
-     * and its GL buffer when it has one or another usage needs one. A `cpu: true` source copies from its
-     * array, which is what its GPU forms are uploaded from; any other from its mirror when it has one,
-     * else from its GL buffer.
+     * fills the destination's one form, as `writeBuffer` would. A `cpu: true` source copies from its array,
+     * which is what its GPU form is uploaded from; any other from its texture when it is a storage buffer,
+     * else from its GL buffer. A storage buffer's texture copies only into another storage buffer.
      */
     copyBuffer(source, sourceByteOffset, destination, destinationByteOffset, byteSize) {
         const gl = this.gl;
@@ -45392,24 +45308,20 @@ class WebGLBackend {
             return;
         }
         if (destination.usage.has('storage')) {
-            const sourceBuffer = getUploaded(this.buffers, source);
-            if (hasStorageTexture(this.textures, source) ||
-                (sourceBuffer === undefined && source.usage.has('storage'))) {
+            if (source.usage.has('storage')) {
                 copyStorageTextureSpan(gl, this.textures, source, sourceByteOffset, destination, destinationByteOffset, byteSize);
             }
             else {
-                const from = sourceBuffer ??
-                    ensureUploaded(gl, this.buffers, source, gl.COPY_READ_BUFFER, source.label ?? 'copy-source');
+                const from = ensureUploaded(gl, this.buffers, source, gl.COPY_READ_BUFFER, source.label ?? 'copy-source');
                 unpackStorageTextureSpan(gl, this.textures, from, sourceByteOffset, destination, destinationByteOffset, byteSize);
             }
+            return;
         }
-        const storageOnly = destination.usage.size === 1 && destination.usage.has('storage');
-        if (!storageOnly || getUploaded(this.buffers, destination) !== undefined) {
-            copyBufferBytes(gl, this.buffers, source, sourceByteOffset, destination, destinationByteOffset, byteSize);
+        if (source.usage.has('storage')) {
+            throw new Error(`[webgl] copyBuffer: '${source.label ?? 'unlabelled'}' is a storage buffer, which WebGL2 keeps as a texture, ` +
+                `so it copies only into another storage buffer, not into '${destination.label ?? 'unlabelled'}'.`);
         }
-        else {
-            this.buffers.textureOnly.add(destination);
-        }
+        copyBufferBytes(gl, this.buffers, source, sourceByteOffset, destination, destinationByteOffset, byteSize);
     }
     copyTexture(source, region, destination, origin) {
         copyTextureRegion$1(this.gl, this.textures, source, region, destination, origin);

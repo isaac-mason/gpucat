@@ -6,7 +6,9 @@
  *  - `bufferMap` keys by `GpuBuffer` identity, for anything a GpuBuffer backs: vertex attributes,
  *    indices, transform-feedback IO. One GpuBuffer therefore means exactly one GL buffer, no matter
  *    how many geometries or passes reach it. `readBuffer` in `webgl-backend.ts` has always
- *    documented that invariant; before this module there was nothing to enforce it.
+ *    documented that invariant; before this module there was nothing to enforce it. A `storage`
+ *    buffer is never one of them: WebGL2 has no storage buffers, so it lives in the texture its
+ *    `storage()` reads go through (`textures.ts`), and nothing else may bind it.
  *  - `rawMap` keys by an arbitrary object, for device buffers with no GpuBuffer behind them. Uniform
  *    blocks are the only case: a block is a byte blob packed from many uniform nodes through a
  *    compile-time layout, with no version of its own, so change detection belongs to the caller.
@@ -20,10 +22,8 @@
  * so callers must upload with VAO 0 bound (see `prepareGeometry`).
  */
 import type { GpuBuffer } from '../../core/gpu-buffer';
-import { type RangeQueue } from '../core/buffer-upload';
 import { type Allocation, type MemoryTally, type RendererInfo } from '../core/info';
 import { type SharedBlock } from '../core/shared-blocks';
-import { type BufferCopies } from './buffer-copies';
 import { type GlState } from './state';
 type CacheEntry = {
     glBuffer: WebGLBuffer;
@@ -32,8 +32,6 @@ type CacheEntry = {
     /** last allocated byte size, the resize guard. */
     byteLength: number;
     allocation: Allocation;
-    /** the ranges written to the buffer since this GL buffer last took them */
-    queue: RangeQueue;
 };
 type RawEntry = {
     glBuffer: WebGLBuffer;
@@ -51,10 +49,6 @@ export type BufferCache = {
     rawCount: number;
     /** The backend's memory tally, shared with its textures and renderbuffers. */
     tally: MemoryTally;
-    /** `cpu: false` storage buffers written with no GL buffer: one made for them later would hold zeroes. */
-    textureOnly: WeakSet<GpuBuffer>;
-    /** each buffer's copies, this GL buffer and its `storage()` texture, which its written ranges are handed out to */
-    copies: BufferCopies;
     /** Where upload volume is tallied. Held by reference so the frame boundary that zeroes it stays
      *  in one place (the renderer) and every reader sees the same numbers; see `core/info.ts`. */
     info: RendererInfo;
@@ -65,7 +59,7 @@ export type BufferCacheStats = {
     bufferCount: number;
     rawCount: number;
 };
-export declare function createBufferCache(info: RendererInfo, tally: MemoryTally, glState: GlState, copies: BufferCopies): BufferCache;
+export declare function createBufferCache(info: RendererInfo, tally: MemoryTally, glState: GlState): BufferCache;
 /**
  * GL usage hint from the buffer's declared usage, the analogue of WebGPU's `deriveGPUUsage`.
  *
