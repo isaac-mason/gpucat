@@ -21746,6 +21746,12 @@ function generateCall$1(ctx, node) {
     // Packed unpack builtins. WGSL has all natively; GLSL ES 3.00 has the 2×16 family (renamed) but
     // NOT the 4×8 family — those are emulated with shift/mask. Component 0 is in the LOW bits,
     // matching the CPU encode (pack.ts `packedWriteExpr`).
+    if (node.fn === 'pack2x16float')
+        return `packHalf2x16(${args[0]})`;
+    if (node.fn === 'pack2x16unorm')
+        return `packUnorm2x16(${args[0]})`;
+    if (node.fn === 'pack2x16snorm')
+        return `packSnorm2x16(${args[0]})`;
     if (node.fn === 'unpack2x16float')
         return `unpackHalf2x16(${args[0]})`;
     if (node.fn === 'unpack2x16unorm')
