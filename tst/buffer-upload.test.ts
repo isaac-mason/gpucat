@@ -18,27 +18,27 @@ function uploaded(b: GpuBuffer<d.f32>) {
 describe('planBufferUpload', () => {
     test('a buffer the backend has never seen is allocated', () => {
         const b = buffer(4);
-        expect(planBufferUpload(b, b, false, 0, -1)).toBe(BufferUpload.Allocate);
+        expect(planBufferUpload(b, false, 0, -1)).toBe(BufferUpload.Allocate);
     });
 
     test('an unchanged buffer does nothing', () => {
         const b = buffer(4);
         const held = uploaded(b);
-        expect(planBufferUpload(b, b, held.exists, held.capacity, held.version)).toBe(BufferUpload.Skip);
+        expect(planBufferUpload(b, held.exists, held.capacity, held.version)).toBe(BufferUpload.Skip);
     });
 
     test('a version bump with no ranges rewrites the whole array', () => {
         const b = buffer(4);
         const held = uploaded(b);
         b.needsUpdate = true;
-        expect(planBufferUpload(b, b, held.exists, held.capacity, held.version)).toBe(BufferUpload.Full);
+        expect(planBufferUpload(b, held.exists, held.capacity, held.version)).toBe(BufferUpload.Full);
     });
 
     test('queued ranges are a partial write, with no version bump needed', () => {
         const b = buffer(8);
         const held = uploaded(b);
         b.addUpdateRange(2, 2);
-        expect(planBufferUpload(b, b, held.exists, held.capacity, held.version)).toBe(BufferUpload.Partial);
+        expect(planBufferUpload(b, held.exists, held.capacity, held.version)).toBe(BufferUpload.Partial);
     });
 
     test('ranges beat a version bump: the cheaper write wins when a caller does both', () => {
@@ -46,7 +46,7 @@ describe('planBufferUpload', () => {
         const held = uploaded(b);
         b.addUpdateRange(2, 2);
         b.needsUpdate = true;
-        expect(planBufferUpload(b, b, held.exists, held.capacity, held.version)).toBe(BufferUpload.Partial);
+        expect(planBufferUpload(b, held.exists, held.capacity, held.version)).toBe(BufferUpload.Partial);
     });
 
     test('ranges are merged in place, so both backends write identical spans', () => {
@@ -56,7 +56,7 @@ describe('planBufferUpload', () => {
         b.addUpdateRange(8, 2);
         b.addUpdateRange(0, 2);
         b.addUpdateRange(2, 2);
-        expect(planBufferUpload(b, b, held.exists, held.capacity, held.version)).toBe(BufferUpload.Partial);
+        expect(planBufferUpload(b, held.exists, held.capacity, held.version)).toBe(BufferUpload.Partial);
         expect(b.updateRanges.slice(0, b.updateRangeCount)).toEqual([
             { start: 0, count: 4 },
             { start: 8, count: 2 },
@@ -69,7 +69,7 @@ describe('planBufferUpload', () => {
         const b = buffer(4);
         const held = uploaded(b);
         const grown = buffer(64);
-        expect(planBufferUpload(grown, grown, held.exists, held.capacity, grown.version)).toBe(BufferUpload.Allocate);
+        expect(planBufferUpload(grown, held.exists, held.capacity, grown.version)).toBe(BufferUpload.Allocate);
     });
 
     test('a grow beats queued ranges', () => {
@@ -77,14 +77,14 @@ describe('planBufferUpload', () => {
         const held = uploaded(b);
         const grown = buffer(64);
         grown.addUpdateRange(0, 2);
-        expect(planBufferUpload(grown, grown, held.exists, held.capacity, grown.version)).toBe(BufferUpload.Allocate);
+        expect(planBufferUpload(grown, held.exists, held.capacity, grown.version)).toBe(BufferUpload.Allocate);
     });
 
     test('a released CPU array skips: whatever is on the GPU is all there is', () => {
         const b = buffer(4);
         const held = uploaded(b);
         b.array = null as never;
-        expect(planBufferUpload(b, b, held.exists, held.capacity, held.version)).toBe(BufferUpload.Skip);
+        expect(planBufferUpload(b, held.exists, held.capacity, held.version)).toBe(BufferUpload.Skip);
     });
 });
 
@@ -118,7 +118,7 @@ describe('GpuBuffer update ranges', () => {
         const b = buffer(64);
         const held = uploaded(b);
         for (const start of [30, 0, 20, 10]) b.addUpdateRange(start, 2);
-        planBufferUpload(b, b, held.exists, held.capacity, held.version);
+        planBufferUpload(b, held.exists, held.capacity, held.version);
         const records = b.updateRanges.slice();
         b.clearUpdateRanges();
 
@@ -138,8 +138,8 @@ describe('cpu: false buffers', () => {
 
     test('are allocated once, then left alone', () => {
         const b = new GpuBuffer(d.array(d.u32), { count: 4, usage: 'storage', cpu: false });
-        expect(planBufferUpload(b, b, false, 0, -1)).toBe(BufferUpload.Allocate);
-        expect(planBufferUpload(b, b, true, 16, b.version)).toBe(BufferUpload.Skip);
+        expect(planBufferUpload(b, false, 0, -1)).toBe(BufferUpload.Allocate);
+        expect(planBufferUpload(b, true, 16, b.version)).toBe(BufferUpload.Skip);
     });
 
     test('refuse the CPU-side writes', () => {

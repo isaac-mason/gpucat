@@ -20,7 +20,6 @@ const EARNED_PAIRS: Record<string, string> = {
 
 /** No sibling, with the API difference that earns it. A decomposition preference is not one. */
 const EARNED_SOLO: Record<string, string> = {
-    'webgl/buffer-copies.ts': 'a buffer has a GL buffer and a storage() texture to keep current; WebGPU has the one buffer',
     'webgl/constants.ts': 'GL enum numbers; WebGPU spells the same states as string literals',
     'webgl/context.ts': 'getContext plus extension probing has no WebGPU counterpart',
     'webgl/draw-bases.ts':

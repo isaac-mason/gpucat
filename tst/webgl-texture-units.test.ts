@@ -1,6 +1,5 @@
 import { expect, test } from 'vitest';
 import { createMemoryTally } from '../src/renderer/core/info';
-import { createBufferCopies } from '../src/renderer/webgl/buffer-copies';
 import {
     bindSamplerUnit,
     bindTextureUnit,
@@ -36,7 +35,7 @@ const sampler = (name: string) => name as unknown as WebGLSampler;
 
 test('a texture already bound on its unit is not bound again, and the unit is made active only to bind', () => {
     const { gl, calls } = fakeGl();
-    const state = createTextureCache(createMemoryTally(), createBufferCopies());
+    const state = createTextureCache(createMemoryTally());
     bindTextureUnit(gl, state, 2, TEXTURE_2D, texture('atlas'));
     bindTextureUnit(gl, state, 2, TEXTURE_2D, texture('atlas'));
     bindTextureUnit(gl, state, 3, TEXTURE_2D, texture('noise'));
@@ -56,7 +55,7 @@ test('a texture already bound on its unit is not bound again, and the unit is ma
 // a context starts with unit 0 active, so binding there needs no activeTexture
 test('an upload binds on its own unit, so the unit a draw samples keeps its texture', () => {
     const { gl, calls } = fakeGl();
-    const state = createTextureCache(createMemoryTally(), createBufferCopies());
+    const state = createTextureCache(createMemoryTally());
     bindTextureUnit(gl, state, 0, TEXTURE_2D, texture('atlas'));
     bindUploadTexture(gl, state, TEXTURE_2D, texture('fresh'));
     bindUploadTexture(gl, state, TEXTURE_2D, texture('fresh'));
@@ -66,7 +65,7 @@ test('an upload binds on its own unit, so the unit a draw samples keeps its text
 
 test("a parameter set on a draw's texture makes that draw's unit active, the texture already on it", () => {
     const { gl, calls } = fakeGl();
-    const state = createTextureCache(createMemoryTally(), createBufferCopies());
+    const state = createTextureCache(createMemoryTally());
     bindTextureUnit(gl, state, 4, TEXTURE_2D, texture('atlas'));
     bindUploadTexture(gl, state, TEXTURE_2D, texture('fresh'));
     bindUploadTexture(gl, state, TEXTURE_2D, texture('atlas'), 4);
@@ -75,7 +74,7 @@ test("a parameter set on a draw's texture makes that draw's unit active, the tex
 
 test('a deleted texture is forgotten: the same unit binds the next texture it is given', () => {
     const { gl, calls } = fakeGl();
-    const state = createTextureCache(createMemoryTally(), createBufferCopies());
+    const state = createTextureCache(createMemoryTally());
     bindTextureUnit(gl, state, 1, TEXTURE_2D, texture('old'));
     deleteGlTexture(gl, state, texture('old'));
     expect(state.units.textures.includes(texture('old'))).toBe(false);
@@ -85,7 +84,7 @@ test('a deleted texture is forgotten: the same unit binds the next texture it is
 
 test('a sampler already on its unit is not bound again; a unit past the tracked ones grows the record', () => {
     const { gl, calls } = fakeGl();
-    const state = createTextureCache(createMemoryTally(), createBufferCopies());
+    const state = createTextureCache(createMemoryTally());
     bindSamplerUnit(gl, state, 0, sampler('linear'));
     bindSamplerUnit(gl, state, 0, sampler('linear'));
     bindSamplerUnit(gl, state, 0, null);

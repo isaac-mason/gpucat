@@ -13,7 +13,6 @@ import type { RenderContext } from '../src/renderer/core/pass-context';
 import { disposeRenderObject } from '../src/renderer/core/render-object';
 import * as RenderObjects from '../src/renderer/core/render-objects';
 import type { View } from '../src/renderer/core/view';
-import { createBufferCopies } from '../src/renderer/webgl/buffer-copies';
 import * as GlBuffers from '../src/renderer/webgl/buffers';
 import { createGlState } from '../src/renderer/webgl/state';
 import { createBindGroupCache } from '../src/renderer/webgpu/bind-group-cache';
@@ -122,7 +121,7 @@ describe('webgl', () => {
     test('a buffer counts its size under its usage and label, a grow moves the bytes, dispose clears it', () => {
         const { gl } = fakeGl();
         const tally = createMemoryTally();
-        const cache = GlBuffers.createBufferCache(createRendererInfo(), tally, createGlState(), createBufferCopies());
+        const cache = GlBuffers.createBufferCache(createRendererInfo(), tally, createGlState());
         const buffer = vertexBuffer(9, 'mesh/positions');
 
         GlBuffers.ensureUploaded(gl, cache, buffer, ARRAY_BUFFER, 'position');
@@ -142,7 +141,7 @@ describe('webgl', () => {
     test('a uniform block counts until its owner releases it, and the release deletes it', () => {
         const { gl, deleted } = fakeGl();
         const tally = createMemoryTally();
-        const cache = GlBuffers.createBufferCache(createRendererInfo(), tally, createGlState(), createBufferCopies());
+        const cache = GlBuffers.createBufferCache(createRendererInfo(), tally, createGlState());
         const key = {};
 
         GlBuffers.uploadUniformBlock(gl, cache, key, new ArrayBuffer(64), { material: 'water' });

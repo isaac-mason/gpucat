@@ -1,7 +1,6 @@
 /// <reference types="@webgpu/types" />
 
 import { beforeAll, expect, test } from 'vitest';
-import { createBufferCopies } from '../src/renderer/webgl/buffer-copies';
 import { createStubGPU, installWebGPUPolyfills } from './stub-gpu';
 
 beforeAll(() => {
@@ -177,7 +176,7 @@ test('on WebGL a shared block uploads whole once, then only the slots that moved
         bufferData: (_target: number, data: ArrayBuffer) => void calls.push(`data ${data.byteLength}`),
         bufferSubData: (_target: number, offset: number, data: Uint8Array) => void calls.push(`sub ${offset} ${data.byteLength}`),
     } as unknown as WebGL2RenderingContext;
-    const cache = createBufferCache(createRendererInfo(), createMemoryTally(), createGlState(), createBufferCopies());
+    const cache = createBufferCache(createRendererInfo(), createMemoryTally(), createGlState());
     const blocks = createSharedBlocks('std140');
     const a = new Uniform(d.f32, 0.25, frameGroup, 'a');
     const b = new Uniform(d.f32, 0.5, frameGroup, 'b');

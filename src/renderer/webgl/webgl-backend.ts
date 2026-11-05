@@ -20,7 +20,6 @@ import type { RenderObject } from '../core/render-object';
 import { formatHasStencil, type RenderPassParams } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
 import * as Bindings from './bindings';
-import { createBufferCopies } from './buffer-copies';
 import * as Buffers from './buffers';
 import { createContext } from './context';
 import * as CopyTexture from './copy-texture';
@@ -114,10 +113,8 @@ export class WebGLBackend implements DeviceBackend {
     renderObjectGl: RenderObjectGlCache = createRenderObjectGlCache();
     /** Every GPU allocation this backend holds, shared by its buffer, texture and render-target caches. @internal */
     readonly memoryTally: Info.MemoryTally = Info.createMemoryTally();
-    /** each buffer's copies: its GL buffer and its `storage()` texture */
-    private readonly bufferCopies = createBufferCopies();
     /** Per-GpuTexture GL texture cache (upload + allocation). @internal */
-    textures: Textures.TextureCache = Textures.createTextureCache(this.memoryTally, this.bufferCopies);
+    textures: Textures.TextureCache = Textures.createTextureCache(this.memoryTally);
     /** What the context holds of each fixed-function state. @internal */
     glState: State.GlState = State.createGlState();
     /** Per-GpuSampler GL sampler-object cache. @internal */
@@ -163,7 +160,7 @@ export class WebGLBackend implements DeviceBackend {
     async init(renderer: Renderer<DeviceBackend>): Promise<void> {
         this.renderer = renderer;
 
-        this.buffers = Buffers.createBufferCache(renderer.info, this.memoryTally, this.glState, this.bufferCopies);
+        this.buffers = Buffers.createBufferCache(renderer.info, this.memoryTally, this.glState);
 
         const { width, height } = this.target.getDrawingBufferSize();
         this._width = width || 1;
@@ -414,17 +411,13 @@ export class WebGLBackend implements DeviceBackend {
         return TransformFeedback.clientWaitAsync(gl, sync, 'frame.done').finally(() => gl.deleteSync(sync));
     }
 
-    /** writes the mirror texture of a storage buffer and the GL buffer of any other usage, or of one transform feedback made. */
+    /** writes the one form the buffer has: a storage buffer's texture, or the GL buffer of any other usage. */
     writeBuffer(buffer: GpuBuffer, byteOffset: number, data: ArrayBufferView, dataByteOffset: number, byteSize: number): void {
         const gl = this.gl!;
         if (buffer.usage.has('storage')) {
             Textures.writeStorageTexture(gl, this.textures, buffer, byteOffset, data, dataByteOffset, byteSize);
-        }
-        const storageOnly = buffer.usage.size === 1 && buffer.usage.has('storage');
-        if (!storageOnly || Buffers.getUploaded(this.buffers, buffer) !== undefined) {
-            Buffers.writeBufferBytes(gl, this.buffers, buffer, byteOffset, data, dataByteOffset, byteSize);
         } else {
-            this.buffers.textureOnly.add(buffer);
+            Buffers.writeBufferBytes(gl, this.buffers, buffer, byteOffset, data, dataByteOffset, byteSize);
         }
     }
 
@@ -433,10 +426,9 @@ export class WebGLBackend implements DeviceBackend {
     }
 
     /**
-     * fills each form the destination keeps, as `writeBuffer` would: a storage buffer's mirror texture,
-     * and its GL buffer when it has one or another usage needs one. A `cpu: true` source copies from its
-     * array, which is what its GPU forms are uploaded from; any other from its mirror when it has one,
-     * else from its GL buffer.
+     * fills the destination's one form, as `writeBuffer` would. A `cpu: true` source copies from its array,
+     * which is what its GPU form is uploaded from; any other from its texture when it is a storage buffer,
+     * else from its GL buffer. A storage buffer's texture copies only into another storage buffer.
      */
     copyBuffer(
         source: GpuBuffer,
@@ -463,11 +455,7 @@ export class WebGLBackend implements DeviceBackend {
             return;
         }
         if (destination.usage.has('storage')) {
-            const sourceBuffer = Buffers.getUploaded(this.buffers, source);
-            if (
-                Textures.hasStorageTexture(this.textures, source) ||
-                (sourceBuffer === undefined && source.usage.has('storage'))
-            ) {
+            if (source.usage.has('storage')) {
                 Textures.copyStorageTextureSpan(
                     gl,
                     this.textures,
@@ -478,9 +466,7 @@ export class WebGLBackend implements DeviceBackend {
                     byteSize,
                 );
             } else {
-                const from =
-                    sourceBuffer ??
-                    Buffers.ensureUploaded(gl, this.buffers, source, gl.COPY_READ_BUFFER, source.label ?? 'copy-source');
+                const from = Buffers.ensureUploaded(gl, this.buffers, source, gl.COPY_READ_BUFFER, source.label ?? 'copy-source');
                 Textures.unpackStorageTextureSpan(
                     gl,
                     this.textures,
@@ -491,13 +477,15 @@ export class WebGLBackend implements DeviceBackend {
                     byteSize,
                 );
             }
+            return;
         }
-        const storageOnly = destination.usage.size === 1 && destination.usage.has('storage');
-        if (!storageOnly || Buffers.getUploaded(this.buffers, destination) !== undefined) {
-            Buffers.copyBufferBytes(gl, this.buffers, source, sourceByteOffset, destination, destinationByteOffset, byteSize);
-        } else {
-            this.buffers.textureOnly.add(destination);
+        if (source.usage.has('storage')) {
+            throw new Error(
+                `[webgl] copyBuffer: '${source.label ?? 'unlabelled'}' is a storage buffer, which WebGL2 keeps as a texture, ` +
+                    `so it copies only into another storage buffer, not into '${destination.label ?? 'unlabelled'}'.`,
+            );
         }
+        Buffers.copyBufferBytes(gl, this.buffers, source, sourceByteOffset, destination, destinationByteOffset, byteSize);
     }
 
     copyTexture(source: GpuTexture, region: TextureRegion, destination: GpuTexture, origin: TextureOrigin): void {
