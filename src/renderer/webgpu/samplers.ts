@@ -21,7 +21,7 @@ type SamplerData = {
 };
 
 export type SamplerCache = {
-    /** Sampler data keyed by `GpuSampler.settingsKey`. */
+    /** Sampler data keyed by `GpuSampler.settingsKey`, kept for the renderer's life: bounded by the distinct settings. */
     cache: Map<string, SamplerData>;
 };
 

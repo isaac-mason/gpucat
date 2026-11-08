@@ -1,6 +1,7 @@
 import type { SamplerEntry, TextureEntry, UniformGroupBlock } from '../../nodes/builder';
 import type * as d from '../../schema/schema';
 import type { BindGroup as NodeBindGroup } from '../core/bind-group';
+import { type BindGroupCache, releaseGroupsNaming } from './bind-group-cache';
 
 /**
  * Whether a uniform block is bound at a dynamic offset. Anything but frame scope can hold different values
@@ -32,8 +33,17 @@ export function assertDynamicUniformLimit(device: GPUDevice, bindGroups: readonl
     }
 }
 
+/**
+ * Layouts by their entries, each counted by what holds it, as Dawn's pipeline layouts and bind groups hold theirs: a
+ * pipeline for each of its groups, and a bind group's data for its own. A layout leaves with its last holder, and the
+ * cached bind groups over it with it.
+ */
 export type BindGroupLayoutCache = {
     cache: Map<string, GPUBindGroupLayout>;
+    /** each layout's key and how many hold it */
+    held: Map<GPUBindGroupLayout, { key: string; holders: number }>;
+    /** the bind groups cached over each layout, released with it */
+    bindGroups: BindGroupCache;
 };
 
 /**
@@ -103,8 +113,26 @@ export function samplerBindingType(entry: SamplerEntry): GPUSamplerBindingType {
 }
 
 /** create a bind group layout cache */
-export function createBindGroupLayoutCache(): BindGroupLayoutCache {
-    return { cache: new Map() };
+export function createBindGroupLayoutCache(bindGroups: BindGroupCache): BindGroupLayoutCache {
+    return { cache: new Map(), held: new Map(), bindGroups };
+}
+
+/** One more holder of `layout`, a layout from this cache. */
+export function holdBindGroupLayout(cache: BindGroupLayoutCache, layout: GPUBindGroupLayout): void {
+    const entry = cache.held.get(layout);
+    if (entry === undefined) throw new Error('[gpucat] a held bind group layout must come from the layout cache');
+    entry.holders++;
+}
+
+/** One fewer holder of `layout`: with none left it leaves the cache, and every bind group cached over it goes. */
+export function releaseBindGroupLayout(cache: BindGroupLayoutCache, layout: GPUBindGroupLayout): void {
+    const entry = cache.held.get(layout);
+    if (entry === undefined) return;
+    entry.holders--;
+    if (entry.holders > 0) return;
+    cache.held.delete(layout);
+    if (cache.cache.get(entry.key) === layout) cache.cache.delete(entry.key);
+    releaseGroupsNaming(cache.bindGroups, layout);
 }
 
 /**
@@ -132,6 +160,7 @@ export function getBindGroupLayout(
     if (!layout) {
         layout = device.createBindGroupLayout({ entries });
         cache.cache.set(key, layout);
+        cache.held.set(layout, { key, holders: 0 });
     }
     return layout;
 }
@@ -257,6 +286,7 @@ export function buildComputeBindGroupLayouts(
 /** Drop every cached layout (called on renderer dispose; `device.destroy()` frees the GPU side). */
 export function disposeBindGroupLayoutCache(cache: BindGroupLayoutCache): void {
     cache.cache.clear();
+    cache.held.clear();
 }
 
 export function getBindGroupLayoutCacheStats(cache: BindGroupLayoutCache): { layoutCount: number } {

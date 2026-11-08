@@ -13,11 +13,19 @@ import type { ComputeContext, RenderContext } from '../core/pass-context';
 import type { RenderObject } from '../core/render-object';
 import * as RenderState from '../core/render-state';
 import { formatHasStencil } from '../core/render-types';
-import { assertDynamicUniformLimit, type BindGroupLayoutCache, buildComputeBindGroupLayouts } from './bind-group-layout';
+import {
+    assertDynamicUniformLimit,
+    type BindGroupLayoutCache,
+    buildComputeBindGroupLayouts,
+    holdBindGroupLayout,
+    releaseBindGroupLayout,
+} from './bind-group-layout';
 
 export type ComputePipelineEntry = {
     pipeline: GPUComputePipeline | null;
     nodeBuilderState: NodeBuilderState;
+    /** its group layouts, held while it is cached */
+    layouts: GPUBindGroupLayout[];
 };
 
 export type RenderPipelineEntry = {
@@ -25,6 +33,8 @@ export type RenderPipelineEntry = {
     cacheKey: string;
     /** RenderObjects holding it: at 0 it leaves the cache, as three.js releases a program at zero `usedTimes`. */
     users: number;
+    /** its group layouts, held while it is cached */
+    layouts: GPUBindGroupLayout[];
 };
 
 export type PipelinesStats = {
@@ -148,8 +158,10 @@ export function getForRender(
         pipeline: null,
         cacheKey,
         users: 0,
+        layouts: bindGroupLayouts,
     };
     state.renderPipelines.set(cacheKey, entry);
+    for (const layout of bindGroupLayouts) holdBindGroupLayout(state.bindGroupLayoutCache, layout);
 
     // Build pipeline descriptor
     const descriptor = buildRenderPipelineDescriptor(
@@ -325,7 +337,10 @@ export function getForCompute(
     if (!node._onDispose) {
         node._onDispose = () => {
             NodeManager.deleteForCompute(nodes, node);
+            const cached = state.computePipelines.get(node.id);
             state.computePipelines.delete(node.id);
+            if (cached !== undefined)
+                for (const layout of cached.layouts) releaseBindGroupLayout(state.bindGroupLayoutCache, layout);
         };
     }
 
@@ -343,8 +358,10 @@ export function getForCompute(
     entry = {
         pipeline: null,
         nodeBuilderState,
+        layouts: bindGroupLayouts,
     };
     state.computePipelines.set(key, entry);
+    for (const layout of bindGroupLayouts) holdBindGroupLayout(state.bindGroupLayoutCache, layout);
 
     const descriptor: GPUComputePipelineDescriptor = {
         label: `computePipeline_${stage}`,
@@ -462,7 +479,9 @@ export function releaseRenderPipeline(state: PipelinesState, held: { pipelineEnt
     if (entry === null) return;
     held.pipelineEntry = null;
     entry.users--;
-    if (entry.users === 0 && state.renderPipelines.get(entry.cacheKey) === entry) state.renderPipelines.delete(entry.cacheKey);
+    if (entry.users > 0 || state.renderPipelines.get(entry.cacheKey) !== entry) return;
+    state.renderPipelines.delete(entry.cacheKey);
+    for (const layout of entry.layouts) releaseBindGroupLayout(state.bindGroupLayoutCache, layout);
 }
 
 /** Drop every cached pipeline (called on renderer dispose; `device.destroy()` frees the GPU side). */

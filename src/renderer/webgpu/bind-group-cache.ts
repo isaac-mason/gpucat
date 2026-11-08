@@ -4,10 +4,9 @@
  * layout and the GPU objects bound, by identity, so a recreated texture or buffer is a new key and a stale entry is
  * never found again.
  *
- * An entry goes with the first GPU object it binds that is destroyed, so a disposed scene's groups go with its
- * resources. One whose objects all live but which nothing has bound for {@link GROUP_KEEP_FRAMES} frames is dropped too,
- * as Granite's and Filament's descriptor caches recycle theirs: a group whose texture alternates (a ping-pong target)
- * finds its other entry still there.
+ * An entry goes with the first object it names that goes: a buffer or texture it binds destroyed, or its layout's last
+ * holder released. As Godot's `UniformSetCacheRD` keeps uniform sets, it lives exactly as long as what it depends on,
+ * so a group whose texture alternates (a ping-pong target) finds its other entry still there while both live.
  */
 export type CachedGroup = {
     key: string;
@@ -21,10 +20,6 @@ export type CachedGroup = {
     dynamicBindGroups: (GPUBindGroup | undefined)[];
     /** the GPU objects the key names */
     objects: object[];
-    /** the frame it was last bound in */
-    lastFrame: number;
-    /** dropped from the cache unused: a group still holding it re-enters it on its next use */
-    evicted: boolean;
     /** an object it binds was destroyed: no group may bind it again */
     released: boolean;
 };
@@ -34,15 +29,10 @@ export type BindGroupCache = {
     groups: Map<string, CachedGroup>;
     /** the entries naming each GPU object, so destroying the object releases them */
     objectToGroups: WeakMap<object, CachedGroup[]>;
-    /** the frame the cache was last swept for unused entries */
-    sweptFrame: number;
 };
 
-/** Frames an entry stays cached unused, and how often the cache is swept for them. */
-export const GROUP_KEEP_FRAMES = 300;
-
 export function createBindGroupCache(): BindGroupCache {
-    return { groups: new Map(), objectToGroups: new WeakMap(), sweptFrame: 0 };
+    return { groups: new Map(), objectToGroups: new WeakMap() };
 }
 
 /** Entries held. */
@@ -65,33 +55,12 @@ export function cachedGroup(cache: BindGroupCache, key: string, objects: readonl
             bindGroup: null,
             dynamicBindGroups: [],
             objects: [...objects],
-            lastFrame: 0,
-            evicted: false,
             released: false,
         };
         cache.groups.set(key, group);
         file(cache, group);
     }
     return group;
-}
-
-/** An evicted entry a group still binds, back in the cache unless another took its key since. */
-export function readmit(cache: BindGroupCache, group: CachedGroup): void {
-    group.evicted = false;
-    if (cache.groups.has(group.key)) return;
-    cache.groups.set(group.key, group);
-    file(cache, group);
-}
-
-/** Drops entries no draw or dispatch has bound for {@link GROUP_KEEP_FRAMES} frames. */
-export function sweepGroups(cache: BindGroupCache, frameId: number): void {
-    cache.sweptFrame = frameId;
-    for (const [key, group] of cache.groups) {
-        if (frameId - group.lastFrame < GROUP_KEEP_FRAMES) continue;
-        group.evicted = true;
-        cache.groups.delete(key);
-        unfile(cache, group, null);
-    }
 }
 
 /** `object` is being destroyed: every entry naming it leaves the cache for good. */

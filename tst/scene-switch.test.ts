@@ -110,6 +110,7 @@ function held(renderer: Renderer<WebGPUBackend>) {
         shaderStates: renderer._nodes.renderStates.size,
         renderPipelines: backend.pipelines.renderPipelines.size,
         bindGroups: backend.bindGroupCache.groups.size,
+        layouts: backend.bindGroupLayoutCache.held.size,
         arena: getDrawArenaStats(backend.buffers.drawArena),
         buffers: memory.buffers,
         buffersSize: memory.buffersSize,

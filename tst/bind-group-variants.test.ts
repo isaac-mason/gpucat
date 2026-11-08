@@ -153,20 +153,56 @@ test('a static scene creates no bind group after its first frame, and counts wha
     expect(renderer.info.state.held).toBeGreaterThan(0);
 });
 
-/**
- * An entry no draw binds for long enough is dropped; one bound again is built again. Sweeps run every keep period, so an
- * entry goes between one and two periods after its last use.
- */
-test('an entry unused for its keep frames is dropped, and a later use builds it again', async () => {
+/** An entry lives exactly as long as what it binds and its layout: no number of frames unused drops it, as Godot's
+ *  uniform-set cache keeps a set until something it depends on is freed. */
+test('an entry nothing binds for 600 frames is still there, and binding it again builds nothing', async () => {
     const { stub, renderer, node, buffer } = await make();
     const kept = buffer();
     const left = buffer();
     await dispatchEach(renderer, node, [kept, left]);
-    const held = renderer.info.state.held;
+    const held = renderer.backend.bindGroupCache.groups.size;
     for (let i = 0; i < 600; i++) await dispatchEach(renderer, node, [kept]);
-    expect(renderer.info.state.held).toBe(held - 1);
+    expect(renderer.backend.bindGroupCache.groups.size).toBe(held);
 
     stub.stats.reset();
     await dispatchEach(renderer, node, [left]);
-    expect(stub.stats.bindGroupCreations).toBe(1);
+    expect(stub.stats.bindGroupCreations).toBe(0);
+});
+
+test('an entry goes with a buffer it binds', async () => {
+    const { renderer, node, buffer } = await make();
+    const kept = buffer();
+    const left = buffer();
+    await dispatchEach(renderer, node, [kept, left]);
+    const held = renderer.backend.bindGroupCache.groups.size;
+    left.dispose();
+    expect(renderer.backend.bindGroupCache.groups.size).toBe(held - 1);
+});
+
+/** A disposed node's pipeline and groups let go of their layouts, and the entries over a layout go with its last holder,
+ *  though the buffers they bound live on. */
+test('a compute node disposed takes its layouts and every entry over them, its buffers still alive', async () => {
+    const { renderer, node, buffer } = await make();
+    const layoutsBefore = renderer.backend.bindGroupLayoutCache.held.size;
+    const groupsBefore = renderer.backend.bindGroupCache.groups.size;
+    const views = [buffer(), buffer()];
+    await dispatchEach(renderer, node, views);
+    expect(renderer.backend.bindGroupCache.groups.size).toBeGreaterThan(groupsBefore);
+
+    node.dispose();
+    expect(renderer.backend.bindGroupCache.groups.size).toBe(groupsBefore);
+    expect(renderer.backend.bindGroupLayoutCache.held.size).toBe(layoutsBefore);
+});
+
+test('materials disposed while the texture they sample lives leave no layout or bind group of theirs', async () => {
+    const { renderer } = await make();
+    const layoutsBefore = renderer.backend.bindGroupLayoutCache.held.size;
+    const groupsBefore = renderer.backend.bindGroupCache.groups.size;
+    const meshes = texturedScene();
+    await drawFrame(renderer, meshes);
+    expect(renderer.backend.bindGroupCache.groups.size).toBeGreaterThan(groupsBefore);
+
+    for (const mesh of meshes) mesh.material.dispose();
+    expect(renderer.backend.bindGroupCache.groups.size).toBe(groupsBefore);
+    expect(renderer.backend.bindGroupLayoutCache.held.size).toBe(layoutsBefore);
 });

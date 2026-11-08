@@ -4,6 +4,7 @@ import type { RenderTarget } from '../../core/render-target';
 import type { TextureOrigin, TextureRegion } from '../../core/texture-region';
 import type { ComputeNode } from '../../nodes/nodes';
 import { yieldToMain } from '../../utils/yield-to-main';
+import type { BindGroup } from '../core/bind-group';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DeviceBackend } from '../core/device-backend';
 import type {
@@ -105,12 +106,12 @@ export class WebGPUBackend implements DeviceBackend {
     /** The only cache `init` has to build, because it stores the renderer's `info` by reference. @internal */
     buffers: Buffers.BufferCache = null!;
 
-    /** Value-keyed, shared by pipelines and bindings so one entry shape yields one layout. @internal */
-    bindGroupLayoutCache: BindGroupLayoutCache = createBindGroupLayoutCache();
     /** Every GPU allocation this backend holds, shared by its buffer, texture and swapchain caches. @internal */
     readonly memoryTally: Info.MemoryTally = Info.createMemoryTally();
     /** Every GPU bind group, by layout and resources; the caches that destroy what groups bind release them. @internal */
     readonly bindGroupCache: BindGroupCache.BindGroupCache = BindGroupCache.createBindGroupCache();
+    /** Value-keyed, shared by pipelines and bindings so one entry shape yields one layout. @internal */
+    bindGroupLayoutCache: BindGroupLayoutCache = createBindGroupLayoutCache(this.bindGroupCache);
     /** @internal */ textures: Textures.TextureCache = Textures.createTextureCache(this.memoryTally, this.bindGroupCache);
     /** @internal */ samplers: Samplers.SamplerCache = Samplers.createSamplerCache();
     /** @internal */ pipelines: Pipelines.PipelinesState = Pipelines.createPipelinesState(this.bindGroupLayoutCache);
@@ -388,6 +389,11 @@ export class WebGPUBackend implements DeviceBackend {
 
     releaseUniformBlock(key: object): void {
         Buffers.releaseUniformBlock(this.buffers, key);
+    }
+
+    /** @internal */
+    releaseBindGroup(bindGroup: BindGroup): void {
+        Bindings.releaseBindGroup(this.bindings, bindGroup);
     }
 
     /** Nothing to forget: a WebGPU pass starts from no state, and other users of the device cannot reach its encoders. */

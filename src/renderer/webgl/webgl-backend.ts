@@ -4,6 +4,7 @@ import type { RenderTarget } from '../../core/render-target';
 import type { TextureOrigin, TextureRegion } from '../../core/texture-region';
 import type { ComputeNode } from '../../nodes/lib/core';
 import { yieldToMain } from '../../utils/yield-to-main';
+import type { BindGroup } from '../core/bind-group';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DeviceBackend } from '../core/device-backend';
 import type {
@@ -309,6 +310,10 @@ export class WebGLBackend implements DeviceBackend {
     releaseUniformBlock(key: object): void {
         if (this.gl) Buffers.releaseUniformBlock(this.gl, this.buffers, key);
     }
+
+    /** Nothing to let go of: a WebGL group holds no layout, and its uniform blocks go through `releaseUniformBlock`. */
+    /** @internal */
+    releaseBindGroup(_bindGroup: BindGroup): void {}
 
     /**
      * Puts the context back to GL's defaults for everything gpucat sets or reads through, and forgets its records of it.

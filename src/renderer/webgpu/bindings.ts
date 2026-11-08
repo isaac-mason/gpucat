@@ -29,11 +29,13 @@ import {
     resolvedThisScope,
     type StampCheck,
 } from '../core/uniform-use';
-import { type BindGroupCache, type CachedGroup, cachedGroup, GROUP_KEEP_FRAMES, readmit, sweepGroups } from './bind-group-cache';
+import { type BindGroupCache, type CachedGroup, cachedGroup } from './bind-group-cache';
 import {
     type BindGroupLayoutCache,
     fillEmptyLayouts,
     getBindGroupLayout,
+    holdBindGroupLayout,
+    releaseBindGroupLayout,
     samplerBindingType,
     textureBindingLayout,
     usesDynamicOffset,
@@ -238,7 +240,6 @@ export function updateRenderBindings(b: WebGPUBackend, renderObject: RenderObjec
             data,
             renderObject.material.parameters,
             null,
-            frame.frameId,
             info,
         );
         if (gpuBindGroup) {
@@ -286,7 +287,6 @@ export function updateComputeBindings(
             data,
             null,
             inputs,
-            frame.frameId,
             info,
         );
         if (gpuBindGroup) {
@@ -339,7 +339,6 @@ function currentGPUBindGroup(
     data: BindGroupData,
     parameters: MaterialParameters | null,
     inputs: DispatchInputs | null,
-    frameId: number,
     info: StateInfo,
 ): GPUBindGroup | null {
     if (data.needsUpdate || data.current === null || data.current.released) {
@@ -348,9 +347,6 @@ function currentGPUBindGroup(
         data.needsUpdate = false;
     }
     const variant = data.current;
-    if (variant.evicted) readmit(state.cache, variant);
-    variant.lastFrame = frameId;
-    if (frameId - state.cache.sweptFrame >= GROUP_KEEP_FRAMES) sweepGroups(state.cache, frameId);
     info.held = state.cache.groups.size;
 
     const uniform = dynamicUniformBinding(bindGroup);
@@ -399,10 +395,21 @@ function currentGPUBindGroup(
     return built;
 }
 
-/** The cache entry over `data`'s layout and the resources `resources` names, its GPU objects being `objects`. */
-function groupFor(state: BindingsState, data: BindGroupData, resources: string, objects: readonly object[]): CachedGroup {
+/** The cache entry over `data`'s layout and the resources `resources` names, its GPU objects being `objects`: filed
+ *  under the layout as well, so it goes when the layout's last holder does. */
+function groupFor(state: BindingsState, data: BindGroupData, resources: string, objects: object[]): CachedGroup {
     const key = `${data.bindGroupLayout === null ? 0 : objectId(state, data.bindGroupLayout)}|${resources}`;
+    if (data.bindGroupLayout !== null) objects.push(data.bindGroupLayout);
     return cachedGroup(state.cache, key, objects);
+}
+
+/** `bindGroup` ended with its owner (a render object, a shared group's last compiled state, a compute node): its data
+ *  goes, and with it its hold on its layout. */
+export function releaseBindGroup(state: BindingsState, bindGroup: BindGroup): void {
+    const data = state.data.get(bindGroup);
+    if (data === undefined) return;
+    state.data.delete(bindGroup);
+    if (data.bindGroupLayout !== null) releaseBindGroupLayout(state.layoutCache, data.bindGroupLayout);
 }
 
 /** A group that bound a texture since disposed resolves again: no group may bind it again. */
@@ -572,8 +579,9 @@ function initBindGroup(
     // build bind group layout entries
     const entries = buildLayoutEntries(bindGroup, uniformVisibility, device);
 
-    // get or create the layout
+    // get or create the layout, held for as long as the group is
     data.bindGroupLayout = getBindGroupLayout(state.layoutCache, device, entries);
+    holdBindGroupLayout(state.layoutCache, data.bindGroupLayout);
 }
 
 /**

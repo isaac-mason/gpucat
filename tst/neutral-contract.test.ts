@@ -77,6 +77,9 @@ const EXPECTED: Record<string, string[]> = {
         'readMemoryStats',
         'releaseRenderObject',
         'releaseUniformBlock',
+        // a bind group's owner ended: WebGPU lets go of the group's layout, counted, so the layout and the bind groups
+        // cached over it go with their last holder; WebGL's groups hold no layout
+        'releaseBindGroup',
         // forgets what the backend assumes the device holds: WebGL resets its context, WebGPU has nothing to forget
         'resetState',
         'memoryTally',

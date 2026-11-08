@@ -13,7 +13,16 @@
             "recommended": true,
             "style": {
                 "noNonNullAssertion": "off",
-                "noParameterAssign": "off"
+                "noParameterAssign": "off",
+                "noRestrictedGlobals": {
+                    "level": "error",
+                    "options": {
+                        "deniedGlobals": {
+                            "FinalizationRegistry": "Lifetimes follow owners: release in dispose(), never when the garbage collector runs.",
+                            "WeakRef": "Lifetimes follow owners: hold or release explicitly, never by what the garbage collector keeps."
+                        }
+                    }
+                }
             },
             "suspicious": {
                 "noExplicitAny": "off"

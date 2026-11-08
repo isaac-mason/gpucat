@@ -38,12 +38,12 @@ export type NodeManagerState = {
 
     /** Frees the uniform blocks of the bind groups a RenderObject copies from its compiled shader, and what the backend
      *  holds for a RenderObject being disposed. */
-    backend: Pick<DeviceBackend, 'releaseUniformBlock' | 'releaseRenderObject'>;
+    backend: Pick<DeviceBackend, 'releaseUniformBlock' | 'releaseBindGroup' | 'releaseRenderObject'>;
 };
 
 /** create a new NodeManager state */
 export function createNodeManagerState(
-    backend: Pick<DeviceBackend, 'releaseUniformBlock' | 'releaseRenderObject'>,
+    backend: Pick<DeviceBackend, 'releaseUniformBlock' | 'releaseBindGroup' | 'releaseRenderObject'>,
     layout: MemoryLayout,
 ): NodeManagerState {
     return {
@@ -168,6 +168,7 @@ export function releaseNodeState(state: NodeManagerState, renderObject: RenderOb
                 if (binding.kind === 'uniform' && binding.bufferKey !== null)
                     state.backend.releaseUniformBlock(binding.bufferKey);
             }
+            state.backend.releaseBindGroup(group);
         }
     }
 
@@ -180,7 +181,12 @@ export function releaseNodeState(state: NodeManagerState, renderObject: RenderOb
     entry.users--;
     if (entry.users > 0) return;
     state.renderStates.delete(nodeState.cacheKey);
-    releaseNodeBuilderState(nodeState, state.sharedBlocks, (key) => state.backend.releaseUniformBlock(key));
+    releaseNodeBuilderState(
+        nodeState,
+        state.sharedBlocks,
+        (key) => state.backend.releaseUniformBlock(key),
+        (group) => state.backend.releaseBindGroup(group),
+    );
 }
 
 /**
@@ -357,6 +363,12 @@ export function deleteForCompute(state: NodeManagerState, computeNode: ComputeNo
         for (const binding of group.bindings) {
             if (binding.kind === 'uniform' && binding.bufferKey !== null) state.backend.releaseUniformBlock(binding.bufferKey);
         }
+        state.backend.releaseBindGroup(group);
     }
-    releaseNodeBuilderState(nodeState, state.sharedBlocks, (key) => state.backend.releaseUniformBlock(key));
+    releaseNodeBuilderState(
+        nodeState,
+        state.sharedBlocks,
+        (key) => state.backend.releaseUniformBlock(key),
+        (group) => state.backend.releaseBindGroup(group),
+    );
 }

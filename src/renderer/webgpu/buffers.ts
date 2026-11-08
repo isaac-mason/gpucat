@@ -60,7 +60,8 @@ export type BufferCache = {
  * buffer placed ahead of the frame's, then remapped for reuse. No allocation is written twice in a frame.
  */
 export type DynamicUniformBuffers = {
-    /** Free GPU buffers. One returns here as soon as its copy is scheduled: the copy runs before any later pass. */
+    /** Free GPU buffers. One returns here as soon as its copy is scheduled: the copy runs before any later pass. The pool
+     *  keeps as many as the busiest frame used, for the renderer's life. */
     gpuBuffers: DynamicGpuBuffer[];
     /** Staging buffers mapped for writing. */
     stagingBuffers: StagingBuffer[];

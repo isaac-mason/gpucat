@@ -429,13 +429,14 @@ export function assertVertexBuffers(
 
 /**
  * Lets go of what a compiled state holds that its users don't: each cached shared group stops counting it, and one held
- * by no other state leaves the cache. The uniform blocks of every shared group no state holds any more go to
- * `releaseUniformBlock`, a cached group's with its last holder and another shared group's with this state.
+ * by no other state leaves the cache. Every shared group no state holds any more goes to `releaseBindGroup` and its
+ * uniform blocks to `releaseUniformBlock`, a cached group with its last holder and another shared group with this state.
  */
 export function releaseNodeBuilderState(
     nodeState: NodeBuilderState,
     sharedBlocks: SharedBlocks,
     releaseUniformBlock: (key: object) => void,
+    releaseBindGroup: (group: BindGroup) => void,
 ): void {
     releaseSharedReaders(sharedBlocks, nodeState.sharedMembers, releaseUniformBlock);
     nodeState.sharedMembers.length = 0;
@@ -446,10 +447,13 @@ export function releaseNodeBuilderState(
         if (hold.entry.users > 0) continue;
         if (hold.cache.get(hold.key) === hold.entry) hold.cache.delete(hold.key);
         releaseGroupBlocks(hold.entry.bindGroup, releaseUniformBlock);
+        releaseBindGroup(hold.entry.bindGroup);
     }
     nodeState.sharedHolds.length = 0;
     for (const group of nodeState.bindings) {
-        if (group.shared && !cached.has(group)) releaseGroupBlocks(group, releaseUniformBlock);
+        if (!group.shared || cached.has(group)) continue;
+        releaseGroupBlocks(group, releaseUniformBlock);
+        releaseBindGroup(group);
     }
 }
 
