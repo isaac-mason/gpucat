@@ -1,9 +1,11 @@
 import { type CompileGlslOptions, compileGlsl } from '../../nodes/builder';
+import type { NodeBuilderState } from '../core/node-builder-state';
 import { compileNodeState, type NodeManagerState, needsNodeUpdate } from '../core/node-manager';
 import { getBindings, type RenderObject } from '../core/render-object';
 import type { SharedPlacement } from '../core/shared-blocks';
-import { holdProgram, releaseProgram } from './programs';
-import { getRenderObjectGl } from './render-object-gl';
+import { holdProgram, type ProgramCache, releaseProgram, startProgram } from './programs';
+import { getRenderObjectGl, type RenderObjectGlCache } from './render-object-gl';
+import type { GlState } from './state';
 import type { WebGLBackend } from './webgl-backend';
 
 /**
@@ -17,6 +19,37 @@ export function prepareRenderObject(
     renderObject: RenderObject,
     glslOptions?: CompileGlslOptions,
 ): void {
+    const nodeState = compileRenderObject(gl, b.programs, b.glState, b.renderObjectGl, nodes, renderObject, glslOptions);
+    const payload = getRenderObjectGl(b.renderObjectGl, renderObject);
+    if (!payload.program) {
+        holdProgram(gl, b.programs, b.glState, payload, nodeState.vertexCode, nodeState.uniformGroups, nodeState.textures);
+    }
+}
+
+/**
+ * {@link prepareRenderObject}'s GLSL and bind groups, with its program's compile and link only issued, so a prewarm
+ * can start every program before it reads any.
+ */
+export function startRenderObject(
+    gl: WebGL2RenderingContext,
+    b: WebGLBackend,
+    nodes: NodeManagerState,
+    renderObject: RenderObject,
+    glslOptions?: CompileGlslOptions,
+): void {
+    const nodeState = compileRenderObject(gl, b.programs, b.glState, b.renderObjectGl, nodes, renderObject, glslOptions);
+    if (!getRenderObjectGl(b.renderObjectGl, renderObject).program) startProgram(gl, b.programs, nodeState.vertexCode);
+}
+
+function compileRenderObject(
+    gl: WebGL2RenderingContext,
+    programs: ProgramCache,
+    glState: GlState,
+    renderObjectGl: RenderObjectGlCache,
+    nodes: NodeManagerState,
+    renderObject: RenderObject,
+    glslOptions: CompileGlslOptions | undefined,
+): NodeBuilderState & { vertexCode: string } {
     // Indirect draw is WebGPU-only. WebGL2 has no drawElementsIndirect / drawArraysIndirect (it can't
     // read draw args from a GPU buffer), and the WEBGL_multi_draw translation is patchy across drivers,
     // so gpucat rejects it here — once per object at prepare, not per-frame — rather than partially
@@ -35,7 +68,7 @@ export function prepareRenderObject(
             compileGlsl(slots, { ...glslOptions, shared: shared ?? undefined });
         compileNodeState(nodes, renderObject, compile);
         // A recompile invalidates the cached program payload (the source may have changed).
-        releaseProgram(gl, b.programs, b.glState, getRenderObjectGl(b.renderObjectGl, renderObject));
+        releaseProgram(gl, programs, glState, getRenderObjectGl(renderObjectGl, renderObject));
     }
 
     const nodeState = renderObject.nodeBuilderState;
@@ -48,10 +81,5 @@ export function prepareRenderObject(
 
     // Ensure the RenderObject's bind groups exist (clones non-shared, reuses shared).
     getBindings(renderObject);
-
-    // Compile + link (or fetch the cached) GL program for this material's source.
-    const payload = getRenderObjectGl(b.renderObjectGl, renderObject);
-    if (!payload.program) {
-        holdProgram(gl, b.programs, b.glState, payload, nodeState.vertexCode, nodeState.uniformGroups, nodeState.textures);
-    }
+    return nodeState as NodeBuilderState & { vertexCode: string };
 }

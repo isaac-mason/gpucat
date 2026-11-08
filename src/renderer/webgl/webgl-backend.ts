@@ -184,6 +184,7 @@ export class WebGLBackend implements DeviceBackend {
         this._drawBases = this._opts.multiDraw === false ? null : DrawBases.createDrawBases(this.gl);
         this._passUniforms = PassUniforms.createPassUniforms(this.gl);
         Programs.setTextureUnitCount(this.programs, this.gl.getParameter(this.gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS) as number);
+        Programs.enableParallelCompile(this.gl, this.programs);
         setSharedPlacement(renderer._nodes, this.gl.getParameter(this.gl.MAX_UNIFORM_BLOCK_SIZE) as number);
 
         // WebGL's parallel to WebGPU's `device.lost`: the canvas fires `webglcontextlost` when the
@@ -273,16 +274,26 @@ export class WebGLBackend implements DeviceBackend {
         FrameBackend.discardFrame(this._frame);
     }
 
-    /** WebGL2 has no async link, so this only moves the stall off the first frame and onto load. */
+    /**
+     * Starts every program before reading any, so the driver links them side by side, then finishes each once
+     * KHR_parallel_shader_compile says it is done. Without the extension the reads wait on each link in turn.
+     */
     /** @internal */
     async compileObjects(objects: RenderObject[], _params: RenderPassParams): Promise<void> {
+        const gl = this.gl!;
+        const nodes = this.renderer._nodes;
         const opts = {
             precision: this._opts.precision,
             maxTextureSize: this._maxTextureSize,
             multiDraw: this._drawBases !== null,
         };
         for (const renderObject of objects) {
-            Prepare.prepareRenderObject(this.gl!, this, this.renderer._nodes, renderObject, opts);
+            Prepare.startRenderObject(gl, this, nodes, renderObject, opts);
+            await yieldToMain();
+        }
+        await Programs.whenProgramsLinked(gl, this.programs);
+        for (const renderObject of objects) {
+            Prepare.prepareRenderObject(gl, this, nodes, renderObject, opts);
             await yieldToMain();
         }
     }

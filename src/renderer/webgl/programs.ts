@@ -83,15 +83,36 @@ export type TextureUniforms = {
     flipped: number;
 };
 
+/** A program whose stages were compiled and linked without reading their status, which would wait for the driver. */
+type PendingProgram = {
+    program: WebGLProgram;
+    vertex: WebGLShader;
+    fragment: WebGLShader;
+    vertexSource: string;
+    fragmentSource: string;
+};
+
+/** From KHR_parallel_shader_compile: whether a program's link has finished, readable without waiting for it. */
+const COMPLETION_STATUS_KHR = 0x91b1;
+
 /** Program cache, keyed by the combined GLSL source string, and the texture homes its programs read. */
 export type ProgramCache = {
     programs: Map<string, ProgramInfo>;
+    /** Programs started by {@link startProgram} whose link nothing has read yet. */
+    pending: Map<string, PendingProgram>;
+    /** Whether the context has KHR_parallel_shader_compile, so a pending program can be asked if it is done. */
+    parallel: boolean;
     homes: TextureHomes;
 };
 
 /** Create an empty program cache; its homes wait for the context's unit count ({@link setTextureUnitCount}). */
 export function createProgramCache(): ProgramCache {
-    return { programs: new Map(), homes: createTextureHomes(0) };
+    return { programs: new Map(), pending: new Map(), parallel: false, homes: createTextureHomes(0) };
+}
+
+/** Turns on KHR_parallel_shader_compile, where the context has it: the driver then compiles programs on its own threads. */
+export function enableParallelCompile(gl: WebGL2RenderingContext, cache: ProgramCache): void {
+    cache.parallel = gl.getExtension('KHR_parallel_shader_compile') !== null;
 }
 
 /** Gives the cache's programs homes when the device has the units for them. */
@@ -119,21 +140,74 @@ function splitStages(code: string): { vertex: string; fragment: string } {
 
 /** Compile one shader stage, throwing with the info log (and source) on failure. */
 function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-    const shader = gl.createShader(type);
-    if (!shader) throw new Error('[webgl] gl.createShader returned null.');
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        const log = gl.getShaderInfoLog(shader);
+    const shader = startShader(gl, type, source);
+    const error = shaderError(gl, shader, type, source);
+    if (error !== null) {
         gl.deleteShader(shader);
-        const stage = type === gl.VERTEX_SHADER ? 'vertex' : 'fragment';
-        throw new Error(`[webgl] ${stage} shader compile failed:\n${log}\n---- source ----\n${source}`);
+        throw new Error(error);
     }
     return shader;
 }
 
+/** Issue one stage's compile without reading its status: a status read waits for the driver to finish it. */
+function startShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
+    const shader = gl.createShader(type);
+    if (!shader) throw new Error('[webgl] gl.createShader returned null.');
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    return shader;
+}
+
+/** The message for a stage that failed to compile, with its info log and source; null when it compiled. */
+function shaderError(gl: WebGL2RenderingContext, shader: WebGLShader, type: number, source: string): string | null {
+    if (gl.getShaderParameter(shader, gl.COMPILE_STATUS)) return null;
+    const stage = type === gl.VERTEX_SHADER ? 'vertex' : 'fragment';
+    return `[webgl] ${stage} shader compile failed:\n${gl.getShaderInfoLog(shader)}\n---- source ----\n${source}`;
+}
+
 /**
- * Get (or compile + link + cache) the GL program for a compiled material.
+ * Issue the compile and link of `code`'s program without reading any status, as three.js's WebGL backends do: the
+ * driver works on it while the caller starts others, and {@link getProgram} reads the result.
+ */
+export function startProgram(gl: WebGL2RenderingContext, cache: ProgramCache, code: string): void {
+    if (cache.programs.has(code) || cache.pending.has(code)) return;
+    const { vertex: vertexSource, fragment: fragmentSource } = splitStages(code);
+    const vertex = startShader(gl, gl.VERTEX_SHADER, vertexSource);
+    const fragment = startShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+    const program = gl.createProgram();
+    if (!program) throw new Error('[webgl] gl.createProgram returned null.');
+    gl.attachShader(program, vertex);
+    gl.attachShader(program, fragment);
+    gl.linkProgram(program);
+    cache.pending.set(code, { program, vertex, fragment, vertexSource, fragmentSource });
+}
+
+/**
+ * Resolves once every started program has finished linking, polled every 10 ms as three.js's `compileAsync` does: a
+ * frame callback would never run in a hidden tab, and a yield would spin the main thread while the driver works.
+ * Without KHR_parallel_shader_compile nothing can be asked, so it resolves at once and the first read waits instead.
+ */
+export function whenProgramsLinked(gl: WebGL2RenderingContext, cache: ProgramCache): Promise<void> {
+    if (!cache.parallel) return Promise.resolve();
+    return new Promise((resolve) => {
+        const check = () => {
+            // a lost context answers null for every program, which would never read as done
+            if (gl.isContextLost()) return resolve();
+            for (const pending of cache.pending.values()) {
+                if (gl.getProgramParameter(pending.program, COMPLETION_STATUS_KHR) !== true) {
+                    setTimeout(check, 10);
+                    return;
+                }
+            }
+            resolve();
+        };
+        check();
+    });
+}
+
+/**
+ * Get (or compile + link + cache) the GL program for a compiled material. A program {@link startProgram} began is
+ * finished here, which waits for the driver only if its link is still running.
  *
  * @param gl the WebGL2 context
  * @param cache the program cache
@@ -150,26 +224,25 @@ export function getProgram(
     const existing = cache.programs.get(code);
     if (existing) return existing;
 
-    const { vertex, fragment } = splitStages(code);
+    startProgram(gl, cache, code);
+    const { program, vertex, fragment, vertexSource, fragmentSource } = cache.pending.get(code)!;
+    cache.pending.delete(code);
 
-    const vs = compileShader(gl, gl.VERTEX_SHADER, vertex);
-    const fs = compileShader(gl, gl.FRAGMENT_SHADER, fragment);
-
-    const program = gl.createProgram();
-    if (!program) throw new Error('[webgl] gl.createProgram returned null.');
-    gl.attachShader(program, vs);
-    gl.attachShader(program, fs);
-    gl.linkProgram(program);
+    // the stages' logs are only read for a failed link, which is where three.js reads them too
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        const error =
+            shaderError(gl, vertex, gl.VERTEX_SHADER, vertexSource) ??
+            shaderError(gl, fragment, gl.FRAGMENT_SHADER, fragmentSource) ??
+            `[webgl] program link failed:\n${gl.getProgramInfoLog(program)}`;
+        gl.deleteShader(vertex);
+        gl.deleteShader(fragment);
+        gl.deleteProgram(program);
+        throw new Error(error);
+    }
 
     // Shaders can be detached+deleted after link — the program keeps the linked binary.
-    gl.deleteShader(vs);
-    gl.deleteShader(fs);
-
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        const log = gl.getProgramInfoLog(program);
-        gl.deleteProgram(program);
-        throw new Error(`[webgl] program link failed:\n${log}`);
-    }
+    gl.deleteShader(vertex);
+    gl.deleteShader(fragment);
 
     const uboBindingPoints = bindUniformBlocks(gl, program, uniformGroups);
     const drawBases = bindDrawBases(gl, program);
@@ -331,6 +404,12 @@ export function disposePrograms(gl: WebGL2RenderingContext, cache: ProgramCache,
         deleteProgram(gl, state, program);
     }
     cache.programs.clear();
+    for (const { program, vertex, fragment } of cache.pending.values()) {
+        gl.deleteShader(vertex);
+        gl.deleteShader(fragment);
+        gl.deleteProgram(program);
+    }
+    cache.pending.clear();
     clearTextureHomes(cache.homes);
 }
 
