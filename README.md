@@ -1235,7 +1235,7 @@ pass.end();
 
 This is cheaper than a pass per view: on a tile-based GPU (every phone, Apple silicon) each pass loads and stores its attachments, and these share one. The three cost differently, which is why they are separate. A viewport or scissor is one encoder command. A camera gives the draws after it camera uniforms of their own: on WebGPU they land in a slice of the shared per-frame uniform buffer, bound at a dynamic offset, so nothing is rewritten under a draw already recorded. Setting the camera the pass already draws from changes nothing.
 
-Rects are physical pixels from the target's top left, as on `PassDesc`; `undefined` puts the whole target back. A viewport reaching outside the target throws, naming the pass. A bundle replayed between two changes draws under the view before it, and records once per camera it is replayed under. The clear is the pass's, over the whole target; nothing clears a single rect.
+Rects are physical pixels from the target's top left, as on `PassDesc`; `undefined` puts the whole target back. A viewport reaching outside the target throws, naming the pass. A bundle executed between two changes draws under the viewport and scissor before it, from its own camera. The clear is the pass's, over the whole target; nothing clears a single rect.
 
 ### Ordering draws with bins
 
@@ -1897,7 +1897,7 @@ See `examples/src/example-webgpu-indirect-batched.ts` (CPU-driven multi-draw) an
 Instancing and indirect drawing both address *many copies of one thing*. A render bundle addresses the other axis: **many different draws whose set does not change between frames**. The draw calls are the same every frame, so re-encoding them every frame is CPU work you already know the answer to. Record them once, replay the recording:
 
 ```ts
-const encoder = bundle('static-props');
+const encoder = bundle({ camera, label: 'static-props' });
 for (const prop of props) encoder.draw(prop);
 const staticProps = encoder.finish();
 
@@ -1911,22 +1911,24 @@ function update() {
 }
 ```
 
-A bundle takes no target. The attachment shape it has to match is whichever pass executes it, so it is recorded against that pass and matches by construction. Passing the same bundle to two passes with different attachments records it twice, which is correct rather than an error.
+**A bundle has its own camera.** Its draws are drawn from it, whatever camera the pass has. WebGPU bakes a bundle's bindings when it records, the camera's uniforms included, and a bundle inherits none from the pass. So the bundle owns where its camera's values live, and writes them there each frame. Move the camera, or give the bundle another one with `staticProps.camera = other`, and the recording holds. A view that needs its own camera needs its own bundle: executing one bundle twice in a frame with different camera values throws, as one bundle holds one set of values a frame. A bundle with no camera draws as a pass with none does.
 
-**On WebGPU this is the acceleration.** The bundle becomes a `GPURenderBundle`, recorded on the first frame that executes it and replayed with one `executeBundles` after that, so the per-draw pipeline and binding calls stop happening on the CPU each frame. What a replay saves is the encoding, not the per-draw update: each bundled draw still resolves its uniforms when a pass executes the bundle, exactly as a direct draw does at `draw()`, which is what keeps a bundled draw's values as live as a direct one's. **On WebGL2 it costs nothing and buys nothing**: there is no such device object, so the records replay as the draws they always were. Code written against bundles runs correctly on both; only WebGPU gets faster.
+A bundle takes no target. It records at its first `execute`, against that pass's attachment layout: the colour formats, the depth format and the sample count. It then executes in any pass of that layout, whatever its size. A pass of another layout throws and names both; the bundle still executes in passes of its own.
 
-A recording bakes the buffers its draws read. When a pass reads a uniform from a per-frame slice (see [Uniforms](#uniforms): the same camera moved between two passes, say), the recording for that pass bakes the slice. Each replay of a bundle in a frame keeps its own recording, and one is re-recorded only when the frame's passes change shape, so steady frames replay without recording.
+**On WebGPU this is the acceleration.** The bundle becomes a `GPURenderBundle`, recorded once and replayed with one `executeBundles`, so the per-draw pipeline and binding calls stop happening on the CPU each frame. What a replay saves is the encoding, not the per-draw update: each bundled draw still resolves its uniforms when a pass executes the bundle, as a direct draw does at `draw()`, so its values stay as live as a direct one's. **On WebGL2 it costs nothing and buys nothing**: there is no such device object, so the records replay as the draws they always were, from the bundle's camera. Code written against bundles runs correctly on both; only WebGPU gets faster.
 
-A bundle holds meshes and materials by reference and will redraw whatever they have become, so changing a *value* (a uniform, a transform) needs nothing from you. Changing the *structure* does: swap a geometry or a material, or change the set of draws, and the recording is stale. Say so and it re-records on the next frame:
+`renderer.info.render.bundles` counts the bundles executed in a frame, and `bundlesRecorded` how many of them recorded first. A bundle records again only when you say so or when gpucat replaced something it binds (a buffer that grew is a new GPU buffer). One recording every frame costs more than drawing directly, so this is the number to watch.
+
+A bundle holds meshes and materials by reference and will redraw whatever they have become, so changing a *value* (a uniform, a transform) needs nothing from you. Changing the *structure* does: swap a geometry or a material, or change the set of draws, and the recording is stale. Say so and it records again at its next execute:
 
 ```ts
 staticProps.invalidate();   // the recording is wrong; build a new one
-staticProps.dispose();      // done with it; drops the records too
+staticProps.dispose();      // done with it; frees what the renderer holds for it
 ```
 
-Executing a disposed bundle throws and names it, rather than quietly drawing nothing. The label you pass to `bundle()` is what appears there, and on the device objects recorded from it, so it is worth giving one.
+Executing a disposed bundle throws and names it, rather than quietly drawing nothing, and so does executing one whose material or geometry was disposed. The label you pass to `bundle()` is what appears there, and on the device objects recorded from it, so it is worth giving one.
 
-The one thing a bundle cannot contain is a draw that needs a stencil reference (`material.stencilRef` on a pass with a stencil attachment), because a bundle encoder has no `setStencilReference`. Recording one throws and names the mesh. Viewport and scissor are pass state, set on `PassDesc` or between draws with `setViewport` and `setScissor`, never inside a bundle, so they are unaffected: a replayed bundle draws under the ones set before it.
+A bundle cannot contain a draw that tests stencil against a reference other than 0 (`material.stencilRef`), because a bundle encoder has no `setStencilReference`: `draw()` throws and names the material. A pass sets its stencil reference to 0 before executing a bundle. Viewport and scissor are pass state, set on `PassDesc` or between draws with `setViewport` and `setScissor`, never inside a bundle, so they are unaffected: a replayed bundle draws under the ones set before it.
 
 ## Controls and the Inspector
 

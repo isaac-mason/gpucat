@@ -14,8 +14,9 @@ import { Material } from '../src/material/material';
 import { attribute, cameraProjectionMatrix, cameraViewMatrix, f32, modelWorldMatrix, mul, vec4 } from '../src/nodes/nodes';
 import { Mesh } from '../src/objects/mesh';
 import { bundle } from '../src/renderer/core/bundle';
-import { frame } from '../src/renderer/core/frame';
+import { frame, type RenderBundle } from '../src/renderer/core/frame';
 import { Renderer } from '../src/renderer/core/renderer';
+import { getDrawArenaStats } from '../src/renderer/webgpu/draw-arena';
 import { WebGPUBackend } from '../src/renderer/webgpu/webgpu-backend';
 import * as d from '../src/schema/schema';
 
@@ -69,7 +70,7 @@ test('replaying a bundle issues the same draws as recording them directly', asyn
     const directDraws = stub.stats.drawCalls;
     expect(directDraws).toBe(2);
 
-    const encoder = bundle('pair');
+    const encoder = bundle({ camera, label: 'pair' });
     encoder.draw(a);
     encoder.draw(b);
     const pair = encoder.finish();
@@ -87,7 +88,7 @@ test('replaying a bundle issues the same draws as recording them directly', asyn
 test('a bundle interleaves with direct draws, in the order recorded', async () => {
     const { stub, renderer, mesh, camera, target } = await scene();
 
-    const encoder = bundle();
+    const encoder = bundle({ camera });
     encoder.draw(mesh());
     const one = encoder.finish();
 
@@ -109,7 +110,7 @@ test('a bundle interleaves with direct draws, in the order recorded', async () =
 test('a device bundle records once and replays on later frames', async () => {
     const { stub, renderer, mesh, camera, target } = await scene();
 
-    const encoder = bundle('pair');
+    const encoder = bundle({ camera, label: 'pair' });
     encoder.draw(mesh());
     encoder.draw(mesh());
     const pair = encoder.finish();
@@ -144,7 +145,7 @@ test('a device bundle records once and replays on later frames', async () => {
 test('a pass with no camera can still record and reuse a bundle', async () => {
     const { stub, renderer, flatMesh, target } = await scene();
 
-    const encoder = bundle('cameraless');
+    const encoder = bundle({ label: 'cameraless' });
     encoder.draw(flatMesh());
     const one = encoder.finish();
 
@@ -167,11 +168,11 @@ test('a pass with no camera can still record and reuse a bundle', async () => {
     expect(stub.stats.bundleExecutions).toBe(1);
 });
 
-test('one bundle under two attachment shapes records once for each, and caches both', async () => {
+test('a bundle executed in a pass of another attachment layout throws, and still executes in its own', async () => {
     const { stub, renderer, flatMesh, target } = await scene();
     const other = createRenderTarget(64, 64, { colorFormat: 'rgba8unorm' });
 
-    const encoder = bundle('shared');
+    const encoder = bundle({ label: 'shared' });
     encoder.draw(flatMesh());
     const shared = encoder.finish();
 
@@ -185,18 +186,13 @@ test('one bundle under two attachment shapes records once for each, and caches b
 
     stub.stats.reset();
     run(target);
-    run(other);
-    expect(stub.stats.bundleRecordings).toBe(2);
-
-    stub.stats.reset();
+    expect(() => run(other)).toThrow(/\[bundle shared\] recorded for attachments .* executed in a pass of /);
     run(target);
-    run(other);
-    expect(stub.stats.bundleRecordings).toBe(0);
-    expect(stub.stats.bundleExecutions).toBe(2);
+    expect(stub.stats.bundleRecordings).toBe(1);
 });
 
 test('drawing into a bundle after finish is refused', () => {
-    const encoder = bundle('closed');
+    const encoder = bundle({ label: 'closed' });
     encoder.finish();
     const stray = new Mesh(
         createBoxGeometry(1, 1, 1),
@@ -208,7 +204,7 @@ test('drawing into a bundle after finish is refused', () => {
 test('executing a disposed bundle is refused by name, not silently empty', async () => {
     const { renderer, flatMesh, target } = await scene();
 
-    const encoder = bundle('scenery');
+    const encoder = bundle({ label: 'scenery' });
     encoder.draw(flatMesh());
     const recorded = encoder.finish();
     recorded.dispose();
@@ -221,7 +217,7 @@ test('executing a disposed bundle is refused by name, not silently empty', async
 test('a bundle carries its label to the device objects recorded from it', async () => {
     const { stub, renderer, flatMesh, target } = await scene();
 
-    const encoder = bundle('named-props');
+    const encoder = bundle({ label: 'named-props' });
     encoder.draw(flatMesh());
     const recorded = encoder.finish();
 
@@ -245,4 +241,122 @@ test('invalidate and dispose both move the version a recorded bundle compares ag
     b.dispose();
     expect(b.count).toBe(0);
     expect(b.version).toBe(2);
+});
+
+/** One pass a frame, the bundle executed once in it. */
+function runOnce(
+    renderer: Awaited<ReturnType<typeof scene>>['renderer'],
+    target: ReturnType<typeof createRenderTarget>,
+    b: RenderBundle,
+) {
+    const f = frame(renderer);
+    const pass = f.pass({ target });
+    pass.execute(b);
+    pass.end();
+    f.submit();
+}
+
+function moveTo(camera: PerspectiveCamera, x: number): void {
+    camera.position[0] = x;
+    camera.updateWorldMatrix();
+    camera.updateViewMatrix();
+}
+
+test('a bundle draws from its camera as it moves, recording once', async () => {
+    const { stub, renderer, mesh, camera, target } = await scene();
+    const encoder = bundle({ camera, label: 'moving' });
+    encoder.draw(mesh());
+    const moving = encoder.finish();
+
+    runOnce(renderer, target, moving);
+    stub.stats.reset();
+    for (let i = 1; i <= 3; i++) {
+        moveTo(camera, i);
+        runOnce(renderer, target, moving);
+    }
+    expect(stub.stats.bundleRecordings).toBe(0);
+    expect(stub.stats.bundleExecutions).toBe(3);
+});
+
+test('a bundle given another camera keeps its recording', async () => {
+    const { stub, renderer, mesh, camera, target } = await scene();
+    const encoder = bundle({ camera, label: 'swapped' });
+    encoder.draw(mesh());
+    const swapped = encoder.finish();
+    runOnce(renderer, target, swapped);
+
+    const other = new PerspectiveCamera(Math.PI / 3, 1, 0.1, 100);
+    moveTo(other, 2);
+    swapped.camera = other;
+    stub.stats.reset();
+    runOnce(renderer, target, swapped);
+    expect(stub.stats.bundleRecordings).toBe(0);
+});
+
+test('a bundle executed twice in a frame draws both while its camera holds, and throws once it moved between', async () => {
+    const { stub, renderer, mesh, camera, target } = await scene();
+    const encoder = bundle({ camera, label: 'twice' });
+    encoder.draw(mesh());
+    const twice = encoder.finish();
+
+    stub.stats.reset();
+    const still = frame(renderer);
+    for (let i = 0; i < 2; i++) {
+        const pass = still.pass({ target, clear: i === 0 ? [0, 0, 0, 1] : false });
+        pass.execute(twice);
+        pass.end();
+    }
+    still.submit();
+    expect(stub.stats.bundleExecutions).toBe(2);
+
+    const moved = frame(renderer);
+    const first = moved.pass({ target });
+    first.execute(twice);
+    first.end();
+    moveTo(camera, 3);
+    const second = moved.pass({ target, clear: false });
+    expect(() => second.execute(twice)).toThrow(/\[bundle twice\] executed twice in one frame with different camera values/);
+});
+
+test('executing a bundle whose material was disposed throws, naming it', async () => {
+    const { renderer, mesh, camera, target } = await scene();
+    const box = mesh();
+    box.material.name = 'crate';
+    const encoder = bundle({ camera, label: 'props' });
+    encoder.draw(box);
+    const props = encoder.finish();
+    runOnce(renderer, target, props);
+
+    box.material.dispose();
+    const f = frame(renderer);
+    const pass = f.pass({ target });
+    expect(() => pass.execute(props)).toThrow(/\[bundle props\] material 'crate' was disposed/);
+});
+
+test('a draw testing stencil against a reference other than 0 is refused when recorded', () => {
+    const encoder = bundle({ label: 'masked' });
+    const masked = new Mesh(
+        createBoxGeometry(1, 1, 1),
+        new Material({
+            vertex: vec4(f32(0), f32(0), f32(0), f32(1)),
+            fragment: vec4(1, 1, 1, 1),
+            stencilTest: true,
+            stencilRef: 1,
+        }),
+    );
+    expect(() => encoder.draw(masked)).toThrow(/\[bundle masked\] .* reference 1, which a bundle cannot set/);
+});
+
+test('dispose releases the view slot the bundle held', async () => {
+    const { renderer, mesh, camera, target } = await scene();
+    const arena = () => getDrawArenaStats(renderer.backend.buffers.drawArena).slots;
+    const encoder = bundle({ camera, label: 'released' });
+    encoder.draw(mesh());
+    const released = encoder.finish();
+    runOnce(renderer, target, released);
+    const held = arena();
+
+    released.dispose();
+    expect(arena()).toBe(held - 1);
+    expect(renderer.backend.renderBundles.has(released)).toBe(false);
 });

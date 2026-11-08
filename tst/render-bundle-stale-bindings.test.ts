@@ -31,7 +31,7 @@ test('a resized render target re-records the bundle that samples it', async () =
     const mesh = fullscreen(sampled.sample(vec2(f32(0.5), f32(0.5))));
     mesh.updateWorldMatrix();
 
-    const encoder = bundle('samples-target');
+    const encoder = bundle({ label: 'samples-target' });
     encoder.draw(mesh);
     const recorded = encoder.finish();
 
@@ -66,7 +66,7 @@ test('a bundled draw uploads a changed uniform exactly as the direct draw does',
     mesh.updateWorldMatrix();
     const target = createRenderTarget(64, 64, { colorFormat: 'rgba8unorm' });
 
-    const encoder = bundle('tinted');
+    const encoder = bundle({ label: 'tinted' });
     encoder.draw(mesh);
     const recorded = encoder.finish();
 

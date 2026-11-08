@@ -149,16 +149,29 @@ export function applyViewRecord(
 ): void {
     if (entry.kind === 'camera') {
         if (params.camera === entry.camera) return;
-        alignCameraToBackend(entry.camera, coordinateSystem);
-        params.camera = entry.camera;
-        // the pass's own scope is restored at its end from what `beginPass` kept; this one just replaces it
-        renderer._nodes.nodeFrame.beginRender();
-        aimNodeFrame(renderer, entry.camera, params.width, params.height);
+        setPassCamera(renderer, params, entry.camera, coordinateSystem);
     } else if (entry.kind === 'viewport') {
         params.viewport = resolveViewport(entry.viewport, params.width, params.height, params.passId, params.viewportValue);
     } else {
         params.scissor = resolveScissor(entry.scissor, params.width, params.height, params.scissorValue);
     }
+}
+
+/**
+ * The draws resolved after this are drawn from `camera`, in a render scope of their own, so the view uniforms pack for
+ * it: a camera record's change, and a bundle's draws drawn from the bundle's camera. The pass's own scope is restored at
+ * its end from what `beginPass` kept; this one just replaces it.
+ */
+export function setPassCamera(
+    renderer: Renderer<DeviceBackend>,
+    params: RenderPassParams,
+    camera: View | null,
+    coordinateSystem: CoordinateSystem,
+): void {
+    if (camera !== null) alignCameraToBackend(camera, coordinateSystem);
+    params.camera = camera;
+    renderer._nodes.nodeFrame.beginRender();
+    aimNodeFrame(renderer, camera, params.width, params.height);
 }
 
 /** Whether a record changes what the draws after it are drawn with, rather than drawing. */

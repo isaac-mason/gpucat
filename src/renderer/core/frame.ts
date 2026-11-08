@@ -125,20 +125,26 @@ export type Bin = {
 export type BinRecord = { kind: 'bin'; bin: Bin };
 
 /**
- * Draws recorded once and replayed into any pass of the same attachment shape. Holds its meshes and
- * materials strongly and redraws whatever they have become, so the set is expected to be static:
- * `invalidate()` after changing it, `dispose()` when done with it.
+ * Draws recorded once and replayed into any pass of the same attachment layout (colour formats, depth format, sample
+ * count). They are drawn from the bundle's own camera, whatever the pass's: WebGPU bakes a bundle's bind groups when it
+ * records, the camera's included, and lets a bundle inherit none from the pass. Holds its meshes and materials strongly
+ * and redraws whatever they have become, so the set is expected to be static: `invalidate()` after changing it,
+ * `dispose()` when done with it.
  */
 export type RenderBundle = {
     /** Names the bundle in errors and on the device objects recorded from it. */
     readonly label: string;
     readonly records: readonly PassEntry[];
     readonly count: number;
+    /** What its draws are drawn from; settable, as only the values it holds change, not where they live. */
+    camera: View | null;
     /** Bumped by `invalidate`; a recorded device bundle compares against it to decide on a re-record. */
     version: number;
     readonly disposed: boolean;
     invalidate(): void;
     dispose(): void;
+    /** Set by the backend that recorded it, to release what it holds for it. @internal */
+    _onDispose: (() => void) | null;
 };
 
 export type BundleRecord = { kind: 'bundle'; bundle: RenderBundle };
@@ -810,6 +816,13 @@ function recordDraw(frame: Frame, pass: Pass, mesh: Mesh, opts: BinDrawOptions |
 function recordBundle(frame: Frame, pass: Pass, bundle: RenderBundle): void {
     if (pass.ended) throw new Error(`[pass ${passLabel(pass)}] execute after end()`);
     if (bundle.disposed) throw new Error(`[bundle ${bundle.label}] execute after dispose()`);
+    for (const entry of bundle.records) {
+        if (entry.kind !== 'draw') continue;
+        if (entry.material.disposed || entry.mesh.geometry.disposed) {
+            const what = entry.material.disposed ? `material '${entry.material.name}'` : `the geometry of '${entry.mesh.name}'`;
+            throw new Error(`[bundle ${bundle.label}] ${what} was disposed: record a new bundle with live ones`);
+        }
+    }
 
     let record = pass.bundleRecord;
     if (record === null) {

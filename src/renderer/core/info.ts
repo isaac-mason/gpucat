@@ -33,6 +33,10 @@ export type RenderInfo = {
      * the honest figure is a floor, not a guess.
      */
     triangles: number;
+    /** Render bundles executed this frame, and of those, how many were recorded again first: a bundle recorded every
+     *  frame costs more than drawing its draws directly. */
+    bundles: number;
+    bundlesRecorded: number;
 };
 
 /** Per-frame compute statistics. */
@@ -182,7 +186,7 @@ export type RendererInfo = {
 
 export function createRendererInfo(): RendererInfo {
     return {
-        render: { calls: 0, frameCalls: 0, drawCalls: 0, triangles: 0 },
+        render: { calls: 0, frameCalls: 0, drawCalls: 0, triangles: 0, bundles: 0, bundlesRecorded: 0 },
         compute: { calls: 0, frameCalls: 0 },
         state: { set: 0, skipped: 0, created: 0, held: 0, packed: 0, kept: 0 },
         buffers: {
@@ -217,6 +221,8 @@ export function beginInfoFrame(info: RendererInfo): void {
     info.render.frameCalls = 0;
     info.render.drawCalls = 0;
     info.render.triangles = 0;
+    info.render.bundles = 0;
+    info.render.bundlesRecorded = 0;
     info.compute.frameCalls = 0;
     info.state.set = 0;
     info.state.skipped = 0;

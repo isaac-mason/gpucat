@@ -421,10 +421,12 @@ const fakeBundle = () => ({
     label: 'props',
     records: [],
     count: 0,
+    camera: null,
     version: 0,
     disposed: false,
     invalidate() {},
     dispose() {},
+    _onDispose: null,
 });
 
 test('execute-after-end() throws, like draw does', () => {

@@ -428,7 +428,7 @@ export {
     LineSegmentsGeometry,
 } from './objects/line';
 export { createMesh, type IndexedMeshDraw, Mesh, type MeshDraw, type NonIndexedMeshDraw } from './objects/mesh';
-export { type BundleEncoder, bundle } from './renderer/core/bundle';
+export { type BundleEncoder, type BundleOptions, bundle } from './renderer/core/bundle';
 export {
     type CanvasAlphaMode,
     type CanvasResizeEvent,

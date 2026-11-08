@@ -168,22 +168,24 @@ describe('a pass drawing several views', () => {
         expect(stub.stats.passCommands).toEqual(['scissor 16 16 16 16', 'draw']);
     });
 
-    test('a bundle draws under the view before it, and records once per camera it is replayed under', async () => {
+    test('a bundle for each view draws under the viewport set before it, each recorded once', async () => {
         const { stub, renderer } = await makeRenderer();
         const target = createRenderTarget(64, 32);
-        const encoder = bundle('casters');
-        encoder.draw(boxMesh());
-        const casters = encoder.finish();
+        const casters = (camera: ReturnType<typeof cameraAt>, label: string) => {
+            const encoder = bundle({ camera, label });
+            encoder.draw(boxMesh());
+            return encoder.finish();
+        };
+        const left = casters(cameraAt(5), 'left');
+        const right = casters(cameraAt(-5), 'right');
         stub.stats.reset();
 
         const f = frame(renderer);
         const pass = f.pass({ target, label: 'views' });
-        pass.setCamera(cameraAt(5));
         pass.setViewport({ x: 0, y: 0, width: 32, height: 32 });
-        pass.execute(casters);
-        pass.setCamera(cameraAt(-5));
+        pass.execute(left);
         pass.setViewport({ x: 32, y: 0, width: 32, height: 32 });
-        pass.execute(casters);
+        pass.execute(right);
         pass.end();
         f.submit();
 

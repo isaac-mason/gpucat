@@ -25,7 +25,6 @@ import {
     vec4,
 } from '../src/nodes/nodes';
 import { Mesh } from '../src/objects/mesh';
-import { bundle } from '../src/renderer/core/bundle';
 import { frame } from '../src/renderer/core/frame';
 import { Renderer } from '../src/renderer/core/renderer';
 import { WebGPUBackend } from '../src/renderer/webgpu/webgpu-backend';
@@ -167,37 +166,6 @@ test('dispose destroys every dynamic uniform buffer and staging buffer', async (
     expect(buffers.destroyed).toBe(true);
     expect(ctx.stub.stats.bufferDestroys).toBeGreaterThanOrEqual(owned);
 });
-
-test('a bundle replayed in two passes of one moved camera keeps a recording for each, re-recording only for a new pass', async () => {
-    const ctx = await setup();
-    const encoder = bundle('box');
-    encoder.draw(ctx.box);
-    const boxBundle = encoder.finish();
-
-    const run = (passes: number) => {
-        const f = frame(ctx.renderer);
-        for (let index = 0; index < passes; index++) {
-            placeCamera(ctx.camera, index);
-            const pass = f.pass({ target: ctx.target, camera: ctx.camera, clear: index === 0 ? [0, 0, 0, 1] : false });
-            pass.execute(boxBundle);
-            pass.end();
-        }
-        f.submit();
-    };
-
-    run(2);
-    expect(ctx.stub.stats.bundleRecordings, 'one per replay, since each binds different bytes').toBe(2);
-
-    ctx.stub.stats.reset();
-    run(2);
-    run(2);
-    expect(ctx.stub.stats.bundleRecordings, 'the same passes in the same order bind the same allocations').toBe(0);
-
-    ctx.stub.stats.reset();
-    run(3);
-    expect(ctx.stub.stats.bundleRecordings, 'only the new third replay records').toBe(1);
-});
-
 test('a pipeline binding more changing uniform groups than the device allows is refused by name', async () => {
     const ctx = await setup();
     const limit = ctx.stub.device.limits.maxDynamicUniformBuffersPerPipelineLayout;

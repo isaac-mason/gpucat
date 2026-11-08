@@ -632,7 +632,7 @@ async function caseBundleReplay(gpu: Renderer<WebGPUBackend>): Promise<CaseResul
     df.submit();
     const direct = centerPixel(await read(gpu, directTarget));
 
-    const encoder = bundle('replay');
+    const encoder = bundle({ label: 'replay' });
     encoder.draw(first);
     encoder.draw(second);
     const pair = encoder.finish();
@@ -3326,23 +3326,27 @@ async function caseCameraReusedAcrossPasses(gpu: Renderer<WebGPUBackend>): Promi
 }
 
 /**
- * bundle-across-cameras: one bundle replayed under two cameras into one target in one frame. The
- * recording bakes the camera buffer, so its contents have to be right for each pass at replay.
+ * bundle-across-cameras: one box in a bundle for each of two cameras, replayed into one target in one frame. Each
+ * bundle bakes its own camera's slot, so each pass draws from its bundle's camera, whatever the pass has.
  */
 async function caseBundleAcrossCameras(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
     const { box, facing, away } = boxBetweenCameras();
-    const encoder = bundle('box');
-    encoder.draw(box);
-    const boxBundle = encoder.finish();
+    const boxFrom = (camera: typeof facing, label: string) => {
+        const encoder = bundle({ camera, label });
+        encoder.draw(box);
+        return encoder.finish();
+    };
+    const facingBundle = boxFrom(facing, 'box-facing');
+    const awayBundle = boxFrom(away, 'box-away');
 
     for (let frameIndex = 0; frameIndex < 2; frameIndex++) {
         const f = frame(gpu);
-        const first = f.pass({ target, camera: facing, clear: [0, 0, 0, 1] });
-        first.execute(boxBundle);
+        const first = f.pass({ target, clear: [0, 0, 0, 1] });
+        first.execute(facingBundle);
         first.end();
-        const second = f.pass({ target, camera: away, clear: false, clearDepth: false, scissor: CORNER });
-        second.execute(boxBundle);
+        const second = f.pass({ target, clear: false, clearDepth: false, scissor: CORNER });
+        second.execute(awayBundle);
         second.end();
         f.submit();
     }

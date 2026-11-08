@@ -40,7 +40,7 @@ import {
     textureBindingLayout,
     usesDynamicOffset,
 } from './bind-group-layout';
-import type { BufferCache } from './buffers';
+import type { BufferCache, BundleView } from './buffers';
 import {
     allocDynamicUniform,
     dynamicUniformBuffer,
@@ -740,9 +740,15 @@ function updateUniformBinding(
     if (resolvedThisScope(binding, frame)) return;
 
     // A shared block bound at a dynamic offset (the view block) is packed at every use, straight into a ring
-    // allocation: it has no buffer of its own, as PlayCanvas's view uniform buffers are not persistent
+    // allocation: it has no buffer of its own, as PlayCanvas's view uniform buffers are not persistent. A bundle's
+    // draws pack it into the bundle's own slot instead, which its recording binds frame to frame.
     if (block.group.shared && perUse) {
         invokeUniformGroupCallbacks(block, frame);
+        if (bufferCache.bundleView !== null) {
+            placeBundleView(bufferCache, device, binding, frame, data, material, bufferCache.bundleView);
+            info.packed++;
+            return;
+        }
         const offset = allocDynamicUniform(bufferCache, device, block.totalBytes);
         const active = bufferCache.dynamicUniforms.active!;
         packUniformMembers(block, new DataView(active.staging.view.buffer, offset, block.totalBytes), material, 'wgsl-uniform');
@@ -810,6 +816,53 @@ function updateUniformBinding(
             data.needsUpdate = true;
         }
     }
+}
+
+/**
+ * The view block of a bundle's draws, packed into the bundle's slot and written where its bytes changed. One slot holds
+ * one set of values a submit (every write lands before it), so a bundle executed again in the same frame with other
+ * camera values throws rather than drawing both with the last.
+ */
+function placeBundleView(
+    bufferCache: BufferCache,
+    device: GPUDevice,
+    binding: UniformBinding,
+    frame: NodeFrame,
+    data: BindGroupData,
+    material: Material | null,
+    view: BundleView,
+): void {
+    const block = binding.block;
+    if (!binding.scratchBuffer || binding.scratchBuffer.byteLength !== block.totalBytes) {
+        binding.scratchBuffer = new ArrayBuffer(block.totalBytes);
+    }
+    packUniformMembers(block, new DataView(binding.scratchBuffer), material, 'wgsl-uniform');
+    const packed = new Uint8Array(binding.scratchBuffer);
+    let slot = arenaSlot(bufferCache.drawArena, view.key);
+    if (slot === undefined || slot.bytes < block.totalBytes) {
+        slot = takeSlot(bufferCache.drawArena, device, view.key, block.totalBytes);
+        view.bytes = null;
+    }
+    const same = view.bytes !== null && sameBytes(view.bytes, packed);
+    if (view.writtenFrame === frame.frameId && !same) {
+        throw new Error(
+            `[bundle ${view.label}] executed twice in one frame with different camera values: its one view slot holds ` +
+                'one set a frame. Use a bundle for each view.',
+        );
+    }
+    if (!same) {
+        view.bytes = new Uint8Array(packed);
+        writeSlot(slot, view.bytes.buffer);
+    }
+    view.writtenFrame = frame.frameId;
+    binding.sliceBufferId = -1;
+    data.slot = slot;
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+    if (a.byteLength !== b.byteLength) return false;
+    for (let i = 0; i < a.byteLength; i++) if (a[i] !== b[i]) return false;
+    return true;
 }
 
 /**

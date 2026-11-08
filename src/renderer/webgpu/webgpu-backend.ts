@@ -122,8 +122,8 @@ export class WebGPUBackend implements DeviceBackend {
     /** @internal */ renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache = RenderObjectGpu.createRenderObjectGpuCache();
     /** @internal */ geometries: Geometries.GeometriesState = Geometries.createGeometriesState();
 
-    /** Per (bundle, camera, render context, replay in the frame); here rather than on the neutral bundle, which may name no device object. @internal */
-    readonly renderBundles = new WeakMap<RenderBundle, WeakMap<object, Map<number, RenderPass.BundleRecordings>>>();
+    /** Each bundle's recording and view slot, from its first execute to its `dispose()`; here rather than on the neutral bundle, which names no device object. @internal */
+    readonly renderBundles = new Map<RenderBundle, RenderPass.BundleState>();
 
     /** @internal */ readonly canvasContexts = new WeakMap<CanvasTarget, GPUCanvasContext>();
     /** @internal */ readonly swapchain: RenderPass.SwapchainState = RenderPass.createSwapchainState(this.memoryTally);
@@ -421,6 +421,9 @@ export class WebGPUBackend implements DeviceBackend {
         Pipelines.disposePipelines(this.pipelines);
         BindGroupCache.disposeBindGroupCache(this.bindGroupCache);
         disposeBindGroupLayoutCache(this.bindGroupLayoutCache);
+        // the bundles outlive the renderer: they hold nothing of it now
+        for (const bundle of this.renderBundles.keys()) bundle._onDispose = null;
+        this.renderBundles.clear();
         Info.resetMemoryTally(this.memoryTally);
 
         // A handed-in device is the caller's to destroy; the caches above are ours either way.

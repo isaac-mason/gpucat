@@ -6,10 +6,17 @@ import type { ComputeNode } from '../../nodes/nodes';
 import type * as d from '../../schema/schema';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DeviceBackend } from '../core/device-backend';
-import type { ComputePassDesc, DispatchRecord, DrawOptions, DrawRecord, PassDesc, PassEntry } from '../core/frame';
+import type { ComputePassDesc, DispatchRecord, DrawOptions, DrawRecord, PassDesc, PassEntry, RenderBundle } from '../core/frame';
 import { aimNodeFrame } from '../core/node-frame';
 import type { RenderContext } from '../core/pass-context';
-import { alignCameraToBackend, applyViewRecord, isViewRecord, resolvePassContext, resolvePassParams } from '../core/pass-desc';
+import {
+    alignCameraToBackend,
+    applyViewRecord,
+    isViewRecord,
+    resolvePassContext,
+    resolvePassParams,
+    setPassCamera,
+} from '../core/pass-desc';
 import {
     addBin,
     addBinDraw,
@@ -196,15 +203,34 @@ export function recordEntry(s: WebGPUFrameBackendState, entry: PassEntry): void 
             }
             return;
         }
-        const start = open.count;
-        const { records, count } = entry.bundle;
-        for (let index = 0; index < count; index++) resolveDraw(s, open, records[index] as DrawRecord);
-        addBundle(open.order, entry.bundle, start, open.count - start, open.params);
+        resolveBundle(s, open, entry.bundle);
     } catch (error) {
         // A throw inside a nested pass (a render texture's contents) left it begun; this pass records on.
         unwindTo(s, depth);
         throw error;
     }
+}
+
+/**
+ * A bundle's draws, resolved from the bundle's camera in a scope of their own with its view uniforms packing into the
+ * bundle's slot, then the pass's camera back for the draws after it.
+ */
+function resolveBundle(s: WebGPUFrameBackendState, open: OpenRenderPass, bundle: RenderBundle): void {
+    const passCamera = open.params.camera;
+    const buffers = s.backend.buffers;
+    markViewChanged(open.order);
+    setPassCamera(s.renderer, open.params, bundle.camera, CoordinateSystem.WEBGPU);
+    buffers.bundleView = RenderPass.bundleState(s.backend, bundle).view;
+    const start = open.count;
+    try {
+        const { records, count } = bundle;
+        for (let index = 0; index < count; index++) resolveDraw(s, open, records[index] as DrawRecord);
+    } finally {
+        buffers.bundleView = null;
+    }
+    addBundle(open.order, bundle, start, open.count - start, open.params);
+    markViewChanged(open.order);
+    setPassCamera(s.renderer, open.params, passCamera, CoordinateSystem.WEBGPU);
 }
 
 /** Closes every pass begun above `depth` and not ended, so none holds its scopes past a throw. */

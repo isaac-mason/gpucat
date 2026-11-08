@@ -168,7 +168,7 @@ test('compute passes pool the same way, resolved dispatch slots included', async
 test('a frame whose passes hold bundles pools its resolved draw slots too', async () => {
     const { renderer, mesh, camera, view } = await scene();
 
-    const encoder = bundle('pooled');
+    const encoder = bundle({ camera, label: 'pooled' });
     encoder.draw(mesh);
     const recorded = encoder.finish();
 
@@ -199,7 +199,7 @@ test('a frame whose passes hold bundles pools its resolved draw slots too', asyn
 test('the pass order block pool is reused across frames', async () => {
     const { renderer, mesh, camera, view } = await scene();
 
-    const encoder = bundle('segmented');
+    const encoder = bundle({ camera, label: 'segmented' });
     encoder.draw(mesh);
     const recorded = encoder.finish();
 

@@ -19,9 +19,9 @@ import type { RenderContext, ScissorValue, ViewportValue } from '../core/pass-co
 import type { PassOrder } from '../core/pass-order';
 import { pipelineLabel } from '../core/render-object';
 import { formatHasStencil, type PreparedRenderObject, type RenderPassParams } from '../core/render-types';
-import type { View } from '../core/view';
 import { type DrawBindings, updateRenderBindings } from './bindings';
 import * as Buffers from './buffers';
+import { releaseSlot } from './draw-arena';
 import * as Geometries from './geometries';
 import { createPassState, type PassState, resetPassState, setBindGroups, takesPipeline } from './pass-state';
 import * as Pipelines from './pipelines';
@@ -515,9 +515,14 @@ export function encodeDraws(ctx: EncodeContext, scope: PassScope): void {
             continue;
         }
         const from = block.draws[0]!;
-        const view = order.drawViews[from]!;
-        applyView(scope, order, view, ctx.params.width, ctx.params.height);
-        scope.gpuPass.executeBundles([getOrRecordBundle(ctx, from, from + block.count, bundle, order.views[view]!.camera)]);
+        applyView(scope, order, order.drawViews[from]!, ctx.params.width, ctx.params.height);
+        // a bundle records with the stencil reference at 0, and executeBundles leaves the pass's as it is
+        if (ctx.passCtx.stencil && scope.currentSets.stencilRef !== 0) {
+            (scope.gpuPass as GPURenderPassEncoder).setStencilReference(0);
+            scope.currentSets.stencilRef = 0;
+        }
+        scope.gpuPass.executeBundles([getOrRecordBundle(ctx, from, from + block.count, bundle)]);
+        ctx.info.render.bundles++;
         // A bundle sets its own pipeline and bindings, so what the pass had set no longer holds.
         resetCurrentSets(scope.currentSets);
     }
@@ -525,66 +530,70 @@ export function encodeDraws(ctx: EncodeContext, scope: PassScope): void {
     if (inspector) inspector.perf.end('drawCalls');
 }
 
-/** A pass with no camera still needs a key at the camera level, and every such pass shares this one. */
-const CAMERALESS: object = {};
-
 /** A device bundle and the bind groups and dynamic offsets it baked, in draw then @group order. */
 export type RecordedBundle = { gpu: GPURenderBundle; version: number; bakedGroups: GPUBindGroup[]; bakedOffsets: number[] };
 
-/**
- * The recordings of one bundle under one camera and render context, one per replay in a frame. A camera
- * moved between two passes replaying the same bundle binds different allocations in each, so the two
- * need a recording apiece; keyed by occurrence, each holds frame to frame.
- */
-export type BundleRecordings = { frameId: number; replays: number; recordings: RecordedBundle[] };
+/** What the backend holds for a bundle: its one recording, the attachment layout that was made for, and the slot its
+ *  view uniforms live in. Released by the bundle's `dispose()`. */
+export type BundleState = { recording: RecordedBundle | null; layout: string | null; view: Buffers.BundleView };
+
+/** The backend's state for `bundle`, made at its first execute and released by its `dispose()`. */
+export function bundleState(b: WebGPUBackend, bundle: RenderBundle): BundleState {
+    let state = b.renderBundles.get(bundle);
+    if (state === undefined) {
+        const created: BundleState = {
+            recording: null,
+            layout: null,
+            view: { label: bundle.label, key: {}, bytes: null, writtenFrame: -1 },
+        };
+        b.renderBundles.set(bundle, created);
+        bundle._onDispose = () => {
+            releaseSlot(b.buffers.drawArena, created.view.key);
+            b.renderBundles.delete(bundle);
+        };
+        state = created;
+    }
+    return state;
+}
+
+/** The pass's attachment layout, as `executeBundles` compares a bundle's against it (WebGPU's `GPURenderPassLayout`, and
+ *  the read-only depth a read-only pass needs its bundles recorded with). */
+function layoutKey(ctx: EncodeContext): string {
+    const colors = Pipelines.getRenderContextColorFormats(ctx.passCtx, ctx.b.format).join(',');
+    const depth = Pipelines.getRenderContextDepthFormat(ctx.passCtx) ?? 'none';
+    return `${colors}|${depth}|${ctx.passCtx.sampleCount}${ctx.params.readOnlyDepth ? '|read-only depth' : ''}`;
+}
 
 /**
- * Re-recorded on a miss, a version change, or when what it baked no longer matches this frame's bindings.
- * A dynamic uniform allocation follows the frame's order of draws, so a recording holds while that order does. Camera and occurrence are in the key so a bundle replayed under several cameras, or
- * more than once under one, keeps a recording for each rather than overwriting a shared one.
+ * The bundle's one recording, made at its first execute against that pass's layout and kept: recorded again only after
+ * `invalidate()` or when a bind group it baked was replaced (a buffer it binds grew), each counted in
+ * `info.render.bundlesRecorded`. Executing it in a pass of another layout throws.
  */
-function getOrRecordBundle(
-    ctx: EncodeContext,
-    from: number,
-    to: number,
-    bundle: RenderBundle,
-    camera: View | null,
-): GPURenderBundle {
+function getOrRecordBundle(ctx: EncodeContext, from: number, to: number, bundle: RenderBundle): GPURenderBundle {
     const { b, passCtx } = ctx;
-    let byCamera = b.renderBundles.get(bundle);
-    if (byCamera === undefined) {
-        byCamera = new WeakMap();
-        b.renderBundles.set(bundle, byCamera);
+    const state = b.renderBundles.get(bundle)!;
+    const layout = layoutKey(ctx);
+    if (state.layout !== null && state.layout !== layout) {
+        throw new Error(
+            `[bundle ${bundle.label}] recorded for attachments ${state.layout}, executed in a pass of ${layout}: ` +
+                'record a bundle for that layout',
+        );
     }
-    const cameraKey = camera ?? CAMERALESS;
-    let byContext = byCamera.get(cameraKey);
-    if (byContext === undefined) {
-        byContext = new Map();
-        byCamera.set(cameraKey, byContext);
-    }
+    const cached = state.recording;
+    if (cached !== null && cached.version === bundle.version && bakedBindingsMatch(ctx, from, to, cached)) return cached.gpu;
 
-    let slots = byContext.get(passCtx.id);
-    if (slots === undefined) {
-        slots = { frameId: -1, replays: 0, recordings: [] };
-        byContext.set(passCtx.id, slots);
-    }
-    const frameId = ctx.nodes.nodeFrame.frameId;
-    if (slots.frameId !== frameId) {
-        slots.frameId = frameId;
-        slots.replays = 0;
-    }
-    const occurrence = slots.replays++;
-
-    const cached = slots.recordings[occurrence];
-    if (cached !== undefined && cached.version === bundle.version && bakedBindingsMatch(ctx, from, to, cached)) return cached.gpu;
-
+    ctx.info.render.bundlesRecorded++;
     const encoder = b.device.createRenderBundleEncoder({
         label: bundle.label,
         colorFormats: Pipelines.getRenderContextColorFormats(passCtx, b.format),
         depthStencilFormat: Pipelines.getRenderContextDepthFormat(passCtx) ?? undefined,
         sampleCount: passCtx.sampleCount,
+        depthReadOnly: ctx.params.readOnlyDepth,
+        stencilReadOnly: ctx.params.readOnlyDepth,
     });
-    encodeDrawRange(ctx, from, to, { gpuPass: encoder, currentSets: createCurrentSets(ctx.info.state) });
+    const currentSets = createCurrentSets(ctx.info.state);
+    currentSets.stencilRef = 0;
+    encodeDrawRange(ctx, from, to, { gpuPass: encoder, currentSets });
     const recorded: RecordedBundle = {
         gpu: encoder.finish({ label: bundle.label }),
         version: bundle.version,
@@ -595,8 +604,8 @@ function getOrRecordBundle(
         recorded.bakedGroups.push(group);
         recorded.bakedOffsets.push(offset);
     });
-
-    slots.recordings[occurrence] = recorded;
+    state.recording = recorded;
+    state.layout = layout;
     return recorded.gpu;
 }
 
@@ -807,12 +816,12 @@ function createCurrentSets(info: StateInfo): CurrentSets {
     return { pass: createPassState(info), attributes: [], index: null, stencilRef: null };
 }
 
-/** After a bundle replays, nothing the pass had set still holds. */
+/** After a bundle replays, what the pass had set no longer holds, but its stencil reference, which `executeBundles`
+ *  leaves as it is. */
 function resetCurrentSets(sets: CurrentSets): void {
     resetPassState(sets.pass);
     sets.attributes.length = 0;
     sets.index = null;
-    sets.stencilRef = null;
 }
 
 type CurrentSets = {

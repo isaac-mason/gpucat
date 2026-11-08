@@ -77,7 +77,7 @@ test('every call is listed in order with what became of it, the ones that drew n
     const { renderer, camera, lastFrame } = await setup();
     const box = namedMesh('box');
     const broken = namedMesh('broken', new Geometry());
-    const props = bundle('props');
+    const props = bundle({ camera, label: 'props' });
     props.draw(namedMesh('crate'));
     props.draw(namedMesh('barrel'));
     const recorded = props.finish();

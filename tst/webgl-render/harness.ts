@@ -267,7 +267,7 @@ async function caseBundleReplay(): Promise<CaseResult> {
     df.submit();
     const direct = await read(renderer, directTarget);
 
-    const encoder = bundle('replay');
+    const encoder = bundle({ label: 'replay' });
     encoder.draw(first);
     encoder.draw(second);
     const pair = encoder.finish();

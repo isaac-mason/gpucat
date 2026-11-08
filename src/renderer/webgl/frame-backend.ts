@@ -12,7 +12,14 @@ import type {
 } from '../core/frame';
 import { aimNodeFrame } from '../core/node-frame';
 import type { RenderContext } from '../core/pass-context';
-import { alignCameraToBackend, applyViewRecord, isViewRecord, resolvePassContext, resolvePassParams } from '../core/pass-desc';
+import {
+    alignCameraToBackend,
+    applyViewRecord,
+    isViewRecord,
+    resolvePassContext,
+    resolvePassParams,
+    setPassCamera,
+} from '../core/pass-desc';
 import {
     addBin,
     addBinDraw,
@@ -185,12 +192,18 @@ export function recordEntry(s: WebGLFrameBackendState, entry: PassEntry): void {
             }
             return;
         }
-        // WebGL has no device bundles: a bundle's records replay as the draws they always were.
-        const { records, count } = entry.bundle;
+        // WebGL has no device bundles: a bundle's records replay as the draws they always were, from its camera.
+        const bundle = entry.bundle;
+        const passCamera = open.params.camera;
+        markViewChanged(open.order);
+        setPassCamera(s.renderer, open.params, bundle.camera, CoordinateSystem.WEBGL);
+        const { records, count } = bundle;
         for (let record = 0; record < count; record++) {
             const index = resolveDraw(s, open, records[record] as DrawRecord);
             if (index >= 0) addPassDraw(open.order, index, open.params);
         }
+        markViewChanged(open.order);
+        setPassCamera(s.renderer, open.params, passCamera, CoordinateSystem.WEBGL);
     } catch (error) {
         // A throw inside a nested pass (a render texture's contents) left it begun; this pass records on.
         unwindTo(s, depth);

@@ -46,11 +46,21 @@ export type BufferCache = {
 
     /** Where each render object's and dispatch's own uniform block lives. See `draw-arena.ts`. */
     drawArena: DrawArena;
+    /** While a bundle's draws resolve, its view: the view block packs into the bundle's own slot, not the ring. */
+    bundleView: BundleView | null;
     /** The bind group cache, whose entries naming a buffer go when it is destroyed. */
     bindGroups: BindGroupCache;
     /** Buffers replaced while the frame may still read them, destroyed after its submit. */
     retired: GPUBuffer[];
 };
+
+/**
+ * A bundle's view uniforms: a draw arena slot keyed by `key`, which the bundle owns from its first execute to its
+ * `dispose()`, so the binding it records holds frame to frame, as a Babylon Lite render task owns its scene buffer.
+ * `bytes` is what the slot holds; `writtenFrame` the frame it was last written in, as one slot holds one set of values
+ * a submit.
+ */
+export type BundleView = { label: string; key: object; bytes: Uint8Array<ArrayBuffer> | null; writtenFrame: number };
 
 /**
  * PlayCanvas's `DynamicBuffers`. A uniform block used again in a frame with different bytes cannot rewrite
@@ -132,6 +142,7 @@ export function createBufferCache(info: RendererInfo, tally: MemoryTally, bindGr
         info,
         dynamicUniforms: createDynamicUniformBuffers(),
         drawArena: createDrawArena(info, tally, bindGroups),
+        bundleView: null,
         retired: [],
         bindGroups,
     };
