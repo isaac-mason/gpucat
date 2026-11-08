@@ -1,5 +1,5 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
-import type { Geometry } from '../../geometry/geometry';
+import type { MaterialParameters } from '../../material/parameters';
 import type { StorageNode } from '../../nodes/nodes';
 import type { Any } from '../../schema/schema';
 import { type Allocation, type MemoryTally, type RendererInfo } from '../core/info';
@@ -33,10 +33,24 @@ export type BufferCache = {
     dynamicUniforms: DynamicUniformBuffers;
     /** Where each render object's and dispatch's own uniform block lives. See `draw-arena.ts`. */
     drawArena: DrawArena;
+    /** While a bundle's draws resolve, its view: the view block packs into the bundle's own slot, not the ring. */
+    bundleView: BundleView | null;
     /** The bind group cache, whose entries naming a buffer go when it is destroyed. */
     bindGroups: BindGroupCache;
     /** Buffers replaced while the frame may still read them, destroyed after its submit. */
     retired: GPUBuffer[];
+};
+/**
+ * A bundle's view uniforms: a draw arena slot keyed by `key`, which the bundle owns from its first execute to its
+ * `dispose()`, so the binding it records holds frame to frame, as a Babylon Lite render task owns its scene buffer.
+ * `bytes` is what the slot holds; `writtenFrame` the frame it was last written in, as one slot holds one set of values
+ * a submit.
+ */
+export type BundleView = {
+    label: string;
+    key: object;
+    bytes: Uint8Array<ArrayBuffer> | null;
+    writtenFrame: number;
 };
 /**
  * PlayCanvas's `DynamicBuffers`. A uniform block used again in a frame with different bytes cannot rewrite
@@ -46,7 +60,8 @@ export type BufferCache = {
  * buffer placed ahead of the frame's, then remapped for reuse. No allocation is written twice in a frame.
  */
 export type DynamicUniformBuffers = {
-    /** Free GPU buffers. One returns here as soon as its copy is scheduled: the copy runs before any later pass. */
+    /** Free GPU buffers. One returns here as soon as its copy is scheduled: the copy runs before any later pass. The pool
+     *  keeps as many as the busiest frame used, for the renderer's life. */
     gpuBuffers: DynamicGpuBuffer[];
     /** Staging buffers mapped for writing. */
     stagingBuffers: StagingBuffer[];
@@ -116,10 +131,10 @@ export declare function getUploaded(cache: BufferCache, buffer: GpuBuffer): GPUB
 /**
  * Resolve a GpuBuffer from a StorageNode.
  *
- * For named references, lookup order is: `buffers` (per-call override) → `geometry.buffers`.
+ * For named references, lookup order is: the dispatch's `buffers`, then the material's parameters.
  * For value references, the buffer is taken from node.value.
  */
-export declare function resolveStorageBuffer(node: StorageNode<Any>, geometry: Geometry | null, buffers: Record<string, GpuBuffer<Any>> | null): GpuBuffer;
+export declare function resolveStorageBuffer(node: StorageNode<Any>, parameters: MaterialParameters | null, buffers: Record<string, GpuBuffer<Any>> | null): GpuBuffer;
 /**
  * Result of uploadRaw - includes buffer and whether it was newly created.
  */

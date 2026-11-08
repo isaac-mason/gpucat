@@ -82,15 +82,12 @@ export declare class Geometry {
     getBuffer<T extends Any = Any>(name: string): GpuBuffer<T> | undefined;
     /**
      * Set a named buffer.
-     * Works for vertex attributes, storage buffers, or any buffer type.
+     * Vertex attributes; a named `storage()` read is the material's parameter, not the geometry's.
      * Automatically bumps version when a new buffer name is added.
      * For REF_COUNTED buffers, increments usage count.
      *
      * @example Vertex attribute
      * geometry.setBuffer('position', new GpuBuffer(d.vec3f, { data: positions, usage: 'vertex' }));
-     *
-     * @example Storage buffer
-     * geometry.setBuffer('particles', new GpuBuffer(d.array(Particle), { data: new Float32Array(1000 * stride), usage: 'storage' }));
      */
     setBuffer(name: string, buffer: GpuBuffer<Any>): this;
     /**

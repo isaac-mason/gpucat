@@ -3,6 +3,7 @@ import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
 import type { TextureOrigin, TextureRegion } from '../../core/texture-region';
 import type { ComputeNode } from '../../nodes/lib/core';
+import type { BindGroup } from './bind-group';
 import type { FrameBackend } from './frame';
 import type { MemoryInfo, MemoryTally } from './info';
 import type { RenderObject } from './render-object';
@@ -42,6 +43,8 @@ export interface DeviceBackend extends FrameBackend {
     /** @internal */ readMemoryStats(memory: MemoryInfo): void;
     /** Destroy the uniform block `key` names. Its owner calls this when it dies; a key with no block is a no-op. */
     /** @internal */ releaseUniformBlock(key: object): void;
+    /** Lets go of what the backend holds for `bindGroup`, whose owner ended: its layout, counted. */
+    /** @internal */ releaseBindGroup(bindGroup: BindGroup): void;
     /** Lets go of what the backend holds for `renderObject`, which is being disposed: its pipeline or program, counted. */
     /** @internal */ releaseRenderObject(renderObject: RenderObject): void;
     /** Forgets what the backend assumes the device holds, for after other code used it. See `Renderer.resetState`. */

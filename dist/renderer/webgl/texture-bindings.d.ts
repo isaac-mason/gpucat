@@ -14,7 +14,7 @@
  */
 import type { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
-import type { TextureViewRange } from '../../core/gpu-texture-view';
+import { type TextureViewRange } from '../../core/gpu-texture-view';
 import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
 import { type RenderObject } from '../core/render-object';
 import type { ProgramInfo } from './programs';

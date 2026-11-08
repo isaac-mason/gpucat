@@ -11,7 +11,7 @@ import type { StorageNode } from './lib/storage';
 import { SamplerNode, type StorageTextureBindingNode, TextureBindingNode } from './lib/texture';
 import type { TransformFeedbackNode } from './lib/transform-feedback';
 import type { UniformGroup, UniformNode } from './lib/uniform';
-import type { InterpolationSampling, InterpolationType } from './lib/varying';
+import type { InterpolationSampling, InterpolationType, VaryingNode } from './lib/varying';
 import type { WgslFunctionNode } from './lib/wgsl-fn';
 /** Entries in the multi-draw base table: a 16 KB block, WebGL2's guaranteed `MAX_UNIFORM_BLOCK_SIZE`. */
 export declare const DRAW_BASES_ENTRIES = 4096;
@@ -309,4 +309,7 @@ export type Discovery = {
     /** The builtins read inside `Fn` bodies, by kind, to their WGSL type. A WGSL function can't reach its entry point's
      *  inputs, so it reads module-scope copies the entry point assigns. */
     fnBuiltins: Map<string, string>;
+    /** The varyings read inside `Fn` bodies, by name, read through module-scope copies as builtins are. A `Fn` that reads
+     *  a varying belongs to the fragment stage. */
+    fnVaryings: Map<string, VaryingNode<d.Any>>;
 };

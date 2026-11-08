@@ -3,6 +3,7 @@ import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
 import type { TextureOrigin, TextureRegion } from '../../core/texture-region';
 import type { ComputeNode } from '../../nodes/nodes';
+import type { BindGroup } from '../core/bind-group';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DeviceBackend } from '../core/device-backend';
 import type { ComputePassDesc, DispatchRecord, PassDesc, PassEntry, RenderBundle, TransformFeedbackPassDesc, TransformFeedbackRecord } from '../core/frame';
@@ -62,20 +63,20 @@ export declare class WebGPUBackend implements DeviceBackend {
     format: GPUTextureFormat;
     /** The only cache `init` has to build, because it stores the renderer's `info` by reference. @internal */
     buffers: Buffers.BufferCache;
-    /** Value-keyed, shared by pipelines and bindings so one entry shape yields one layout. @internal */
-    bindGroupLayoutCache: BindGroupLayoutCache;
     /** Every GPU allocation this backend holds, shared by its buffer, texture and swapchain caches. @internal */
     readonly memoryTally: Info.MemoryTally;
     /** Every GPU bind group, by layout and resources; the caches that destroy what groups bind release them. @internal */
     readonly bindGroupCache: BindGroupCache.BindGroupCache;
+    /** Value-keyed, shared by pipelines and bindings so one entry shape yields one layout. @internal */
+    bindGroupLayoutCache: BindGroupLayoutCache;
     /** @internal */ textures: Textures.TextureCache;
     /** @internal */ samplers: Samplers.SamplerCache;
     /** @internal */ pipelines: Pipelines.PipelinesState;
     /** @internal */ bindings: Bindings.BindingsState;
     /** @internal */ renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache;
     /** @internal */ geometries: Geometries.GeometriesState;
-    /** Per (bundle, camera, render context, replay in the frame); here rather than on the neutral bundle, which may name no device object. @internal */
-    readonly renderBundles: WeakMap<RenderBundle, WeakMap<object, Map<number, RenderPass.BundleRecordings>>>;
+    /** Each bundle's recording and view slot, from its first execute to its `dispose()`; here rather than on the neutral bundle, which names no device object. @internal */
+    readonly renderBundles: Map<RenderBundle, RenderPass.BundleState>;
     /** @internal */ readonly canvasContexts: WeakMap<CanvasTarget, GPUCanvasContext>;
     /** @internal */ readonly swapchain: RenderPass.SwapchainState;
     /** A frame is one command buffer; `beginFrame` opens the encoder. @internal */
@@ -138,6 +139,8 @@ export declare class WebGPUBackend implements DeviceBackend {
     /** @internal */
     releaseRenderObject(renderObject: RenderObject): void;
     releaseUniformBlock(key: object): void;
+    /** @internal */
+    releaseBindGroup(bindGroup: BindGroup): void;
     /** Nothing to forget: a WebGPU pass starts from no state, and other users of the device cannot reach its encoders. */
     /** @internal */
     resetState(): void;

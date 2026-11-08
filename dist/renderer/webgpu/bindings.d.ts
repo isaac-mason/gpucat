@@ -1,5 +1,6 @@
 import type { GpuTexture } from '../../core/gpu-texture';
 import { type TextureViewRange } from '../../core/gpu-texture-view';
+import type { MaterialParameters } from '../../material/parameters';
 import type { BindGroup, StorageBinding, StorageTextureBinding, TextureBinding } from '../core/bind-group';
 import type { DispatchOptions } from '../core/frame';
 import type { NodeBuilderState } from '../core/node-builder-state';
@@ -73,6 +74,9 @@ export declare function createDrawBindings(): DrawBindings;
 export declare function updateRenderBindings(b: WebGPUBackend, renderObject: RenderObject, frame: NodeFrame, out: DrawBindings): void;
 /** Update all bindings for one compute dispatch, into `out`. */
 export declare function updateComputeBindings(b: WebGPUBackend, nodeBuilderState: NodeBuilderState, frame: NodeFrame, inputs: DispatchInputs | null, out: DrawBindings): void;
+/** `bindGroup` ended with its owner (a render object, a shared group's last compiled state, a compute node): its data
+ *  goes, and with it its hold on its layout. */
+export declare function releaseBindGroup(state: BindingsState, bindGroup: BindGroup): void;
 /** A group that bound a texture since disposed resolves again: no group may bind it again. */
 export declare function clearBindGroupVariants(data: BindGroupData): void;
 /** what a dispatch fills its node's named slots with: its `buffers` and `textures` */
@@ -87,7 +91,7 @@ export type ResolvedTexture = {
  * The texture and range `node` binds: its own, or for a named binding what the dispatch's `textures` fills its slot
  * with. The result is shared: read it before the next call.
  */
-export declare function resolveTextureBinding(node: TextureBindingNodes, inputs: DispatchInputs | null): ResolvedTexture;
+export declare function resolveTextureBinding(node: TextureBindingNodes, parameters: MaterialParameters | null, inputs: DispatchInputs | null): ResolvedTexture;
 /** Initialize bindings for a RenderObject. */
 export declare function initRenderBindings(state: BindingsState, renderObject: RenderObject, device: GPUDevice): void;
 /** Get the bind group layouts for a RenderObject. Used for pipeline creation. */

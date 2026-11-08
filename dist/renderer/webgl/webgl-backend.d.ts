@@ -3,6 +3,7 @@ import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
 import type { TextureOrigin, TextureRegion } from '../../core/texture-region';
 import type { ComputeNode } from '../../nodes/lib/core';
+import type { BindGroup } from '../core/bind-group';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DeviceBackend } from '../core/device-backend';
 import type { ComputePassDesc, DispatchRecord, PassDesc, PassEntry, TransformFeedbackPassDesc, TransformFeedbackRecord } from '../core/frame';
@@ -119,12 +120,18 @@ export declare class WebGLBackend implements DeviceBackend {
     clearBuffer(buffer: GpuBuffer, byteOffset: number, byteSize: number): void;
     submitFrame(): void;
     discardFrame(): void;
-    /** WebGL2 has no async link, so this only moves the stall off the first frame and onto load. */
+    /**
+     * Starts every program before reading any, so the driver links them side by side, then finishes each once
+     * KHR_parallel_shader_compile says it is done. Without the extension the reads wait on each link in turn.
+     */
     /** @internal */
     compileObjects(objects: RenderObject[], _params: RenderPassParams): Promise<void>;
     /** @internal */
     releaseRenderObject(renderObject: RenderObject): void;
     releaseUniformBlock(key: object): void;
+    /** Nothing to let go of: a WebGL group holds no layout, and its uniform blocks go through `releaseUniformBlock`. */
+    /** @internal */
+    releaseBindGroup(_bindGroup: BindGroup): void;
     /**
      * Puts the context back to GL's defaults for everything gpucat sets or reads through, and forgets its records of it.
      * @internal

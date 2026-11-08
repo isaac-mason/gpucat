@@ -54,7 +54,9 @@ export type BuildContext = {
     builtins: Set<string>;
     /** see {@link Discovery.fnBuiltins} */
     fnBuiltins: Map<string, string>;
-    /** emitting a `Fn` body, which reads builtins through their module-scope copies */
+    /** see {@link Discovery.fnVaryings} */
+    fnVaryings: Map<string, VaryingNode<d.Any>>;
+    /** emitting a `Fn` body, which reads builtins and varyings through their module-scope copies */
     inFunction: boolean;
     privateVars: Map<number, PrivateVarNode<d.Any>>;
     workgroupVars: Map<number, WorkgroupVarNode<d.Any>>;
@@ -90,7 +92,7 @@ export type BuildContext = {
  * to some of them (e.g. uniforms/textures registered on first encounter), so they are shared-mutable.
  */
 export declare function createContext(stage: ShaderStage, isRender: boolean, discovery: Discovery): BuildContext;
-/** Pre-collect VaryingNodes from roots and generate their vertex expressions. */
+/** Pre-collect VaryingNodes from roots, and from the `Fn` bodies they call, and generate their vertex expressions. */
 export declare function collectVaryings(roots: Node<d.Any>[], ctx: BuildContext): void;
 /**
  * Emit module-scope variable declarations (var<private> and var<workgroup>).

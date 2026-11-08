@@ -7810,15 +7810,12 @@ class Geometry {
     }
     /**
      * Set a named buffer.
-     * Works for vertex attributes, storage buffers, or any buffer type.
+     * Vertex attributes; a named `storage()` read is the material's parameter, not the geometry's.
      * Automatically bumps version when a new buffer name is added.
      * For REF_COUNTED buffers, increments usage count.
      *
      * @example Vertex attribute
      * geometry.setBuffer('position', new GpuBuffer(d.vec3f, { data: positions, usage: 'vertex' }));
-     *
-     * @example Storage buffer
-     * geometry.setBuffer('particles', new GpuBuffer(d.array(Particle), { data: new Float32Array(1000 * stride), usage: 'storage' }));
      */
     setBuffer(name, buffer) {
         const existing = this.buffers.get(name);
@@ -9907,7 +9904,7 @@ function readBlockStamp(block, frame, material, out) {
             frame.updateNode(node);
         }
         const uniform = node.uniform;
-        out[count++] = uniform.value !== null ? uniform.version : (material?.uniforms.get(node.name)?.version ?? 0);
+        out[count++] = uniform.value !== null ? uniform.version : (material?.parameters.uniform(node.name)?.version ?? 0);
     }
     out.length = count;
     return true;
@@ -12674,10 +12671,10 @@ function assertVertexBuffers(geometry, state, label) {
 }
 /**
  * Lets go of what a compiled state holds that its users don't: each cached shared group stops counting it, and one held
- * by no other state leaves the cache. The uniform blocks of every shared group no state holds any more go to
- * `releaseUniformBlock`, a cached group's with its last holder and another shared group's with this state.
+ * by no other state leaves the cache. Every shared group no state holds any more goes to `releaseBindGroup` and its
+ * uniform blocks to `releaseUniformBlock`, a cached group with its last holder and another shared group with this state.
  */
-function releaseNodeBuilderState(nodeState, sharedBlocks, releaseUniformBlock) {
+function releaseNodeBuilderState(nodeState, sharedBlocks, releaseUniformBlock, releaseBindGroup) {
     releaseSharedReaders(sharedBlocks, nodeState.sharedMembers, releaseUniformBlock);
     nodeState.sharedMembers.length = 0;
     const cached = new Set();
@@ -12689,11 +12686,14 @@ function releaseNodeBuilderState(nodeState, sharedBlocks, releaseUniformBlock) {
         if (hold.cache.get(hold.key) === hold.entry)
             hold.cache.delete(hold.key);
         releaseGroupBlocks(hold.entry.bindGroup, releaseUniformBlock);
+        releaseBindGroup(hold.entry.bindGroup);
     }
     nodeState.sharedHolds.length = 0;
     for (const group of nodeState.bindings) {
-        if (group.shared && !cached.has(group))
-            releaseGroupBlocks(group, releaseUniformBlock);
+        if (!group.shared || cached.has(group))
+            continue;
+        releaseGroupBlocks(group, releaseUniformBlock);
+        releaseBindGroup(group);
     }
 }
 function releaseGroupBlocks(group, releaseUniformBlock) {
@@ -12901,7 +12901,7 @@ function packUniformMembers(block, view, material, layout) {
     for (const m of block.members) {
         let value = m.node.uniform.value;
         if (value === null && material) {
-            const materialUniform = material.uniforms.get(m.node.name);
+            const materialUniform = material.parameters.uniform(m.node.name);
             if (materialUniform)
                 value = materialUniform.value;
         }
@@ -12936,10 +12936,8 @@ function changedByteCount(a, b) {
     return changed;
 }
 
-/** Frames an entry stays cached unused, and how often the cache is swept for them. */
-const GROUP_KEEP_FRAMES = 300;
 function createBindGroupCache() {
-    return { groups: new Map(), objectToGroups: new WeakMap(), sweptFrame: 0 };
+    return { groups: new Map(), objectToGroups: new WeakMap() };
 }
 /** Drops every entry (renderer dispose; `device.destroy()` frees the GPU side). */
 function disposeBindGroupCache(cache) {
@@ -12955,33 +12953,12 @@ function cachedGroup(cache, key, objects) {
             bindGroup: null,
             dynamicBindGroups: [],
             objects: [...objects],
-            lastFrame: 0,
-            evicted: false,
             released: false,
         };
         cache.groups.set(key, group);
         file(cache, group);
     }
     return group;
-}
-/** An evicted entry a group still binds, back in the cache unless another took its key since. */
-function readmit(cache, group) {
-    group.evicted = false;
-    if (cache.groups.has(group.key))
-        return;
-    cache.groups.set(group.key, group);
-    file(cache, group);
-}
-/** Drops entries no draw or dispatch has bound for {@link GROUP_KEEP_FRAMES} frames. */
-function sweepGroups(cache, frameId) {
-    cache.sweptFrame = frameId;
-    for (const [key, group] of cache.groups) {
-        if (frameId - group.lastFrame < GROUP_KEEP_FRAMES)
-            continue;
-        group.evicted = true;
-        cache.groups.delete(key);
-        unfile(cache, group, null);
-    }
 }
 /** `object` is being destroyed: every entry naming it leaves the cache for good. */
 function releaseGroupsNaming(cache, object) {
@@ -13124,8 +13101,28 @@ function samplerBindingType(entry) {
     return 'filtering';
 }
 /** create a bind group layout cache */
-function createBindGroupLayoutCache() {
-    return { cache: new Map() };
+function createBindGroupLayoutCache(bindGroups) {
+    return { cache: new Map(), held: new Map(), bindGroups };
+}
+/** One more holder of `layout`, a layout from this cache. */
+function holdBindGroupLayout(cache, layout) {
+    const entry = cache.held.get(layout);
+    if (entry === undefined)
+        throw new Error('[gpucat] a held bind group layout must come from the layout cache');
+    entry.holders++;
+}
+/** One fewer holder of `layout`: with none left it leaves the cache, and every bind group cached over it goes. */
+function releaseBindGroupLayout(cache, layout) {
+    const entry = cache.held.get(layout);
+    if (entry === undefined)
+        return;
+    entry.holders--;
+    if (entry.holders > 0)
+        return;
+    cache.held.delete(layout);
+    if (cache.cache.get(entry.key) === layout)
+        cache.cache.delete(entry.key);
+    releaseGroupsNaming(cache.bindGroups, layout);
 }
 /**
  * Get or create a bind group layout for the given entries.
@@ -13144,6 +13141,7 @@ function getBindGroupLayout(cache, device, entries) {
     if (!layout) {
         layout = device.createBindGroupLayout({ entries });
         cache.cache.set(key, layout);
+        cache.held.set(layout, { key, holders: 0 });
     }
     return layout;
 }
@@ -13253,6 +13251,7 @@ function buildComputeBindGroupLayouts(device, bindings, layoutCache) {
 /** Drop every cached layout (called on renderer dispose; `device.destroy()` frees the GPU side). */
 function disposeBindGroupLayoutCache(cache) {
     cache.cache.clear();
+    cache.held.clear();
 }
 function getBindGroupLayoutCacheStats(cache) {
     return { layoutCount: cache.cache.size };
@@ -13410,7 +13409,7 @@ function planBufferUpload(buffer, exists, capacityBytes, lastVersion) {
  */
 function createRendererInfo() {
     return {
-        render: { calls: 0, frameCalls: 0, drawCalls: 0, triangles: 0 },
+        render: { calls: 0, frameCalls: 0, drawCalls: 0, triangles: 0, bundles: 0, bundlesRecorded: 0 },
         compute: { calls: 0, frameCalls: 0 },
         state: { set: 0, skipped: 0, created: 0, held: 0, packed: 0, kept: 0 },
         buffers: {
@@ -13444,6 +13443,8 @@ function beginInfoFrame(info) {
     info.render.frameCalls = 0;
     info.render.drawCalls = 0;
     info.render.triangles = 0;
+    info.render.bundles = 0;
+    info.render.bundlesRecorded = 0;
     info.compute.frameCalls = 0;
     info.state.set = 0;
     info.state.skipped = 0;
@@ -14093,6 +14094,7 @@ function createBufferCache$1(info, tally, bindGroups) {
         info,
         dynamicUniforms: createDynamicUniformBuffers(),
         drawArena: createDrawArena(info, tally, bindGroups),
+        bundleView: null,
         retired: [],
         bindGroups,
     };
@@ -14238,15 +14240,16 @@ function getUploaded$1(cache, buffer) {
 /**
  * Resolve a GpuBuffer from a StorageNode.
  *
- * For named references, lookup order is: `buffers` (per-call override) → `geometry.buffers`.
+ * For named references, lookup order is: the dispatch's `buffers`, then the material's parameters.
  * For value references, the buffer is taken from node.value.
  */
-function resolveStorageBuffer(node, geometry, buffers) {
+function resolveStorageBuffer(node, parameters, buffers) {
     if (node.isNamedReference) {
         const name = node.bufferName;
-        const buffer = buffers?.[name] ?? geometry?.buffers.get(name);
+        const buffer = buffers?.[name] ?? parameters?.buffer(name);
         if (!buffer) {
-            throw new Error(`[gpucat] resolveStorageBuffer: buffer '${name}' not found in compute buffers map or geometry.buffers`);
+            throw new Error(`[gpucat] storage('${name}') is unfilled: set it with material.parameters.setBuffer('${name}', …), ` +
+                "or pass it in the dispatch's `buffers`.");
         }
         return buffer;
     }
@@ -16063,7 +16066,7 @@ function updateRenderBindings(b, renderObject, frame, out) {
         }
         // Update uniforms, which decides where this use of each uniform block reads from
         updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache, samplerCache, info);
-        const gpuBindGroup = currentGPUBindGroup(state, device, bufferCache, textureCache, samplerCache, bindGroup, data, renderObject.geometry, null, frame.frameId, info);
+        const gpuBindGroup = currentGPUBindGroup(state, device, bufferCache, textureCache, samplerCache, bindGroup, data, renderObject.material.parameters, null, info);
         if (gpuBindGroup) {
             out.groups[bindGroup.groupIndex] = gpuBindGroup;
             out.offsets[bindGroup.groupIndex] = dynamicOffsetOf(data, bindGroup);
@@ -16089,7 +16092,7 @@ function updateComputeBindings(b, nodeBuilderState, frame, inputs, out) {
         }
         // Update bindings
         updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, device, bindGroup, frame, inputs, info);
-        const gpuBindGroup = currentGPUBindGroup(state, device, bufferCache, textureCache, samplerCache, bindGroup, data, null, inputs, frame.frameId, info);
+        const gpuBindGroup = currentGPUBindGroup(state, device, bufferCache, textureCache, samplerCache, bindGroup, data, null, inputs, info);
         if (gpuBindGroup) {
             out.groups[bindGroup.groupIndex] = gpuBindGroup;
             out.offsets[bindGroup.groupIndex] = dynamicOffsetOf(data, bindGroup);
@@ -16131,18 +16134,13 @@ function keepResolved(data, scope, group, offset) {
  * allocated from. Built on first need, for the set of resources bound: a resource change (`needsUpdate`) picks the
  * variant over the set now bound, built before or new.
  */
-function currentGPUBindGroup(state, device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, inputs, frameId, info) {
+function currentGPUBindGroup(state, device, bufferCache, textureCache, samplerCache, bindGroup, data, parameters, inputs, info) {
     if (data.needsUpdate || data.current === null || data.current.released) {
-        const resources = resourceKey(state, bufferCache, textureCache, bindGroup, geometry, inputs, _keyObjects);
+        const resources = resourceKey(state, bufferCache, textureCache, bindGroup, parameters, inputs, _keyObjects);
         data.current = groupFor(state, data, resources, _keyObjects);
         data.needsUpdate = false;
     }
     const variant = data.current;
-    if (variant.evicted)
-        readmit(state.cache, variant);
-    variant.lastFrame = frameId;
-    if (frameId - state.cache.sweptFrame >= GROUP_KEEP_FRAMES)
-        sweepGroups(state.cache, frameId);
     info.held = state.cache.groups.size;
     const uniform = dynamicUniformBinding(bindGroup);
     if (uniform !== null && bindGroup.bindings.length === 1 && data.bindGroupLayout !== null) {
@@ -16158,7 +16156,7 @@ function currentGPUBindGroup(state, device, bufferCache, textureCache, samplerCa
         if (variant.bindGroup !== null)
             return variant.bindGroup;
         info.created++;
-        variant.bindGroup = buildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, inputs, data.slot?.page.buffer ?? null);
+        variant.bindGroup = buildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, parameters, inputs, data.slot?.page.buffer ?? null);
         return variant.bindGroup;
     }
     const bufferId = uniform.sliceBufferId;
@@ -16166,15 +16164,28 @@ function currentGPUBindGroup(state, device, bufferCache, textureCache, samplerCa
     if (cached !== undefined)
         return cached;
     info.created++;
-    const built = buildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, inputs, dynamicUniformBuffer(bufferCache, bufferId));
+    const built = buildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, parameters, inputs, dynamicUniformBuffer(bufferCache, bufferId));
     if (built !== null)
         variant.dynamicBindGroups[bufferId] = built;
     return built;
 }
-/** The cache entry over `data`'s layout and the resources `resources` names, its GPU objects being `objects`. */
+/** The cache entry over `data`'s layout and the resources `resources` names, its GPU objects being `objects`: filed
+ *  under the layout as well, so it goes when the layout's last holder does. */
 function groupFor(state, data, resources, objects) {
     const key = `${data.bindGroupLayout === null ? 0 : objectId(state, data.bindGroupLayout)}|${resources}`;
+    if (data.bindGroupLayout !== null)
+        objects.push(data.bindGroupLayout);
     return cachedGroup(state.cache, key, objects);
+}
+/** `bindGroup` ended with its owner (a render object, a shared group's last compiled state, a compute node): its data
+ *  goes, and with it its hold on its layout. */
+function releaseBindGroup(state, bindGroup) {
+    const data = state.data.get(bindGroup);
+    if (data === undefined)
+        return;
+    state.data.delete(bindGroup);
+    if (data.bindGroupLayout !== null)
+        releaseBindGroupLayout(state.layoutCache, data.bindGroupLayout);
 }
 /** A group that bound a texture since disposed resolves again: no group may bind it again. */
 function clearBindGroupVariants(data) {
@@ -16188,15 +16199,16 @@ const _keyObjects = [];
  * The texture and range `node` binds: its own, or for a named binding what the dispatch's `textures` fills its slot
  * with. The result is shared: read it before the next call.
  */
-function resolveTextureBinding(node, inputs) {
+function resolveTextureBinding(node, parameters, inputs) {
     if (node.slot === null) {
         _resolved.texture = node.value;
         _resolved.range = node.range;
         return _resolved;
     }
-    const source = inputs?.textures?.[node.slot];
+    const source = inputs?.textures?.[node.slot] ?? parameters?.texture(node.slot);
     if (source === undefined) {
-        throw new Error(`[gpucat] texture slot '${node.slot}' is unfilled: pass it in the dispatch's \`textures\`.`);
+        throw new Error(`[gpucat] texture '${node.slot}' is unfilled: set it with material.parameters.setTexture('${node.slot}', …), ` +
+            "or pass it in the dispatch's `textures`.");
     }
     if ('isGpuTextureView' in source) {
         _resolved.texture = source.texture;
@@ -16213,7 +16225,7 @@ function resolveTextureBinding(node, inputs) {
     return _resolved;
 }
 /** the GPU objects `bindGroup` binds now, as the numbers `state` gives them: what tells one resource set from another */
-function resourceKey(state, bufferCache, textureCache, bindGroup, geometry, inputs, objects) {
+function resourceKey(state, bufferCache, textureCache, bindGroup, parameters, inputs, objects) {
     objects.length = 0;
     const id = (object) => {
         if (!object)
@@ -16228,11 +16240,11 @@ function resourceKey(state, bufferCache, textureCache, bindGroup, geometry, inpu
                 key += `${binding.bufferKey ? id(uniformBuffer(bufferCache, binding.bufferKey)) : 0},`;
                 break;
             case 'storage':
-                key += `${id(getUploaded$1(bufferCache, resolveStorageBuffer(binding.entry.node, geometry, inputs?.buffers ?? null)))},`;
+                key += `${id(getUploaded$1(bufferCache, resolveStorageBuffer(binding.entry.node, parameters, inputs?.buffers ?? null)))},`;
                 break;
             case 'texture':
             case 'storageTexture': {
-                const { texture, range } = resolveTextureBinding(binding.entry.node, inputs);
+                const { texture, range } = resolveTextureBinding(binding.entry.node, parameters, inputs);
                 key += `${texture ? id(getTextureData$1(textureCache, texture)?.texture) : 0}@${range.key},`;
                 break;
             }
@@ -16305,8 +16317,9 @@ function initBindGroup(state, bindGroup, device, uniformVisibility) {
         return;
     // build bind group layout entries
     const entries = buildLayoutEntries(bindGroup, uniformVisibility, device);
-    // get or create the layout
+    // get or create the layout, held for as long as the group is
     data.bindGroupLayout = getBindGroupLayout(state.layoutCache, device, entries);
+    holdBindGroupLayout(state.layoutCache, data.bindGroupLayout);
 }
 /**
  * Build bind group layout entries for a BindGroup. A uniform block is shared by every stage, as three.js does; any
@@ -16377,16 +16390,16 @@ function updateRenderBindGroup(data, bindGroup, renderObject, frame, device, buf
                 updateUniformBinding(bufferCache, device, binding, frame, data, renderObject.material, usesDynamicOffset(binding.block), info);
                 break;
             case 'texture':
-                updateTextureBinding(textureCache, device, binding, data, null);
+                updateTextureBinding(textureCache, device, binding, data, renderObject.material.parameters, null);
                 break;
             case 'storageTexture':
-                updateStorageTextureBinding(textureCache, device, binding, data, null);
+                updateStorageTextureBinding(textureCache, device, binding, data, renderObject.material.parameters, null);
                 break;
             case 'sampler':
                 updateSamplerBinding(samplerCache, device, binding, data);
                 break;
             case 'storage':
-                updateStorageBinding(bufferCache, device, binding, data, renderObject.geometry, null);
+                updateStorageBinding(bufferCache, device, binding, data, renderObject.material.parameters, null);
                 break;
         }
     }
@@ -16417,9 +16430,15 @@ function updateUniformBinding(bufferCache, device, binding, frame, data, materia
     if (resolvedThisScope(binding, frame))
         return;
     // A shared block bound at a dynamic offset (the view block) is packed at every use, straight into a ring
-    // allocation: it has no buffer of its own, as PlayCanvas's view uniform buffers are not persistent
+    // allocation: it has no buffer of its own, as PlayCanvas's view uniform buffers are not persistent. A bundle's
+    // draws pack it into the bundle's own slot instead, which its recording binds frame to frame.
     if (block.group.shared && perUse) {
         invokeUniformGroupCallbacks(block, frame);
+        if (bufferCache.bundleView !== null) {
+            placeBundleView(bufferCache, device, binding, frame, data, material, bufferCache.bundleView);
+            info.packed++;
+            return;
+        }
         const offset = allocDynamicUniform(bufferCache, device, block.totalBytes);
         const active = bufferCache.dynamicUniforms.active;
         packUniformMembers(block, new DataView(active.staging.view.buffer, offset, block.totalBytes), material, 'wgsl-uniform');
@@ -16481,6 +16500,44 @@ function updateUniformBinding(bufferCache, device, binding, frame, data, materia
     }
 }
 /**
+ * The view block of a bundle's draws, packed into the bundle's slot and written where its bytes changed. One slot holds
+ * one set of values a submit (every write lands before it), so a bundle executed again in the same frame with other
+ * camera values throws rather than drawing both with the last.
+ */
+function placeBundleView(bufferCache, device, binding, frame, data, material, view) {
+    const block = binding.block;
+    if (!binding.scratchBuffer || binding.scratchBuffer.byteLength !== block.totalBytes) {
+        binding.scratchBuffer = new ArrayBuffer(block.totalBytes);
+    }
+    packUniformMembers(block, new DataView(binding.scratchBuffer), material, 'wgsl-uniform');
+    const packed = new Uint8Array(binding.scratchBuffer);
+    let slot = arenaSlot(bufferCache.drawArena, view.key);
+    if (slot === undefined || slot.bytes < block.totalBytes) {
+        slot = takeSlot(bufferCache.drawArena, device, view.key, block.totalBytes);
+        view.bytes = null;
+    }
+    const same = view.bytes !== null && sameBytes(view.bytes, packed);
+    if (view.writtenFrame === frame.frameId && !same) {
+        throw new Error(`[bundle ${view.label}] executed twice in one frame with different camera values: its one view slot holds ` +
+            'one set a frame. Use a bundle for each view.');
+    }
+    if (!same) {
+        view.bytes = new Uint8Array(packed);
+        writeSlot(slot, view.bytes.buffer);
+    }
+    view.writtenFrame = frame.frameId;
+    binding.sliceBufferId = -1;
+    data.slot = slot;
+}
+function sameBytes(a, b) {
+    if (a.byteLength !== b.byteLength)
+        return false;
+    for (let i = 0; i < a.byteLength; i++)
+        if (a[i] !== b[i])
+            return false;
+    return true;
+}
+/**
  * A render object's or dispatch's own block, after packing: its bytes live in a draw arena slot, rewritten when they
  * change. A later use this frame with other bytes reads a dynamic allocation instead, since a write to the slot
  * would land before the frame's submit and the earlier use would read it.
@@ -16517,8 +16574,8 @@ function updateArenaBlock(bufferCache, device, binding, frame, data, changed) {
     return true;
 }
 /** Update a texture binding. */
-function updateTextureBinding(textureCache, device, binding, data, inputs) {
-    const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, inputs);
+function updateTextureBinding(textureCache, device, binding, data, parameters, inputs) {
+    const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, parameters, inputs);
     if (gpuTexture === null)
         return;
     if (range.key !== binding.lastRangeKey) {
@@ -16569,8 +16626,8 @@ function updateTextureBinding(textureCache, device, binding, data, inputs) {
     }
 }
 /** Update a storage texture binding: ensure GPU texture exists, detect changes. */
-function updateStorageTextureBinding(textureCache, device, binding, data, inputs) {
-    const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, inputs);
+function updateStorageTextureBinding(textureCache, device, binding, data, parameters, inputs) {
+    const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, parameters, inputs);
     if (gpuTexture === null)
         return;
     if (range.key !== binding.lastRangeKey) {
@@ -16618,9 +16675,9 @@ function updateSamplerBinding(samplerCache, device, binding, data) {
     }
 }
 /** Update a storage binding - detect buffer swaps and flush data to GPU. */
-function updateStorageBinding(bufferCache, device, binding, data, geometry, buffers) {
+function updateStorageBinding(bufferCache, device, binding, data, parameters, buffers) {
     const node = binding.entry.node;
-    const buffer = resolveStorageBuffer(node, geometry, buffers);
+    const buffer = resolveStorageBuffer(node, parameters, buffers);
     // If buffer identity changed, need to rebuild bind group
     if (buffer !== binding.lastBuffer) {
         binding.lastBuffer = buffer;
@@ -16638,7 +16695,7 @@ function updateStorageBinding(bufferCache, device, binding, data, geometry, buff
  * Builds the GPU bind group for `bindGroup`. `dynamicBuffer` is the dynamic uniform buffer a transient
  * uniform block is bound from, one block's size at a time, at the dynamic offset given when drawing.
  */
-function buildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, inputs, dynamicBuffer) {
+function buildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, parameters, inputs, dynamicBuffer) {
     if (!data.bindGroupLayout)
         return null;
     const entries = [];
@@ -16660,7 +16717,7 @@ function buildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bind
                 break;
             }
             case 'storage': {
-                const buffer = resolveStorageBuffer(binding.entry.node, geometry, inputs?.buffers ?? null);
+                const buffer = resolveStorageBuffer(binding.entry.node, parameters, inputs?.buffers ?? null);
                 const buf = getUploaded$1(bufferCache, buffer);
                 if (buf) {
                     entries.push({ binding: binding.entry.binding, resource: { buffer: buf } });
@@ -16668,7 +16725,7 @@ function buildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bind
                 break;
             }
             case 'texture': {
-                const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, inputs);
+                const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, parameters, inputs);
                 if (!gpuTexture)
                     break;
                 const texData = getTextureData$1(textureCache, gpuTexture);
@@ -16682,7 +16739,7 @@ function buildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bind
                 break;
             }
             case 'storageTexture': {
-                const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, inputs);
+                const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, parameters, inputs);
                 if (!gpuTexture)
                     break;
                 const texData = getTextureData$1(textureCache, gpuTexture);
@@ -16728,10 +16785,10 @@ function updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, d
                 updateStorageBinding(bufferCache, device, binding, data, null, inputs?.buffers ?? null);
                 break;
             case 'texture':
-                updateTextureBinding(textureCache, device, binding, data, inputs);
+                updateTextureBinding(textureCache, device, binding, data, null, inputs);
                 break;
             case 'storageTexture':
-                updateStorageTextureBinding(textureCache, device, binding, data, inputs);
+                updateStorageTextureBinding(textureCache, device, binding, data, null, inputs);
                 break;
             case 'sampler':
                 updateSamplerBinding(samplerCache, device, binding, data);
@@ -17585,7 +17642,8 @@ class TextureBindingNode extends Node {
     passSource = null;
     /** The part of `value` the binding sees: the whole texture unless bound through a view. */
     range = WHOLE_TEXTURE;
-    /** For a named binding, the slot a dispatch fills with `textures: { [slot]: view }`; `value` is then unused. */
+    /** For a named binding, the parameter it reads: the material's `parameters.setTexture(slot, …)`, or a dispatch's
+     *  `textures: { [slot]: view }`; `value` is then unused. */
     slot;
     /** The binding's identity: its texture and range, or its slot. Two nodes with the same id are one binding. */
     textureId;
@@ -17624,7 +17682,8 @@ class StorageTextureBindingNode extends Node {
     value = null;
     /** The part of `value` the binding sees: the whole texture unless bound through a view. */
     range = WHOLE_TEXTURE;
-    /** For a named binding, the slot a dispatch fills with `textures: { [slot]: view }`; `value` is then unused. */
+    /** For a named binding, the parameter it reads: the material's `parameters.setTexture(slot, …)`, or a dispatch's
+     *  `textures: { [slot]: view }`; `value` is then unused. */
     slot;
     /** The binding's identity: its texture, range and access, or its slot. Two nodes with the same id are one binding. */
     textureId;
@@ -18976,7 +19035,7 @@ class RenderTextureNode extends Node {
  * sample. `read` picks which aspect the node yields when used as a value; every aspect stays
  * reachable through the getters whatever it is set to.
  */
-const renderTexture = (contents, camera, options) => {
+const renderTexture$1 = (contents, camera, options) => {
     return new RenderTextureNode(contents, camera, options);
 };
 
@@ -19478,12 +19537,12 @@ function mrt(outputNodes) {
  * 2. **Value reference**: Buffer provided directly, can be swapped via `.value`
  *
  * Both are first-class features for different use cases:
- * - Named references enable buffer reuse across materials (same shader, different buffers per mesh)
- * - Value references enable compute-only workloads (no geometry) and explicit buffer swapping
+ * - Named references let materials built from the same nodes read different buffers, sharing one program
+ * - Value references enable compute-only workloads and explicit buffer swapping
  *
- * @example Named reference (resolved from geometry.buffers)
+ * @example Named reference (resolved from the material's parameters, or a dispatch's `buffers`)
  * const particles = storage('particles', d.array(Particle), 'read_write');
- * // Later: geometry.setBuffer('particles', myParticleBuffer);
+ * // Later: material.parameters.setBuffer('particles', myParticleBuffer);
  *
  * @example Value reference (buffer provided directly, swappable)
  * const particles = storage(myBuffer, 'read_write');
@@ -19491,7 +19550,7 @@ function mrt(outputNodes) {
  */
 class StorageNode extends Node {
     kind = NodeKind.Storage;
-    /** Buffer name (for geometry.buffers lookup), null if value-based */
+    /** The parameter it reads, null if value-based */
     bufferName;
     /** Direct buffer reference, null if name-based */
     value;
@@ -19517,7 +19576,7 @@ class StorageNode extends Node {
         this.access = access;
         this.group = group;
     }
-    /** Whether this is a named reference (resolved from geometry.buffers) */
+    /** Whether this is a named reference (resolved from the material's parameters or a dispatch's `buffers`) */
     get isNamedReference() {
         return this.bufferName !== null;
     }
@@ -22944,6 +23003,13 @@ function collectGlslVaryings(roots, ctx) {
                 ctx.varyings.set(name, { node, vertexExpr: sourceExpr });
             }
         }
+        // a `Fn` body reads the fragment's `in` as `main` does, so its varyings are the vertex stage's to write too
+        if (node.kind === NodeKind.Call && node.fnNode) {
+            const traced = ctx.fnDefs.get(node.fnNode.fnName)?.traced ?? node.fnNode.trace();
+            visit(traced.body);
+            if (traced.output)
+                visit(traced.output);
+        }
         for (const child of getChildren(node))
             visit(child);
     }
@@ -23126,6 +23192,17 @@ function validateTransformFeedbackOutputType(name, type) {
     return type;
 }
 /* fragment shader generation */
+/**
+ * The fragment's varying inputs, matched to the vertex stage by NAME (see the vertex emitter), after
+ * `generateGlslFragmentShader` has gathered them. No `layout(location)`: illegal on a fragment varying `in`
+ * in GLSL ES 3.00. Declared ahead of the functions, since a `Fn` body may read a varying too.
+ */
+function glslFragmentVaryingDeclarations(ctx) {
+    const lines = [];
+    for (const [name, { node }] of ctx.varyings)
+        lines.push(`${glslVaryingQualifier(node)}in ${glslType(node.type)} ${name};`);
+    return lines.join('\n');
+}
 function generateGlslFragmentShader(fragmentNode, ctx, varyings, depthNode = null) {
     const lines = [];
     // a void fragment runs for its statements (a cutout's discard in a depth-only pass) and writes no colour
@@ -23194,15 +23271,6 @@ function generateGlslFragmentShader(fragmentNode, ctx, varyings, depthNode = nul
     // Pre-generate the frag_depth override expression (assigned to gl_FragDepth in main). Built into
     // GLSL ES 3.00 fragment shaders — no `out` declaration, no extension.
     const depthExpr = hasDepth ? generateExpr$1(ctx, depthNode) : '';
-    // Varying inputs — matched to the vertex stage by NAME (see the vertex emitter). No
-    // `layout(location)`: illegal on a fragment varying `in` in GLSL ES 3.00. The mandatory default
-    // `precision` declarations are emitted at the top of the fragment module (see builder assembly),
-    // ahead of the struct/UBO sections so their float members are covered.
-    for (const [name, { node }] of ctx.varyings) {
-        lines.push(`${glslVaryingQualifier(node)}in ${glslType(node.type)} ${name};`);
-    }
-    if (ctx.varyings.size > 0)
-        lines.push('');
     if (mrtOutputs) {
         // One `out <type>` per render target. The type comes from the member node (vec4 for a color
         // target, but ivec4/uvec4 for an integer G-buffer target), not a hardcoded vec4.
@@ -23328,6 +23396,7 @@ function emptyDiscovery() {
         updateAfterNodes: [],
         updateNodes: [],
         fnBuiltins: new Map(),
+        fnVaryings: new Map(),
     };
 }
 /**
@@ -23361,6 +23430,7 @@ function createContext$1(stage, isRender, discovery) {
         fnDefs: discovery.fnDefs,
         wgslFnDefs: discovery.wgslFnDefs,
         fnBuiltins: discovery.fnBuiltins,
+        fnVaryings: discovery.fnVaryings,
         inFunction: false,
         // Per-stage emission scratch — fresh each call.
         attributes: new Map(),
@@ -23403,9 +23473,11 @@ function seedGlobalNames(discovery) {
         reserveName(names, fnName);
     for (const kind of discovery.fnBuiltins.keys())
         reserveName(names, fnBuiltinVarName(kind));
+    for (const name of discovery.fnVaryings.keys())
+        reserveName(names, fnVaryingVarName(name));
     return names;
 }
-/** Pre-collect VaryingNodes from roots and generate their vertex expressions. */
+/** Pre-collect VaryingNodes from roots, and from the `Fn` bodies they call, and generate their vertex expressions. */
 function collectVaryings(roots, ctx) {
     const visited = new Set();
     function visit(rawNode) {
@@ -23421,6 +23493,12 @@ function collectVaryings(roots, ctx) {
                 const sourceExpr = generateExpr(ctx, sourceNode);
                 ctx.varyings.set(name, { node, vertexExpr: sourceExpr });
             }
+        }
+        if (node.kind === NodeKind.Call && node.fnNode) {
+            const traced = ctx.fnDefs.get(node.fnNode.fnName)?.traced ?? node.fnNode.trace();
+            visit(traced.body);
+            if (traced.output)
+                visit(traced.output);
         }
         for (const child of getChildren(node)) {
             visit(child);
@@ -24131,6 +24209,9 @@ function generateVarying(ctx, node) {
         throw new Error(`[builder] VaryingNode not allowed in compute shaders`);
     }
     const name = node.name ?? `v_${node.id}`;
+    // a `Fn` body, emitted once for the module, reads the fragment's copy `fs_main` assigns
+    if (ctx.inFunction)
+        return fnVaryingVarName(name);
     if (ctx.stage === 'vertex') {
         // in vertex: generate the source expression (unwrap SubBuildNode)
         const sourceNode = node.node.node; // SubBuildNode.node is the actual source
@@ -24150,6 +24231,10 @@ function generateVarying(ctx, node) {
 /** The module-scope copy a `Fn` body reads a builtin through (see {@link Discovery.fnBuiltins}). */
 function fnBuiltinVarName(kind) {
     return `builtin_${kind}`;
+}
+/** The module-scope copy a `Fn` body reads a varying through (see {@link Discovery.fnVaryings}). */
+function fnVaryingVarName(name) {
+    return `varying_${name}`;
 }
 function generateBuiltin(ctx, node) {
     if (ctx.inFunction)
@@ -24461,6 +24546,10 @@ function emitModuleScopeVars(ctx) {
     // the builtins `Fn` bodies read, assigned by each entry point the builtin is an input of
     for (const [kind, wgslType] of ctx.fnBuiltins) {
         lines.push(`var<private> ${fnBuiltinVarName(kind)}: ${wgslType};`);
+    }
+    // the varyings `Fn` bodies read, assigned by `fs_main`
+    for (const [name, node] of ctx.fnVaryings) {
+        lines.push(`var<private> ${fnVaryingVarName(name)}: ${node.type.wgslType};`);
     }
     // Emit workgroup variables (only in compute shaders - already validated in generateExpr)
     for (const [, node] of ctx.workgroupVars) {
@@ -24821,6 +24910,7 @@ function emitDslFunctions(ctx) {
         fnDiscovery.privateVars = ctx.privateVars;
         fnDiscovery.workgroupVars = ctx.workgroupVars;
         fnDiscovery.fnBuiltins = ctx.fnBuiltins;
+        fnDiscovery.fnVaryings = ctx.fnVaryings;
         const fnCtx = createContext$1(ctx.stage, ctx.isRender, fnDiscovery);
         fnCtx.inFunction = true;
         // Allocated rather than taken verbatim, matching the GLSL emitter: a user's name can be
@@ -25096,6 +25186,8 @@ function generateFragmentShader(fragmentNode, ctx, varyings, depthNode = null) {
     }
     if (fnReadsFragCoord)
         lines.push(`    ${fnBuiltinVarName('position')} = input.position;`);
+    for (const name of ctx.fnVaryings.keys())
+        lines.push(`    ${fnVaryingVarName(name)} = input.${name};`);
     lines.push(...ctx.code);
     if (useStruct) {
         if (isMRT && mrtExprs) {
@@ -25218,6 +25310,7 @@ function compileWgsl(slots, opts = {}) {
             fragmentRoots.push(slots.depth);
         collectVaryings(fragmentRoots, vertexCtx);
     }
+    assertVertexReadsNoFnVaryings(slots.vertex, vertexCtx.varyings, discovered.fnDefs);
     // generate vertex shader
     const vertexBody = generateVertexShader(slots, vertexCtx);
     // what each stage reads, so a binding is visible only to the stages using it: WebGPU counts a binding against
@@ -25340,8 +25433,8 @@ function createStorageBinding(node, maxTextureSize) {
         binding.storageBufferSource = { buffer, width: grid.width, height: grid.height, bytesPerTexel };
     }
     else {
-        // Name-based: `storage('slot', 'read')` bound via `geometry.setBuffer('slot', buf)`. The buffer
-        // isn't known until draw; the renderer resolves it from the render object's geometry and sizes the
+        // Name-based: `storage('slot', 'read')` filled by `material.parameters.setBuffer('slot', buf)`. The buffer
+        // isn't known until draw; the renderer resolves it from the render object's material and sizes the
         // mirror at bind time (same version-synced cache). See texture-bindings.ts.
         binding.storageBufferSource = { name: node.bufferName, bytesPerTexel };
     }
@@ -25380,7 +25473,7 @@ function compileGlsl(slots, opts = {}) {
     // texelFetch through the same accessor as `texture(t).load(schema, i)` (see the GLSL emitter's
     // `storageMirrors`). No SSBOs, no second CPU array: the renderer reinterprets the buffer's own bytes.
     // Value-based (`storage(buffer, 'read')`) resolves the buffer here; name-based (`storage('slot',
-    // 'read')` + `geometry.setBuffer('slot', …)`) resolves it from the render object's geometry at bind
+    // 'read')` + `material.parameters.setBuffer('slot', …)`) resolves it from the render object's material at bind
     // time. Only read_write / atomic / compute writes have no WebGL render-path analogue and fail loudly.
     const storageMirrors = new Map();
     for (const node of discovered.storages.values()) {
@@ -25418,6 +25511,7 @@ function compileGlsl(slots, opts = {}) {
             fragmentRoots.push(slots.depth);
         collectGlslVaryings(fragmentRoots, vertexCtx);
     }
+    assertVertexReadsNoFnVaryings(slots.vertex, vertexCtx.varyings, discovered.fnDefs);
     const vertexBody = generateGlslVertexShader(slots, vertexCtx);
     let fragmentBody = '';
     if (emitFragment) {
@@ -25528,6 +25622,7 @@ function compileGlsl(slots, opts = {}) {
             // @builtin(position) lowers to a Y-flipped gl_FragCoord reading the render-target height, which the
             // renderer sets each pass; declared ahead of the functions, since a Fn body may read the position too
             { body: fragmentCtx.builtins.has('position') ? 'uniform highp float u_fragCoordFlipHeight;' : '' },
+            { body: glslFragmentVaryingDeclarations(fragmentCtx) },
             { title: '// Bit helpers', body: fragmentBitHelpersGlsl },
             { title: '// Raw functions (wgslFn/glslFn)', body: fragmentRawFnsGlsl },
             { title: '// Functions', body: fragmentDslFnsGlsl },
@@ -25820,6 +25915,58 @@ function collectFnBuiltins(fnDefs) {
     return fnBuiltins;
 }
 /**
+ * A `Fn` that reads a varying reads the fragment's interpolated value, so the vertex stage, which computes it, must
+ * not call one: from `vertex` and the varyings' sources, any `Fn` reached that reads a varying throws.
+ */
+function assertVertexReadsNoFnVaryings(vertex, varyings, fnDefs) {
+    const seen = new Set();
+    const walk = (rawNode, fnName) => {
+        const node = rawNode;
+        if (seen.has(node.id))
+            return;
+        seen.add(node.id);
+        if (node.kind === NodeKind.Varying && fnName !== null) {
+            const varying = node.name ?? `v_${node.id}`;
+            throw new Error(`[gpucat] Fn '${fnName}' reads varying '${varying}' and the vertex stage calls it: a Fn that reads a varying belongs to the fragment stage`);
+        }
+        if (node.kind === NodeKind.Call && node.fnNode) {
+            const traced = fnDefs.get(node.fnNode.fnName)?.traced ?? node.fnNode.trace();
+            walk(traced.body, node.fnNode.fnName);
+            if (traced.output)
+                walk(traced.output, node.fnNode.fnName);
+        }
+        for (const child of getChildren(node))
+            walk(child, fnName);
+    };
+    walk(vertex, null);
+    for (const { node } of varyings.values())
+        walk(node.node.node, null);
+}
+/** The varyings each traced `Fn` body reads, each the fragment's interpolated value: a varying's own source is the vertex
+ *  stage's, so the walk stops at it. */
+function collectFnVaryings(fnDefs) {
+    const fnVaryings = new Map();
+    for (const { traced } of fnDefs.values()) {
+        const seen = new Set();
+        const walk = (rawNode) => {
+            const node = rawNode;
+            if (seen.has(node.id))
+                return;
+            seen.add(node.id);
+            if (node.kind === NodeKind.Varying) {
+                fnVaryings.set(node.name ?? `v_${node.id}`, node);
+                return;
+            }
+            for (const child of getChildren(node))
+                walk(child);
+        };
+        walk(traced.body);
+        if (traced.output)
+            walk(traced.output);
+    }
+    return fnVaryings;
+}
+/**
  * Assign every binding its shader identifier, once per compile.
  *
  * Names come from what the author already labelled: a `Texture`'s `name` (forwarded to
@@ -26110,6 +26257,7 @@ function discover(roots, shared = null) {
         nodeIdToUsages,
         mutatedNodes,
         fnBuiltins: collectFnBuiltins(fnDefs),
+        fnVaryings: collectFnVaryings(fnDefs),
         fnDefs,
         wgslFnDefs,
         structDefs,
@@ -26383,9 +26531,10 @@ function compileNodeState(state, renderObject, compile) {
     // last have been resolved against another context's target.
     const fragmentNode = material.fragment;
     if (fragmentNode !== undefined && fragmentNode.kind === NodeKind.MRT) {
-        const renderTarget = renderObject.renderContext.renderTarget;
-        if (renderTarget !== null) {
-            fragmentNode.resolveOutputs((name) => renderTarget.getTextureIndex(name), renderTarget.textures.map((t) => t.name));
+        const context = renderObject.renderContext;
+        if (context.colorFormats !== null) {
+            const names = context.colorNames;
+            fragmentNode.resolveOutputs((name) => names.indexOf(name), names);
         }
     }
     const key = renderStateKey(renderObject);
@@ -26426,6 +26575,7 @@ function releaseNodeState(state, renderObject) {
                 if (binding.kind === 'uniform' && binding.bufferKey !== null)
                     state.backend.releaseUniformBlock(binding.bufferKey);
             }
+            state.backend.releaseBindGroup(group);
         }
     }
     const nodeState = renderObject.nodeBuilderState;
@@ -26439,7 +26589,7 @@ function releaseNodeState(state, renderObject) {
     if (entry.users > 0)
         return;
     state.renderStates.delete(nodeState.cacheKey);
-    releaseNodeBuilderState(nodeState, state.sharedBlocks, (key) => state.backend.releaseUniformBlock(key));
+    releaseNodeBuilderState(nodeState, state.sharedBlocks, (key) => state.backend.releaseUniformBlock(key), (group) => state.backend.releaseBindGroup(group));
 }
 /**
  * Check if a RenderObject needs node recompilation.
@@ -26598,8 +26748,9 @@ function deleteForCompute(state, computeNode) {
             if (binding.kind === 'uniform' && binding.bufferKey !== null)
                 state.backend.releaseUniformBlock(binding.bufferKey);
         }
+        state.backend.releaseBindGroup(group);
     }
-    releaseNodeBuilderState(nodeState, state.sharedBlocks, (key) => state.backend.releaseUniformBlock(key));
+    releaseNodeBuilderState(nodeState, state.sharedBlocks, (key) => state.backend.releaseUniformBlock(key), (group) => state.backend.releaseBindGroup(group));
 }
 
 /**
@@ -26730,21 +26881,12 @@ function createPipelinesState(bindGroupLayoutCache) {
  * Reads each `renderTarget.textures[i].format`; falls back to the canvas format for the swapchain.
  */
 function getRenderContextColorFormats(renderContext, canvasFormat) {
-    const rt = renderContext.renderTarget;
-    if (rt === null)
-        return [canvasFormat];
-    const out = [];
-    for (const tex of rt.textures)
-        out.push(tex.format);
-    return out;
+    return renderContext.colorFormats ?? [canvasFormat];
 }
 /** The depth ATTACHMENT's format, not the sampling-gated `depthTexture` getter: a pipeline needs it
  *  whether or not the depth is sampled. */
 function getRenderContextDepthFormat(renderContext) {
-    const rt = renderContext.renderTarget;
-    if (rt === null)
-        return renderContext.canvasTarget.depthFormat;
-    return rt._depthAttachment ? rt._depthAttachment.format : null;
+    return renderContext.depthFormat;
 }
 /**
  * Get cache statistics.
@@ -26779,8 +26921,11 @@ function getForRender(state, device, renderObject, bindGroupLayouts, promises = 
         pipeline: null,
         cacheKey,
         users: 0,
+        layouts: bindGroupLayouts,
     };
     state.renderPipelines.set(cacheKey, entry);
+    for (const layout of bindGroupLayouts)
+        holdBindGroupLayout(state.bindGroupLayoutCache, layout);
     // Build pipeline descriptor
     const descriptor = buildRenderPipelineDescriptor(device, renderObject, nodeState, bindGroupLayouts, colorFormats, depthFormat);
     if (promises === null) {
@@ -26830,7 +26975,7 @@ function buildRenderPipelineDescriptor(device, renderObject, nodeState, bindGrou
     // Build color targets (supports MRT). Empty for depth-only pipelines. The blend each target gets
     // is decided by `core/render-state`, shared with the WebGL backend so the two cannot drift.
     const targetCount = getTargetCount(material.fragment);
-    const textures = renderContext.renderTarget?.textures ?? null;
+    const names = renderContext.colorFormats !== null ? renderContext.colorNames : null;
     const mrt = renderContext.mrt;
     const colorTargets = [];
     for (let i = 0; i < targetCount; i++) {
@@ -26839,7 +26984,7 @@ function buildRenderPipelineDescriptor(device, renderObject, nodeState, bindGrou
             throw new Error(`[webgpu] the fragment writes ${targetCount} colour output(s) and this pass's target has ` +
                 `${colorFormats.length}; output ${i} has no attachment to take its format from.`);
         }
-        const targetName = mrt !== null && textures !== null ? textures[i].name : null;
+        const targetName = mrt !== null && names !== null ? names[i] : null;
         // an integer format cannot blend: WebGPU rejects a blend state on one, whatever the material asks
         const integer = format.endsWith('uint') || format.endsWith('sint');
         colorTargets.push({
@@ -26921,7 +27066,11 @@ function getForCompute(state, device, nodes, node, computeContext, promises = nu
     if (!node._onDispose) {
         node._onDispose = () => {
             deleteForCompute(nodes, node);
+            const cached = state.computePipelines.get(node.id);
             state.computePipelines.delete(node.id);
+            if (cached !== undefined)
+                for (const layout of cached.layouts)
+                    releaseBindGroupLayout(state.bindGroupLayoutCache, layout);
         };
     }
     // Use NodeManager to get compiled compute state (pass context for bind group caching)
@@ -26935,8 +27084,11 @@ function getForCompute(state, device, nodes, node, computeContext, promises = nu
     entry = {
         pipeline: null,
         nodeBuilderState,
+        layouts: bindGroupLayouts,
     };
     state.computePipelines.set(key, entry);
+    for (const layout of bindGroupLayouts)
+        holdBindGroupLayout(state.bindGroupLayoutCache, layout);
     const descriptor = {
         label: `computePipeline_${stage}`,
         layout: pipelineLayout,
@@ -27030,8 +27182,11 @@ function releaseRenderPipeline(state, held) {
         return;
     held.pipelineEntry = null;
     entry.users--;
-    if (entry.users === 0 && state.renderPipelines.get(entry.cacheKey) === entry)
-        state.renderPipelines.delete(entry.cacheKey);
+    if (entry.users > 0 || state.renderPipelines.get(entry.cacheKey) !== entry)
+        return;
+    state.renderPipelines.delete(entry.cacheKey);
+    for (const layout of entry.layouts)
+        releaseBindGroupLayout(state.bindGroupLayoutCache, layout);
 }
 /** Drop every cached pipeline (called on renderer dispose; `device.destroy()` frees the GPU side). */
 function disposePipelines(state) {
@@ -32701,6 +32856,66 @@ class Timeline extends Tab {
     }
 }
 
+/**
+ * A material's named shader inputs: what `uniform(name, …)`, `storage(name, …)` and `texture(name, …)` in its nodes
+ * read. The shader names each binding by its parameter, not by what fills it, so materials built from the same nodes
+ * with other values emit the same source and share one program.
+ *
+ * @example
+ * const quads = storage('quads', d.array(d.u32), 'read');
+ * const blocks = new Material({ vertex, fragment });
+ * blocks.parameters.setBuffer('quads', blockQuads);
+ * const models = new Material({ vertex, fragment });
+ * models.parameters.setBuffer('quads', modelQuads);
+ */
+class MaterialParameters {
+    values = new Map();
+    setUniform(name, uniform) {
+        this.values.set(name, { kind: 'uniform', value: uniform });
+        return this;
+    }
+    setBuffer(name, buffer) {
+        this.values.set(name, { kind: 'buffer', value: buffer });
+        return this;
+    }
+    setTexture(name, texture) {
+        this.values.set(name, { kind: 'texture', value: texture });
+        return this;
+    }
+    /** these values replaced by `source`'s, as a material rebuilt over new nodes keeps what its predecessor read */
+    copy(source) {
+        this.values.clear();
+        for (const [name, parameter] of source.values)
+            this.values.set(name, parameter);
+        return this;
+    }
+    delete(name) {
+        return this.values.delete(name);
+    }
+    has(name) {
+        return this.values.has(name);
+    }
+    /** the uniform named `name`, undefined for none */
+    uniform(name) {
+        return this.read(name, 'uniform')?.value;
+    }
+    /** the buffer named `name`, undefined for none */
+    buffer(name) {
+        return this.read(name, 'buffer')?.value;
+    }
+    /** the texture named `name`, undefined for none */
+    texture(name) {
+        return this.read(name, 'texture')?.value;
+    }
+    read(name, kind) {
+        const parameter = this.values.get(name);
+        if (parameter !== undefined && parameter.kind !== kind) {
+            throw new Error(`[gpucat] material parameter '${name}' is a ${parameter.kind}, read as a ${kind}`);
+        }
+        return parameter;
+    }
+}
+
 class Material {
     /** Material name, for debugging. */
     name;
@@ -32750,12 +32965,8 @@ class Material {
     stencilZPass;
     /** Per-face override for back-face stencil ops, or null to use the front-face ops on both faces. */
     stencilBack;
-    /**
-     * Named uniforms for this material.
-     * Used for name-based uniform resolution: uniform('roughness', d.f32) resolves
-     * to material.uniforms.get('roughness') at render time.
-     */
-    uniforms = new Map();
+    /** What the named `uniform(name, …)`, `storage(name, …)` and `texture(name, …)` in its nodes read. */
+    parameters = new MaterialParameters();
     constructor(opts) {
         this.name = opts.name ?? '';
         this.vertex = opts.vertex;
@@ -32786,6 +32997,19 @@ class Material {
         this.stencilZFail = opts.stencilZFail ?? 'keep';
         this.stencilZPass = opts.stencilZPass ?? 'keep';
         this.stencilBack = opts.stencilBack ?? null;
+    }
+    /**
+     * A second material over the same nodes and state, with a copy of the parameters: a variation that reads other
+     * values and shares this one's program.
+     *
+     * @example
+     * const models = blocks.clone();
+     * models.parameters.setBuffer('quads', modelQuads);
+     */
+    clone() {
+        const material = new Material({ ...this, stencilBack: this.stencilBack ?? undefined });
+        material.parameters.copy(this.parameters);
+        return material;
     }
     /**
      * Incremented whenever the material's node graph configuration changes in a
@@ -33638,6 +33862,14 @@ function recordBundle(frame, pass, bundle) {
         throw new Error(`[pass ${passLabel(pass)}] execute after end()`);
     if (bundle.disposed)
         throw new Error(`[bundle ${bundle.label}] execute after dispose()`);
+    for (const entry of bundle.records) {
+        if (entry.kind !== 'draw')
+            continue;
+        if (entry.material.disposed || entry.mesh.geometry.disposed) {
+            const what = entry.material.disposed ? `material '${entry.material.name}'` : `the geometry of '${entry.mesh.name}'`;
+            throw new Error(`[bundle ${bundle.label}] ${what} was disposed: record a new bundle with live ones`);
+        }
+    }
     let record = pass.bundleRecord;
     if (record === null) {
         record = { kind: 'bundle', bundle };
@@ -38533,19 +38765,26 @@ function createLineSegments(geometry, material) {
 }
 
 /**
- * Opens a bundle for recording. It takes no target: a bundle is replayed into whichever pass executes
- * it, and on WebGPU the attachment shape it must be built against is that pass's, not one named here.
+ * Opens a bundle for recording. It takes no target: on WebGPU it records at its first `execute`, against that pass's
+ * attachment layout, and then executes in any pass of that layout.
+ *
+ * @example
+ * const enc = bundle({ camera: lightCamera, label: 'light-view' });
+ * enc.draw(casters);
+ * const casterBundle = enc.finish();
+ * pass.execute(casterBundle);
  */
-function bundle(label) {
+function bundle(opts = {}) {
     const records = [];
     let finished = false;
     let disposed = false;
     const built = {
-        label: label ?? 'bundle',
+        label: opts.label ?? 'bundle',
         records,
         get count() {
             return records.length;
         },
+        camera: opts.camera ?? null,
         version: 0,
         get disposed() {
             return disposed;
@@ -38559,16 +38798,25 @@ function bundle(label) {
             disposed = true;
             records.length = 0;
             built.version++;
+            built._onDispose?.();
+            built._onDispose = null;
         },
+        _onDispose: null,
     };
     return {
         draw(mesh, opts) {
             if (finished)
                 throw new Error(`[bundle ${built.label}] draw after finish()`);
+            const material = opts?.material ?? mesh.material;
+            // the stencil reference is pass state: a WebGPU bundle encoder has no setStencilReference
+            if (material.stencilTest && material.stencilRef !== 0) {
+                throw new Error(`[bundle ${built.label}] material '${material.name}' tests stencil against reference ` +
+                    `${material.stencilRef}, which a bundle cannot set: draw it in the pass instead`);
+            }
             records.push({
                 kind: 'draw',
                 mesh,
-                material: opts?.material ?? mesh.material,
+                material,
                 opts: opts ?? null,
                 bin: null,
                 sortKey: 0,
@@ -38600,9 +38848,10 @@ function createRenderContext() {
         color: true,
         depth: true,
         stencil: false,
-        // Render target
-        renderTarget: null,
-        canvasTarget: null,
+        // Attachments' shape
+        colorFormats: null,
+        colorNames: [],
+        depthFormat: null,
         // MSAA
         sampleCount: 1,
         // Type flag
@@ -38610,10 +38859,11 @@ function createRenderContext() {
     };
 }
 function createRenderContextsState() {
-    return { contexts: new Map() };
+    return { contexts: new Map(), mrtContexts: new WeakMap() };
 }
 // Cache Key Computation
-/** Texture names are in the shape because MRT resolves its outputs by name against this target. */
+/** Texture names are in the shape because MRT resolves its outputs by name against this target; the depth format is,
+ *  as a pipeline is built for it. */
 function buildAttachmentState(target) {
     if (!isRenderTarget(target)) {
         return `canvas:${target.samples}:${target.depthFormat}`;
@@ -38623,40 +38873,42 @@ function buildAttachmentState(target) {
         formats += `${texture.name}:${texture.format},`;
     const depthAttachment = target._depthAttachment;
     const stencil = formatHasStencil(depthAttachment?.format);
-    return `${target.textures.length}:${formats}:${target.samples}:${depthAttachment !== null}:${stencil}`;
+    return `${target.textures.length}:${formats}:${target.samples}:${depthAttachment?.format ?? 'none'}:${stencil}`;
 }
-function buildMrtState(mrt) {
-    if (mrt === null) {
-        return 'default';
-    }
-    return String(mrt.id);
-}
-function buildCacheKey(target, mrt) {
-    return `${buildAttachmentState(target)}-${buildMrtState(mrt)}`;
-}
-/** Refreshed on every access: a target can be resized or reallocated under a key that has not changed. */
+/** The context of `target`'s attachment shape, made on first need; its fields are the shape, which is the key. */
 function getRenderContext(state, target, mrt) {
-    const cacheKey = buildCacheKey(target, mrt);
-    let context = state.contexts.get(cacheKey);
-    if (context === undefined) {
-        context = createRenderContext();
-        context.mrt = mrt;
-        state.contexts.set(cacheKey, context);
+    const key = buildAttachmentState(target);
+    let byShape = state.contexts;
+    if (mrt !== null) {
+        let forNode = state.mrtContexts.get(mrt);
+        if (forNode === undefined) {
+            forNode = new Map();
+            state.mrtContexts.set(mrt, forNode);
+        }
+        byShape = forNode;
     }
+    let context = byShape.get(key);
+    if (context !== undefined)
+        return context;
+    context = createRenderContext();
+    context.mrt = mrt;
     if (isRenderTarget(target)) {
-        context.renderTarget = target;
-        context.canvasTarget = null;
+        context.colorFormats = target.textures.map((texture) => texture.format);
+        context.colorNames = target.textures.map((texture) => texture.name ?? '');
         context.sampleCount = target.samples === 0 ? 1 : target.samples;
+        context.depthFormat = target._depthAttachment?.format ?? null;
         context.depth = target._depthAttachment !== null;
         context.stencil = formatHasStencil(target._depthAttachment?.format);
     }
     else {
-        context.renderTarget = null;
-        context.canvasTarget = target;
+        context.colorFormats = null;
+        context.colorNames = [];
         context.sampleCount = target.samples === 0 ? 1 : target.samples;
+        context.depthFormat = target.depthFormat;
         context.depth = true;
         context.stencil = formatHasStencil(target.depthFormat);
     }
+    byShape.set(key, context);
     return context;
 }
 
@@ -38768,11 +39020,7 @@ function applyViewRecord(renderer, params, entry, coordinateSystem) {
     if (entry.kind === 'camera') {
         if (params.camera === entry.camera)
             return;
-        alignCameraToBackend(entry.camera, coordinateSystem);
-        params.camera = entry.camera;
-        // the pass's own scope is restored at its end from what `beginPass` kept; this one just replaces it
-        renderer._nodes.nodeFrame.beginRender();
-        aimNodeFrame(renderer, entry.camera, params.width, params.height);
+        setPassCamera(renderer, params, entry.camera, coordinateSystem);
     }
     else if (entry.kind === 'viewport') {
         params.viewport = resolveViewport(entry.viewport, params.width, params.height, params.passId, params.viewportValue);
@@ -38780,6 +39028,18 @@ function applyViewRecord(renderer, params, entry, coordinateSystem) {
     else {
         params.scissor = resolveScissor(entry.scissor, params.width, params.height, params.scissorValue);
     }
+}
+/**
+ * The draws resolved after this are drawn from `camera`, in a render scope of their own, so the view uniforms pack for
+ * it: a camera record's change, and a bundle's draws drawn from the bundle's camera. The pass's own scope is restored at
+ * its end from what `beginPass` kept; this one just replaces it.
+ */
+function setPassCamera(renderer, params, camera, coordinateSystem) {
+    if (camera !== null)
+        alignCameraToBackend(camera, coordinateSystem);
+    params.camera = camera;
+    renderer._nodes.nodeFrame.beginRender();
+    aimNodeFrame(renderer, camera, params.width, params.height);
 }
 /** Whether a record changes what the draws after it are drawn with, rather than drawing. */
 function isViewRecord(entry) {
@@ -41711,9 +41971,15 @@ function placeHome(homes, home, programHomes, taken) {
  * node graph, so identical materials share one program (analogous to how the WebGPU path shares a
  * pipeline by its cache key).
  */
+/** From KHR_parallel_shader_compile: whether a program's link has finished, readable without waiting for it. */
+const COMPLETION_STATUS_KHR = 0x91b1;
 /** Create an empty program cache; its homes wait for the context's unit count ({@link setTextureUnitCount}). */
 function createProgramCache() {
-    return { programs: new Map(), homes: createTextureHomes(0) };
+    return { programs: new Map(), pending: new Map(), parallel: false, homes: createTextureHomes(0) };
+}
+/** Turns on KHR_parallel_shader_compile, where the context has it: the driver then compiles programs on its own threads. */
+function enableParallelCompile(gl, cache) {
+    cache.parallel = gl.getExtension('KHR_parallel_shader_compile') !== null;
 }
 /** Gives the cache's programs homes when the device has the units for them. */
 function setTextureUnitCount(cache, maxCombinedUnits) {
@@ -41738,21 +42004,75 @@ function splitStages(code) {
 }
 /** Compile one shader stage, throwing with the info log (and source) on failure. */
 function compileShader$1(gl, type, source) {
+    const shader = startShader(gl, type, source);
+    const error = shaderError(gl, shader, type, source);
+    if (error !== null) {
+        gl.deleteShader(shader);
+        throw new Error(error);
+    }
+    return shader;
+}
+/** Issue one stage's compile without reading its status: a status read waits for the driver to finish it. */
+function startShader(gl, type, source) {
     const shader = gl.createShader(type);
     if (!shader)
         throw new Error('[webgl] gl.createShader returned null.');
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        const log = gl.getShaderInfoLog(shader);
-        gl.deleteShader(shader);
-        const stage = type === gl.VERTEX_SHADER ? 'vertex' : 'fragment';
-        throw new Error(`[webgl] ${stage} shader compile failed:\n${log}\n---- source ----\n${source}`);
-    }
     return shader;
 }
+/** The message for a stage that failed to compile, with its info log and source; null when it compiled. */
+function shaderError(gl, shader, type, source) {
+    if (gl.getShaderParameter(shader, gl.COMPILE_STATUS))
+        return null;
+    const stage = type === gl.VERTEX_SHADER ? 'vertex' : 'fragment';
+    return `[webgl] ${stage} shader compile failed:\n${gl.getShaderInfoLog(shader)}\n---- source ----\n${source}`;
+}
 /**
- * Get (or compile + link + cache) the GL program for a compiled material.
+ * Issue the compile and link of `code`'s program without reading any status, as three.js's WebGL backends do: the
+ * driver works on it while the caller starts others, and {@link getProgram} reads the result.
+ */
+function startProgram(gl, cache, code) {
+    if (cache.programs.has(code) || cache.pending.has(code))
+        return;
+    const { vertex: vertexSource, fragment: fragmentSource } = splitStages(code);
+    const vertex = startShader(gl, gl.VERTEX_SHADER, vertexSource);
+    const fragment = startShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+    const program = gl.createProgram();
+    if (!program)
+        throw new Error('[webgl] gl.createProgram returned null.');
+    gl.attachShader(program, vertex);
+    gl.attachShader(program, fragment);
+    gl.linkProgram(program);
+    cache.pending.set(code, { program, vertex, fragment, vertexSource, fragmentSource });
+}
+/**
+ * Resolves once every started program has finished linking, polled every 10 ms as three.js's `compileAsync` does: a
+ * frame callback would never run in a hidden tab, and a yield would spin the main thread while the driver works.
+ * Without KHR_parallel_shader_compile nothing can be asked, so it resolves at once and the first read waits instead.
+ */
+function whenProgramsLinked(gl, cache) {
+    if (!cache.parallel)
+        return Promise.resolve();
+    return new Promise((resolve) => {
+        const check = () => {
+            // a lost context answers null for every program, which would never read as done
+            if (gl.isContextLost())
+                return resolve();
+            for (const pending of cache.pending.values()) {
+                if (gl.getProgramParameter(pending.program, COMPLETION_STATUS_KHR) !== true) {
+                    setTimeout(check, 10);
+                    return;
+                }
+            }
+            resolve();
+        };
+        check();
+    });
+}
+/**
+ * Get (or compile + link + cache) the GL program for a compiled material. A program {@link startProgram} began is
+ * finished here, which waits for the driver only if its link is still running.
  *
  * @param gl the WebGL2 context
  * @param cache the program cache
@@ -41763,23 +42083,22 @@ function getProgram(gl, cache, code, uniformGroups, textures) {
     const existing = cache.programs.get(code);
     if (existing)
         return existing;
-    const { vertex, fragment } = splitStages(code);
-    const vs = compileShader$1(gl, gl.VERTEX_SHADER, vertex);
-    const fs = compileShader$1(gl, gl.FRAGMENT_SHADER, fragment);
-    const program = gl.createProgram();
-    if (!program)
-        throw new Error('[webgl] gl.createProgram returned null.');
-    gl.attachShader(program, vs);
-    gl.attachShader(program, fs);
-    gl.linkProgram(program);
-    // Shaders can be detached+deleted after link — the program keeps the linked binary.
-    gl.deleteShader(vs);
-    gl.deleteShader(fs);
+    startProgram(gl, cache, code);
+    const { program, vertex, fragment, vertexSource, fragmentSource } = cache.pending.get(code);
+    cache.pending.delete(code);
+    // the stages' logs are only read for a failed link, which is where three.js reads them too
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        const log = gl.getProgramInfoLog(program);
+        const error = shaderError(gl, vertex, gl.VERTEX_SHADER, vertexSource) ??
+            shaderError(gl, fragment, gl.FRAGMENT_SHADER, fragmentSource) ??
+            `[webgl] program link failed:\n${gl.getProgramInfoLog(program)}`;
+        gl.deleteShader(vertex);
+        gl.deleteShader(fragment);
         gl.deleteProgram(program);
-        throw new Error(`[webgl] program link failed:\n${log}`);
+        throw new Error(error);
     }
+    // Shaders can be detached+deleted after link — the program keeps the linked binary.
+    gl.deleteShader(vertex);
+    gl.deleteShader(fragment);
     const uboBindingPoints = bindUniformBlocks(gl, program, uniformGroups);
     const drawBases = bindDrawBases(gl, program);
     // Batched-draw base uniform. `getUniformLocation` returns null when u_drawBase isn't declared
@@ -41908,6 +42227,12 @@ function disposePrograms(gl, cache, state) {
         deleteProgram(gl, state, program);
     }
     cache.programs.clear();
+    for (const { program, vertex, fragment } of cache.pending.values()) {
+        gl.deleteShader(vertex);
+        gl.deleteShader(fragment);
+        gl.deleteProgram(program);
+    }
+    cache.pending.clear();
     clearTextureHomes(cache.homes);
 }
 /** Number of linked GL programs currently cached. */
@@ -42380,6 +42705,22 @@ function getRenderObjectGl(cache, renderObject) {
  * on per-object frame state, so they stay in the draw loop. Throws naming the object it cannot draw.
  */
 function prepareRenderObject$1(gl, b, nodes, renderObject, glslOptions) {
+    const nodeState = compileRenderObject$1(gl, b.programs, b.glState, b.renderObjectGl, nodes, renderObject, glslOptions);
+    const payload = getRenderObjectGl(b.renderObjectGl, renderObject);
+    if (!payload.program) {
+        holdProgram(gl, b.programs, b.glState, payload, nodeState.vertexCode, nodeState.uniformGroups, nodeState.textures);
+    }
+}
+/**
+ * {@link prepareRenderObject}'s GLSL and bind groups, with its program's compile and link only issued, so a prewarm
+ * can start every program before it reads any.
+ */
+function startRenderObject(gl, b, nodes, renderObject, glslOptions) {
+    const nodeState = compileRenderObject$1(gl, b.programs, b.glState, b.renderObjectGl, nodes, renderObject, glslOptions);
+    if (!getRenderObjectGl(b.renderObjectGl, renderObject).program)
+        startProgram(gl, b.programs, nodeState.vertexCode);
+}
+function compileRenderObject$1(gl, programs, glState, renderObjectGl, nodes, renderObject, glslOptions) {
     // Indirect draw is WebGPU-only. WebGL2 has no drawElementsIndirect / drawArraysIndirect (it can't
     // read draw args from a GPU buffer), and the WEBGL_multi_draw translation is patchy across drivers,
     // so gpucat rejects it here — once per object at prepare, not per-frame — rather than partially
@@ -42394,7 +42735,7 @@ function prepareRenderObject$1(gl, b, nodes, renderObject, glslOptions) {
         const compile = (slots, shared) => compileGlsl(slots, { ...glslOptions, shared: shared ?? undefined });
         compileNodeState(nodes, renderObject, compile);
         // A recompile invalidates the cached program payload (the source may have changed).
-        releaseProgram(gl, b.programs, b.glState, getRenderObjectGl(b.renderObjectGl, renderObject));
+        releaseProgram(gl, programs, glState, getRenderObjectGl(renderObjectGl, renderObject));
     }
     const nodeState = renderObject.nodeBuilderState;
     if (!nodeState || !nodeState.vertexCode) {
@@ -42403,11 +42744,7 @@ function prepareRenderObject$1(gl, b, nodes, renderObject, glslOptions) {
     }
     // Ensure the RenderObject's bind groups exist (clones non-shared, reuses shared).
     getBindings(renderObject);
-    // Compile + link (or fetch the cached) GL program for this material's source.
-    const payload = getRenderObjectGl(b.renderObjectGl, renderObject);
-    if (!payload.program) {
-        holdProgram(gl, b.programs, b.glState, payload, nodeState.vertexCode, nodeState.uniformGroups, nodeState.textures);
-    }
+    return nodeState;
 }
 
 /**
@@ -43410,18 +43747,17 @@ function setSamplerUnit(gl, uniforms, unit) {
  */
 /**
  * Resolve a storage()-read mirror source to `{ buffer, width, height }` for {@link updateStorageBufferTexture}.
- * Value-based sources are returned as-is. Name-based sources (`storage('slot', 'read')` bound via
- * `geometry.setBuffer('slot', buf)`) resolve the buffer from THIS render object's geometry and size the
+ * Value-based sources are returned as-is. Name-based sources (`storage('slot', 'read')` filled by
+ * `material.parameters.setBuffer('slot', buf)`) resolve the buffer from THIS render object's material and size the
  * texel grid now (`width = min(texels, MAX_TEXTURE_SIZE)`, `height = ceil`) — the shader reads the actual
  * width back via `textureSize()`, so any binding/size works with one compiled shader.
  */
 function resolveStorageSource(gl, textures, renderObject, source) {
     if (!('name' in source))
         return source;
-    const buffer = renderObject.geometry.getBuffer(source.name);
+    const buffer = renderObject.material.parameters.buffer(source.name);
     if (!buffer) {
-        throw new Error(`[webgl] storage('${source.name}') read-lowering: no buffer bound for that name on the ` +
-            `geometry — call geometry.setBuffer('${source.name}', buffer).`);
+        throw new Error(`[webgl] storage('${source.name}') is unfilled: set it with material.parameters.setBuffer('${source.name}', …).`);
     }
     if (buffer.cpu && buffer.array == null) {
         throw new Error(`[webgl] storage('${source.name}') read-lowering: the buffer has no CPU \`array\` to ` +
@@ -43465,6 +43801,28 @@ function assertOneRangePerTexture(seen, gpuTexture, range) {
     seen.set(gpuTexture, range);
 }
 const _rangesSeen = new Map();
+const _bound = { texture: null, range: WHOLE_TEXTURE };
+/** the texture `node` reads on `renderObject` and the range of it: its value, or a named one's material parameter */
+function renderTexture(renderObject, node) {
+    if (node.slot === null) {
+        _bound.texture = node.value;
+        _bound.range = node.range;
+        return _bound;
+    }
+    const input = renderObject.material.parameters.texture(node.slot);
+    if (input === undefined) {
+        throw new Error(`[webgl] texture '${node.slot}' is unfilled: set it with material.parameters.setTexture('${node.slot}', …).`);
+    }
+    if ('isGpuTextureView' in input) {
+        _bound.texture = input.texture;
+        _bound.range = input.range;
+    }
+    else {
+        _bound.texture = '_gpuTexture' in input ? input._gpuTexture : input;
+        _bound.range = WHOLE_TEXTURE;
+    }
+    return _bound;
+}
 /** Captures what `renderObject`'s texture bindings hold now, so its draw binds the values set before it. */
 function captureTextures(renderObject, out) {
     out.textures.length = 0;
@@ -43476,8 +43834,9 @@ function captureTextures(renderObject, out) {
             if (binding.kind !== 'texture')
                 continue;
             const storageLowered = !!binding.entry.node.storageBufferSource;
-            out.textures.push(storageLowered ? null : (binding.entry.node.value ?? null));
-            out.ranges.push(binding.entry.node.range);
+            const bound = renderTexture(renderObject, binding.entry.node);
+            out.textures.push(storageLowered ? null : bound.texture);
+            out.ranges.push(bound.range);
             out.samplers.push(storageLowered ? null : findSamplerForUnit(bindGroups, binding.entry.binding));
         }
     }
@@ -43500,9 +43859,6 @@ function bindTextures(gl, b, renderObject, programInfo, capture) {
             if (binding.kind !== 'texture')
                 continue;
             const entry = binding.entry;
-            if (entry.node.slot !== null) {
-                throw new Error(`[webgl] texture slot '${entry.node.slot}' is filled by a compute dispatch, which WebGL2 has none of.`);
-            }
             // The program's unit for the texture: its home, shared with every program reading it, or one of the
             // program's own (`texture-homes.ts`). `entry.binding`, the emitter's number, pairs it with its sampler.
             const unit = programInfo.units === null ? entry.binding : unitOf(programInfo.units, entry.shaderName, entry.binding);
@@ -43524,8 +43880,8 @@ function bindTextures(gl, b, renderObject, programInfo, capture) {
             // Uploads bind on their own unit, so none disturbs a unit a draw samples from.
             const storageSource = entry.node.storageBufferSource;
             if (storageSource) {
-                // Name-based sources (`storage('slot','read')` + `geometry.setBuffer('slot',…)`) resolve
-                // their buffer from THIS render object's geometry now; value-based already carry it.
+                // Name-based sources (`storage('slot','read')` + `material.parameters.setBuffer('slot',…)`) resolve
+                // their buffer from THIS render object's material now; value-based already carry it.
                 const resolved = resolveStorageSource(gl, b.textures, renderObject, storageSource);
                 const glTexture = updateStorageBufferTexture(gl, b.textures, resolved);
                 bindTextureUnit(gl, b.textures, unit, gl.TEXTURE_2D, glTexture);
@@ -43533,10 +43889,11 @@ function bindTextures(gl, b, renderObject, programInfo, capture) {
                 setSamplerUnit(gl, textureUniformsOf(gl, programInfo, entry.shaderName), unit);
                 continue;
             }
-            const gpuTexture = capture === null ? entry.node.value : capture.textures[capturedIndex];
+            const live = capture === null ? renderTexture(renderObject, entry.node) : null;
+            const gpuTexture = live !== null ? live.texture : capture.textures[capturedIndex];
             if (!gpuTexture)
                 continue;
-            const range = capture === null ? entry.node.range : capture.ranges[capturedIndex];
+            const range = live !== null ? live.range : capture.ranges[capturedIndex];
             assertOneRangePerTexture(_rangesSeen, gpuTexture, range);
             // Upload / allocate the GL texture (version-gated). Render-target b.textures are allocated
             // by the FBO path; if never seen, updateTexture allocates them here as a safe fallback.
@@ -43791,12 +44148,11 @@ function countDraw(info, elementCount, instanceCount) {
  */
 function planPassBlend(passCtx) {
     const mrt = passCtx.mrt;
-    const textures = passCtx.renderTarget?.textures;
-    if (!mrt || !textures || textures.length === 0)
+    const names = passCtx.colorNames;
+    if (!mrt || names.length === 0)
         return { targetName: null, opaqueOnly: false };
-    const names = textures.map((t) => t.name ?? '');
     const targetName = names[0] ?? '';
-    if (textures.length < 2)
+    if (names.length < 2)
         return { targetName, opaqueOnly: false };
     let sawMaterial = false;
     let sawNo = false;
@@ -44446,13 +44802,19 @@ function recordEntry$1(s, entry) {
             }
             return;
         }
-        // WebGL has no device bundles: a bundle's records replay as the draws they always were.
-        const { records, count } = entry.bundle;
+        // WebGL has no device bundles: a bundle's records replay as the draws they always were, from its camera.
+        const bundle = entry.bundle;
+        const passCamera = open.params.camera;
+        markViewChanged(open.order);
+        setPassCamera(s.renderer, open.params, bundle.camera, CoordinateSystem.WEBGL);
+        const { records, count } = bundle;
         for (let record = 0; record < count; record++) {
             const index = resolveDraw$1(s, open, records[record]);
             if (index >= 0)
                 addPassDraw(open.order, index, open.params);
         }
+        markViewChanged(open.order);
+        setPassCamera(s.renderer, open.params, passCamera, CoordinateSystem.WEBGL);
     }
     catch (error) {
         // A throw inside a nested pass (a render texture's contents) left it begun; this pass records on.
@@ -45076,6 +45438,7 @@ class WebGLBackend {
         this._drawBases = this._opts.multiDraw === false ? null : createDrawBases(this.gl);
         this._passUniforms = createPassUniforms(this.gl);
         setTextureUnitCount(this.programs, this.gl.getParameter(this.gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS));
+        enableParallelCompile(this.gl, this.programs);
         setSharedPlacement(renderer._nodes, this.gl.getParameter(this.gl.MAX_UNIFORM_BLOCK_SIZE));
         // WebGL's parallel to WebGPU's `device.lost`: the canvas fires `webglcontextlost` when the
         // driver drops the context (GPU reset, tab backgrounding, `WEBGL_lose_context`). Preventing
@@ -45147,16 +45510,26 @@ class WebGLBackend {
     discardFrame() {
         discardFrame$1(this._frame);
     }
-    /** WebGL2 has no async link, so this only moves the stall off the first frame and onto load. */
+    /**
+     * Starts every program before reading any, so the driver links them side by side, then finishes each once
+     * KHR_parallel_shader_compile says it is done. Without the extension the reads wait on each link in turn.
+     */
     /** @internal */
     async compileObjects(objects, _params) {
+        const gl = this.gl;
+        const nodes = this.renderer._nodes;
         const opts = {
             precision: this._opts.precision,
             maxTextureSize: this._maxTextureSize,
             multiDraw: this._drawBases !== null,
         };
         for (const renderObject of objects) {
-            prepareRenderObject$1(this.gl, this, this.renderer._nodes, renderObject, opts);
+            startRenderObject(gl, this, nodes, renderObject, opts);
+            await yieldToMain();
+        }
+        await whenProgramsLinked(gl, this.programs);
+        for (const renderObject of objects) {
+            prepareRenderObject$1(gl, this, nodes, renderObject, opts);
             await yieldToMain();
         }
     }
@@ -45173,6 +45546,9 @@ class WebGLBackend {
         if (this.gl)
             releaseUniformBlock(this.gl, this.buffers, key);
     }
+    /** Nothing to let go of: a WebGL group holds no layout, and its uniform blocks go through `releaseUniformBlock`. */
+    /** @internal */
+    releaseBindGroup(_bindGroup) { }
     /**
      * Puts the context back to GL's defaults for everything gpucat sets or reads through, and forgets its records of it.
      * @internal
@@ -45514,7 +45890,7 @@ function resolveDispatch(b, nodes, computeContext, entry, out, inspector, mipDir
         for (const binding of bg.bindings) {
             if (binding.kind !== 'storageTexture' || binding.entry.access === 'read')
                 continue;
-            const { texture, range } = resolveTextureBinding(binding.entry.node, entry);
+            const { texture, range } = resolveTextureBinding(binding.entry.node, null, entry);
             if (texture?.mipmapsAutoUpdate && texture.mipLevelCount > 1 && range.baseMipLevel === 0) {
                 mipDirty.add(texture);
             }
@@ -45745,7 +46121,7 @@ function uploadRenderObjectResources(b, renderObject, geometry, frame) {
     if (nodeState) {
         // upload storage buffers
         for (const s of nodeState.storage) {
-            const buffer = resolveStorageBuffer(s.node, geometry, null);
+            const buffer = resolveStorageBuffer(s.node, renderObject.material.parameters, null);
             ensureUploaded$1(b.buffers, b.device, buffer, s.name);
         }
         // upload vertex buffers
@@ -46180,56 +46556,73 @@ function encodeDraws(ctx, scope) {
             continue;
         }
         const from = block.draws[0];
-        const view = order.drawViews[from];
-        applyView(scope, order, view, ctx.params.width, ctx.params.height);
-        scope.gpuPass.executeBundles([getOrRecordBundle(ctx, from, from + block.count, bundle, order.views[view].camera)]);
+        applyView(scope, order, order.drawViews[from], ctx.params.width, ctx.params.height);
+        // a bundle records with the stencil reference at 0, and executeBundles leaves the pass's as it is
+        if (ctx.passCtx.stencil && scope.currentSets.stencilRef !== 0) {
+            scope.gpuPass.setStencilReference(0);
+            scope.currentSets.stencilRef = 0;
+        }
+        scope.gpuPass.executeBundles([getOrRecordBundle(ctx, from, from + block.count, bundle)]);
+        ctx.info.render.bundles++;
         // A bundle sets its own pipeline and bindings, so what the pass had set no longer holds.
         resetCurrentSets(scope.currentSets);
     }
     if (inspector)
         inspector.perf.end('drawCalls');
 }
-/** A pass with no camera still needs a key at the camera level, and every such pass shares this one. */
-const CAMERALESS = {};
+/** The backend's state for `bundle`, made at its first execute and released by its `dispose()`. */
+function bundleState(b, bundle) {
+    let state = b.renderBundles.get(bundle);
+    if (state === undefined) {
+        const created = {
+            recording: null,
+            layout: null,
+            view: { label: bundle.label, key: {}, bytes: null, writtenFrame: -1 },
+        };
+        b.renderBundles.set(bundle, created);
+        bundle._onDispose = () => {
+            releaseSlot(b.buffers.drawArena, created.view.key);
+            b.renderBundles.delete(bundle);
+        };
+        state = created;
+    }
+    return state;
+}
+/** The pass's attachment layout, as `executeBundles` compares a bundle's against it (WebGPU's `GPURenderPassLayout`, and
+ *  the read-only depth a read-only pass needs its bundles recorded with). */
+function layoutKey(ctx) {
+    const colors = getRenderContextColorFormats(ctx.passCtx, ctx.b.format).join(',');
+    const depth = getRenderContextDepthFormat(ctx.passCtx) ?? 'none';
+    return `${colors}|${depth}|${ctx.passCtx.sampleCount}${ctx.params.readOnlyDepth ? '|read-only depth' : ''}`;
+}
 /**
- * Re-recorded on a miss, a version change, or when what it baked no longer matches this frame's bindings.
- * A dynamic uniform allocation follows the frame's order of draws, so a recording holds while that order does. Camera and occurrence are in the key so a bundle replayed under several cameras, or
- * more than once under one, keeps a recording for each rather than overwriting a shared one.
+ * The bundle's one recording, made at its first execute against that pass's layout and kept: recorded again only after
+ * `invalidate()` or when a bind group it baked was replaced (a buffer it binds grew), each counted in
+ * `info.render.bundlesRecorded`. Executing it in a pass of another layout throws.
  */
-function getOrRecordBundle(ctx, from, to, bundle, camera) {
+function getOrRecordBundle(ctx, from, to, bundle) {
     const { b, passCtx } = ctx;
-    let byCamera = b.renderBundles.get(bundle);
-    if (byCamera === undefined) {
-        byCamera = new WeakMap();
-        b.renderBundles.set(bundle, byCamera);
+    const state = b.renderBundles.get(bundle);
+    const layout = layoutKey(ctx);
+    if (state.layout !== null && state.layout !== layout) {
+        throw new Error(`[bundle ${bundle.label}] recorded for attachments ${state.layout}, executed in a pass of ${layout}: ` +
+            'record a bundle for that layout');
     }
-    const cameraKey = camera ?? CAMERALESS;
-    let byContext = byCamera.get(cameraKey);
-    if (byContext === undefined) {
-        byContext = new Map();
-        byCamera.set(cameraKey, byContext);
-    }
-    let slots = byContext.get(passCtx.id);
-    if (slots === undefined) {
-        slots = { frameId: -1, replays: 0, recordings: [] };
-        byContext.set(passCtx.id, slots);
-    }
-    const frameId = ctx.nodes.nodeFrame.frameId;
-    if (slots.frameId !== frameId) {
-        slots.frameId = frameId;
-        slots.replays = 0;
-    }
-    const occurrence = slots.replays++;
-    const cached = slots.recordings[occurrence];
-    if (cached !== undefined && cached.version === bundle.version && bakedBindingsMatch(ctx, from, to, cached))
+    const cached = state.recording;
+    if (cached !== null && cached.version === bundle.version && bakedBindingsMatch(ctx, from, to, cached))
         return cached.gpu;
+    ctx.info.render.bundlesRecorded++;
     const encoder = b.device.createRenderBundleEncoder({
         label: bundle.label,
         colorFormats: getRenderContextColorFormats(passCtx, b.format),
         depthStencilFormat: getRenderContextDepthFormat(passCtx) ?? undefined,
         sampleCount: passCtx.sampleCount,
+        depthReadOnly: ctx.params.readOnlyDepth,
+        stencilReadOnly: ctx.params.readOnlyDepth,
     });
-    encodeDrawRange(ctx, from, to, { gpuPass: encoder, currentSets: createCurrentSets(ctx.info.state) });
+    const currentSets = createCurrentSets(ctx.info.state);
+    currentSets.stencilRef = 0;
+    encodeDrawRange(ctx, from, to, { gpuPass: encoder, currentSets });
     const recorded = {
         gpu: encoder.finish({ label: bundle.label }),
         version: bundle.version,
@@ -46240,7 +46633,8 @@ function getOrRecordBundle(ctx, from, to, bundle, camera) {
         recorded.bakedGroups.push(group);
         recorded.bakedOffsets.push(offset);
     });
-    slots.recordings[occurrence] = recorded;
+    state.recording = recorded;
+    state.layout = layout;
     return recorded.gpu;
 }
 function bakedBindingsMatch(ctx, from, to, recorded) {
@@ -46419,12 +46813,12 @@ function releaseCanvasTarget(contexts, sc, target) {
 function createCurrentSets(info) {
     return { pass: createPassState(info), attributes: [], index: null, stencilRef: null };
 }
-/** After a bundle replays, nothing the pass had set still holds. */
+/** After a bundle replays, what the pass had set no longer holds, but its stencil reference, which `executeBundles`
+ *  leaves as it is. */
 function resetCurrentSets(sets) {
     resetPassState(sets.pass);
     sets.attributes.length = 0;
     sets.index = null;
-    sets.stencilRef = null;
 }
 // Pass-command helpers, issue the real GPU encoder call AND the inspector hook
 // in one place so neither call sites nor the inspector interface accumulate
@@ -46568,17 +46962,36 @@ function recordEntry(s, entry) {
             }
             return;
         }
-        const start = open.count;
-        const { records, count } = entry.bundle;
-        for (let index = 0; index < count; index++)
-            resolveDraw(s, open, records[index]);
-        addBundle(open.order, entry.bundle, start, open.count - start, open.params);
+        resolveBundle(s, open, entry.bundle);
     }
     catch (error) {
         // A throw inside a nested pass (a render texture's contents) left it begun; this pass records on.
         unwindTo(s, depth);
         throw error;
     }
+}
+/**
+ * A bundle's draws, resolved from the bundle's camera in a scope of their own with its view uniforms packing into the
+ * bundle's slot, then the pass's camera back for the draws after it.
+ */
+function resolveBundle(s, open, bundle) {
+    const passCamera = open.params.camera;
+    const buffers = s.backend.buffers;
+    markViewChanged(open.order);
+    setPassCamera(s.renderer, open.params, bundle.camera, CoordinateSystem.WEBGPU);
+    buffers.bundleView = bundleState(s.backend, bundle).view;
+    const start = open.count;
+    try {
+        const { records, count } = bundle;
+        for (let index = 0; index < count; index++)
+            resolveDraw(s, open, records[index]);
+    }
+    finally {
+        buffers.bundleView = null;
+    }
+    addBundle(open.order, bundle, start, open.count - start, open.params);
+    markViewChanged(open.order);
+    setPassCamera(s.renderer, open.params, passCamera, CoordinateSystem.WEBGPU);
 }
 /** Closes every pass begun above `depth` and not ended, so none holds its scopes past a throw. */
 function unwindTo(s, depth) {
@@ -46961,20 +47374,20 @@ class WebGPUBackend {
     format = null;
     /** The only cache `init` has to build, because it stores the renderer's `info` by reference. @internal */
     buffers = null;
-    /** Value-keyed, shared by pipelines and bindings so one entry shape yields one layout. @internal */
-    bindGroupLayoutCache = createBindGroupLayoutCache();
     /** Every GPU allocation this backend holds, shared by its buffer, texture and swapchain caches. @internal */
     memoryTally = createMemoryTally();
     /** Every GPU bind group, by layout and resources; the caches that destroy what groups bind release them. @internal */
     bindGroupCache = createBindGroupCache();
+    /** Value-keyed, shared by pipelines and bindings so one entry shape yields one layout. @internal */
+    bindGroupLayoutCache = createBindGroupLayoutCache(this.bindGroupCache);
     /** @internal */ textures = createTextureCache$1(this.memoryTally, this.bindGroupCache);
     /** @internal */ samplers = createSamplerCache$1();
     /** @internal */ pipelines = createPipelinesState(this.bindGroupLayoutCache);
     /** @internal */ bindings = createBindingsState$1(this.bindGroupLayoutCache, this.bindGroupCache);
     /** @internal */ renderObjectGpu = createRenderObjectGpuCache();
     /** @internal */ geometries = createGeometriesState();
-    /** Per (bundle, camera, render context, replay in the frame); here rather than on the neutral bundle, which may name no device object. @internal */
-    renderBundles = new WeakMap();
+    /** Each bundle's recording and view slot, from its first execute to its `dispose()`; here rather than on the neutral bundle, which names no device object. @internal */
+    renderBundles = new Map();
     /** @internal */ canvasContexts = new WeakMap();
     /** @internal */ swapchain = createSwapchainState(this.memoryTally);
     /** A frame is one command buffer; `beginFrame` opens the encoder. @internal */
@@ -47187,6 +47600,10 @@ class WebGPUBackend {
     releaseUniformBlock(key) {
         releaseUniformBlock$1(this.buffers, key);
     }
+    /** @internal */
+    releaseBindGroup(bindGroup) {
+        releaseBindGroup(this.bindings, bindGroup);
+    }
     /** Nothing to forget: a WebGPU pass starts from no state, and other users of the device cannot reach its encoders. */
     /** @internal */
     resetState() { }
@@ -47212,6 +47629,10 @@ class WebGPUBackend {
         disposePipelines(this.pipelines);
         disposeBindGroupCache(this.bindGroupCache);
         disposeBindGroupLayoutCache(this.bindGroupLayoutCache);
+        // the bundles outlive the renderer: they hold nothing of it now
+        for (const bundle of this.renderBundles.keys())
+            bundle._onDispose = null;
+        this.renderBundles.clear();
         resetMemoryTally(this.memoryTally);
         // A handed-in device is the caller's to destroy; the caches above are ours either way.
         if (!this._deviceProvided && this.device)
@@ -47614,5 +48035,5 @@ function createDataTexture(data, width, height, options = {}) {
     return new DataTexture(data, width, height, options);
 }
 
-export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, GpuTextureView, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, STAGE_COMPUTE, STAGE_FRAGMENT, STAGE_VERTEX, Scene, Source, TOUCH, Texture, TextureViewRange, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WHOLE_TEXTURE, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, assertSameSampleType, assertSubresource, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, copyBuffer, copyTexture, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, formatSampleType, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, invariant, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, materialGroup, max, memoryReport, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer$2 as readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, schemaArrayCtor, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId, writeBuffer, writeTexture };
+export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, GpuTextureView, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, STAGE_COMPUTE, STAGE_FRAGMENT, STAGE_VERTEX, Scene, Source, TOUCH, Texture, TextureViewRange, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WHOLE_TEXTURE, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, assertSameSampleType, assertSubresource, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, copyBuffer, copyTexture, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, formatSampleType, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, invariant, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, materialGroup, max, memoryReport, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer$2 as readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture$1 as renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, schemaArrayCtor, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId, writeBuffer, writeTexture };
 //# sourceMappingURL=index.js.map

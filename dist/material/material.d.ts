@@ -1,6 +1,6 @@
-import type { Uniform } from '../core/uniform';
 import type { Node } from '../nodes/nodes';
 import type { Any } from '../schema/schema';
+import { MaterialParameters } from './parameters';
 /**
  * Back-face stencil op overrides. WebGPU applies stencil ops per face; by default gpucat uses the
  * material's stencil ops for both faces. Set `stencilBack` to give back faces different ops (e.g.
@@ -125,13 +125,18 @@ export declare class Material {
     stencilZPass: GPUStencilOperation;
     /** Per-face override for back-face stencil ops, or null to use the front-face ops on both faces. */
     stencilBack: StencilFaceOverride | null;
-    /**
-     * Named uniforms for this material.
-     * Used for name-based uniform resolution: uniform('roughness', d.f32) resolves
-     * to material.uniforms.get('roughness') at render time.
-     */
-    uniforms: Map<string, Uniform<any>>;
+    /** What the named `uniform(name, …)`, `storage(name, …)` and `texture(name, …)` in its nodes read. */
+    readonly parameters: MaterialParameters;
     constructor(opts: MaterialOptions);
+    /**
+     * A second material over the same nodes and state, with a copy of the parameters: a variation that reads other
+     * values and shares this one's program.
+     *
+     * @example
+     * const models = blocks.clone();
+     * models.parameters.setBuffer('quads', modelQuads);
+     */
+    clone(): Material;
     /**
      * Incremented whenever the material's node graph configuration changes in a
      * way that requires a shader recompile.  The renderer includes this in the

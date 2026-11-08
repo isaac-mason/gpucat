@@ -56,7 +56,7 @@ export { Uniform, UniformGroup, UniformUpdateType, materialGroup, objectGroup, r
  *   const roughness = uniform(roughnessU);
  *   roughnessU.set(0.8);  // update via Uniform
  *
- * **Name-based form**, resolved from material.uniforms at render time:
+ * **Name-based form**, resolved from the material's parameters at render time:
  *   const roughness = uniform('roughness', d.f32);
  *   const myVal = uniform('myVal', MyStruct);  // struct variant
  *

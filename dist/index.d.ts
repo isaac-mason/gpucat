@@ -34,7 +34,7 @@ export { type AnyComparisonSamplerNode, type AnySamplerNode, type ArraySamplingM
 export { fullscreen, fullscreenPosition, vertexCountGeometry } from './objects/fullscreen';
 export { createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, Line, LineGeometry, LineMaterial, type LineMaterialOptions, LineSegments, LineSegmentsGeometry, } from './objects/line';
 export { createMesh, type IndexedMeshDraw, Mesh, type MeshDraw, type NonIndexedMeshDraw } from './objects/mesh';
-export { type BundleEncoder, bundle } from './renderer/core/bundle';
+export { type BundleEncoder, type BundleOptions, bundle } from './renderer/core/bundle';
 export { type CanvasAlphaMode, type CanvasResizeEvent, CanvasTarget, type CanvasTargetOptions, createCanvasTarget, } from './renderer/core/canvas-target';
 export { compile, compileCompute } from './renderer/core/compile';
 export { copyBuffer } from './renderer/core/copy-buffer';

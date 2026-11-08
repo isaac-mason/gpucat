@@ -96,7 +96,7 @@ export declare function attachmentView(data: TextureData, mipLevel: number, laye
 export type TextureCache = {
     /** Texture data keyed by GpuTexture object */
     textureMap: WeakMap<GpuTexture, TextureData>;
-    /** Default placeholder textures by format */
+    /** Default placeholder textures by format, kept for the renderer's life: bounded by the formats there are. */
     defaultTextures: Map<GPUTextureFormat, GPUTexture>;
     /** Mipmap generation state (created lazily on first use) */
     mipmapState: MipmapState | null;

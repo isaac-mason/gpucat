@@ -216,6 +216,12 @@ export declare function generateGlslTransformFeedbackShader(ctx: GlslBuildContex
     }[];
     outputs: TransformFeedbackOutput[];
 };
+/**
+ * The fragment's varying inputs, matched to the vertex stage by NAME (see the vertex emitter), after
+ * `generateGlslFragmentShader` has gathered them. No `layout(location)`: illegal on a fragment varying `in`
+ * in GLSL ES 3.00. Declared ahead of the functions, since a `Fn` body may read a varying too.
+ */
+export declare function glslFragmentVaryingDeclarations(ctx: GlslBuildContext): string;
 export declare function generateGlslFragmentShader(fragmentNode: Node<d.Any> | null, ctx: GlslBuildContext, varyings: Map<string, {
     node: VaryingNode<d.Any>;
     vertexExpr: string;

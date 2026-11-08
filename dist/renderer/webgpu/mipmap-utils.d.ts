@@ -11,6 +11,7 @@
 export type MipmapState = {
     device: GPUDevice;
     sampler: GPUSampler;
+    /** By format, kept for the renderer's life: bounded by the formats there are. */
     pipelines2D: Map<GPUTextureFormat, GPURenderPipeline>;
     pipelinesCube: Map<GPUTextureFormat, GPURenderPipeline>;
     shaderModule2D: GPUShaderModule;

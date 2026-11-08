@@ -13,7 +13,8 @@
  * settings share one GL sampler object.
  */
 import type { GpuSampler } from '../../core/gpu-sampler';
-/** Sampler state: GL sampler objects keyed by GpuSampler settingsKey, plus a disposal set. */
+/** Sampler state: GL sampler objects keyed by GpuSampler settingsKey, plus a disposal set. Kept for the renderer's life:
+ *  bounded by the distinct settings. */
 export type SamplerCache = {
     cache: Map<string, WebGLSampler>;
     all: Set<WebGLSampler>;

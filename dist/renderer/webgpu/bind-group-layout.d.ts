@@ -1,5 +1,6 @@
 import type { SamplerEntry, TextureEntry, UniformGroupBlock } from '../../nodes/builder';
 import type { BindGroup as NodeBindGroup } from '../core/bind-group';
+import { type BindGroupCache } from './bind-group-cache';
 /**
  * Whether a uniform block is bound at a dynamic offset. Anything but frame scope can hold different values
  * for two passes or dispatches of one frame, and the second takes a dynamic allocation; frame scope is
@@ -12,8 +13,20 @@ export declare function usesDynamicOffset(block: UniformGroupBlock): boolean;
  * the fix. A group holds at most one uniform block, so each counts once.
  */
 export declare function assertDynamicUniformLimit(device: GPUDevice, bindGroups: readonly NodeBindGroup[], label: string): void;
+/**
+ * Layouts by their entries, each counted by what holds it, as Dawn's pipeline layouts and bind groups hold theirs: a
+ * pipeline for each of its groups, and a bind group's data for its own. A layout leaves with its last holder, and the
+ * cached bind groups over it with it.
+ */
 export type BindGroupLayoutCache = {
     cache: Map<string, GPUBindGroupLayout>;
+    /** each layout's key and how many hold it */
+    held: Map<GPUBindGroupLayout, {
+        key: string;
+        holders: number;
+    }>;
+    /** the bind groups cached over each layout, released with it */
+    bindGroups: BindGroupCache;
 };
 /**
  * The bind-group-layout sample type for a sampled texture's actual format. A `texture_2d<f32>`
@@ -36,7 +49,11 @@ export declare function textureBindingLayout(entry: TextureEntry, float32Filtera
  */
 export declare function samplerBindingType(entry: SamplerEntry): GPUSamplerBindingType;
 /** create a bind group layout cache */
-export declare function createBindGroupLayoutCache(): BindGroupLayoutCache;
+export declare function createBindGroupLayoutCache(bindGroups: BindGroupCache): BindGroupLayoutCache;
+/** One more holder of `layout`, a layout from this cache. */
+export declare function holdBindGroupLayout(cache: BindGroupLayoutCache, layout: GPUBindGroupLayout): void;
+/** One fewer holder of `layout`: with none left it leaves the cache, and every bind group cached over it goes. */
+export declare function releaseBindGroupLayout(cache: BindGroupLayoutCache, layout: GPUBindGroupLayout): void;
 /**
  * Get or create a bind group layout for the given entries.
  * Uses a stable hash of the entries as the cache key.

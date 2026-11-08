@@ -1,6 +1,4 @@
-import type { RenderTarget } from '../../core/render-target';
 import type { MRTNode } from '../../nodes/lib/mrt';
-import type { CanvasTarget } from './canvas-target';
 import { type Target } from './target';
 /** Physical pixels, so no pixel-ratio scaling applies. */
 export type ViewportValue = {
@@ -29,9 +27,12 @@ export type RenderContext = {
     color: boolean;
     depth: boolean;
     stencil: boolean;
-    /** Identity, which the key does not cover; read only for the formats and textures, which it does. */
-    renderTarget: RenderTarget | null;
-    canvasTarget: CanvasTarget | null;
+    /** Each colour attachment's format, in order; null for the canvas, whose format the backend knows. */
+    colorFormats: GPUTextureFormat[] | null;
+    /** Each colour attachment's texture name, in order, which MRT resolves its outputs by; empty for the canvas. */
+    colorNames: string[];
+    /** The depth attachment's format, null for none. */
+    depthFormat: GPUTextureFormat | null;
     /** 1 = no MSAA. */
     sampleCount: number;
     readonly isRenderContext: true;
@@ -48,10 +49,12 @@ export declare function createComputeContext(): ComputeContext;
  * RenderContextsState - manages render context caching.
  */
 export type RenderContextsState = {
-    /** Keyed by attachment shape and MRT id; see `buildCacheKey`. */
+    /** Passes with no MRT node, by attachment shape (`buildAttachmentState`): bounded by the shapes there are. */
     contexts: Map<string, RenderContext>;
+    /** Passes with one, by node then shape: JS-only data that goes with its node. */
+    mrtContexts: WeakMap<MRTNode, Map<string, RenderContext>>;
 };
 export declare function createRenderContext(): RenderContext;
 export declare function createRenderContextsState(): RenderContextsState;
-/** Refreshed on every access: a target can be resized or reallocated under a key that has not changed. */
+/** The context of `target`'s attachment shape, made on first need; its fields are the shape, which is the key. */
 export declare function getRenderContext(state: RenderContextsState, target: Target, mrt: MRTNode | null): RenderContext;

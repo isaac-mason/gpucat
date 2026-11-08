@@ -29,5 +29,11 @@ export declare function resolveScissor(scissor: Rect | undefined, width: number,
  * node update run again for it.
  */
 export declare function applyViewRecord(renderer: Renderer<DeviceBackend>, params: RenderPassParams, entry: CameraRecord | ViewportRecord | ScissorRecord, coordinateSystem: CoordinateSystem): void;
+/**
+ * The draws resolved after this are drawn from `camera`, in a render scope of their own, so the view uniforms pack for
+ * it: a camera record's change, and a bundle's draws drawn from the bundle's camera. The pass's own scope is restored at
+ * its end from what `beginPass` kept; this one just replaces it.
+ */
+export declare function setPassCamera(renderer: Renderer<DeviceBackend>, params: RenderPassParams, camera: View | null, coordinateSystem: CoordinateSystem): void;
 /** Whether a record changes what the draws after it are drawn with, rather than drawing. */
 export declare function isViewRecord(entry: PassEntry): entry is CameraRecord | ViewportRecord | ScissorRecord;

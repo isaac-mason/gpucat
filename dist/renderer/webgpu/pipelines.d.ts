@@ -10,12 +10,16 @@ import { type BindGroupLayoutCache } from './bind-group-layout';
 export type ComputePipelineEntry = {
     pipeline: GPUComputePipeline | null;
     nodeBuilderState: NodeBuilderState;
+    /** its group layouts, held while it is cached */
+    layouts: GPUBindGroupLayout[];
 };
 export type RenderPipelineEntry = {
     pipeline: GPURenderPipeline | null;
     cacheKey: string;
     /** RenderObjects holding it: at 0 it leaves the cache, as three.js releases a program at zero `usedTimes`. */
     users: number;
+    /** its group layouts, held while it is cached */
+    layouts: GPUBindGroupLayout[];
 };
 export type PipelinesStats = {
     renderCount: number;
@@ -51,13 +55,7 @@ export declare function createPipelinesState(bindGroupLayoutCache: BindGroupLayo
  * Per-attachment color formats for a render context.
  * Reads each `renderTarget.textures[i].format`; falls back to the canvas format for the swapchain.
  */
-export declare function getRenderContextColorFormats(renderContext: {
-    renderTarget: {
-        textures: {
-            format: GPUTextureFormat;
-        }[];
-    } | null;
-}, canvasFormat: GPUTextureFormat): GPUTextureFormat[];
+export declare function getRenderContextColorFormats(renderContext: RenderContext, canvasFormat: GPUTextureFormat): GPUTextureFormat[];
 /** The depth ATTACHMENT's format, not the sampling-gated `depthTexture` getter: a pipeline needs it
  *  whether or not the depth is sampled. */
 export declare function getRenderContextDepthFormat(renderContext: RenderContext): GPUTextureFormat | null;

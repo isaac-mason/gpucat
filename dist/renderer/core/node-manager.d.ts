@@ -32,10 +32,10 @@ export type NodeManagerState = {
     shared: SharedPlacement | null;
     /** Frees the uniform blocks of the bind groups a RenderObject copies from its compiled shader, and what the backend
      *  holds for a RenderObject being disposed. */
-    backend: Pick<DeviceBackend, 'releaseUniformBlock' | 'releaseRenderObject'>;
+    backend: Pick<DeviceBackend, 'releaseUniformBlock' | 'releaseBindGroup' | 'releaseRenderObject'>;
 };
 /** create a new NodeManager state */
-export declare function createNodeManagerState(backend: Pick<DeviceBackend, 'releaseUniformBlock' | 'releaseRenderObject'>, layout: MemoryLayout): NodeManagerState;
+export declare function createNodeManagerState(backend: Pick<DeviceBackend, 'releaseUniformBlock' | 'releaseBindGroup' | 'releaseRenderObject'>, layout: MemoryLayout): NodeManagerState;
 /** Lets compiles place shared members, now that the device's uniform block limit is known. */
 export declare function setSharedPlacement(state: NodeManagerState, maxBytes: number): void;
 /**

@@ -71,17 +71,43 @@ export type TextureUniforms = {
     /** What `flip` holds, 1 or 0; -1 until first set. */
     flipped: number;
 };
+/** A program whose stages were compiled and linked without reading their status, which would wait for the driver. */
+type PendingProgram = {
+    program: WebGLProgram;
+    vertex: WebGLShader;
+    fragment: WebGLShader;
+    vertexSource: string;
+    fragmentSource: string;
+};
 /** Program cache, keyed by the combined GLSL source string, and the texture homes its programs read. */
 export type ProgramCache = {
     programs: Map<string, ProgramInfo>;
+    /** Programs started by {@link startProgram} whose link nothing has read yet. */
+    pending: Map<string, PendingProgram>;
+    /** Whether the context has KHR_parallel_shader_compile, so a pending program can be asked if it is done. */
+    parallel: boolean;
     homes: TextureHomes;
 };
 /** Create an empty program cache; its homes wait for the context's unit count ({@link setTextureUnitCount}). */
 export declare function createProgramCache(): ProgramCache;
+/** Turns on KHR_parallel_shader_compile, where the context has it: the driver then compiles programs on its own threads. */
+export declare function enableParallelCompile(gl: WebGL2RenderingContext, cache: ProgramCache): void;
 /** Gives the cache's programs homes when the device has the units for them. */
 export declare function setTextureUnitCount(cache: ProgramCache, maxCombinedUnits: number): void;
 /**
- * Get (or compile + link + cache) the GL program for a compiled material.
+ * Issue the compile and link of `code`'s program without reading any status, as three.js's WebGL backends do: the
+ * driver works on it while the caller starts others, and {@link getProgram} reads the result.
+ */
+export declare function startProgram(gl: WebGL2RenderingContext, cache: ProgramCache, code: string): void;
+/**
+ * Resolves once every started program has finished linking, polled every 10 ms as three.js's `compileAsync` does: a
+ * frame callback would never run in a hidden tab, and a yield would spin the main thread while the driver works.
+ * Without KHR_parallel_shader_compile nothing can be asked, so it resolves at once and the first read waits instead.
+ */
+export declare function whenProgramsLinked(gl: WebGL2RenderingContext, cache: ProgramCache): Promise<void>;
+/**
+ * Get (or compile + link + cache) the GL program for a compiled material. A program {@link startProgram} began is
+ * finished here, which waits for the driver only if its link is still running.
  *
  * @param gl the WebGL2 context
  * @param cache the program cache
@@ -134,3 +160,4 @@ export declare function disposePrograms(gl: WebGL2RenderingContext, cache: Progr
 export declare function getProgramCacheStats(cache: ProgramCache): {
     programCount: number;
 };
+export {};

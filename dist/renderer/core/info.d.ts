@@ -32,6 +32,10 @@ export type RenderInfo = {
      * the honest figure is a floor, not a guess.
      */
     triangles: number;
+    /** Render bundles executed this frame, and of those, how many were recorded again first: a bundle recorded every
+     *  frame costs more than drawing its draws directly. */
+    bundles: number;
+    bundlesRecorded: number;
 };
 /** Per-frame compute statistics. */
 export type ComputeInfo = {

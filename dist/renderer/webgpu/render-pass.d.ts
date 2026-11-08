@@ -1,12 +1,13 @@
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { CanvasTarget } from '../core/canvas-target';
-import type { DrawOptions } from '../core/frame';
+import type { DrawOptions, RenderBundle } from '../core/frame';
 import { type Allocation, type MemoryTally, type RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext, ScissorValue, ViewportValue } from '../core/pass-context';
 import type { PassOrder } from '../core/pass-order';
 import { type PreparedRenderObject, type RenderPassParams } from '../core/render-types';
 import { type DrawBindings } from './bindings';
+import * as Buffers from './buffers';
 import { type PassState } from './pass-state';
 import type { WebGPUBackend } from './webgpu-backend';
 /**
@@ -118,16 +119,15 @@ export type RecordedBundle = {
     bakedGroups: GPUBindGroup[];
     bakedOffsets: number[];
 };
-/**
- * The recordings of one bundle under one camera and render context, one per replay in a frame. A camera
- * moved between two passes replaying the same bundle binds different allocations in each, so the two
- * need a recording apiece; keyed by occurrence, each holds frame to frame.
- */
-export type BundleRecordings = {
-    frameId: number;
-    replays: number;
-    recordings: RecordedBundle[];
+/** What the backend holds for a bundle: its one recording, the attachment layout that was made for, and the slot its
+ *  view uniforms live in. Released by the bundle's `dispose()`. */
+export type BundleState = {
+    recording: RecordedBundle | null;
+    layout: string | null;
+    view: Buffers.BundleView;
 };
+/** The backend's state for `bundle`, made at its first execute and released by its `dispose()`. */
+export declare function bundleState(b: WebGPUBackend, bundle: RenderBundle): BundleState;
 /**
  * Runs a draw's node updates and resolves its uniforms and bind groups into `out`, at the call that
  * recorded it, so the draw uses the values set before that call. A replayed bundle's draws resolve the

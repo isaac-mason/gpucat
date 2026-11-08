@@ -116,8 +116,8 @@ export declare function assertVertexBuffers(geometry: {
 }, state: NodeBuilderState, label: string): void;
 /**
  * Lets go of what a compiled state holds that its users don't: each cached shared group stops counting it, and one held
- * by no other state leaves the cache. The uniform blocks of every shared group no state holds any more go to
- * `releaseUniformBlock`, a cached group's with its last holder and another shared group's with this state.
+ * by no other state leaves the cache. Every shared group no state holds any more goes to `releaseBindGroup` and its
+ * uniform blocks to `releaseUniformBlock`, a cached group with its last holder and another shared group with this state.
  */
-export declare function releaseNodeBuilderState(nodeState: NodeBuilderState, sharedBlocks: SharedBlocks, releaseUniformBlock: (key: object) => void): void;
+export declare function releaseNodeBuilderState(nodeState: NodeBuilderState, sharedBlocks: SharedBlocks, releaseUniformBlock: (key: object) => void, releaseBindGroup: (group: BindGroup) => void): void;
 export {};
