@@ -71,6 +71,23 @@ describe('Loop update', () => {
         expect(glsl).toMatch(/i \+= \w+/);
     });
 
+    // a uniform read nowhere but a loop's bounds was left out of the uniform struct, so the loop read a member that
+    // was never declared: `uniforms_object.uniform8 not found`
+    test.each(['start', 'end'] as const)('a uniform read only as its %s is declared', (bound) => {
+        const n = uniform(new Uniform(d.i32, 8));
+        const { wgsl, glsl } = compileBoth((sum) => {
+            Loop(bound === 'end' ? { end: n } : { start: n, end: 0, condition: '>' }, ({ i }) => {
+                sum.assign(sum.add(i.toF32()));
+            });
+        });
+        for (const code of [wgsl, glsl]) {
+            const forLine = code.split('\n').find((line) => line.includes('for ('))!;
+            const member = forLine.match(/\.(\w+)/)?.[1] ?? forLine.match(/[<>]=? (\w+)/)![1];
+            const declarations = code.split('\n').filter((line) => !line.includes('for (')).join('\n');
+            expect(declarations).toMatch(new RegExp(`\\b${member}\\b`));
+        }
+    });
+
     test('a string follows the variable as written', () => {
         const { wgsl, glsl } = compileBoth((sum) => {
             Loop({ start: 1, end: 256, update: '*= 2' }, ({ i }) => {
