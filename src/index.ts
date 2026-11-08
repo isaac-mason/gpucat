@@ -1,7 +1,7 @@
 export type { Color, ColorInput } from 'math/color';
 export { color } from 'math/color';
 export * from './camera/camera';
-export { unproject } from './camera/camera';
+export { unproject, viewProjection } from './camera/camera';
 export * from './camera/cube-camera';
 export * from './camera/orthographic-camera';
 export * from './camera/perspective-camera';
@@ -151,6 +151,7 @@ export {
     cameraPosition,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    cameraViewProjectionMatrix,
     ceil,
     clamp,
     comparisonSampler,

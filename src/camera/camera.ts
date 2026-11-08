@@ -1,5 +1,6 @@
-import { mat4, type Vec3, vec3 } from 'math';
+import { type Mat4, mat4, type Vec3, vec3 } from 'math';
 import { Object3D } from '../core/object3d';
+import type { View } from '../renderer/core/view';
 import { CoordinateSystem } from '../core/coordinate-system';
 
 const _invViewProj = mat4.create();
@@ -38,6 +39,11 @@ export class Camera extends Object3D {
     }
 }
 
+/** World to clip space for `view`, `projectionMatrix * matrixWorldInverse`, written into `out`. */
+export function viewProjection(out: Mat4, view: View): Mat4 {
+    return mat4.multiply(out, view.projectionMatrix, view.matrixWorldInverse);
+}
+
 /**
  * Unproject a point from NDC (normalized device coordinates) to world space.
  * NDC: x,y in [-1, 1], z in the CANONICAL [0, 1] near→far convention (WebGPU) — backend-agnostic.
@@ -48,8 +54,7 @@ export class Camera extends Object3D {
  * near plane and z=1 for the far plane regardless of backend.
  */
 export function unproject(out: Vec3, ndc: Vec3, camera: Camera): Vec3 {
-    mat4.multiply(_invViewProj, camera.projectionMatrix, camera.matrixWorldInverse);
-    mat4.invert(_invViewProj, _invViewProj);
+    mat4.invert(_invViewProj, viewProjection(_invViewProj, camera));
     _ndc[0] = ndc[0];
     _ndc[1] = ndc[1];
     _ndc[2] = camera.coordinateSystem === CoordinateSystem.WEBGL ? ndc[2] * 2 - 1 : ndc[2];

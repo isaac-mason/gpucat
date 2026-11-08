@@ -1,7 +1,7 @@
 import { mat4, vec3 } from 'math';
 
 import * as d from '../../schema/schema';
-import { CallNode, type Node } from './core';
+import { CallNode, mul, type Node } from './core';
 import { renderGroup, Uniform, UniformNode } from './uniform';
 
 /** what a camera matrix reads in a pass with no camera: the view block is in every shader that reads any of it */
@@ -19,6 +19,12 @@ export const cameraViewMatrix = /*@__PURE__*/ new UniformNode(
     new Uniform(d.mat4x4f, undefined, renderGroup),
     'cameraViewMatrix',
 ).onRenderUpdate((frame) => frame.camera?.matrixWorldInverse ?? IDENTITY);
+
+/**
+ * World to clip space, `cameraProjectionMatrix * cameraViewMatrix`: one node for the pair a shadow lookup or a
+ * reprojection reaches for. Built from the two camera uniforms, so it adds no binding of its own.
+ */
+export const cameraViewProjectionMatrix = /*@__PURE__*/ mul(cameraProjectionMatrix, cameraViewMatrix);
 
 /**
  * Camera world-space position. In renderGroup.
