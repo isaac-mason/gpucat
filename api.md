@@ -4540,6 +4540,12 @@ export class Renderer<B extends DeviceBackend = DeviceBackend> implements Render
      *  so any number of readers can share it. */
     readonly info: RendererInfo;
     onDeviceLost: ((info: DeviceLostInfo) => void) | null;
+    /**
+     * Fired with each validation error the device reports (WebGPU), as well as the error being logged. They arrive
+     * after the call that caused them and never throw, and a console in a worker is easy to miss, so this is the way
+     * to surface them: to a page from a worker, to a test, to an overlay. WebGL reports its failures by throwing.
+     */
+    onValidationError: ((message: string) => void) | null;
     constructor(backend: B);
     /** `B['name']`, not `RendererBackend`, so a union of concrete renderers discriminates on it. */
     get api(): B['name'];
@@ -8127,6 +8133,9 @@ export type Discovery = {
     /** The builtins read inside `Fn` bodies, by kind, to their WGSL type. A WGSL function can't reach its entry point's
      *  inputs, so it reads module-scope copies the entry point assigns. */
     fnBuiltins: Map<string, string>;
+    /** The varyings read inside `Fn` bodies, by name, read through module-scope copies as builtins are. A `Fn` that reads
+     *  a varying belongs to the fragment stage. */
+    fnVaryings: Map<string, VaryingNode<d.Any>>;
 };
 ```
 

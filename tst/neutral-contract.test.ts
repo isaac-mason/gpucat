@@ -96,6 +96,7 @@ const EXPECTED: Record<string, string[]> = {
         '_renderLists',
         'info',
         'onDeviceLost',
+        'onValidationError',
         'inspector',
         'api',
         'init',

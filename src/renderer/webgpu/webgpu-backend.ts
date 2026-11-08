@@ -153,11 +153,13 @@ export class WebGPUBackend implements DeviceBackend {
         this.validation = opts.validation ?? 'device';
     }
 
-    /** Logs a validation error and keeps it for `takeValidationErrors`, the newest MAX_VALIDATION_ERRORS. @internal */
+    /** Logs a validation error, keeps it for `takeValidationErrors` (the newest MAX_VALIDATION_ERRORS), and hands it to
+     *  the renderer's `onValidationError`. @internal */
     _reportValidation(message: string): void {
         console.error(message);
         this._validationErrors.push(message);
         if (this._validationErrors.length > MAX_VALIDATION_ERRORS) this._validationErrors.shift();
+        this.renderer.onValidationError?.(message);
     }
 
     /** Opens a pass's or submit's error scope, with `validation: 'per-pass'`. @internal */

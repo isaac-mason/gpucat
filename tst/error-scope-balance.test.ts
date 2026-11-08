@@ -190,3 +190,17 @@ test("'device' validation reports what the device raises, the newest 64", async 
     expect(errors.length).toBe(64);
     expect(errors.at(-1)).toBe('[WebGPU validation error] error 99');
 });
+
+/** Errors arrive after the call that caused them and never throw, so `onValidationError` is how an app hears them. */
+test('each reported validation error reaches onValidationError', async () => {
+    const { stub, renderer } = await make('device');
+    const heard: string[] = [];
+    renderer.onValidationError = (message) => heard.push(message);
+
+    stub.fireUncapturedError('a bad draw');
+    stub.fireUncapturedError('a bad bind group');
+
+    expect(heard).toEqual(['[WebGPU validation error] a bad draw', '[WebGPU validation error] a bad bind group']);
+    // still kept for takeValidationErrors as well
+    expect(await renderer.backend.takeValidationErrors()).toEqual(heard);
+});
