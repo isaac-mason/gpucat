@@ -55,6 +55,14 @@ export type RenderTargetOptions = {
     count?: number;
 
     /**
+     * Colour attachments by name, in @location order: `{ output: 'rgba8unorm', normal: 'rgba16float' }`. The names
+     * are what `mrt()` keys on, so the target is ready for it as made. In place of `count`, `colorFormats` and
+     * `colorFormat`. A name can't be `'depth'`, the depth attachment's, or look like an integer, which JS would list
+     * ahead of the others and so move to an earlier location than written.
+     */
+    attachments?: Record<string, GPUTextureFormat>;
+
+    /**
      * The attachments' dimension, as `GPUTextureDimension`. A `'3d'` target draws a pass into one depth slice of its
      * colour textures, and has no depth attachment, since depth formats cannot be 3D. Default `'2d'`.
      */
@@ -79,6 +87,28 @@ export type RenderTargetOptions = {
 };
 
 /** A render target's colour attachment: a 2D texture, an array of them, a 3D texture, or a cube's faces. */
+/** `opts.attachments` as [name, format] pairs in location order, or null; throws on what it can't place */
+function namedAttachments(opts: RenderTargetOptions): [string, GPUTextureFormat][] | null {
+    if (opts.attachments === undefined) return null;
+    const who = `[RenderTarget] ${opts.label ?? 'a target'}`;
+    for (const other of ['count', 'colorFormats', 'colorFormat'] as const) {
+        if (opts[other] !== undefined)
+            throw new Error(`${who}: attachments names every colour attachment, so ${other} has no say; drop one`);
+    }
+    const entries = Object.entries(opts.attachments);
+    if (entries.length === 0)
+        throw new Error(`${who}: attachments is empty; give at least one, or depthBuffer alone for a depth-only target`);
+    for (const [name] of entries) {
+        if (name === 'depth') throw new Error(`${who}: 'depth' is the depth attachment's name, not a colour attachment's`);
+        if (/^(0|[1-9]\d*)$/.test(name)) {
+            throw new Error(
+                `${who}: attachment '${name}' looks like an integer, which JS orders ahead of the other names, moving its location; name it in words`,
+            );
+        }
+    }
+    return entries;
+}
+
 export type RenderTargetTexture = Texture | ArrayTexture | Data3DTexture | CubeTexture;
 
 /**
@@ -172,8 +202,9 @@ export class RenderTarget {
         this.mipLevels = opts.mipLevelCount ?? 1;
         assertLayout(this, opts);
 
+        const named = namedAttachments(opts);
         const defaultFormat = opts.colorFormat ?? 'rgba16float';
-        const count = opts.count ?? opts.colorFormats?.length ?? 1;
+        const count = named?.length ?? opts.count ?? opts.colorFormats?.length ?? 1;
         if (opts.colorFormats !== undefined && opts.colorFormats.length !== count) {
             throw new Error(
                 `[RenderTarget] ${opts.label ?? 'a target'}: ${opts.colorFormats.length} colorFormats for ${count} attachments`,
@@ -182,8 +213,9 @@ export class RenderTarget {
         const mipLevelCount = this.mipLevelCount;
         this.textures = [];
         for (let i = 0; i < count; i++) {
-            const texture = createRenderTargetTexture(this, width, height, opts.colorFormats?.[i] ?? defaultFormat);
-            texture.name = i === 0 ? 'output' : `output${i}`;
+            const format = named?.[i][1] ?? opts.colorFormats?.[i] ?? defaultFormat;
+            const texture = createRenderTargetTexture(this, width, height, format);
+            texture.name = named?.[i][0] ?? (i === 0 ? 'output' : `output${i}`);
             texture._gpuTexture.renderTarget = this;
             texture._gpuTexture.mipLevelCount = mipLevelCount;
             this.textures.push(texture);

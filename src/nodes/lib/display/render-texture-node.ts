@@ -27,6 +27,12 @@ export type RenderTextureOptions = {
     /** GPUTextureFormat for the color render target. Defaults to 'rgba16float'. */
     colorFormat?: GPUTextureFormat;
     /**
+     * Colour attachments by name, in @location order, made up front: `{ output: 'rgba16float', normal: 'rgba8unorm' }`.
+     * The names are what `setMRT`'s outputs and `getTextureNode(name)` key on, and naming one the pass lacks throws
+     * rather than adding it. In place of `colorFormat`. Without it, attachments are added as they are first asked for.
+     */
+    attachments?: Record<string, GPUTextureFormat>;
+    /**
      * Format for the depth attachment. Defaults to 'depth24plus'. Takes precedence
      * over `stencilBuffer`, so pass this when you want a specific depth precision
      * alongside a stencil aspect (e.g. 'depth32float-stencil8'). Mirrors
@@ -122,21 +128,26 @@ export class RenderTextureNode extends Node<d.vec4f> {
         this.passId = pid;
         this.clearColor = options.clearColor ?? [0, 0, 0, 1];
 
+        if (options.attachments !== undefined && options.colorFormat !== undefined) {
+            throw new Error(
+                `[renderTexture] ${pid}: attachments gives every attachment its format, so colorFormat has no say; drop one`,
+            );
+        }
         const target = createRenderTarget(this._width * this._pixelRatio, this._height * this._pixelRatio, {
-            colorFormat: options.colorFormat ?? 'rgba16float',
+            ...(options.attachments !== undefined
+                ? { attachments: options.attachments }
+                : { colorFormat: options.colorFormat ?? 'rgba16float', count: 1 }),
             // forwarded rather than resolved here: RenderTarget already owns the
             // depthFormat-beats-stencilBuffer precedence, and duplicating it is how
             // the two drift apart.
             depthFormat: options.depthFormat,
             stencilBuffer: options.stencilBuffer,
             samples: options.samples ?? 1,
-            count: 1,
         });
-        target.texture!.name = 'output';
 
         this.renderTarget = target;
 
-        this._textures['output'] = target.texture! as Texture;
+        for (const texture of target.textures) this._textures[texture.name] = texture as Texture;
         // The depth ATTACHMENT, not the sampling-gated `depthTexture` getter, which is null until
         // getDepthTextureNode() declares sampling.
         if (target._depthAttachment) {
@@ -177,9 +188,16 @@ export class RenderTextureNode extends Node<d.vec4f> {
         this.setSize(this._width, this._height);
     }
 
-    /** Sets the given MRT node to setup MRT for this pass. */
+    /**
+     * Sets the MRT node this pass writes through. Without `attachments`, any output the pass has no attachment for gets
+     * one now, in the order the outputs are written, so the pass can render before each is read with `getTextureNode`.
+     * With `attachments`, an output the pass lacks throws when the pass renders.
+     */
     setMRT(mrt: MRTNode | null): this {
         this._mrt = mrt;
+        if (mrt !== null && this.options.attachments === undefined) {
+            for (const name in mrt.outputNodes) this.getTexture(name);
+        }
         return this;
     }
 
@@ -189,13 +207,17 @@ export class RenderTextureNode extends Node<d.vec4f> {
     }
 
     /**
-     * Returns the texture for the given output name.
-     * Creates a new texture slot if it doesn't exist.
+     * Returns the texture for the given output name. Without `attachments`, a name the pass lacks gets a new attachment,
+     * in the first one's format; with them, or for `'depth'` on a pass without depth, it throws, naming what there is.
      */
     getTexture(name: string): Texture {
         let texture = this._textures[name] as Texture | undefined;
 
         if (texture === undefined) {
+            if (this.options.attachments !== undefined || name === 'depth') {
+                const has = Object.keys(this._textures).join(', ');
+                throw new Error(`[renderTexture] ${this.passId}: no attachment '${name}'. It has: ${has}.`);
+            }
             // Clone the reference texture format and create new render target texture
             const refTexture = this.renderTarget.texture!;
             const image: ImageSize = { width: this.renderTarget.width, height: this.renderTarget.height };
