@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import { createRenderTarget, type RenderTarget } from '../src/core/render-target';
+import { f32, mrt, vec4 } from '../src/nodes/nodes';
 import { type CanvasTarget, createCanvasTarget } from '../src/renderer/core/canvas-target';
 import { createRenderContextsState, getRenderContext } from '../src/renderer/core/pass-context';
 
@@ -84,4 +85,37 @@ test('differing canvas depth formats split the context, and the stencil aspect f
     expect(plain).not.toBe(stencilled);
     expect(plain.stencil).toBe(false);
     expect(stencilled.stencil).toBe(true);
+});
+
+test('differing depth formats split the context, as a pipeline is built for one', () => {
+    const state = createRenderContextsState();
+    const a = createRenderTarget(64, 64, { colorFormat: 'rgba8unorm', depthFormat: 'depth24plus' });
+    const b = createRenderTarget(64, 64, { colorFormat: 'rgba8unorm', depthFormat: 'depth32float' });
+
+    expect(getRenderContext(state, a, null)).not.toBe(getRenderContext(state, b, null));
+    expect(getRenderContext(state, b, null).depthFormat).toBe('depth32float');
+});
+
+test('a context keeps its shape, never the target that made it', () => {
+    const state = createRenderContextsState();
+    const target = createRenderTarget(64, 64, { colorFormat: 'rgba8unorm' });
+    const context = getRenderContext(state, target, null);
+
+    expect(Object.values(context)).not.toContain(target);
+    expect(context.colorFormats).toEqual(['rgba8unorm']);
+});
+
+test('passes with a new MRT node each time add no context to the shape map', () => {
+    const state = createRenderContextsState();
+    const target = gbuffer(['color', 'normal']);
+    getRenderContext(state, target, null);
+    const shapes = state.contexts.size;
+
+    for (let i = 0; i < 10; i++) {
+        const outputs = mrt({ color: vec4(f32(1), f32(0), f32(0), f32(1)), normal: vec4(f32(0), f32(1), f32(0), f32(1)) });
+        const context = getRenderContext(state, target, outputs);
+        expect(context.mrt).toBe(outputs);
+        expect(getRenderContext(state, target, outputs)).toBe(context);
+    }
+    expect(state.contexts.size).toBe(shapes);
 });

@@ -183,12 +183,11 @@ type PassBlend = {
  */
 function planPassBlend(passCtx: RenderContext): PassBlend {
     const mrt = passCtx.mrt;
-    const textures = passCtx.renderTarget?.textures;
-    if (!mrt || !textures || textures.length === 0) return { targetName: null, opaqueOnly: false };
+    const names = passCtx.colorNames;
+    if (!mrt || names.length === 0) return { targetName: null, opaqueOnly: false };
 
-    const names = textures.map((t) => t.name ?? '');
     const targetName = names[0] ?? '';
-    if (textures.length < 2) return { targetName, opaqueOnly: false };
+    if (names.length < 2) return { targetName, opaqueOnly: false };
 
     let sawMaterial = false;
     let sawNo = false;

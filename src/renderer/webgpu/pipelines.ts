@@ -98,23 +98,14 @@ export function createPipelinesState(bindGroupLayoutCache: BindGroupLayoutCache)
  * Per-attachment color formats for a render context.
  * Reads each `renderTarget.textures[i].format`; falls back to the canvas format for the swapchain.
  */
-export function getRenderContextColorFormats(
-    renderContext: { renderTarget: { textures: { format: GPUTextureFormat }[] } | null },
-    canvasFormat: GPUTextureFormat,
-): GPUTextureFormat[] {
-    const rt = renderContext.renderTarget;
-    if (rt === null) return [canvasFormat];
-    const out: GPUTextureFormat[] = [];
-    for (const tex of rt.textures) out.push(tex.format);
-    return out;
+export function getRenderContextColorFormats(renderContext: RenderContext, canvasFormat: GPUTextureFormat): GPUTextureFormat[] {
+    return renderContext.colorFormats ?? [canvasFormat];
 }
 
 /** The depth ATTACHMENT's format, not the sampling-gated `depthTexture` getter: a pipeline needs it
  *  whether or not the depth is sampled. */
 export function getRenderContextDepthFormat(renderContext: RenderContext): GPUTextureFormat | null {
-    const rt = renderContext.renderTarget;
-    if (rt === null) return renderContext.canvasTarget!.depthFormat as GPUTextureFormat;
-    return rt._depthAttachment ? rt._depthAttachment.format : null;
+    return renderContext.depthFormat;
 }
 
 /**
@@ -232,7 +223,7 @@ function buildRenderPipelineDescriptor(
     // Build color targets (supports MRT). Empty for depth-only pipelines. The blend each target gets
     // is decided by `core/render-state`, shared with the WebGL backend so the two cannot drift.
     const targetCount = getTargetCount(material.fragment);
-    const textures = renderContext.renderTarget?.textures ?? null;
+    const names = renderContext.colorFormats !== null ? renderContext.colorNames : null;
     const mrt: MRTNode | null = renderContext.mrt;
     const colorTargets: GPUColorTargetState[] = [];
     for (let i = 0; i < targetCount; i++) {
@@ -243,7 +234,7 @@ function buildRenderPipelineDescriptor(
                     `${colorFormats.length}; output ${i} has no attachment to take its format from.`,
             );
         }
-        const targetName = mrt !== null && textures !== null ? textures[i]!.name : null;
+        const targetName = mrt !== null && names !== null ? names[i]! : null;
         // an integer format cannot blend: WebGPU rejects a blend state on one, whatever the material asks
         const integer = format.endsWith('uint') || format.endsWith('sint');
         colorTargets.push({

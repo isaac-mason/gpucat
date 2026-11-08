@@ -115,12 +115,10 @@ export function compileNodeState(
     // last have been resolved against another context's target.
     const fragmentNode = material.fragment;
     if (fragmentNode !== undefined && fragmentNode.kind === NodeKind.MRT) {
-        const renderTarget = renderObject.renderContext.renderTarget;
-        if (renderTarget !== null) {
-            (fragmentNode as MRTNode).resolveOutputs(
-                (name: string) => renderTarget.getTextureIndex(name),
-                renderTarget.textures.map((t) => t.name),
-            );
+        const context = renderObject.renderContext;
+        if (context.colorFormats !== null) {
+            const names = context.colorNames;
+            (fragmentNode as MRTNode).resolveOutputs((name: string) => names.indexOf(name), names);
         }
     }
 
