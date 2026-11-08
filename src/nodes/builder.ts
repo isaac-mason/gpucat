@@ -18,6 +18,7 @@ import {
     generateGlslFragmentShader,
     generateGlslTransformFeedbackShader,
     generateGlslVertexShader,
+    glslFragmentVaryingDeclarations,
     type StorageMirror,
 } from './backend/glsl/emit';
 import { allocName, createNameScope, derivedSamplerName, type NameScope } from './backend/names';
@@ -61,7 +62,7 @@ import {
 } from './lib/texture';
 import type { TransformFeedbackNode } from './lib/transform-feedback';
 import type { UniformGroup, UniformNode } from './lib/uniform';
-import type { InterpolationSampling, InterpolationType } from './lib/varying';
+import type { InterpolationSampling, InterpolationType, VaryingNode } from './lib/varying';
 import { fixedMembers } from './lib/view';
 import type { WgslFunctionNode } from './lib/wgsl-fn';
 
@@ -108,6 +109,7 @@ export function compileWgsl(slots: CompileSlots, opts: CompileWgslOptions = {}):
         if (hasDepth) fragmentRoots.push(slots.depth!);
         collectVaryings(fragmentRoots, vertexCtx);
     }
+    assertVertexReadsNoFnVaryings(slots.vertex, vertexCtx.varyings, discovered.fnDefs);
 
     // generate vertex shader
     const vertexBody = generateVertexShader(slots, vertexCtx);
@@ -384,6 +386,7 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
         if (hasDepth) fragmentRoots.push(slots.depth!);
         collectGlslVaryings(fragmentRoots, vertexCtx);
     }
+    assertVertexReadsNoFnVaryings(slots.vertex, vertexCtx.varyings, discovered.fnDefs);
 
     const vertexBody = generateGlslVertexShader(slots, vertexCtx);
 
@@ -499,6 +502,7 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
               // @builtin(position) lowers to a Y-flipped gl_FragCoord reading the render-target height, which the
               // renderer sets each pass; declared ahead of the functions, since a Fn body may read the position too
               { body: fragmentCtx.builtins.has('position') ? 'uniform highp float u_fragCoordFlipHeight;' : '' },
+              { body: glslFragmentVaryingDeclarations(fragmentCtx) },
               { title: '// Bit helpers', body: fragmentBitHelpersGlsl },
               { title: '// Raw functions (wgslFn/glslFn)', body: fragmentRawFnsGlsl },
               { title: '// Functions', body: fragmentDslFnsGlsl },
@@ -1077,6 +1081,9 @@ export type Discovery = {
     /** The builtins read inside `Fn` bodies, by kind, to their WGSL type. A WGSL function can't reach its entry point's
      *  inputs, so it reads module-scope copies the entry point assigns. */
     fnBuiltins: Map<string, string>;
+    /** The varyings read inside `Fn` bodies, by name, read through module-scope copies as builtins are. A `Fn` that reads
+     *  a varying belongs to the fragment stage. */
+    fnVaryings: Map<string, VaryingNode<d.Any>>;
 };
 
 /** The builtins each traced `Fn` body reads, walked per body so a builtin `main` also reads is still found. */
@@ -1095,6 +1102,59 @@ function collectFnBuiltins(fnDefs: Map<string, { traced: TracedFn }>): Map<strin
         if (traced.output) walk(traced.output);
     }
     return fnBuiltins;
+}
+
+/**
+ * A `Fn` that reads a varying reads the fragment's interpolated value, so the vertex stage, which computes it, must
+ * not call one: from `vertex` and the varyings' sources, any `Fn` reached that reads a varying throws.
+ */
+function assertVertexReadsNoFnVaryings(
+    vertex: Node<d.Any>,
+    varyings: Map<string, { node: VaryingNode<d.Any> }>,
+    fnDefs: Map<string, { traced: TracedFn }>,
+): void {
+    const seen = new Set<number>();
+    const walk = (rawNode: Node<d.Any>, fnName: string | null): void => {
+        const node = rawNode as AnyNode;
+        if (seen.has(node.id)) return;
+        seen.add(node.id);
+        if (node.kind === NodeKind.Varying && fnName !== null) {
+            const varying = node.name ?? `v_${node.id}`;
+            throw new Error(
+                `[gpucat] Fn '${fnName}' reads varying '${varying}' and the vertex stage calls it: a Fn that reads a varying belongs to the fragment stage`,
+            );
+        }
+        if (node.kind === NodeKind.Call && node.fnNode) {
+            const traced = fnDefs.get(node.fnNode.fnName)?.traced ?? node.fnNode.trace();
+            walk(traced.body, node.fnNode.fnName);
+            if (traced.output) walk(traced.output, node.fnNode.fnName);
+        }
+        for (const child of getChildren(node)) walk(child, fnName);
+    };
+    walk(vertex, null);
+    for (const { node } of varyings.values()) walk(node.node.node, null);
+}
+
+/** The varyings each traced `Fn` body reads, each the fragment's interpolated value: a varying's own source is the vertex
+ *  stage's, so the walk stops at it. */
+function collectFnVaryings(fnDefs: Map<string, { traced: TracedFn }>): Map<string, VaryingNode<d.Any>> {
+    const fnVaryings = new Map<string, VaryingNode<d.Any>>();
+    for (const { traced } of fnDefs.values()) {
+        const seen = new Set<number>();
+        const walk = (rawNode: Node<d.Any>): void => {
+            const node = rawNode as AnyNode;
+            if (seen.has(node.id)) return;
+            seen.add(node.id);
+            if (node.kind === NodeKind.Varying) {
+                fnVaryings.set(node.name ?? `v_${node.id}`, node);
+                return;
+            }
+            for (const child of getChildren(node)) walk(child);
+        };
+        walk(traced.body);
+        if (traced.output) walk(traced.output);
+    }
+    return fnVaryings;
 }
 
 /**
@@ -1431,6 +1491,7 @@ function discover(roots: Node<d.Any>[], shared: SharedPlacement | null = null): 
         nodeIdToUsages,
         mutatedNodes,
         fnBuiltins: collectFnBuiltins(fnDefs),
+        fnVaryings: collectFnVaryings(fnDefs),
         fnDefs,
         wgslFnDefs,
         structDefs,

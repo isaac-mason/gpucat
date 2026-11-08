@@ -2496,6 +2496,12 @@ export function collectGlslVaryings(roots: Node<d.Any>[], ctx: GlslBuildContext)
                 ctx.varyings.set(name, { node, vertexExpr: sourceExpr });
             }
         }
+        // a `Fn` body reads the fragment's `in` as `main` does, so its varyings are the vertex stage's to write too
+        if (node.kind === NodeKind.Call && node.fnNode) {
+            const traced = ctx.fnDefs.get(node.fnNode.fnName)?.traced ?? node.fnNode.trace();
+            visit(traced.body);
+            if (traced.output) visit(traced.output);
+        }
 
         for (const child of getChildren(node)) visit(child);
     }
@@ -2723,6 +2729,17 @@ function validateTransformFeedbackOutputType(name: string, type: d.Any): d.Any {
 
 /* fragment shader generation */
 
+/**
+ * The fragment's varying inputs, matched to the vertex stage by NAME (see the vertex emitter), after
+ * `generateGlslFragmentShader` has gathered them. No `layout(location)`: illegal on a fragment varying `in`
+ * in GLSL ES 3.00. Declared ahead of the functions, since a `Fn` body may read a varying too.
+ */
+export function glslFragmentVaryingDeclarations(ctx: GlslBuildContext): string {
+    const lines: string[] = [];
+    for (const [name, { node }] of ctx.varyings) lines.push(`${glslVaryingQualifier(node)}in ${glslType(node.type)} ${name};`);
+    return lines.join('\n');
+}
+
 export function generateGlslFragmentShader(
     fragmentNode: Node<d.Any> | null,
     ctx: GlslBuildContext,
@@ -2794,15 +2811,6 @@ export function generateGlslFragmentShader(
     // Pre-generate the frag_depth override expression (assigned to gl_FragDepth in main). Built into
     // GLSL ES 3.00 fragment shaders — no `out` declaration, no extension.
     const depthExpr = hasDepth ? generateExpr(ctx, depthNode) : '';
-
-    // Varying inputs — matched to the vertex stage by NAME (see the vertex emitter). No
-    // `layout(location)`: illegal on a fragment varying `in` in GLSL ES 3.00. The mandatory default
-    // `precision` declarations are emitted at the top of the fragment module (see builder assembly),
-    // ahead of the struct/UBO sections so their float members are covered.
-    for (const [name, { node }] of ctx.varyings) {
-        lines.push(`${glslVaryingQualifier(node)}in ${glslType(node.type)} ${name};`);
-    }
-    if (ctx.varyings.size > 0) lines.push('');
 
     if (mrtOutputs) {
         // One `out <type>` per render target. The type comes from the member node (vec4 for a color

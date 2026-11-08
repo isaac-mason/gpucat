@@ -905,6 +905,29 @@ export const cases: Case[] = [
         },
     },
     {
+        // Varyings read inside a `Fn`: one only there, one only in a `Fn` the first calls, and one in `main` as well. A
+        // GLSL varying is a global `in`, but a WGSL function can't see `fs_main`'s input, so it reads a module-scope copy
+        // `fs_main` assigns; either way the vertex stage must still write each one.
+        name: 'varyings read inside a Fn (one only there, one nested, one in main too)',
+        build: () => {
+            const position = attribute('position', d.vec3f);
+            const onlyInFn = varying(position.x, 'vOnlyInFn');
+            const nested = varying(position.y, 'vNested');
+            const shared = varying(position.z, 'vShared');
+            const inner = Fn(() => nested.add(f32(1)), { name: 'nestedRead', params: [] as const, return: d.f32 });
+            const outer = Fn(() => vec4(onlyInFn, inner(), shared, f32(1)), {
+                name: 'varyingShade',
+                params: [] as const,
+                return: d.vec4f,
+            });
+            return {
+                vertex: vec4(position, f32(1)),
+                fragment: outer().add(vec4(shared, f32(0), f32(0), f32(0))),
+                depth: undefined,
+            };
+        },
+    },
+    {
         // Whole struct storage element read via the Index path. Materializing a struct element to a var
         // (`storage.element(i).toVar()`) emits the bare element, which decodes to a struct constructor
         // assigned to a GLSL local; fields then read off the local. Pre-fix this emitted a bare StorageNode

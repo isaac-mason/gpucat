@@ -5,6 +5,7 @@ import {
     Const,
     Continue,
     compileComputeWgsl,
+    compileGlsl,
     compileWgsl,
     computeIndex,
     Fn,
@@ -327,6 +328,44 @@ describe('module-scope variables', () => {
         const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
         expect(result.code).toContain('let ');
         expect(result.code).toContain('var ');
+    });
+});
+
+describe('varyings read inside a Fn', () => {
+    /** a material whose fragment reads `vOnlyInFn` only inside a `Fn`, and `vShared` there and in `main` too */
+    function slots() {
+        const position = attribute('position', d.vec3f);
+        const onlyInFn = varying(position.x, 'vOnlyInFn');
+        const shared = varying(position.z, 'vShared');
+        const shade = Fn(() => vec4f(onlyInFn, shared, f32(0), f32(1)), { name: 'shade', params: [] as const, return: d.vec4f });
+        return { vertex: vec4f(position, f32(1)), fragment: shade().add(vec4f(shared, f32(0), f32(0), f32(0))) };
+    }
+
+    test('the vertex stage writes a varying only a Fn reads, and WGSL reads it through a copy fs_main assigns', () => {
+        const { code, varyings } = compileWgsl(slots());
+        expect(varyings.map((varying) => varying.name).sort()).toEqual(['vOnlyInFn', 'vShared']);
+        expect(code).toContain('var<private> varying_vOnlyInFn: f32;');
+        expect(code).toContain('var<private> varying_vShared: f32;');
+        expect(code).toContain('    varying_vOnlyInFn = input.vOnlyInFn;');
+        // the function reads only the copies, and `fs_main` itself the input as before
+        const shade = code.slice(code.indexOf('fn shade()'), code.indexOf('// Vertex Shader'));
+        expect(shade).toContain('varying_vOnlyInFn');
+        expect(shade).toContain('varying_vShared');
+        expect(shade).not.toContain('input.');
+        expect(code.slice(code.indexOf('fn fs_main'))).toContain('input.vShared, 0.0');
+    });
+
+    test('the vertex stage calling a Fn that reads a varying is refused, on either backend', () => {
+        const position = attribute('position', d.vec3f);
+        const height = varying(position.y, 'vHeight');
+        const lifted = Fn(() => height.add(f32(1)), { name: 'lifted', params: [] as const, return: d.f32 });
+        const material = {
+            vertex: vec4f(position.x, lifted(), position.z, f32(1)),
+            fragment: vec4f(height, f32(0), f32(0), f32(1)),
+        };
+        const refusal = "Fn 'lifted' reads varying 'vHeight' and the vertex stage calls it";
+        expect(() => compileWgsl(material)).toThrow(refusal);
+        expect(() => compileGlsl(material)).toThrow(refusal);
     });
 });
 

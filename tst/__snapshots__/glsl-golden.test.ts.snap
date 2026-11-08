@@ -136,9 +136,9 @@ void main() {
 precision highp float;
 precision highp int;
 
-// Fragment shader
 in float vZ;
 
+// Fragment shader
 layout(location = 0) out vec4 fragColor;
 
 void main() {
@@ -243,9 +243,9 @@ layout(std140) uniform Uniforms_object {
     mat3 modelNormalMatrix;
 } uniforms_object;
 
-// Fragment shader
 in vec3 vNormal;
 
+// Fragment shader
 layout(location = 0) out vec4 fragColor;
 
 void main() {
@@ -342,9 +342,9 @@ void main() {
 precision highp float;
 precision highp int;
 
-// Fragment shader
 in vec2 vUV;
 
+// Fragment shader
 layout(location = 0) out vec4 fragColor;
 
 void main() {

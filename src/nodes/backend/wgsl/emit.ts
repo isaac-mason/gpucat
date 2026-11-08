@@ -110,7 +110,9 @@ export type BuildContext = {
     builtins: Set<string>;
     /** see {@link Discovery.fnBuiltins} */
     fnBuiltins: Map<string, string>;
-    /** emitting a `Fn` body, which reads builtins through their module-scope copies */
+    /** see {@link Discovery.fnVaryings} */
+    fnVaryings: Map<string, VaryingNode<d.Any>>;
+    /** emitting a `Fn` body, which reads builtins and varyings through their module-scope copies */
     inFunction: boolean;
 
     // Module-scope variables
@@ -186,6 +188,7 @@ function emptyDiscovery(): Discovery {
         updateAfterNodes: [],
         updateNodes: [],
         fnBuiltins: new Map(),
+        fnVaryings: new Map(),
     };
 }
 
@@ -220,6 +223,7 @@ export function createContext(stage: ShaderStage, isRender: boolean, discovery: 
         fnDefs: discovery.fnDefs,
         wgslFnDefs: discovery.wgslFnDefs,
         fnBuiltins: discovery.fnBuiltins,
+        fnVaryings: discovery.fnVaryings,
         inFunction: false,
         // Per-stage emission scratch — fresh each call.
         attributes: new Map(),
@@ -255,10 +259,11 @@ function seedGlobalNames(discovery: Discovery): NameScope {
     for (const node of discovery.workgroupVars.values()) reserveName(names, node.varName);
     for (const fnName of discovery.fnDefs.keys()) reserveName(names, fnName);
     for (const kind of discovery.fnBuiltins.keys()) reserveName(names, fnBuiltinVarName(kind));
+    for (const name of discovery.fnVaryings.keys()) reserveName(names, fnVaryingVarName(name));
     return names;
 }
 
-/** Pre-collect VaryingNodes from roots and generate their vertex expressions. */
+/** Pre-collect VaryingNodes from roots, and from the `Fn` bodies they call, and generate their vertex expressions. */
 export function collectVaryings(roots: Node<d.Any>[], ctx: BuildContext): void {
     const visited = new Set<number>();
 
@@ -275,6 +280,11 @@ export function collectVaryings(roots: Node<d.Any>[], ctx: BuildContext): void {
                 const sourceExpr = generateExpr(ctx, sourceNode);
                 ctx.varyings.set(name, { node, vertexExpr: sourceExpr });
             }
+        }
+        if (node.kind === NodeKind.Call && node.fnNode) {
+            const traced = ctx.fnDefs.get(node.fnNode.fnName)?.traced ?? node.fnNode.trace();
+            visit(traced.body);
+            if (traced.output) visit(traced.output);
         }
 
         for (const child of getChildren(node)) {
@@ -1015,6 +1025,8 @@ function generateVarying(ctx: BuildContext, node: VaryingNode<d.Any>): string {
     }
 
     const name = node.name ?? `v_${node.id}`;
+    // a `Fn` body, emitted once for the module, reads the fragment's copy `fs_main` assigns
+    if (ctx.inFunction) return fnVaryingVarName(name);
 
     if (ctx.stage === 'vertex') {
         // in vertex: generate the source expression (unwrap SubBuildNode)
@@ -1035,6 +1047,11 @@ function generateVarying(ctx: BuildContext, node: VaryingNode<d.Any>): string {
 /** The module-scope copy a `Fn` body reads a builtin through (see {@link Discovery.fnBuiltins}). */
 function fnBuiltinVarName(kind: string): string {
     return `builtin_${kind}`;
+}
+
+/** The module-scope copy a `Fn` body reads a varying through (see {@link Discovery.fnVaryings}). */
+function fnVaryingVarName(name: string): string {
+    return `varying_${name}`;
 }
 
 function generateBuiltin(ctx: BuildContext, node: BuiltinNode<d.Any>): string {
@@ -1364,6 +1381,10 @@ export function emitModuleScopeVars(ctx: BuildContext): string {
     // the builtins `Fn` bodies read, assigned by each entry point the builtin is an input of
     for (const [kind, wgslType] of ctx.fnBuiltins) {
         lines.push(`var<private> ${fnBuiltinVarName(kind)}: ${wgslType};`);
+    }
+    // the varyings `Fn` bodies read, assigned by `fs_main`
+    for (const [name, node] of ctx.fnVaryings) {
+        lines.push(`var<private> ${fnVaryingVarName(name)}: ${node.type.wgslType};`);
     }
 
     // Emit workgroup variables (only in compute shaders - already validated in generateExpr)
@@ -1798,6 +1819,7 @@ export function emitDslFunctions(ctx: BuildContext): string {
         fnDiscovery.privateVars = ctx.privateVars;
         fnDiscovery.workgroupVars = ctx.workgroupVars;
         fnDiscovery.fnBuiltins = ctx.fnBuiltins;
+        fnDiscovery.fnVaryings = ctx.fnVaryings;
         const fnCtx = createContext(ctx.stage, ctx.isRender, fnDiscovery);
         fnCtx.inFunction = true;
 
@@ -2098,6 +2120,7 @@ export function generateFragmentShader(
     }
 
     if (fnReadsFragCoord) lines.push(`    ${fnBuiltinVarName('position')} = input.position;`);
+    for (const name of ctx.fnVaryings.keys()) lines.push(`    ${fnVaryingVarName(name)} = input.${name};`);
     lines.push(...ctx.code);
 
     if (useStruct) {

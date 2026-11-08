@@ -32,6 +32,7 @@ export const DELIBERATELY_INTERNAL: ReadonlySet<string> = new Set([
     './nodes/backend/glsl/emit#generateGlslFragmentShader',
     './nodes/backend/glsl/emit#generateGlslTransformFeedbackShader',
     './nodes/backend/glsl/emit#generateGlslVertexShader',
+    './nodes/backend/glsl/emit#glslFragmentVaryingDeclarations',
     './renderer/core/node-frame#aimNodeFrame',
     './renderer/core/shared-blocks#addSharedReaders',
     './renderer/core/shared-blocks#createSharedBlocks',
