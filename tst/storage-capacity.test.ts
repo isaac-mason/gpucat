@@ -24,7 +24,7 @@ function storageReadSlots(totalTexels: number) {
     };
 }
 
-// Name-based counterpart: `storage('slots', …)`, resolved from `geometry.setBuffer('slots', …)` at draw.
+// Name-based counterpart: `storage('slots', …)`, resolved from `material.parameters.setBuffer('slots', …)` at draw.
 function namedStorageReadSlots() {
     const store = storage('slots', d.array(Instance), 'read');
     return {

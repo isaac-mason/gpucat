@@ -241,13 +241,13 @@ describe('uniform group deduplication', () => {
                 vertex: mul(cameraProjectionMatrix, mul(cameraViewMatrix, worldPosition)),
                 fragment: vec4(uniform('tint', d.f32), f32(0), f32(0), f32(1)),
             });
-            material.uniforms.set('tint', new Uniform(d.f32, 5));
+            material.parameters.setUniform('tint', new Uniform(d.f32, 5));
             const mesh = new Mesh(createBoxGeometry(1, 1, 1), material);
             scene.add(mesh);
             mesh.updateWorldMatrix();
 
             renderScene(renderer, view, scene, camera);
-            material.uniforms.delete('tint');
+            material.parameters.delete('tint');
             stub.stats.reset();
             renderScene(renderer, view, scene, camera);
 

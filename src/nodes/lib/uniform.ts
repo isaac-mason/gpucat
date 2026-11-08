@@ -116,7 +116,7 @@ export { Uniform, UniformGroup, UniformUpdateType, materialGroup, objectGroup, r
  *   const roughness = uniform(roughnessU);
  *   roughnessU.set(0.8);  // update via Uniform
  *
- * **Name-based form**, resolved from material.uniforms at render time:
+ * **Name-based form**, resolved from the material's parameters at render time:
  *   const roughness = uniform('roughness', d.f32);
  *   const myVal = uniform('myVal', MyStruct);  // struct variant
  *
@@ -127,10 +127,10 @@ export { Uniform, UniformGroup, UniformUpdateType, materialGroup, objectGroup, r
  */
 // Value-based: pass Uniform object directly
 export function uniform<D extends Any>(u: Uniform<D>): UniformNode<D>;
-// Name-based struct: resolved from material.uniforms. Ahead of the generic-schema overload, which a
+// Name-based struct: resolved from the material's parameters. Ahead of the generic-schema overload, which a
 // StructDef also satisfies.
 export function uniform<S extends StructSchema>(name: string, def: StructDef<S>): StructInstance<S>;
-// Name-based: resolved from material.uniforms
+// Name-based: resolved from the material's parameters
 export function uniform<D extends Any>(name: string, schema: D): UniformNode<D>;
 // Inline scalar/vector/matrix form
 export function uniform<D extends Any>(init: ConstructNode<D>, name?: string): UniformNode<D>;

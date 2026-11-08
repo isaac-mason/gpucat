@@ -39,7 +39,7 @@ for (let i = 0; i < N; i++) {
 /* node graph - storage buffer instancing */
 
 // storage buffer nodes: wrap data in GpuBuffer, renderer auto-uploads.
-// no manual device.createBuffer / device.queue.writeBuffer / material.uniforms.set needed.
+// no manual device.createBuffer / device.queue.writeBuffer / material.parameters needed.
 const matrixBuffer = new GpuBuffer(d.array(d.mat4x4f), { data: matrixData, usage: 'storage' });
 const colorBuffer = new GpuBuffer(d.array(d.vec4f), { data: colorData, usage: 'storage' });
 const instanceMatrices = g.storage(matrixBuffer);

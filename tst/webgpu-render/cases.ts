@@ -153,6 +153,37 @@ async function caseSolid(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     return { name: 'solid', pixel, expected: [255, 0, 0, 255] };
 }
 
+/** named parameters: two materials from the same nodes, each filling the named storage buffer and texture with its own. */
+async function caseNamedParameters(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const tint = storage('tint', d.array(d.vec4f), 'read').element(u32(0));
+    const shade = texture('shade', d.texture2d(d.f32)).load(vec2i(0, 0), i32(0));
+    const vertex = vec4(attribute('position', d.vec3f), f32(1));
+    const drawn = async (tintValue: number[], shadeValue: number[]) => {
+        const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+        const material = new Material({ vertex, fragment: tint.mul(shade), depthTest: false });
+        material.parameters
+            .setBuffer('tint', new GpuBuffer(d.array(d.vec4f), { data: new Float32Array(tintValue), usage: 'storage' }))
+            .setTexture('shade', new DataTexture(new Uint8Array(shadeValue), 1, 1));
+        const mesh = new Mesh(fullscreenTriangle(), material);
+        mesh.updateWorldMatrix();
+        const f = frame(gpu);
+        const pass = f.pass({ target, clear: [0, 0, 0, 1] });
+        pass.draw(mesh);
+        pass.end();
+        f.submit();
+        return centerPixel(await read(gpu, target));
+    };
+    const red = await drawn([1, 0, 0, 1], [255, 255, 255, 255]);
+    const green = await drawn([1, 1, 1, 1], [0, 255, 0, 255]);
+    const first = red[0] === 255 && red[1] === 0;
+    return {
+        name: 'named-parameters',
+        pixel: first ? green : red,
+        expected: first ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        note: first ? 'the second material, its own buffer and texture' : 'the first material',
+    };
+}
+
 /** uniform: a uniform reaches the fragment stage through the UBO path. */
 async function caseUniform(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
     const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
@@ -3531,6 +3562,7 @@ const CASES: Record<string, Case> = {
     clear: caseClear,
     solid: caseSolid,
     uniform: caseUniform,
+    'named-parameters': caseNamedParameters,
     scene: caseScene,
     'clear-ignores-scissor': caseClearIgnoresScissor,
     'two-passes': caseTwoPasses,

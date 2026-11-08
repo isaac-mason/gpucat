@@ -55,7 +55,7 @@ export function uploadRenderObjectResources(
     if (nodeState) {
         // upload storage buffers
         for (const s of nodeState.storage) {
-            const buffer = Buffers.resolveStorageBuffer(s.node, geometry, null);
+            const buffer = Buffers.resolveStorageBuffer(s.node, renderObject.material.parameters, null);
             Buffers.ensureUploaded(b.buffers, b.device, buffer, s.name);
         }
 

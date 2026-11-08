@@ -8,10 +8,11 @@
  *    - Good for shared shader graphs where all instances use the same buffer
  *    - Can swap buffers via storageNode.value = otherBuffer
  *
- * 2. Name-based form: storage('name', schema) + geometry.setBuffer()
- *    - Declares a storage buffer slot in the shader, resolved from geometry at render time
- *    - Good for reusable materials where each mesh has different buffer data
- *    - Set buffer via geometry.setBuffer('name', buffer)
+ * 2. Name-based form: storage('name', schema) + material.parameters.setBuffer()
+ *    - Declares a named storage buffer in the shader, resolved from the material at render time
+ *    - Good for reusable nodes where each mesh has different buffer data: a material per mesh from the
+ *      same nodes, which share one program
+ *    - Set buffer via material.parameters.setBuffer('name', buffer)
  */
 
 import {
@@ -25,7 +26,6 @@ import {
     f32,
     frame,
     fullscreen,
-    Geometry,
     GpuBuffer,
     Inspector,
     index,
@@ -120,9 +120,9 @@ async function main() {
     });
 
     // -------------------------------------------------------------------------
-    // Approach 2: Name-based storage - resolved from geometry.buffers
+    // Approach 2: Name-based storage - resolved from material.parameters
     // -------------------------------------------------------------------------
-    // Each mesh can have its own color buffer via geometry.setBuffer().
+    // Each mesh can have its own color buffer via material.parameters.setBuffer().
     // The shader references the buffer by name.
 
     const namedColors = storage('instanceColors', d.array(d.vec4f));
@@ -138,10 +138,12 @@ async function main() {
     const diffuse2 = vNormal2.dot(lightDir).max(f32(0.15));
     const litColor2 = vColor2.rgb.mul(diffuse2);
 
-    const materialNamed = createMaterial({
-        vertex: clipPosition2,
-        fragment: vec4(litColor2, f32(1)),
-    });
+    // a material per mesh from the same nodes: each holds its own buffer, all share one program
+    const namedMaterial = () =>
+        createMaterial({
+            vertex: clipPosition2,
+            fragment: vec4(litColor2, f32(1)),
+        });
 
     // -------------------------------------------------------------------------
     // Create meshes
@@ -184,14 +186,10 @@ async function main() {
             usage: 'storage',
         });
 
-        // Create geometry with the named buffer
-        const geometry = new Geometry();
-        geometry.setBuffer('position', baseGeometry.getBuffer('position')!);
-        geometry.setBuffer('normal', baseGeometry.getBuffer('normal')!);
-        geometry.setIndex(baseGeometry.index);
-        geometry.setBuffer('instanceColors', colorBuffer);
+        const material = namedMaterial();
+        material.parameters.setBuffer('instanceColors', colorBuffer);
 
-        const mesh = new Mesh(geometry, materialNamed);
+        const mesh = new Mesh(baseGeometry, material);
         mesh.position[0] = 3;
         mesh.position[1] = (meshIdx - 1) * 2.5;
         mesh.count = INSTANCE_COUNT_NAMED;
@@ -248,7 +246,7 @@ async function main() {
             }),
         );
     }
-    const originalNamedBuffers = namedMeshes.map((m) => m.geometry.getBuffer('instanceColors')!);
+    const originalNamedBuffers = namedMeshes.map((m) => m.material.parameters.buffer('instanceColors')!);
 
     let useAlternate = false;
 
@@ -259,10 +257,10 @@ async function main() {
         // Inline: swap via storageNode.value
         inlineColors.value = useAlternate ? alternateInlineBuffer : originalInlineBuffer;
 
-        // Name-based: swap via geometry.setBuffer()
+        // Name-based: swap via material.parameters.setBuffer()
         const namedBuffers = useAlternate ? alternateNamedBuffers : originalNamedBuffers;
         for (let i = 0; i < namedMeshes.length; i++) {
-            namedMeshes[i].geometry.setBuffer('instanceColors', namedBuffers[i]);
+            namedMeshes[i].material.parameters.setBuffer('instanceColors', namedBuffers[i]);
         }
 
         console.log(`Swapped to ${useAlternate ? 'alternate' : 'original'} colors (both inline and name-based)`);

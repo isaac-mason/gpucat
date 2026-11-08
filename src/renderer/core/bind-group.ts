@@ -282,7 +282,7 @@ export function readBlockStamp(block: UniformGroupBlock, frame: NodeFrame, mater
             frame.updateNode(node as unknown as Parameters<typeof frame.updateNode>[0]);
         }
         const uniform = node.uniform;
-        out[count++] = uniform.value !== null ? uniform.version : (material?.uniforms.get(node.name)?.version ?? 0);
+        out[count++] = uniform.value !== null ? uniform.version : (material?.parameters.uniform(node.name)?.version ?? 0);
     }
     out.length = count;
     return true;

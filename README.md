@@ -867,11 +867,11 @@ A mesh's world matrix works the same way. `updateWorldMatrix()` is what writes `
 version when the matrix changes. Camera and frame uniforms are packed at every pass; versions save work where there
 are many, per mesh.
 
-You can also resolve a uniform by name from a material, handy when one shader graph is shared across meshes with different values:
+You can also read a uniform, storage buffer or texture by name, filled by the material's parameters. Materials built from the same nodes with other values share one program, so this is how one shader graph serves meshes with different data:
 
 ```ts
-const color = uniform('color', d.vec3f);                          // in the shader
-material.uniforms.set('color', new Uniform(d.vec3f, [1, 0, 0]));  // per material
+const color = uniform('color', d.vec3f);                                     // in the shader
+material.parameters.setUniform('color', new Uniform(d.vec3f, [1, 0, 0]));    // per material
 ```
 
 A uniform's **group** sets both its WGSL `@group` and how often it is evaluated: `objectGroup` (default, per draw call), `renderGroup` (per pass), `frameGroup` (once per frame). The built-in camera and model uniforms already sit in the right groups.

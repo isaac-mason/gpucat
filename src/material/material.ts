@@ -1,7 +1,7 @@
-import type { Uniform } from '../core/uniform';
 import { isInvariantPosition } from '../nodes/lib/invariant';
 import type { Node } from '../nodes/nodes';
 import type { Any } from '../schema/schema';
+import { MaterialParameters } from './parameters';
 
 /**
  * Back-face stencil op overrides. WebGPU applies stencil ops per face; by default gpucat uses the
@@ -176,12 +176,8 @@ export class Material {
     /** Per-face override for back-face stencil ops, or null to use the front-face ops on both faces. */
     stencilBack: StencilFaceOverride | null;
 
-    /**
-     * Named uniforms for this material.
-     * Used for name-based uniform resolution: uniform('roughness', d.f32) resolves
-     * to material.uniforms.get('roughness') at render time.
-     */
-    uniforms: Map<string, Uniform<any>> = new Map();
+    /** What the named `uniform(name, …)`, `storage(name, …)` and `texture(name, …)` in its nodes read. */
+    readonly parameters = new MaterialParameters();
 
     constructor(opts: MaterialOptions) {
         this.name = opts.name ?? '';
@@ -218,6 +214,20 @@ export class Material {
         this.stencilZFail = opts.stencilZFail ?? 'keep';
         this.stencilZPass = opts.stencilZPass ?? 'keep';
         this.stencilBack = opts.stencilBack ?? null;
+    }
+
+    /**
+     * A second material over the same nodes and state, with a copy of the parameters: a variation that reads other
+     * values and shares this one's program.
+     *
+     * @example
+     * const models = blocks.clone();
+     * models.parameters.setBuffer('quads', modelQuads);
+     */
+    clone(): Material {
+        const material = new Material({ ...this, stencilBack: this.stencilBack ?? undefined });
+        material.parameters.copy(this.parameters);
+        return material;
     }
 
     /**

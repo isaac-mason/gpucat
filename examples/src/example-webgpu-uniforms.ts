@@ -8,10 +8,10 @@
  *    - Good for shared shader graphs where all instances use the same value
  *    - Update via uniformNode.value = newValue
  *
- * 2. Name-based form: uniform('name', schema) + material.uniforms
+ * 2. Name-based form: uniform('name', schema) + material.parameters
  *    - Declares a uniform slot in the shader, resolved from material at render time
  *    - Good for reusable materials where each instance has different values
- *    - Update via material.uniforms.set('name', new Uniform(schema, value))
+ *    - Update via material.parameters.setUniform('name', new Uniform(schema, value))
  */
 
 import {
@@ -101,7 +101,7 @@ async function main() {
     });
 
     // -------------------------------------------------------------------------
-    // Approach 2: Name-based uniform - resolved from material.uniforms
+    // Approach 2: Name-based uniform - resolved from material.parameters
     // -------------------------------------------------------------------------
     // Each material instance can have its own color value.
     // The shader declares a slot, material.uniforms provides the value.
@@ -146,7 +146,7 @@ async function main() {
             fragment: vec4(litColor2, f32(1)),
         });
         // Set the color for this specific material instance
-        material.uniforms.set('namedColor', new Uniform(d.vec3f, colors[i]));
+        material.parameters.setUniform('namedColor', new Uniform(d.vec3f, colors[i]));
 
         const mesh = new Mesh(geometry, material);
         mesh.position[0] = 2.5;

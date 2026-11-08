@@ -305,8 +305,8 @@ function createStorageBinding(node: StorageNode<d.Any>, maxTextureSize: number |
         );
         binding.storageBufferSource = { buffer, width: grid.width, height: grid.height, bytesPerTexel };
     } else {
-        // Name-based: `storage('slot', 'read')` bound via `geometry.setBuffer('slot', buf)`. The buffer
-        // isn't known until draw; the renderer resolves it from the render object's geometry and sizes the
+        // Name-based: `storage('slot', 'read')` filled by `material.parameters.setBuffer('slot', buf)`. The buffer
+        // isn't known until draw; the renderer resolves it from the render object's material and sizes the
         // mirror at bind time (same version-synced cache). See texture-bindings.ts.
         binding.storageBufferSource = { name: node.bufferName!, bytesPerTexel };
     }
@@ -346,7 +346,7 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
     // texelFetch through the same accessor as `texture(t).load(schema, i)` (see the GLSL emitter's
     // `storageMirrors`). No SSBOs, no second CPU array: the renderer reinterprets the buffer's own bytes.
     // Value-based (`storage(buffer, 'read')`) resolves the buffer here; name-based (`storage('slot',
-    // 'read')` + `geometry.setBuffer('slot', …)`) resolves it from the render object's geometry at bind
+    // 'read')` + `material.parameters.setBuffer('slot', …)`) resolves it from the render object's material at bind
     // time. Only read_write / atomic / compute writes have no WebGL render-path analogue and fail loudly.
     const storageMirrors = new Map<number, StorageMirror>();
     for (const node of discovered.storages.values()) {

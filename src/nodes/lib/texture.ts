@@ -136,9 +136,9 @@ export class SamplerNode<D extends d.sampler | d.samplerComparison = d.sampler> 
  * Two shapes:
  *  - value-based: the `GpuBuffer` is known at compile (`storage(buffer, 'read')`), so its texel grid is
  *    computed here and the renderer uploads it directly.
- *  - name-based: `storage('slot', 'read')` bound via `geometry.setBuffer('slot', buf)`. The buffer isn't
+ *  - name-based: `storage('slot', 'read')` filled by `material.parameters.setBuffer('slot', buf)`. The buffer isn't
  *    known until draw, so only the name (and the element's `bytesPerTexel`, known from the schema) is
- *    carried; the renderer resolves the buffer from the render object's geometry and sizes the grid then.
+ *    carried; the renderer resolves the buffer from the render object's material and sizes the grid then.
  */
 export type ResolvedStorageBufferTexture = { buffer: GpuBuffer; width: number; height: number; bytesPerTexel: number };
 export type StorageBufferTextureSource = ResolvedStorageBufferTexture | { name: string; bytesPerTexel: number };
@@ -208,7 +208,8 @@ export class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D>
     /** The part of `value` the binding sees: the whole texture unless bound through a view. */
     range: TextureViewRange = WHOLE_TEXTURE;
 
-    /** For a named binding, the slot a dispatch fills with `textures: { [slot]: view }`; `value` is then unused. */
+    /** For a named binding, the parameter it reads: the material's `parameters.setTexture(slot, …)`, or a dispatch's
+     *  `textures: { [slot]: view }`; `value` is then unused. */
     readonly slot: string | null;
 
     /** The binding's identity: its texture and range, or its slot. Two nodes with the same id are one binding. */
@@ -254,7 +255,8 @@ export class StorageTextureBindingNode<D extends d.StorageTexture = d.StorageTex
     /** The part of `value` the binding sees: the whole texture unless bound through a view. */
     range: TextureViewRange = WHOLE_TEXTURE;
 
-    /** For a named binding, the slot a dispatch fills with `textures: { [slot]: view }`; `value` is then unused. */
+    /** For a named binding, the parameter it reads: the material's `parameters.setTexture(slot, …)`, or a dispatch's
+     *  `textures: { [slot]: view }`; `value` is then unused. */
     readonly slot: string | null;
 
     /** The binding's identity: its texture, range and access, or its slot. Two nodes with the same id are one binding. */
@@ -897,7 +899,8 @@ function sampledDescForStorage(desc: d.StorageTexture): FlatSampledTexture {
  * - A high-level Texture, DataTexture or Data3DTexture (auto-creates sampler from texture settings)
  * - A GpuTexture, or a view of part of one, with the GpuSampler it is sampled with. With no sampler it can only be
  *   read with `.load()`, which needs none.
- * - A slot name and the sampled type, filled by each dispatch with `textures: { [slot]: view }`. Read with `.load()`.
+ * - A name and the sampled type, filled by the material's `parameters.setTexture(name, …)` or a dispatch's
+ *   `textures: { [name]: view }`.
  *
  * @example
  * // From high-level Texture

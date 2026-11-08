@@ -33,7 +33,7 @@ const material = new g.Material({ vertex: clip, fragment: g.vec4(palette.mul(lig
 const geometry = g.createBoxGeometry(1, 1, 1);
 let capacity = 16;
 let buffer = new GpuBuffer(d.array(d.vec4f), { count: capacity, usage: 'storage', cpu: false, label: 'instances' });
-geometry.setBuffer('instances', buffer);
+material.parameters.setBuffer('instances', buffer);
 
 const mesh = new g.Mesh(geometry, material);
 mesh.count = 0;
@@ -70,11 +70,11 @@ window.addEventListener('resize', () => {
     camera.updateProjectionMatrix();
 });
 
-/** doubles the buffer: the new one is filled from the old on the GPU, then takes its name on the geometry. */
+/** doubles the buffer: the new one is filled from the old on the GPU, then takes its name on the material. */
 function grow(): void {
     const grown = new GpuBuffer(d.array(d.vec4f), { count: capacity * 2, usage: 'storage', cpu: false, label: 'instances' });
     g.copyBuffer(renderer, buffer, grown);
-    geometry.setBuffer('instances', grown);
+    material.parameters.setBuffer('instances', grown);
     buffer.dispose();
     buffer = grown;
     capacity *= 2;

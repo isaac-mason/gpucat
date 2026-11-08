@@ -136,7 +136,7 @@ test('a dispatch that throws while resolving leaves no scope behind once its pas
     stub.stats.reset();
     const f = frame(renderer);
     const pass = f.compute({ label: 'unbound' });
-    expect(() => pass.dispatch(node, [1, 1, 1])).toThrow(/'out' not found/);
+    expect(() => pass.dispatch(node, [1, 1, 1])).toThrow(/storage\('out'\) is unfilled/);
     pass.end();
     f.submit();
 

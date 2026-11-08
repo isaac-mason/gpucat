@@ -11,12 +11,12 @@ import { materialGroup, type UniformGroup } from './uniform';
  * 2. **Value reference**: Buffer provided directly, can be swapped via `.value`
  *
  * Both are first-class features for different use cases:
- * - Named references enable buffer reuse across materials (same shader, different buffers per mesh)
- * - Value references enable compute-only workloads (no geometry) and explicit buffer swapping
+ * - Named references let materials built from the same nodes read different buffers, sharing one program
+ * - Value references enable compute-only workloads and explicit buffer swapping
  *
- * @example Named reference (resolved from geometry.buffers)
+ * @example Named reference (resolved from the material's parameters, or a dispatch's `buffers`)
  * const particles = storage('particles', d.array(Particle), 'read_write');
- * // Later: geometry.setBuffer('particles', myParticleBuffer);
+ * // Later: material.parameters.setBuffer('particles', myParticleBuffer);
  *
  * @example Value reference (buffer provided directly, swappable)
  * const particles = storage(myBuffer, 'read_write');
@@ -24,7 +24,7 @@ import { materialGroup, type UniformGroup } from './uniform';
  */
 export class StorageNode<D extends Any> extends Node<D> {
     readonly kind = NodeKind.Storage;
-    /** Buffer name (for geometry.buffers lookup), null if value-based */
+    /** The parameter it reads, null if value-based */
     bufferName: string | null;
 
     /** Direct buffer reference, null if name-based */
@@ -63,7 +63,7 @@ export class StorageNode<D extends Any> extends Node<D> {
         this.group = group;
     }
 
-    /** Whether this is a named reference (resolved from geometry.buffers) */
+    /** Whether this is a named reference (resolved from the material's parameters or a dispatch's `buffers`) */
     get isNamedReference(): boolean {
         return this.bufferName !== null;
     }
@@ -111,9 +111,9 @@ export function storage<D extends Any>(buffer: GpuBuffer<D>, access?: 'read' | '
 
 /**
  * Create a storage buffer node by name (name-based).
- * Resolved from `geometry.buffers` at render time.
+ * Resolved from the material's parameters at render time, or a dispatch's `buffers`.
  *
- * @param name - Buffer name for geometry.buffers lookup
+ * @param name - The parameter it reads
  * @param schema - The WGSL type descriptor (e.g., d.array(d.vec4f))
  * @param access - Storage access mode: 'read' (default) or 'read_write'
  *

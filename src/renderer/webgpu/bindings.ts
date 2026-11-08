@@ -1,8 +1,8 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import { type TextureViewRange, WHOLE_TEXTURE } from '../../core/gpu-texture-view';
-import type { Geometry } from '../../geometry/geometry';
 import type { Material } from '../../material/material';
+import type { MaterialParameters } from '../../material/parameters';
 import type { Any } from '../../schema/schema';
 import type {
     BindGroup,
@@ -236,7 +236,7 @@ export function updateRenderBindings(b: WebGPUBackend, renderObject: RenderObjec
             samplerCache,
             bindGroup,
             data,
-            renderObject.geometry,
+            renderObject.material.parameters,
             null,
             frame.frameId,
             info,
@@ -337,13 +337,13 @@ function currentGPUBindGroup(
     samplerCache: SamplerCache,
     bindGroup: BindGroup,
     data: BindGroupData,
-    geometry: Geometry | null,
+    parameters: MaterialParameters | null,
     inputs: DispatchInputs | null,
     frameId: number,
     info: StateInfo,
 ): GPUBindGroup | null {
     if (data.needsUpdate || data.current === null || data.current.released) {
-        const resources = resourceKey(state, bufferCache, textureCache, bindGroup, geometry, inputs, _keyObjects);
+        const resources = resourceKey(state, bufferCache, textureCache, bindGroup, parameters, inputs, _keyObjects);
         data.current = groupFor(state, data, resources, _keyObjects);
         data.needsUpdate = false;
     }
@@ -373,7 +373,7 @@ function currentGPUBindGroup(
             samplerCache,
             bindGroup,
             data,
-            geometry,
+            parameters,
             inputs,
             data.slot?.page.buffer ?? null,
         );
@@ -391,7 +391,7 @@ function currentGPUBindGroup(
         samplerCache,
         bindGroup,
         data,
-        geometry,
+        parameters,
         inputs,
         dynamicUniformBuffer(bufferCache, bufferId),
     );
@@ -426,15 +426,22 @@ const _keyObjects: object[] = [];
  * The texture and range `node` binds: its own, or for a named binding what the dispatch's `textures` fills its slot
  * with. The result is shared: read it before the next call.
  */
-export function resolveTextureBinding(node: TextureBindingNodes, inputs: DispatchInputs | null): ResolvedTexture {
+export function resolveTextureBinding(
+    node: TextureBindingNodes,
+    parameters: MaterialParameters | null,
+    inputs: DispatchInputs | null,
+): ResolvedTexture {
     if (node.slot === null) {
         _resolved.texture = node.value;
         _resolved.range = node.range;
         return _resolved;
     }
-    const source = inputs?.textures?.[node.slot];
+    const source = inputs?.textures?.[node.slot] ?? parameters?.texture(node.slot);
     if (source === undefined) {
-        throw new Error(`[gpucat] texture slot '${node.slot}' is unfilled: pass it in the dispatch's \`textures\`.`);
+        throw new Error(
+            `[gpucat] texture '${node.slot}' is unfilled: set it with material.parameters.setTexture('${node.slot}', …), ` +
+                "or pass it in the dispatch's `textures`.",
+        );
     }
     if ('isGpuTextureView' in source) {
         _resolved.texture = source.texture;
@@ -455,7 +462,7 @@ function resourceKey(
     bufferCache: BufferCache,
     textureCache: TextureCache,
     bindGroup: BindGroup,
-    geometry: Geometry | null,
+    parameters: MaterialParameters | null,
     inputs: DispatchInputs | null,
     objects: object[],
 ): string {
@@ -472,11 +479,11 @@ function resourceKey(
                 key += `${binding.bufferKey ? id(uniformBuffer(bufferCache, binding.bufferKey)) : 0},`;
                 break;
             case 'storage':
-                key += `${id(getUploaded(bufferCache, resolveStorageBuffer(binding.entry.node, geometry, inputs?.buffers ?? null)))},`;
+                key += `${id(getUploaded(bufferCache, resolveStorageBuffer(binding.entry.node, parameters, inputs?.buffers ?? null)))},`;
                 break;
             case 'texture':
             case 'storageTexture': {
-                const { texture, range } = resolveTextureBinding(binding.entry.node, inputs);
+                const { texture, range } = resolveTextureBinding(binding.entry.node, parameters, inputs);
                 key += `${texture ? id(getTextureData(textureCache, texture)?.texture) : 0}@${range.key},`;
                 break;
             }
@@ -670,11 +677,11 @@ function updateRenderBindGroup(
                 break;
 
             case 'texture':
-                updateTextureBinding(textureCache, device, binding, data, null);
+                updateTextureBinding(textureCache, device, binding, data, renderObject.material.parameters, null);
                 break;
 
             case 'storageTexture':
-                updateStorageTextureBinding(textureCache, device, binding, data, null);
+                updateStorageTextureBinding(textureCache, device, binding, data, renderObject.material.parameters, null);
                 break;
 
             case 'sampler':
@@ -682,7 +689,7 @@ function updateRenderBindGroup(
                 break;
 
             case 'storage':
-                updateStorageBinding(bufferCache, device, binding, data, renderObject.geometry, null);
+                updateStorageBinding(bufferCache, device, binding, data, renderObject.material.parameters, null);
                 break;
         }
     }
@@ -848,9 +855,10 @@ function updateTextureBinding(
     device: GPUDevice,
     binding: TextureBinding,
     data: BindGroupData,
+    parameters: MaterialParameters | null,
     inputs: DispatchInputs | null,
 ): void {
-    const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, inputs);
+    const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, parameters, inputs);
 
     if (gpuTexture === null) return;
 
@@ -909,9 +917,10 @@ function updateStorageTextureBinding(
     device: GPUDevice,
     binding: StorageTextureBinding,
     data: BindGroupData,
+    parameters: MaterialParameters | null,
     inputs: DispatchInputs | null,
 ): void {
-    const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, inputs);
+    const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, parameters, inputs);
     if (gpuTexture === null) return;
 
     if (range.key !== binding.lastRangeKey) {
@@ -966,11 +975,11 @@ function updateStorageBinding(
     device: GPUDevice,
     binding: StorageBinding,
     data: BindGroupData,
-    geometry: Geometry | null,
+    parameters: MaterialParameters | null,
     buffers: Record<string, GpuBuffer<Any>> | null,
 ): void {
     const node = binding.entry.node;
-    const buffer = resolveStorageBuffer(node, geometry, buffers);
+    const buffer = resolveStorageBuffer(node, parameters, buffers);
 
     // If buffer identity changed, need to rebuild bind group
     if (buffer !== binding.lastBuffer) {
@@ -998,7 +1007,7 @@ function buildGPUBindGroup(
     samplerCache: SamplerCache,
     bindGroup: BindGroup,
     data: BindGroupData,
-    geometry: Geometry | null,
+    parameters: MaterialParameters | null,
     inputs: DispatchInputs | null,
     dynamicBuffer: GPUBuffer | null,
 ): GPUBindGroup | null {
@@ -1024,7 +1033,7 @@ function buildGPUBindGroup(
             }
 
             case 'storage': {
-                const buffer = resolveStorageBuffer(binding.entry.node, geometry, inputs?.buffers ?? null);
+                const buffer = resolveStorageBuffer(binding.entry.node, parameters, inputs?.buffers ?? null);
                 const buf = getUploaded(bufferCache, buffer);
                 if (buf) {
                     entries.push({ binding: binding.entry.binding, resource: { buffer: buf } });
@@ -1033,7 +1042,7 @@ function buildGPUBindGroup(
             }
 
             case 'texture': {
-                const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, inputs);
+                const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, parameters, inputs);
                 if (!gpuTexture) break;
 
                 const texData = getTextureData(textureCache, gpuTexture);
@@ -1048,7 +1057,7 @@ function buildGPUBindGroup(
             }
 
             case 'storageTexture': {
-                const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, inputs);
+                const { texture: gpuTexture, range } = resolveTextureBinding(binding.entry.node, parameters, inputs);
                 if (!gpuTexture) break;
 
                 const texData = getTextureData(textureCache, gpuTexture);
@@ -1111,11 +1120,11 @@ function updateComputeBindGroup(
                 break;
 
             case 'texture':
-                updateTextureBinding(textureCache, device, binding, data, inputs);
+                updateTextureBinding(textureCache, device, binding, data, null, inputs);
                 break;
 
             case 'storageTexture':
-                updateStorageTextureBinding(textureCache, device, binding, data, inputs);
+                updateStorageTextureBinding(textureCache, device, binding, data, null, inputs);
                 break;
 
             case 'sampler':

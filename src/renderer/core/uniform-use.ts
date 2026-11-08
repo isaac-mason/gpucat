@@ -60,7 +60,7 @@ export function packUniformMembers(block: UniformGroupBlock, view: DataView, mat
     for (const m of block.members) {
         let value = m.node.uniform.value;
         if (value === null && material) {
-            const materialUniform = material.uniforms.get(m.node.name);
+            const materialUniform = material.parameters.uniform(m.node.name);
             if (materialUniform) value = materialUniform.value;
         }
         if (value === null || value === undefined) continue;

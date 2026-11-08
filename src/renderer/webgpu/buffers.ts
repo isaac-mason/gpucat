@@ -1,5 +1,5 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
-import type { Geometry } from '../../geometry/geometry';
+import type { MaterialParameters } from '../../material/parameters';
 import type { StorageNode } from '../../nodes/nodes';
 import type { Any } from '../../schema/schema';
 /** the one usage worth reporting, most specific first. A buffer often carries several
@@ -301,21 +301,22 @@ export function getUploaded(cache: BufferCache, buffer: GpuBuffer): GPUBuffer | 
 /**
  * Resolve a GpuBuffer from a StorageNode.
  *
- * For named references, lookup order is: `buffers` (per-call override) → `geometry.buffers`.
+ * For named references, lookup order is: the dispatch's `buffers`, then the material's parameters.
  * For value references, the buffer is taken from node.value.
  */
 export function resolveStorageBuffer(
     node: StorageNode<Any>,
-    geometry: Geometry | null,
+    parameters: MaterialParameters | null,
     buffers: Record<string, GpuBuffer<Any>> | null,
 ): GpuBuffer {
     if (node.isNamedReference) {
         const name = node.bufferName!;
-        const buffer = buffers?.[name] ?? geometry?.buffers.get(name);
+        const buffer = buffers?.[name] ?? parameters?.buffer(name);
 
         if (!buffer) {
             throw new Error(
-                `[gpucat] resolveStorageBuffer: buffer '${name}' not found in compute buffers map or geometry.buffers`,
+                `[gpucat] storage('${name}') is unfilled: set it with material.parameters.setBuffer('${name}', …), ` +
+                    "or pass it in the dispatch's `buffers`.",
             );
         }
 

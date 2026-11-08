@@ -3274,9 +3274,9 @@ export type RenderTextureOptions = {
  * Two shapes:
  *  - value-based: the `GpuBuffer` is known at compile (`storage(buffer, 'read')`), so its texel grid is
  *    computed here and the renderer uploads it directly.
- *  - name-based: `storage('slot', 'read')` bound via `geometry.setBuffer('slot', buf)`. The buffer isn't
+ *  - name-based: `storage('slot', 'read')` filled by `material.parameters.setBuffer('slot', buf)`. The buffer isn't
  *    known until draw, so only the name (and the element's `bytesPerTexel`, known from the schema) is
- *    carried; the renderer resolves the buffer from the render object's geometry and sizes the grid then.
+ *    carried; the renderer resolves the buffer from the render object's material and sizes the grid then.
  */
 export type ResolvedStorageBufferTexture = {
     buffer: GpuBuffer;
@@ -3614,9 +3614,9 @@ export const step: <D extends Any>(edge: Node<D>, x: Node<D>) => Node<D>;
 export function storage<D extends Any>(buffer: GpuBuffer<D>, access?: 'read' | 'read_write'): StorageNode<D>;
 /**
  * Create a storage buffer node by name (name-based).
- * Resolved from `geometry.buffers` at render time.
+ * Resolved from the material's parameters at render time, or a dispatch's `buffers`.
  *
- * @param name - Buffer name for geometry.buffers lookup
+ * @param name - The parameter it reads
  * @param schema - The WGSL type descriptor (e.g., d.array(d.vec4f))
  * @param access - Storage access mode: 'read' (default) or 'read_write'
  *
@@ -3735,7 +3735,8 @@ export function targetDepth(target: RenderTarget): DepthTextureNode;
  * - A high-level Texture, DataTexture or Data3DTexture (auto-creates sampler from texture settings)
  * - A GpuTexture, or a view of part of one, with the GpuSampler it is sampled with. With no sampler it can only be
  *   read with `.load()`, which needs none.
- * - A slot name and the sampled type, filled by each dispatch with `textures: { [slot]: view }`. Read with `.load()`.
+ * - A name and the sampled type, filled by the material's `parameters.setTexture(name, …)` or a dispatch's
+ *   `textures: { [name]: view }`.
  *
  * @example
  * // From high-level Texture
@@ -3972,7 +3973,7 @@ export const u32: u32;
  *   const roughness = uniform(roughnessU);
  *   roughnessU.set(0.8);  // update via Uniform
  *
- * **Name-based form**, resolved from material.uniforms at render time:
+ * **Name-based form**, resolved from the material's parameters at render time:
  *   const roughness = uniform('roughness', d.f32);
  *   const myVal = uniform('myVal', MyStruct);  // struct variant
  *
@@ -6107,15 +6108,12 @@ export class Geometry {
     getBuffer<T extends Any = Any>(name: string): GpuBuffer<T> | undefined;
     /**
      * Set a named buffer.
-     * Works for vertex attributes, storage buffers, or any buffer type.
+     * Vertex attributes; a named `storage()` read is the material's parameter, not the geometry's.
      * Automatically bumps version when a new buffer name is added.
      * For REF_COUNTED buffers, increments usage count.
      *
      * @example Vertex attribute
      * geometry.setBuffer('position', new GpuBuffer(d.vec3f, { data: positions, usage: 'vertex' }));
-     *
-     * @example Storage buffer
-     * geometry.setBuffer('particles', new GpuBuffer(d.array(Particle), { data: new Float32Array(1000 * stride), usage: 'storage' }));
      */
     setBuffer(name: string, buffer: GpuBuffer<Any>): this;
     /**
@@ -6839,13 +6837,18 @@ export class Material {
     stencilZPass: GPUStencilOperation;
     /** Per-face override for back-face stencil ops, or null to use the front-face ops on both faces. */
     stencilBack: StencilFaceOverride | null;
-    /**
-     * Named uniforms for this material.
-     * Used for name-based uniform resolution: uniform('roughness', d.f32) resolves
-     * to material.uniforms.get('roughness') at render time.
-     */
-    uniforms: Map<string, Uniform<any>>;
+    /** What the named `uniform(name, …)`, `storage(name, …)` and `texture(name, …)` in its nodes read. */
+    readonly parameters: MaterialParameters;
     constructor(opts: MaterialOptions);
+    /**
+     * A second material over the same nodes and state, with a copy of the parameters: a variation that reads other
+     * values and shares this one's program.
+     *
+     * @example
+     * const models = blocks.clone();
+     * models.parameters.setBuffer('quads', modelQuads);
+     */
+    clone(): Material;
     /**
      * Incremented whenever the material's node graph configuration changes in a
      * way that requires a shader recompile.  The renderer includes this in the

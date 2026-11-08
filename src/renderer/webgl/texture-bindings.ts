@@ -15,8 +15,9 @@
 
 import type { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
-import type { TextureViewRange } from '../../core/gpu-texture-view';
+import { type TextureViewRange, WHOLE_TEXTURE } from '../../core/gpu-texture-view';
 import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
+import type { TextureBindingNode } from '../../nodes/lib/texture';
 import { type ResolvedStorageBufferTexture, type StorageBufferTextureSource, storageMirrorGrid } from '../../nodes/lib/texture';
 import { getBindings, type RenderObject } from '../core/render-object';
 import type { ProgramInfo, TextureUniforms } from './programs';
@@ -131,8 +132,8 @@ function setSamplerUnit(gl: WebGL2RenderingContext, uniforms: TextureUniforms, u
  */
 /**
  * Resolve a storage()-read mirror source to `{ buffer, width, height }` for {@link updateStorageBufferTexture}.
- * Value-based sources are returned as-is. Name-based sources (`storage('slot', 'read')` bound via
- * `geometry.setBuffer('slot', buf)`) resolve the buffer from THIS render object's geometry and size the
+ * Value-based sources are returned as-is. Name-based sources (`storage('slot', 'read')` filled by
+ * `material.parameters.setBuffer('slot', buf)`) resolve the buffer from THIS render object's material and size the
  * texel grid now (`width = min(texels, MAX_TEXTURE_SIZE)`, `height = ceil`) — the shader reads the actual
  * width back via `textureSize()`, so any binding/size works with one compiled shader.
  */
@@ -143,11 +144,10 @@ function resolveStorageSource(
     source: StorageBufferTextureSource,
 ): ResolvedStorageBufferTexture {
     if (!('name' in source)) return source;
-    const buffer = renderObject.geometry.getBuffer(source.name);
+    const buffer = renderObject.material.parameters.buffer(source.name);
     if (!buffer) {
         throw new Error(
-            `[webgl] storage('${source.name}') read-lowering: no buffer bound for that name on the ` +
-                `geometry — call geometry.setBuffer('${source.name}', buffer).`,
+            `[webgl] storage('${source.name}') is unfilled: set it with material.parameters.setBuffer('${source.name}', …).`,
         );
     }
     if (buffer.cpu && buffer.array == null) {
@@ -230,6 +230,29 @@ function assertOneRangePerTexture(
 
 const _rangesSeen = new Map<GpuTexture, TextureViewRange>();
 
+const _bound: { texture: GpuTexture | null; range: TextureViewRange } = { texture: null, range: WHOLE_TEXTURE };
+
+/** the texture `node` reads on `renderObject` and the range of it: its value, or a named one's material parameter */
+function renderTexture(renderObject: RenderObject, node: TextureBindingNode): typeof _bound {
+    if (node.slot === null) {
+        _bound.texture = node.value;
+        _bound.range = node.range;
+        return _bound;
+    }
+    const input = renderObject.material.parameters.texture(node.slot);
+    if (input === undefined) {
+        throw new Error(`[webgl] texture '${node.slot}' is unfilled: set it with material.parameters.setTexture('${node.slot}', …).`);
+    }
+    if ('isGpuTextureView' in input) {
+        _bound.texture = input.texture;
+        _bound.range = input.range;
+    } else {
+        _bound.texture = '_gpuTexture' in input ? input._gpuTexture : input;
+        _bound.range = WHOLE_TEXTURE;
+    }
+    return _bound;
+}
+
 /** Captures what `renderObject`'s texture bindings hold now, so its draw binds the values set before it. */
 export function captureTextures(renderObject: RenderObject, out: TextureCapture): void {
     out.textures.length = 0;
@@ -240,8 +263,9 @@ export function captureTextures(renderObject: RenderObject, out: TextureCapture)
         for (const binding of bindGroup.bindings) {
             if (binding.kind !== 'texture') continue;
             const storageLowered = !!binding.entry.node.storageBufferSource;
-            out.textures.push(storageLowered ? null : (binding.entry.node.value ?? null));
-            out.ranges.push(binding.entry.node.range);
+            const bound = renderTexture(renderObject, binding.entry.node);
+            out.textures.push(storageLowered ? null : bound.texture);
+            out.ranges.push(bound.range);
             out.samplers.push(storageLowered ? null : findSamplerForUnit(bindGroups, binding.entry.binding));
         }
     }
@@ -272,11 +296,6 @@ export function bindTextures(
             if (binding.kind !== 'texture') continue;
 
             const entry = binding.entry;
-            if (entry.node.slot !== null) {
-                throw new Error(
-                    `[webgl] texture slot '${entry.node.slot}' is filled by a compute dispatch, which WebGL2 has none of.`,
-                );
-            }
             // The program's unit for the texture: its home, shared with every program reading it, or one of the
             // program's own (`texture-homes.ts`). `entry.binding`, the emitter's number, pairs it with its sampler.
             const unit = programInfo.units === null ? entry.binding : unitOf(programInfo.units, entry.shaderName, entry.binding);
@@ -302,8 +321,8 @@ export function bindTextures(
             // Uploads bind on their own unit, so none disturbs a unit a draw samples from.
             const storageSource = entry.node.storageBufferSource;
             if (storageSource) {
-                // Name-based sources (`storage('slot','read')` + `geometry.setBuffer('slot',…)`) resolve
-                // their buffer from THIS render object's geometry now; value-based already carry it.
+                // Name-based sources (`storage('slot','read')` + `material.parameters.setBuffer('slot',…)`) resolve
+                // their buffer from THIS render object's material now; value-based already carry it.
                 const resolved = resolveStorageSource(gl, b.textures, renderObject, storageSource);
                 const glTexture = updateStorageBufferTexture(gl, b.textures, resolved);
                 bindTextureUnit(gl, b.textures, unit, gl.TEXTURE_2D, glTexture);
@@ -312,9 +331,10 @@ export function bindTextures(
                 continue;
             }
 
-            const gpuTexture = capture === null ? entry.node.value : capture.textures[capturedIndex];
+            const live = capture === null ? renderTexture(renderObject, entry.node) : null;
+            const gpuTexture = live !== null ? live.texture : capture!.textures[capturedIndex];
             if (!gpuTexture) continue;
-            const range = capture === null ? entry.node.range : capture.ranges[capturedIndex]!;
+            const range = live !== null ? live.range : capture!.ranges[capturedIndex]!;
             assertOneRangePerTexture(_rangesSeen, gpuTexture, range);
 
             // Upload / allocate the GL texture (version-gated). Render-target b.textures are allocated

@@ -84,7 +84,7 @@ export function resolveDispatch(
     for (const bg of nodeBuilderState.bindings) {
         for (const binding of bg.bindings) {
             if (binding.kind !== 'storageTexture' || binding.entry.access === 'read') continue;
-            const { texture, range } = Bindings.resolveTextureBinding(binding.entry.node, entry);
+            const { texture, range } = Bindings.resolveTextureBinding(binding.entry.node, null, entry);
             if (texture?.mipmapsAutoUpdate && texture.mipLevelCount > 1 && range.baseMipLevel === 0) {
                 mipDirty.add(texture as GpuTexture<d.StorageTexture>);
             }
