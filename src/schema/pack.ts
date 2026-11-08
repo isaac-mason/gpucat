@@ -74,6 +74,8 @@ type LayoutContext = {
     memLayout: MemoryLayout;
     offset: number;
     lines: string[];
+    /** Writing from a flat run of components: the index of the next one. Undefined when the value is nested. */
+    flat?: number;
 };
 
 // Layout Cache
@@ -96,6 +98,61 @@ function getLayout<T>(schema: Any, memLayout: MemoryLayout): CompiledLayout<T> {
     return layout as CompiledLayout<T>;
 }
 
+/** A writer for an array given as a flat run of its components, and how many it takes. */
+type FlatWriter = {
+    length: number;
+    write: (view: DataView, offset: number, value: ArrayLike<number>) => void;
+};
+
+const flatWriterCache = new WeakMap<Any, Map<MemoryLayout, FlatWriter>>();
+
+/**
+ * Writes `value` as `schema`. A typed array for a sized array is a flat run of its components, element by element and
+ * matrices column by column, with no padding: the layout's own padding goes in as it is written, so the same array
+ * means the same values under every layout. The generated writer alone would read it as nested, `value[i][j]`, which
+ * is undefined (NaN) for an array of vectors or matrices.
+ */
+function writeValue<T>(schema: Any, view: DataView, offset: number, value: T, memLayout: MemoryLayout): void {
+    if (!isSizedArrayDesc(schema) || !ArrayBuffer.isView(value)) {
+        getLayout<T>(schema, memLayout).write(view, offset, value);
+        return;
+    }
+    const flat = getFlatWriter(schema, memLayout);
+    const length = (value as unknown as ArrayLike<number>).length;
+    if (length !== flat.length) {
+        throw new Error(
+            `[gpucat] pack: a typed array for ${schema.wgslType} holds its components tightly packed, ${flat.length} ` +
+                `of them, but has ${length}. Padding is added for the layout, so leave it out.`,
+        );
+    }
+    flat.write(view, offset, value as unknown as ArrayLike<number>);
+}
+
+function getFlatWriter(schema: sizedArray, memLayout: MemoryLayout): FlatWriter {
+    let byMemoryLayout = flatWriterCache.get(schema);
+    if (!byMemoryLayout) {
+        byMemoryLayout = new Map();
+        flatWriterCache.set(schema, byMemoryLayout);
+    }
+    let writer = byMemoryLayout.get(memLayout);
+    if (!writer) {
+        let leaf: Any = schema;
+        while (isSizedArrayDesc(leaf)) leaf = leaf.element;
+        if (isStructDesc(leaf) || isPackedDesc(leaf) || isBitsDesc(leaf) || isAtomicDesc(leaf)) {
+            throw new Error(
+                `[gpucat] pack: ${schema.wgslType} can't be written from a typed array, only an array of scalars, ` +
+                    `vectors or matrices can. Pass its elements as an array.`,
+            );
+        }
+        const ctx: LayoutContext = { memLayout, offset: 0, lines: [], flat: 0 };
+        emitWrites(ctx, schema, 'd');
+        const write = new Function('f16', `return function(v,o,d){${ctx.lines.join('')}}`)(f32ToF16Bits);
+        writer = { length: ctx.flat!, write };
+        byMemoryLayout.set(memLayout, writer);
+    }
+    return writer;
+}
+
 export type BufferSource = ArrayBuffer | ArrayBufferView;
 
 function toDataView(src: BufferSource): DataView {
@@ -113,9 +170,8 @@ function toDataView(src: BufferSource): DataView {
  * const f32 = new Float32Array(buf);
  */
 export function pack<D extends Any>(schema: D, value: Infer<D>, memLayout: MemoryLayout = 'std430'): ArrayBuffer {
-    const layout = getLayout<Infer<D>>(schema, memLayout);
-    const buf = new ArrayBuffer(layout.totalSize);
-    layout.write(new DataView(buf), 0, value);
+    const buf = new ArrayBuffer(layoutSizeOf(schema, memLayout));
+    writeValue(schema, new DataView(buf), 0, value, memLayout);
     return buf;
 }
 
@@ -156,8 +212,7 @@ export function packTo<D extends Any>(
     value: Infer<D>,
     memLayout: MemoryLayout = 'std430',
 ): void {
-    const layout = getLayout<Infer<D>>(schema, memLayout);
-    layout.write(toDataView(dest), offset, value);
+    writeValue(schema, toDataView(dest), offset, value, memLayout);
 }
 
 /**
@@ -270,12 +325,11 @@ export function packToView<D extends Any>(
     schema: D,
     view: DataView,
     offset: number,
-    /** A typed array is accepted because the generated writer indexes positionally, as a tuple does. */
+    /** A typed array is a vector or matrix's components, or an array's, tightly packed: see {@link writeValue}. */
     value: Infer<D> | TypedArrayFor<D>,
     memLayout: MemoryLayout = 'std430',
 ): void {
-    const layout = getLayout<Infer<D>>(schema, memLayout);
-    layout.write(view, offset, value as Infer<D>);
+    writeValue(schema, view, offset, value, memLayout);
 }
 
 /** Unpack a value from a DataView. */
@@ -483,7 +537,24 @@ function emitWrites(ctx: LayoutContext, schema: Any, accessor: string): void {
         emitArrayWrites(ctx, schema, accessor);
     } else {
         emitPrimitiveWrite(ctx, schema, accessor);
+        if (ctx.flat !== undefined) ctx.flat += componentCountOf(schema);
     }
+}
+
+/** The JS expression for component `i` of the value at `accessor` (the value itself for a scalar), read from the flat
+ *  run instead when writing one. */
+function at(ctx: LayoutContext, accessor: string, i?: number): string {
+    if (ctx.flat !== undefined) return `${accessor}[${ctx.flat + (i ?? 0)}]`;
+    return i === undefined ? accessor : `${accessor}[${i}]`;
+}
+
+/** How many numbers a scalar, vector or matrix is made of. */
+function componentCountOf(schema: Any): number {
+    const t = schema.wgslType;
+    const mat = t.match(/^mat(\d)x(\d)[fh]$/);
+    if (mat) return Number(mat[1]) * Number(mat[2]);
+    const vec = t.match(/^vec(\d)/);
+    return vec ? Number(vec[1]) : 1;
 }
 
 function emitStructWrites(ctx: LayoutContext, schema: StructDesc, accessor: string): void {
@@ -502,7 +573,8 @@ function emitArrayWrites(ctx: LayoutContext, schema: sizedArray, accessor: strin
 
     for (let i = 0; i < schema.length; i++) {
         ctx.offset = startOffset + i * stride;
-        emitWrites(ctx, schema.element, `${accessor}[${i}]`);
+        // a flat run is one array for every element, read on from where the last one stopped
+        emitWrites(ctx, schema.element, ctx.flat === undefined ? `${accessor}[${i}]` : accessor);
     }
     // Position after the array (accounts for tail padding of last element)
     ctx.offset = startOffset + schema.length * stride;
@@ -577,112 +649,112 @@ function emitPrimitiveWrite(ctx: LayoutContext, schema: Any, accessor: string): 
 
     // Scalars
     if (t === 'f32') {
-        ctx.lines.push(`v.setFloat32(o+${off},${accessor},true);`);
+        ctx.lines.push(`v.setFloat32(o+${off},${at(ctx, accessor)},true);`);
         ctx.offset += 4;
         return;
     }
     if (t === 'i32') {
-        ctx.lines.push(`v.setInt32(o+${off},${accessor},true);`);
+        ctx.lines.push(`v.setInt32(o+${off},${at(ctx, accessor)},true);`);
         ctx.offset += 4;
         return;
     }
     if (t === 'u32' || t === 'bool') {
-        ctx.lines.push(`v.setUint32(o+${off},${accessor},true);`);
+        ctx.lines.push(`v.setUint32(o+${off},${at(ctx, accessor)},true);`);
         ctx.offset += 4;
         return;
     }
     if (t === 'f16') {
-        ctx.lines.push(`v.setUint16(o+${off},f16(${accessor}),true);`);
+        ctx.lines.push(`v.setUint16(o+${off},f16(${at(ctx, accessor)}),true);`);
         ctx.offset += 2;
         return;
     }
 
     // vec2
     if (t === 'vec2f') {
-        ctx.lines.push(`v.setFloat32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 4},${accessor}[1],true);`);
+        ctx.lines.push(`v.setFloat32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
         ctx.offset += 8;
         return;
     }
     if (t === 'vec2i') {
-        ctx.lines.push(`v.setInt32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 4},${accessor}[1],true);`);
+        ctx.lines.push(`v.setInt32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
         ctx.offset += 8;
         return;
     }
     if (t === 'vec2u' || t === 'vec2<bool>') {
-        ctx.lines.push(`v.setUint32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 4},${accessor}[1],true);`);
+        ctx.lines.push(`v.setUint32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
         ctx.offset += 8;
         return;
     }
     if (t === 'vec2h') {
-        ctx.lines.push(`v.setUint16(o+${off},f16(${accessor}[0]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${accessor}[1]),true);`);
+        ctx.lines.push(`v.setUint16(o+${off},f16(${at(ctx, accessor, 0)}),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${at(ctx, accessor, 1)}),true);`);
         ctx.offset += 4;
         return;
     }
 
     // vec3
     if (t === 'vec3f') {
-        ctx.lines.push(`v.setFloat32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 8},${accessor}[2],true);`);
+        ctx.lines.push(`v.setFloat32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 8},${at(ctx, accessor, 2)},true);`);
         ctx.offset += 12;
         return;
     }
     if (t === 'vec3i') {
-        ctx.lines.push(`v.setInt32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 8},${accessor}[2],true);`);
+        ctx.lines.push(`v.setInt32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 8},${at(ctx, accessor, 2)},true);`);
         ctx.offset += 12;
         return;
     }
     if (t === 'vec3u' || t === 'vec3<bool>') {
-        ctx.lines.push(`v.setUint32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 8},${accessor}[2],true);`);
+        ctx.lines.push(`v.setUint32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 8},${at(ctx, accessor, 2)},true);`);
         ctx.offset += 12;
         return;
     }
     if (t === 'vec3h') {
-        ctx.lines.push(`v.setUint16(o+${off},f16(${accessor}[0]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${accessor}[1]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 4},f16(${accessor}[2]),true);`);
+        ctx.lines.push(`v.setUint16(o+${off},f16(${at(ctx, accessor, 0)}),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${at(ctx, accessor, 1)}),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 4},f16(${at(ctx, accessor, 2)}),true);`);
         ctx.offset += 6;
         return;
     }
 
     // vec4
     if (t === 'vec4f') {
-        ctx.lines.push(`v.setFloat32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 8},${accessor}[2],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 12},${accessor}[3],true);`);
+        ctx.lines.push(`v.setFloat32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 8},${at(ctx, accessor, 2)},true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 12},${at(ctx, accessor, 3)},true);`);
         ctx.offset += 16;
         return;
     }
     if (t === 'vec4i') {
-        ctx.lines.push(`v.setInt32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 8},${accessor}[2],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 12},${accessor}[3],true);`);
+        ctx.lines.push(`v.setInt32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 8},${at(ctx, accessor, 2)},true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 12},${at(ctx, accessor, 3)},true);`);
         ctx.offset += 16;
         return;
     }
     if (t === 'vec4u' || t === 'vec4<bool>') {
-        ctx.lines.push(`v.setUint32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 8},${accessor}[2],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 12},${accessor}[3],true);`);
+        ctx.lines.push(`v.setUint32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 8},${at(ctx, accessor, 2)},true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 12},${at(ctx, accessor, 3)},true);`);
         ctx.offset += 16;
         return;
     }
     if (t === 'vec4h') {
-        ctx.lines.push(`v.setUint16(o+${off},f16(${accessor}[0]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${accessor}[1]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 4},f16(${accessor}[2]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 6},f16(${accessor}[3]),true);`);
+        ctx.lines.push(`v.setUint16(o+${off},f16(${at(ctx, accessor, 0)}),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${at(ctx, accessor, 1)}),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 4},f16(${at(ctx, accessor, 2)}),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 6},f16(${at(ctx, accessor, 3)}),true);`);
         ctx.offset += 8;
         return;
     }
@@ -703,9 +775,9 @@ function emitPrimitiveWrite(ctx: LayoutContext, schema: Any, accessor: string): 
     if (isAtomicDesc(schema)) {
         const inner = schema.inner.wgslType;
         if (inner === 'i32') {
-            ctx.lines.push(`v.setInt32(o+${off},${accessor},true);`);
+            ctx.lines.push(`v.setInt32(o+${off},${at(ctx, accessor)},true);`);
         } else {
-            ctx.lines.push(`v.setUint32(o+${off},${accessor},true);`);
+            ctx.lines.push(`v.setUint32(o+${off},${at(ctx, accessor)},true);`);
         }
         ctx.offset += 4;
         return;
@@ -728,7 +800,7 @@ function emitMatrixWriteF32(ctx: LayoutContext, t: string, accessor: string): vo
     for (let c = 0; c < cols; c++) {
         for (let r = 0; r < rows; r++) {
             const idx = c * rows + r;
-            ctx.lines.push(`v.setFloat32(o+${off + r * 4},${accessor}[${idx}],true);`);
+            ctx.lines.push(`v.setFloat32(o+${off + r * 4},${at(ctx, accessor, idx)},true);`);
         }
         off += colStride;
     }
@@ -748,7 +820,7 @@ function emitMatrixWriteF16(ctx: LayoutContext, t: string, accessor: string): vo
     for (let c = 0; c < cols; c++) {
         for (let r = 0; r < rows; r++) {
             const idx = c * rows + r;
-            ctx.lines.push(`v.setUint16(o+${off + r * 2},f16(${accessor}[${idx}]),true);`);
+            ctx.lines.push(`v.setUint16(o+${off + r * 2},f16(${at(ctx, accessor, idx)}),true);`);
         }
         off += colStride;
     }

@@ -38,6 +38,7 @@ import {
     GpuTexture,
     If,
     i32,
+    index,
     init,
     instanceIndex,
     invariant,
@@ -1551,6 +1552,37 @@ async function caseMrt(): Promise<CaseResult> {
     const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'mrt', pixel, expected: [u8(colB[0]), u8(colB[1]), u8(colB[2]), 255] };
+}
+
+/**
+ * uniform-array-flat: an array of vec4s set from a flat Float32Array, read in both stages, under std140 (each element
+ * 16 bytes). The vertex stage offsets the triangle by element `instanceIndex * 2`, the fragment shows element 1. Read
+ * as nested, the typed array packed as NaN and nothing was drawn.
+ */
+async function caseUniformArrayFlat(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const elements = new Uniform(d.sizedArray(d.vec4f, 3), new Float32Array([0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0]));
+    const values = uniform(elements);
+    const offset = index(values, i32(instanceIndex.mul(u32(2))));
+    const mesh = new Mesh(
+        createFullscreenTriangleGeometry(),
+        new Material({
+            vertex: vec4(attribute('position', d.vec3f).add(offset.xyz), f32(1)),
+            fragment: index(values, i32(1)),
+            depthTest: false,
+        }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(renderer);
+    const pass = f.pass({ target: renderer.backend.target, clear: [1, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    return { name: 'uniform-array-flat', pixel, expected: [0, 255, 0, 255], note: 'red: nothing drawn, black: NaN colour' };
 }
 
 /**
@@ -5687,6 +5719,7 @@ export async function run(): Promise<RunResult> {
             caseAlphaToCoverage,
             caseMrt,
             caseMrtUnwrittenKept,
+            caseUniformArrayFlat,
             caseMrt4Rgba8,
             caseMrt2Rgba16f,
             caseMrt4Rgba16fUpfront,

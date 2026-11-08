@@ -34,6 +34,7 @@ import {
     If,
     index,
     init,
+    instanceIndex,
     invariant,
     LineMaterial,
     LineSegments,
@@ -203,6 +204,37 @@ async function caseUniform(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
 
     const pixel = centerPixel(await read(gpu, target));
     return { name: 'uniform', pixel, expected: [0, 255, 0, 255] };
+}
+
+/**
+ * uniform-array-flat: an array of vec4s set from a flat Float32Array, read in both stages. The vertex stage offsets the
+ * triangle by element `instanceIndex * 2`, the fragment shows element 1. Read as nested, the typed array packed as NaN:
+ * the triangle went nowhere with no error, and a fragment-only read showed black.
+ */
+async function caseUniformArrayFlat(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+
+    const elements = new Uniform(d.sizedArray(d.vec4f, 3), new Float32Array([0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0]));
+    const values = uniform(elements);
+    const offset = index(values, i32(instanceIndex.mul(u32(2))));
+    const mesh = new Mesh(
+        fullscreenTriangle(),
+        new Material({
+            vertex: vec4(attribute('position', d.vec3f).add(offset.xyz), f32(1)),
+            fragment: index(values, i32(1)),
+            depthTest: false,
+        }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const pass = f.pass({ target, clear: [1, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixel = centerPixel(await read(gpu, target));
+    return { name: 'uniform-array-flat', pixel, expected: [0, 255, 0, 255], note: 'red: nothing drawn, black: NaN colour' };
 }
 
 /** scene: a camera-transformed box drawn through the scene walk, not by hand. */
@@ -3625,6 +3657,7 @@ const CASES: Record<string, Case> = {
     clear: caseClear,
     solid: caseSolid,
     uniform: caseUniform,
+    'uniform-array-flat': caseUniformArrayFlat,
     'named-parameters': caseNamedParameters,
     scene: caseScene,
     'clear-ignores-scissor': caseClearIgnoresScissor,

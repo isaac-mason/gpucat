@@ -4,6 +4,7 @@ export const CASE_NAMES = [
     'clear',
     'solid',
     'uniform',
+    'uniform-array-flat',
     'named-parameters',
     'scene',
     'clear-ignores-scissor',
