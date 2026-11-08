@@ -489,6 +489,21 @@ export const cases: Case[] = [
         },
     },
     {
+        // an mrt() resolved against a target with an attachment it doesn't write, ahead of the one it does: the
+        // shader declares location 1 alone, and the pipeline masks location 0 off
+        name: 'MRT leaving an earlier attachment unwritten',
+        build: () => {
+            const fragment = mrt({ normal: vec4(vec3(0.0, 0.0, 1.0), f32(1)) });
+            const attachments = ['output', 'normal'];
+            fragment.resolveOutputs((name) => attachments.indexOf(name), attachments);
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment,
+                depth: undefined,
+            };
+        },
+    },
+    {
         // Regression: sRGBTransferOETF/acesToneMapping internally do a componentwise vector comparison
         // (`color <= vec3(...)` → bvec) feeding a componentwise `select`. GLSL rejects `<=` on vectors
         // and can't ternary on a bvec — these must lower to lessThanEqual(...) + mix(f, t, cond).

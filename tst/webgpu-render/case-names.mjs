@@ -11,6 +11,8 @@ export const CASE_NAMES = [
     'viewport-scissor',
     'mrt',
     'mrt-integer',
+    'mrt-unwritten-kept',
+    'mrt-plain-into-gbuffer',
     'read-buffer',
     'cube-layer',
     'rt-mip-depth',

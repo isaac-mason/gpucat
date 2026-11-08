@@ -226,21 +226,25 @@ function buildRenderPipelineDescriptor(
     const names = renderContext.colorFormats !== null ? renderContext.colorNames : null;
     const mrt: MRTNode | null = renderContext.mrt;
     const colorTargets: GPUColorTargetState[] = [];
-    for (let i = 0; i < targetCount; i++) {
-        const format = colorFormats[i];
-        if (format === undefined) {
-            throw new Error(
-                `[webgpu] the fragment writes ${targetCount} colour output(s) and this pass's target has ` +
-                    `${colorFormats.length}; output ${i} has no attachment to take its format from.`,
-            );
-        }
+    if (targetCount > colorFormats.length) {
+        throw new Error(
+            `[webgpu] the fragment writes ${targetCount} colour output(s) and this pass's target has ` +
+                `${colorFormats.length}; output ${colorFormats.length} has no attachment to take its format from.`,
+        );
+    }
+    // A pipeline names every attachment of the pass, as WebGPU requires of one drawn in it, written or not; one the
+    // fragment leaves alone (an mrt() output missing, a lone colour into a g-buffer) is masked off (`writesTarget`).
+    const targetsDrawn = targetCount > 0 ? colorFormats.length : 0;
+    for (let i = 0; i < targetsDrawn; i++) {
+        const format = colorFormats[i]!;
+        const written = RenderState.writesTarget(material.fragment, i);
         const targetName = mrt !== null && names !== null ? names[i]! : null;
         // an integer format cannot blend: WebGPU rejects a blend state on one, whatever the material asks
         const integer = format.endsWith('uint') || format.endsWith('sint');
         colorTargets.push({
             format,
-            blend: integer ? undefined : RenderState.resolveTargetBlend(material, mrt, targetName),
-            writeMask: material.colorWrite ? GPUColorWrite.ALL : 0,
+            blend: integer || !written ? undefined : RenderState.resolveTargetBlend(material, mrt, targetName),
+            writeMask: material.colorWrite && written ? GPUColorWrite.ALL : 0,
         });
     }
 
@@ -519,6 +523,7 @@ export function makeRenderPipelineKey(
         material.stencilZPass,
         material.stencilBack ? JSON.stringify(material.stencilBack) : 'none',
         getTargetCount(material.fragment),
+        RenderState.writtenTargets(material.fragment, formats.length),
         samples,
         formats.join(','),
         depthFormat ?? 'none',

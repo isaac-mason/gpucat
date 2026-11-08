@@ -1554,6 +1554,43 @@ async function caseMrt(): Promise<CaseResult> {
 }
 
 /**
+ * mrt-unwritten-kept: a pass whose mrt() writes `output` alone leaves `normal` as the pass before left it. Its draw sets
+ * `normal`'s draw buffer to NONE for its turn; drawn to, an output the shader never writes leaves it undefined. (Headless
+ * Chromium's WebGL2 happens to keep it either way, so this passes there with or without the mask: it guards drivers
+ * that take the spec at its word.)
+ */
+async function caseMrtUnwrittenKept(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const target = createRenderTarget(SIZE, SIZE, { attachments: { output: 'rgba8unorm', normal: 'rgba8unorm' } });
+    const vertex = vec4(attribute('position', d.vec3f), f32(1));
+    const both = mrt({ output: vec4(1, 0, 0, 1), normal: vec4(0, 1, 0, 1) });
+    const outputOnly = mrt({ output: vec4(0, 0, 1, 1) });
+    const first = new Mesh(createFullscreenTriangleGeometry(), new Material({ vertex, fragment: both, depthTest: false }));
+    const second = new Mesh(createFullscreenTriangleGeometry(), new Material({ vertex, fragment: outputOnly, depthTest: false }));
+    const show = new Mesh(
+        createFullscreenTriangleGeometry(),
+        new Material({ vertex, fragment: texture(target.textures[1] as Texture).sample(screenUV), depthTest: false }),
+    );
+    for (const mesh of [first, second, show]) mesh.updateWorldMatrix();
+
+    const f = frame(renderer);
+    const fill = f.pass({ target, mrt: both, clear: [0, 0, 0, 1] });
+    fill.draw(first);
+    fill.end();
+    const partial = f.pass({ target, mrt: outputOnly, clear: false });
+    partial.draw(second);
+    partial.end();
+    const screen = f.pass({ target: renderer.backend.target, clear: [0, 0, 0, 1] });
+    screen.draw(show);
+    screen.end();
+    f.submit();
+
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    return { name: 'mrt-unwritten-kept', pixel, expected: [0, 255, 0, 255], note: 'normal untouched by the second pass' };
+}
+
+/**
  * Shared MRT probe: render a fullscreen triangle into an N-attachment RenderTarget writing a distinct
  * constant color per attachment, then sample the LAST attachment's texture fullscreen and read back.
  *
@@ -5649,6 +5686,7 @@ export async function run(): Promise<RunResult> {
             caseDepthBias,
             caseAlphaToCoverage,
             caseMrt,
+            caseMrtUnwrittenKept,
             caseMrt4Rgba8,
             caseMrt2Rgba16f,
             caseMrt4Rgba16fUpfront,

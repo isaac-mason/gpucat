@@ -346,6 +346,12 @@ export function encodeDraws(
     }
     PassUniforms.uploadPassUniforms(gl, passUniforms, info);
 
+    // The target's FBO draws to every attachment; a draw whose fragment leaves one unwritten sets it to NONE for its
+    // turn, as WebGPU masks it off (`writesTarget`), and the pass puts them all back after its last draw.
+    const attachments = params.renderTarget?.textures.length ?? 0;
+    const allWritten = '1'.repeat(attachments);
+    let drawBuffers = allWritten;
+
     let currentView = -1;
     for (let blockIndex = 0; blockIndex < order.blockCount; blockIndex++) {
         const block = order.blocks[blockIndex]!;
@@ -375,6 +381,13 @@ export function encodeDraws(
 
             // Program (deduped). Inspector: a program switch is the WebGL analogue of a pipeline switch.
             State.useProgram(gl, glState, programInfo.program);
+            if (attachments > 0) {
+                const written = RenderState.writtenTargets(material.fragment, attachments);
+                if (written !== drawBuffers) {
+                    setDrawBuffers(gl, written);
+                    drawBuffers = written;
+                }
+            }
             // gl_FragCoord Y-flip height: @builtin(position)/screenUV lower to a flip against the framebuffer height so
             // they match WebGPU's top-left origin. A uniform keeps its value with its program, which passes share, so it
             // is written when this pass's height differs. null location = program doesn't use the builtin.
@@ -511,4 +524,12 @@ export function encodeDraws(
             NodeManager.updateAfter(nodes, renderObject);
         }
     }
+    if (drawBuffers !== allWritten) setDrawBuffers(gl, allWritten);
+}
+
+/** Draw buffers by attachment: `COLOR_ATTACHMENTi` where `written` has a `1`, `NONE` where it has a `0`. */
+function setDrawBuffers(gl: WebGL2RenderingContext, written: string): void {
+    const buffers: GLenum[] = [];
+    for (let i = 0; i < written.length; i++) buffers.push(written[i] === '1' ? gl.COLOR_ATTACHMENT0 + i : gl.NONE);
+    gl.drawBuffers(buffers);
 }

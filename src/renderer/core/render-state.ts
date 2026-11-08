@@ -15,6 +15,9 @@
 import type { BlendMode } from '../../material/blend-mode';
 import type { Material } from '../../material/material';
 import type { MRTNode } from '../../nodes/lib/mrt';
+import { isVoidFragment } from '../../nodes/backend/fragment';
+import { type Node, NodeKind, type OutputStructNode } from '../../nodes/nodes';
+import type * as d from '../../schema/schema';
 
 /** (srcRGB, dstRGB, srcAlpha, dstAlpha) with 'add' for both operations. */
 const add = (srcRGB: GPUBlendFactor, dstRGB: GPUBlendFactor, srcA: GPUBlendFactor, dstA: GPUBlendFactor): GPUBlendState => ({
@@ -108,4 +111,24 @@ export function resolveTargetBlend(
 /** Stable comparison key for a resolved blend state; 'none' for no-blend. */
 export function blendStateKey(blend: GPUBlendState | undefined): string {
     return blend ? JSON.stringify(blend) : 'none';
+}
+
+/**
+ * Whether a fragment writes colour output `i`: a resolved MRT member there, or the one output of a plain colour. An
+ * attachment it doesn't write is masked off, `writeMask: 0` on WebGPU and `NONE` in WebGL's draw buffers, so it keeps
+ * what it held instead of taking whatever an absent output leaves.
+ */
+export function writesTarget(fragment: Node<d.Any> | undefined, i: number): boolean {
+    if (!fragment || isVoidFragment(fragment)) return false;
+    if (fragment.kind === NodeKind.OutputStruct || fragment.kind === NodeKind.MRT) {
+        return (fragment as OutputStructNode).members[i] !== undefined;
+    }
+    return i === 0;
+}
+
+/** Which of `count` attachments a fragment writes, as `1`s and `0`s by location. */
+export function writtenTargets(fragment: Node<d.Any> | undefined, count: number): string {
+    let mask = '';
+    for (let i = 0; i < count; i++) mask += writesTarget(fragment, i) ? '1' : '0';
+    return mask;
 }

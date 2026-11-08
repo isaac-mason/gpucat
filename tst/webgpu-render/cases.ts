@@ -322,6 +322,65 @@ async function caseMrt(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
 }
 
 /**
+ * mrt-unwritten-kept: a pass whose mrt() writes `output` alone leaves `normal` as the pass before left it. The pipeline
+ * still names both attachments, as WebGPU requires, and masks `normal` off, so it keeps its green.
+ */
+async function caseMrtUnwrittenKept(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { attachments: { output: 'rgba8unorm', normal: 'rgba8unorm' } });
+    const vertex = vec4(attribute('position', d.vec3f), f32(1));
+    const both = mrt({ output: vec4(1, 0, 0, 1), normal: vec4(0, 1, 0, 1) });
+    const outputOnly = mrt({ output: vec4(0, 0, 1, 1) });
+    const first = new Mesh(fullscreenTriangle(), new Material({ vertex, fragment: both, depthTest: false }));
+    const second = new Mesh(fullscreenTriangle(), new Material({ vertex, fragment: outputOnly, depthTest: false }));
+    for (const mesh of [first, second]) mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const fill = f.pass({ target, mrt: both, clear: [0, 0, 0, 1] });
+    fill.draw(first);
+    fill.end();
+    const partial = f.pass({ target, mrt: outputOnly, clear: false });
+    partial.draw(second);
+    partial.end();
+    f.submit();
+
+    const pixel = centerPixel(await read(gpu, target, { attachment: 1 }));
+    return { name: 'mrt-unwritten-kept', pixel, expected: [0, 255, 0, 255], note: 'normal untouched by the second pass' };
+}
+
+/**
+ * mrt-plain-into-gbuffer: a plain colour drawn into a two-attachment target writes the first and leaves the second,
+ * which a pipeline with one colour target could not be drawn in at all.
+ */
+async function caseMrtPlainIntoGbuffer(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { attachments: { output: 'rgba8unorm', normal: 'rgba8unorm' } });
+    const vertex = vec4(attribute('position', d.vec3f), f32(1));
+    const both = mrt({ output: vec4(1, 0, 0, 1), normal: vec4(0, 1, 0, 1) });
+    const first = new Mesh(fullscreenTriangle(), new Material({ vertex, fragment: both, depthTest: false }));
+    const plain = new Mesh(fullscreenTriangle(), new Material({ vertex, fragment: vec4(0, 0, 1, 1), depthTest: false }));
+    for (const mesh of [first, plain]) mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const fill = f.pass({ target, mrt: both, clear: [0, 0, 0, 1] });
+    fill.draw(first);
+    fill.end();
+    const over = f.pass({ target, clear: false });
+    over.draw(plain);
+    over.end();
+    f.submit();
+
+    const output = centerPixel(await read(gpu, target, { attachment: 0 }));
+    const normal = centerPixel(await read(gpu, target, { attachment: 1 }));
+    // green when the plain colour reached output and normal kept its own
+    const ok = output[2] === 255 && normal[1] === 255 && normal[2] === 0;
+    return {
+        name: 'mrt-plain-into-gbuffer',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `output ${output.join(',')}, normal ${normal.join(',')}`,
+    };
+}
+
+/**
  * mrt-integer: a blended colour attachment beside an rg32uint one, written in one pass. The integer output is written
  * as its own vec2u, not padded to a float vec4, and takes no blend; a second pass reads its words back and shows green
  * where both arrived intact.
@@ -3573,6 +3632,8 @@ const CASES: Record<string, Case> = {
     'viewport-scissor': caseScissor,
     mrt: caseMrt,
     'mrt-integer': caseMrtInteger,
+    'mrt-unwritten-kept': caseMrtUnwrittenKept,
+    'mrt-plain-into-gbuffer': caseMrtPlainIntoGbuffer,
     'read-buffer': caseReadBuffer,
     'cube-layer': caseCubeLayer,
     'rt-mip-depth': caseRtMipDepth,
