@@ -13,6 +13,7 @@ import {
     createStorageTexture,
     d,
     depthTexture,
+    faceForward,
     Fn,
     f32,
     fxaa,
@@ -29,6 +30,10 @@ import {
     modelNormalMatrix,
     modelWorldMatrix,
     mrt,
+    reflect,
+    refract,
+    round,
+    saturate,
     type Node,
     screenCoordinate,
     screenUV,
@@ -257,6 +262,25 @@ export const cases: Case[] = [
             return {
                 vertex: vec4(attribute('position', d.vec3f), f32(1)),
                 fragment: wrapped,
+                depth: undefined,
+            };
+        },
+    },
+    {
+        // round / saturate / reflect / refract / faceForward: round must become GLSL's roundEven (WGSL rounds halves
+        // to even), faceForward GLSL's faceforward, and saturate, which GLSL lacks, a clamp; scalars and vectors both
+        name: 'round, saturate, reflect, refract, faceForward',
+        build: () => {
+            const i = vec3(f32(0.6), f32(-0.8), f32(0));
+            const n = vec3(f32(0), f32(1), f32(0));
+            const r = reflect(i, n)
+                .add(refract(i, n, f32(0.75)))
+                .add(faceForward(n, i, n));
+            const s = round(f32(2.5)).add(saturate(f32(1.5)));
+            const v = saturate(r.round());
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: vec4(v, s),
                 depth: undefined,
             };
         },

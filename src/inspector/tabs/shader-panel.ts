@@ -44,7 +44,7 @@ function highlightWGSL(code: string): string {
             )
             // Built-in functions
             .replace(
-                /\b(abs|acos|asin|atan|atan2|ceil|clamp|cos|cross|degrees|distance|dot|exp|exp2|floor|fma|fract|inverseSqrt|length|log|log2|max|min|mix|modf|normalize|pow|radians|reflect|refract|round|sign|sin|smoothstep|sqrt|step|tan|trunc|bitcast|select|arrayLength|textureLoad|textureSample|textureSampleBias|textureSampleCompare|textureSampleGrad|textureSampleLevel|textureStore|textureDimensions|dpdx|dpdy|fwidth|pack4x8snorm|pack4x8unorm|unpack4x8snorm|unpack4x8unorm)\b/g,
+                /\b(abs|acos|asin|atan|atan2|ceil|clamp|cos|cross|degrees|distance|dot|exp|exp2|faceForward|floor|fma|fract|inverseSqrt|length|log|log2|max|min|mix|modf|normalize|pow|radians|reflect|refract|round|saturate|sign|sin|smoothstep|sqrt|step|tan|trunc|bitcast|select|arrayLength|textureLoad|textureSample|textureSampleBias|textureSampleCompare|textureSampleGrad|textureSampleLevel|textureStore|textureDimensions|dpdx|dpdy|fwidth|pack4x8snorm|pack4x8unorm|unpack4x8snorm|unpack4x8unorm)\b/g,
                 '<span class="wgsl-builtin">$1</span>',
             )
             // Numeric literals (hex, float, int)

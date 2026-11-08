@@ -575,6 +575,21 @@ export class Node<D extends Any> {
     sign(): Node<D> {
         return sign(this) as Node<D>;
     }
+    round(): Node<D> {
+        return round(this) as Node<D>;
+    }
+    saturate(): Node<D> {
+        return saturate(this) as Node<D>;
+    }
+    reflect(n: Node<D>): Node<D> {
+        return reflect(this, n) as Node<D>;
+    }
+    refract(n: Node<D>, eta: Node<d.f32>): Node<D> {
+        return refract(this, n, eta) as Node<D>;
+    }
+    faceForward(i: Node<D>, nref: Node<D>): Node<D> {
+        return faceForward(this, i, nref) as Node<D>;
+    }
     mod(b: Node<D>): Node<D> {
         return mod(this, b) as Node<D>;
     }
@@ -1878,6 +1893,18 @@ export const atan2 = <D extends Any>(y: Node<D>, x: Node<D>): Node<D> => new Cal
 export const asin = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'asin', [a]);
 export const acos = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'acos', [a]);
 export const inverseSqrt = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'inverseSqrt', [a]);
+/** Round to the nearest whole number, halves to even. WGSL: `round`; GLSL: `roundEven`. */
+export const round = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'round', [a]);
+/** Clamp to [0, 1]. WGSL: `saturate`; GLSL has none, so it lowers to `clamp(a, 0.0, 1.0)`. */
+export const saturate = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'saturate', [a]);
+/** The incident direction `i` reflected about the surface normal `n`: `i - 2 * dot(n, i) * n`. */
+export const reflect = <D extends Any>(i: Node<D>, n: Node<D>): Node<D> => new CallNode(i.type, 'reflect', [i, n]);
+/** The incident direction `i` refracted through the surface normal `n` at the ratio of indices `eta`. */
+export const refract = <D extends Any>(i: Node<D>, n: Node<D>, eta: Node<d.f32>): Node<D> =>
+    new CallNode(i.type, 'refract', [i, n, eta]);
+/** `n` turned to face against `i`, judged by the reference normal `nref`: `dot(nref, i) < 0 ? n : -n`. WGSL: `faceForward`; GLSL: `faceforward`. */
+export const faceForward = <D extends Any>(n: Node<D>, i: Node<D>, nref: Node<D>): Node<D> =>
+    new CallNode(n.type, 'faceForward', [n, i, nref]);
 
 export function max<D extends Any>(a: Node<D>, b: Node<D>, ...rest: Node<D>[]): Node<D> {
     let result: Node<D> = new CallNode(a.type, 'max', [a, b]);

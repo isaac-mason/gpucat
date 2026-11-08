@@ -238,6 +238,9 @@ const CALL_RENAMES: Record<string, string> = {
     // instead; see BIT_HELPER_FNS.
     atan2: 'atan', // GLSL's 2-arg atan(y, x) IS atan2
     inverseSqrt: 'inversesqrt',
+    // WGSL rounds halves to even; GLSL ES 3.00's round() leaves halves to the implementation, roundEven() is the match
+    round: 'roundEven',
+    faceForward: 'faceforward',
     // WGSL and GLSL agree on the remaining common math builtins; further overrides go here.
 };
 
@@ -1212,6 +1215,9 @@ function generateCall(ctx: GlslBuildContext, node: CallNode<d.Any>): string {
     if (node.fn === 'ndcDepthToStorage' && args.length === 1) {
         return `${paren(args[0], emittedPrec(ctx, node.args[0]), Prec.Multiplicative)} * 0.5 + 0.5`;
     }
+
+    // GLSL ES 3.00 has no saturate; clamp's (genType, float, float) overload covers scalars and vectors alike
+    if (node.fn === 'saturate' && args.length === 1) return `clamp(${args[0]}, 0.0, 1.0)`;
 
     if (UNSUPPORTED_DERIVATIVES.has(node.fn)) {
         throw new Error(
