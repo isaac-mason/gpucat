@@ -2956,6 +2956,10 @@ export const mix: <D extends Any>(a: Node<D>, b: Node<D>, t: Node<Any>) => Node<
 #### `mod`
 
 ```ts
+/**
+ * WGSL's `%`, on both backends: a truncating remainder, so the result takes the sign of `a` (`-1.5 % 1.0` is `-0.5`).
+ * GLSL's `mod()` floors instead; for that, write `a.sub(b.mul(floor(a.div(b))))`.
+ */
 export const mod: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
 ```
 
@@ -8403,7 +8407,7 @@ export function getCompiledLayout<D extends Any>(schema: D, memLayout?: MemoryLa
 ```ts
 /** Pack a value into a DataView. */
 export function packToView<D extends Any>(schema: D, view: DataView, offset: number, 
-/** A typed array is accepted because the generated writer indexes positionally, as a tuple does. */
+/** A typed array is a vector or matrix's components, or an array's, tightly packed: see {@link writeValue}. */
 value: Infer<D> | TypedArrayFor<D>, memLayout?: MemoryLayout): void;
 ```
 
