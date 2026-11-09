@@ -22052,10 +22052,12 @@ function distinctAttributes(ctx) {
 function texelCoord(ctx, node) {
     const expr = generateExpr$1(ctx, node);
     const glsl = 'glslType' in node.type ? node.type.glslType : null;
-    return glsl === 'ivec2' ? expr : `ivec2(${expr})`;
+    // a 3D texture's coordinate has three components, and texelFetch on a sampler3D takes an ivec3
+    const want = typeof glsl === 'string' && glsl.endsWith('3') ? 'ivec3' : 'ivec2';
+    return glsl === want ? expr : `${want}(${expr})`;
 }
 /** The Y-flip helper functions the texture wrappers may emit (see emitGlslTextures). */
-const FLIP_HELPER_NAMES = ['_flipY2f', '_flipY2i', '_flipYd'];
+const FLIP_HELPER_NAMES = ['_flipY2f', '_flipY2i', '_flipYd', '_flipY3f', '_flipY3i', '_flipY3d'];
 /**
  * Map a user `Fn` name to a GLSL-safe identifier: reserved / builtin names are prefixed `fn_`, all
  * others pass through unchanged. Must be applied consistently at the definition and every call site.
@@ -22687,13 +22689,17 @@ function flipUniformName$1(textureId) {
     return `u_flipY_${textureId}`.replace(/_{2,}/g, '_');
 }
 /**
- * Whether a texture's 2D samples should be wrapped in the flipY conditional. Only plain and depth 2D
- * textures can be render targets sampled with a 2D uv where a V flip is meaningful; cube / array / 3D
- * sampling uses a direction or layer, so they are left alone.
+ * Whether a texture's reads should be wrapped in the flipY conditional: every shape a render target can be rendered
+ * into a layer of, bottom-up, and read back by a top-down uv. A 2D-array layer and a 3D slice are rendered just as a 2D
+ * target is, so their V flips the same way. A cube is read by a direction, and its faces keep GL's own orientation.
  */
 function textureNeedsFlip(binding) {
     const type = binding.type.type;
-    return type === 'texture_2d' || type === 'texture_depth_2d';
+    return (type === 'texture_2d' ||
+        type === 'texture_depth_2d' ||
+        type === 'texture_2d_array' ||
+        type === 'texture_depth_2d_array' ||
+        type === 'texture_3d');
 }
 /**
  * The render-target V-flip for one texture binding, resolved once — the SINGLE source of truth every
@@ -22703,10 +22709,11 @@ function textureNeedsFlip(binding) {
  * sampled via `.sample()`.) `flip` is true only for a render-target-capable 2D / 2D-depth texture that
  * isn't a storage mirror; the wrappers emit the same `_flipY2f`/`_flipY2i`/`_flipYd` the renderer gates
  * at runtime via `u_flipY_<id>` (= isRenderTargetTexture), so they are no-ops for ordinary textures.
- * (2D-array render targets are not flipped yet — an unexercised path; see generateArrayTexture.)
+ * A 3D texture's coordinates have three components, so it takes the `_flipY3*` forms.
  */
 function textureFlip(ctx, binding) {
     const flip = textureNeedsFlip(binding) && !isStorageMirrorTexture(ctx, binding.textureId);
+    const n = binding.type.type === 'texture_3d' ? 3 : 2;
     const name = flipUniformName$1(textureShaderName$1(ctx, binding));
     const wrap = (fn, ...args) => {
         ctx.flipYTextures.add(binding.textureId);
@@ -22716,11 +22723,11 @@ function textureFlip(ctx, binding) {
     return {
         flip,
         /** Normalized uv → `1 - v`. */
-        uv: (uvExpr) => (flip ? wrap('_flipY2f', uvExpr) : uvExpr),
+        uv: (uvExpr) => (flip ? wrap(`_flipY${n}f`, uvExpr) : uvExpr),
         /** Integer texelFetch coord → `h - y - 1`; caller passes the sampled-level height expression. */
-        texel: (coordExpr, heightExpr) => (flip ? wrap('_flipY2i', coordExpr, heightExpr) : coordExpr),
+        texel: (coordExpr, heightExpr) => (flip ? wrap(`_flipY${n}i`, coordExpr, heightExpr) : coordExpr),
         /** A grad derivative's Y is negated under an active flip (`v → 1-v` flips `dv/dscreen`). */
-        grad: (gradExpr) => (flip ? wrap('_flipYd', gradExpr) : gradExpr),
+        grad: (gradExpr) => (flip ? wrap(n === 3 ? '_flipY3d' : '_flipYd', gradExpr) : gradExpr),
     };
 }
 /**
@@ -22900,19 +22907,21 @@ function generateArrayTexture$1(ctx, node) {
     const binding = node.bindingNode;
     const id = binding.textureId;
     const layer = generateExpr$1(ctx, node.layerNode);
+    // a layer of a render target was rendered bottom-up, as a 2D target is, so its uv flips the same way
+    const f = textureFlip(ctx, binding);
     if (node.samplingMode === 'load') {
         if (!node.loadCoords)
             throw new Error(`[glsl] ArrayTextureNode '${id}' in load mode has no loadCoords`);
         const name = registerTexture(ctx, binding, null);
-        const coords = generateExpr$1(ctx, node.loadCoords);
+        const coords = texelCoord(ctx, node.loadCoords);
         const level = node.loadLevel ? generateExpr$1(ctx, node.loadLevel) : '0';
         // GLSL 2D-array texelFetch takes an ivec3 (uv, layer).
-        return `texelFetch(${name}, ivec3(ivec2(${coords}), ${layer}), ${level})`;
+        return `texelFetch(${name}, ivec3(${f.texel(coords, `textureSize(${name}, ${level}).y`)}, ${layer}), ${level})`;
     }
     const name = registerTexture(ctx, binding, ensureSampler(node));
     if (!node.uvNode)
         throw new Error(`[glsl] ArrayTextureNode '${id}' has no uvNode. Use array.sample(uv).`);
-    const uv = generateExpr$1(ctx, node.uvNode);
+    const uv = f.uv(generateExpr$1(ctx, node.uvNode));
     if (node.offsetNode)
         throw new Error(`[glsl] array texture sampling offset not yet supported in the GLSL emitter`);
     // GLSL folds the array layer into the coordinate: vec3(uv, layer).
@@ -22921,8 +22930,8 @@ function generateArrayTexture$1(ctx, node) {
         case 'grad': {
             if (!node.gradNode)
                 throw new Error(`[glsl] ArrayTextureNode '${id}' in grad mode has no gradNode`);
-            const ddx = generateExpr$1(ctx, node.gradNode[0]);
-            const ddy = generateExpr$1(ctx, node.gradNode[1]);
+            const ddx = f.grad(generateExpr$1(ctx, node.gradNode[0]));
+            const ddy = f.grad(generateExpr$1(ctx, node.gradNode[1]));
             return `textureGrad(${name}, ${coord}, ${ddx}, ${ddy})`;
         }
         case 'bias': {
@@ -23153,11 +23162,13 @@ function emitGlslTextures(ctx) {
         _flipY2f: 'vec2 _flipY2f(bool f, vec2 uv) { return f ? vec2(uv.x, 1.0 - uv.y) : uv; }', // uv → 1 - v
         _flipY2i: 'ivec2 _flipY2i(bool f, ivec2 c, int h) { return f ? ivec2(c.x, h - c.y - 1) : c; }', // texel → h-y-1
         _flipYd: 'vec2 _flipYd(bool f, vec2 g) { return f ? vec2(g.x, -g.y) : g; }', // grad Y sign under flip
+        // the same for a 3D texture, whose third component is its slice
+        _flipY3f: 'vec3 _flipY3f(bool f, vec3 uv) { return f ? vec3(uv.x, 1.0 - uv.y, uv.z) : uv; }',
+        _flipY3i: 'ivec3 _flipY3i(bool f, ivec3 c, int h) { return f ? ivec3(c.x, h - c.y - 1, c.z) : c; }',
+        _flipY3d: 'vec3 _flipY3d(bool f, vec3 g) { return f ? vec3(g.x, -g.y, g.z) : g; }',
     };
     // Fixed key order for deterministic output regardless of reference order.
-    const flipHelpers = ['_flipY2f', '_flipY2i', '_flipYd']
-        .filter((fn) => ctx.flipHelperFns.has(fn))
-        .map((fn) => flipHelperDefs[fn]);
+    const flipHelpers = FLIP_HELPER_NAMES.filter((fn) => ctx.flipHelperFns.has(fn)).map((fn) => flipHelperDefs[fn]);
     return { glsl: [...precisionDefaults, ...lines, ...flipHelpers].join('\n'), textures, samplers };
 }
 /* statement generation
@@ -42297,17 +42308,17 @@ function disposeTextureCache(gl, state) {
 
 /**
  * `copyTexture` for WebGL2: the source level and layer attach to a read framebuffer, and
- * `copyTexSubImage` reads the box out of it into the destination. A 2D render-target texture is
- * rendered bottom-up while every other texture holds row 0 at the top, so between one of each the
- * rows go across one at a time, reversed.
+ * `copyTexSubImage` reads the box out of it into the destination. A render-target texture is rendered
+ * bottom-up, a 2D-array layer or 3D slice as much as a 2D target, while every other texture (and a cube
+ * face) holds row 0 at the top, so between one of each the rows go across one at a time, reversed.
  */
 function copyTextureRegion$1(gl, state, source, region, destination, origin) {
     const from = updateTexture(gl, state, source);
     const to = updateTexture(gl, state, destination);
     const fromHeight = Math.max(1, source.height >> region.level);
     const toHeight = Math.max(1, destination.height >> origin.level);
-    const fromBottomUp = source.isRenderTargetTexture && from.target === gl.TEXTURE_2D;
-    const toBottomUp = destination.isRenderTargetTexture && to.target === gl.TEXTURE_2D;
+    const fromBottomUp = source.isRenderTargetTexture && from.target !== gl.TEXTURE_CUBE_MAP;
+    const toBottomUp = destination.isRenderTargetTexture && to.target !== gl.TEXTURE_CUBE_MAP;
     /** the GL row a top-down row of `height` rows is stored at. */
     const glRow = (row, rows, height, bottomUp) => (bottomUp ? height - row - rows : row);
     withCopyFramebuffer(gl, state, () => {
