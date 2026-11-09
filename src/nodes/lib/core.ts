@@ -476,7 +476,7 @@ export class Node<D extends Any> {
     length(): Node<d.f32> {
         return length(this);
     }
-    dot(b: Node<D>): Node<d.f32> {
+    dot(b: Node<D>): Node<VecElementDesc<D>> {
         return dot(this, b);
     }
     cross(b: Node<D>): Node<D> {
@@ -1851,7 +1851,9 @@ export const div = <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB): N
     new BinaryOpNode('/', d.arithResultDesc(a.type, b.type), a, b) as unknown as Node<ArithResultDesc<NA['type'], NB['type']>>;
 export const mul = <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB): Node<MulResultDesc<NA['type'], NB['type']>> =>
     new BinaryOpNode('*', d.mulResultDesc(a.type, b.type), a, b) as unknown as Node<MulResultDesc<NA['type'], NB['type']>>;
-export const dot = (a: Node<Any>, b: Node<Any>): Node<d.f32> => new CallNode(d.f32, 'dot', [a, b]);
+/** The dot product, in the vectors' element type: WGSL's `dot` of two `vec3i` is an `i32`. */
+export const dot = <D extends Any>(a: Node<D>, b: Node<D>): Node<VecElementDesc<D>> =>
+    new CallNode(d.vecElementDescOrSelf(a.type), 'dot', [a, b]) as unknown as Node<VecElementDesc<D>>;
 export const cross = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'cross', [a, b]);
 export const normalize = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'normalize', [a]);
 export const length = (a: Node<Any>): Node<d.f32> => new CallNode(d.f32, 'length', [a]);

@@ -21,6 +21,7 @@ import {
     Discard,
     d,
     depthTexture,
+    dot,
     dpdx,
     dpdy,
     drawScene,
@@ -51,6 +52,10 @@ import {
     mul,
     type Node,
     PerspectiveCamera,
+    pack2x16snorm,
+    pack2x16unorm,
+    pack4x8snorm,
+    pack4x8unorm,
     type RenderTarget,
     read,
     readBuffer,
@@ -207,6 +212,49 @@ async function caseUniform(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
 
     const pixel = centerPixel(await read(gpu, target));
     return { name: 'uniform', pixel, expected: [0, 255, 0, 255] };
+}
+
+/**
+ * pack-and-integer-builtins: the normalized packs round as WGSL's floor(0.5 + scale * x), pack4x8 has a GLSL form,
+ * and abs of a u32 and dot of integer vectors work on both backends. Green when every result matches WGSL's.
+ */
+async function casePackAndIntegerBuiltins(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const zf = uniform(f32(0), 'zf');
+    const zi = uniform(i32(0), 'zi');
+    const zu = uniform(u32(0), 'zu');
+    // each input meets a runtime zero, so the packs run on the GPU rather than folding
+    const at = (...v: number[]) => v.map((x) => zf.add(f32(x)));
+    const [a, b, c, e] = at(0.5, 1, 0, 0.25);
+    const [sa, sb, sc, se] = at(-0.6, 1, -1, 0);
+    const checks = [
+        pack4x8unorm(vec4(a, b, c, e)).equal(u32(0x4000ff80)),
+        pack4x8snorm(vec4(sa, sb, sc, se)).equal(u32(0x00817fb4)),
+        pack2x16unorm(vec2f(zf.add(f32(0.5)), zf.add(f32(1)))).equal(u32(0xffff8000)),
+        // no exact ties: on one, Dawn's Metal rounds snorm away from the WGSL spec's floor(0.5 + scale * x)
+        pack2x16snorm(vec2f(zf.add(f32(-0.3)), zf.add(f32(0.5)))).equal(u32(0x4000d99a)),
+        zu.add(u32(5)).abs().equal(u32(5)),
+        dot(vec3i(zi.add(i32(1)), i32(2), i32(-3)), vec3i(i32(4), zi.add(i32(5)), i32(6))).equal(i32(-4)),
+    ];
+    const fragment = select(
+        vec4(1, 0, 0, 1),
+        vec4(0, 1, 0, 1),
+        checks.reduce((x, y) => x.and(y)),
+    );
+    const mesh = new Mesh(
+        fullscreenTriangle(),
+        new Material({ vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment, depthTest: false }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const pass = f.pass({ target: target, clear: [0, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixel = centerPixel(await read(gpu, target));
+    return { name: 'pack-and-integer-builtins', pixel, expected: [0, 255, 0, 255], note: 'red: a result differs from WGSL' };
 }
 
 /**
@@ -3841,6 +3889,7 @@ const CASES: Record<string, Case> = {
     'float-remainder': caseFloatRemainder,
     'integer-division': caseIntegerDivision,
     'derivative-orientation': caseDerivativeOrientation,
+    'pack-and-integer-builtins': casePackAndIntegerBuiltins,
     'named-parameters': caseNamedParameters,
     scene: caseScene,
     'clear-ignores-scissor': caseClearIgnoresScissor,

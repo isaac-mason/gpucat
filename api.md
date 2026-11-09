@@ -67,7 +67,7 @@ export class Node<D extends Any> {
     negate(): Node<D>;
     normalize(): Node<D>;
     length(): Node<d.f32>;
-    dot(b: Node<D>): Node<d.f32>;
+    dot(b: Node<D>): Node<VecElementDesc<D>>;
     cross(b: Node<D>): Node<D>;
     pow(b: Node<D>): Node<D>;
     max(b: Node<D>): Node<D>;
@@ -2150,7 +2150,8 @@ export const div: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => 
 #### `dot`
 
 ```ts
-export const dot: (a: Node<Any>, b: Node<Any>) => Node<d.f32>;
+/** The dot product, in the vectors' element type: WGSL's `dot` of two `vec3i` is an `i32`. */
+export const dot: <D extends Any>(a: Node<D>, b: Node<D>) => Node<VecElementDesc<D>>;
 ```
 
 #### `dpdx`

@@ -1276,8 +1276,18 @@ function generateCall(ctx: GlslBuildContext, node: CallNode<d.Any>): string {
     // NOT the 4×8 family — those are emulated with shift/mask. Component 0 is in the LOW bits,
     // matching the CPU encode (pack.ts `packedWriteExpr`).
     if (node.fn === 'pack2x16float') return `packHalf2x16(${args[0]})`;
-    if (node.fn === 'pack2x16unorm') return `packUnorm2x16(${args[0]})`;
-    if (node.fn === 'pack2x16snorm') return `packSnorm2x16(${args[0]})`;
+    // WGSL rounds a normalized pack as floor(0.5 + scale * x); GLSL's packUnorm/packSnorm round() leaves ties to the
+    // implementation, and SwiftShader packs -1.5/32767 as -2, not -1. pack4x8 has no GLSL ES 3.00 form at all.
+    if (node.fn in PACK_HELPERS) {
+        ctx.arithHelpers.add(`_${node.fn}`);
+        return `_${node.fn}(${args[0]})`;
+    }
+    // abs of an unsigned value is the value; GLSL has no abs(uint)
+    if (node.fn === 'abs' && 'scalar' in node.type && node.type.scalar === 'u32') return `(${args[0]})`;
+    // GLSL's dot is float-only; WGSL's takes integer vectors too
+    if (node.fn === 'dot' && 'scalar' in node.type && (node.type.scalar === 'i32' || node.type.scalar === 'u32')) {
+        return arithHelperCall(ctx, '_dot', node, args[0]!, args[1]!);
+    }
     if (node.fn === 'unpack2x16float') return `unpackHalf2x16(${args[0]})`;
     if (node.fn === 'unpack2x16unorm') return `unpackUnorm2x16(${args[0]})`;
     if (node.fn === 'unpack2x16snorm') return `unpackSnorm2x16(${args[0]})`;
@@ -1414,9 +1424,16 @@ export function emitGlslBitHelpers(ctx: GlslBuildContext): string {
 }
 
 /** A call to the `fn` overload for `node`'s operand types, recorded so the stage defines it. */
-function arithHelperCall(ctx: GlslBuildContext, fn: string, node: BinaryOpNode<d.Any>, left: string, right: string): string {
+function arithHelperCall(
+    ctx: GlslBuildContext,
+    fn: string,
+    node: BinaryOpNode<d.Any> | CallNode<d.Any>,
+    left: string,
+    right: string,
+): string {
+    const [leftNode, rightNode] = 'left' in node ? [node.left, node.right] : [node.args[0]!, node.args[1]!];
     const result = glslType(node.type);
-    const key = `${fn}:${result}:${glslType(node.left.type)}:${glslType(node.right.type)}`;
+    const key = `${fn}:${result}:${glslType(leftNode.type)}:${glslType(rightNode.type)}`;
     ctx.arithHelpers.add(key);
     // an integer vector overload calls its scalar overload per component
     if (fn !== '_rem' && result.includes('vec'))
@@ -1431,6 +1448,22 @@ function scalarOf(glsl: string): string {
     if (glsl.startsWith('vec')) return 'float';
     return glsl;
 }
+
+/** WGSL's normalized packs, component 0 in the low bits: unorm as u32(0.5 + scale * clamp(x, 0, 1)), snorm as the
+ *  two's-complement bits of i32(floor(0.5 + scale * clamp(x, -1, 1))). */
+const PACK_HELPERS: Record<string, string> = {
+    pack4x8unorm:
+        'uint _pack4x8unorm(vec4 e) { uvec4 b = uvec4(0.5 + 255.0 * clamp(e, 0.0, 1.0)); ' +
+        'return b.x | (b.y << 8u) | (b.z << 16u) | (b.w << 24u); }',
+    pack4x8snorm:
+        'uint _pack4x8snorm(vec4 e) { uvec4 b = uvec4(ivec4(floor(0.5 + 127.0 * clamp(e, -1.0, 1.0)))) & 0xFFu; ' +
+        'return b.x | (b.y << 8u) | (b.z << 16u) | (b.w << 24u); }',
+    pack2x16unorm:
+        'uint _pack2x16unorm(vec2 e) { uvec2 b = uvec2(0.5 + 65535.0 * clamp(e, 0.0, 1.0)); return b.x | (b.y << 16u); }',
+    pack2x16snorm:
+        'uint _pack2x16snorm(vec2 e) { uvec2 b = uvec2(ivec2(floor(0.5 + 32767.0 * clamp(e, -1.0, 1.0)))) & 0xFFFFu; ' +
+        'return b.x | (b.y << 16u); }',
+};
 
 /** WGSL integer division and remainder per scalar; a vector overload applies them per component. */
 const INT_ARITH_BODIES: Record<string, string> = {
@@ -1448,8 +1481,14 @@ const INT_ARITH_BODIES: Record<string, string> = {
  * the integer ones are {@link INT_ARITH_BODIES}.
  */
 function arithHelperDef(key: string): string {
+    if (!key.includes(':')) return PACK_HELPERS[key.slice(1)]!;
     const [fn, result, left, right] = key.split(':') as [string, string, string, string];
     if (fn === '_rem') return `${result} _rem(${left} x, ${right} y) { return x - y * trunc(x / y); }`;
+    if (fn === '_dot') {
+        const width = Number(left.slice(-1));
+        const terms = ['x', 'y', 'z', 'w'].slice(0, width).map((c) => `a.${c} * b.${c}`);
+        return `${result} _dot(${left} a, ${right} b) { return ${terms.join(' + ')}; }`;
+    }
     if (!result.includes('vec')) return `${result} ${fn}(${left} a, ${right} b) { ${INT_ARITH_BODIES[fn]} }`;
     const width = Number(result.slice(-1));
     const at = (type: string, name: string, c: string) => (type.includes('vec') ? `${name}.${c}` : name);

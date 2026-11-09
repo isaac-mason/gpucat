@@ -9,6 +9,7 @@ export const CASE_NAMES = [
     'float-remainder',
     'integer-division',
     'derivative-orientation',
+    'pack-and-integer-builtins',
     'named-parameters',
     'scene',
     'clear-ignores-scissor',
