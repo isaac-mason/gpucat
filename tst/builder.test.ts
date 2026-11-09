@@ -389,7 +389,7 @@ describe('compute builtins', () => {
         const fn = Fn(() => {
             // Use globalId.x in an expression to trigger builtin inclusion
             const idx = globalId.x.toVar('idx');
-            idx.assign(idx.add(i32(1)));
+            idx.assign(idx.add(1));
         });
 
         const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
@@ -402,7 +402,7 @@ describe('compute builtins', () => {
         const fn = Fn(() => {
             // Use computeIndex in an expression to trigger builtin inclusion
             const idx = computeIndex.toVar('idx');
-            idx.assign(idx.add(i32(1)));
+            idx.assign(idx.add(1));
         });
 
         const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));

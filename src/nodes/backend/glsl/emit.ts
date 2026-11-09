@@ -167,19 +167,6 @@ function glslCtorFor(len: 1 | 2 | 3 | 4, scalar: 'f32' | 'i32' | 'u32' | 'bool')
 }
 
 /**
- * Wrap an operand expression in a component-kind conversion if it differs from `target`, preserving the
- * operand's own vector length (so `vec3f * i32` coerces the scalar to `float`, not to `vec3`). Returns
- * the expression unchanged when kinds already match or the operand is not a plain scalar/vector.
- */
-function coerceOperandScalar(node: Node<d.Any>, expr: string, target: 'f32' | 'i32' | 'u32'): string {
-    const kind = glslScalarKind(node.type);
-    if (kind === null || kind === target) return expr;
-    const len = glslVecLen(node.type);
-    if (len === null) return expr;
-    return `${glslCtorFor(len, target)}(${expr})`;
-}
-
-/**
  * Interpolation qualifier for a GLSL varying declaration, derived from the same `interpolationType` /
  * `interpolationSampling` the WGSL emitter reads. Returns a leading-space qualifier ('flat ' /
  * 'centroid ') or '' for the perspective-correct default. The SAME qualifier must be emitted on the
@@ -627,30 +614,12 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
             expr = generateBuiltin(ctx, node);
             break;
         case NodeKind.BinaryOp: {
-            let left = generateExpr(ctx, node.left);
-            let right = generateExpr(ctx, node.right);
-            let leftPrec = emittedPrec(ctx, node.left);
-            let rightPrec = emittedPrec(ctx, node.right);
-            // Operand coercion: GLSL ES 3.00 has no implicit numeric conversions, so a mixed-kind binary
-            // op (int with uint, int/uint with float) is a hard compile error unless one side is wrapped
-            // in an explicit conversion. Shifts are exempt — GLSL allows a differing-kind shift amount —
-            // and comparisons/arithmetic coerce to the common kind (float wins; else the result kind).
-            const leftKind = glslScalarKind(node.left.type);
-            const rightKind = glslScalarKind(node.right.type);
+            // the operands share a kind, as the node builders insist, so none needs converting
+            const left = generateExpr(ctx, node.left);
+            const right = generateExpr(ctx, node.right);
+            const leftPrec = emittedPrec(ctx, node.left);
+            const rightPrec = emittedPrec(ctx, node.right);
             const isShift = node.op === '<<' || node.op === '>>';
-            if (!isShift && leftKind && rightKind && leftKind !== rightKind && leftKind !== 'bool' && rightKind !== 'bool') {
-                const target =
-                    leftKind === 'f32' || rightKind === 'f32'
-                        ? 'f32'
-                        : ((glslScalarKind(node.type) as 'i32' | 'u32' | null) ?? 'i32');
-                const rawLeft = left;
-                const rawRight = right;
-                left = coerceOperandScalar(node.left, left, target);
-                right = coerceOperandScalar(node.right, right, target);
-                // A coerced operand is now a conversion constructor, which never needs parens.
-                if (left !== rawLeft) leftPrec = Prec.Postfix;
-                if (right !== rawRight) rightPrec = Prec.Postfix;
-            }
             // Componentwise vector comparisons: GLSL ES rejects the relational/equality OPERATORS on
             // vectors and instead provides built-in functions returning a bvec. Detect via the result
             // type being a bool vector (`vecN<bool>`); scalar comparisons keep the operator.

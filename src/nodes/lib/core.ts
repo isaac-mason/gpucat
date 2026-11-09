@@ -1933,6 +1933,78 @@ function literalOf(v: Literal, elem: Any, op: string): LiteralNode<Any> {
     return new LiteralNode(elem, v);
 }
 
+/** `nodes`, which must share one type: WGSL converts none of them, so gpucat doesn't either. */
+function assertSameType(op: string, nodes: Node<Any>[]): Node<Any>[] {
+    const t = nodes[0]!.type.wgslType;
+    const other = nodes.find((n) => n.type.wgslType !== t);
+    if (other !== undefined) throw new Error(`[gpucat] ${op}: ${mismatch(nodes[0]!.type, other.type)}`);
+    return nodes;
+}
+
+/** why `a` can't meet `b`, and the conversion to write when one would do */
+function mismatch(a: Any, b: Any): string {
+    const [ta, tb] = [a.wgslType, b.wgslType];
+    const lenOf = (t: Any) => (d.isMatDesc(t) ? 0 : 'len' in t ? t.len : -1);
+    const numeric = (t: Any) => 'scalar' in t && t.scalar !== 'bool';
+    const hint =
+        numeric(a) && numeric(b) && lenOf(a) === lenOf(b) && lenOf(a) > 0 ? `; convert one, with ${ta}(…) or ${tb}(…)` : '';
+    return `${aType(ta)} meets only ${aType(ta)}, not ${aType(tb)}${hint}`;
+}
+
+/** The type of `l op r` for `+ - / %`, or for `*` with `matrices`, as WGSL types it, throwing where WGSL rejects it:
+ *  both sides of one element type, and a scalar beside a vector the only mix of shapes. */
+function arithResult(op: string, l: Node<Any>, r: Node<Any>, matrices: boolean): Any {
+    const [a, b] = [l.type, r.type];
+    const scalarOf = (t: Any) => ('scalar' in t ? t.scalar : undefined);
+    const fail = (why = mismatch(a, b)): never => {
+        throw new Error(`[gpucat] ${op}: ${why}`);
+    };
+    if (scalarOf(a) === undefined || scalarOf(a) === 'bool' || scalarOf(b) === undefined || scalarOf(b) === 'bool') {
+        fail(`takes numbers, not ${aType(scalarOf(a) === undefined || scalarOf(a) === 'bool' ? a.wgslType : b.wgslType)}`);
+    }
+    if (scalarOf(a) !== scalarOf(b)) fail();
+    const ma = d.isMatDesc(a);
+    const mb = d.isMatDesc(b);
+    const lenOf = (t: Any) => ('len' in t ? t.len : 1);
+    if (ma || mb) {
+        if (!matrices) return a.wgslType === b.wgslType && op !== 'div' && op !== 'mod' ? a : fail();
+        // matCxR: C columns of R rows
+        const shape = (t: Any) =>
+            t.wgslType
+                .match(/^mat(\d)x(\d)/)!
+                .slice(1)
+                .map(Number) as [cols: number, rows: number];
+        const suffix = a.wgslType.endsWith('h') || b.wgslType.endsWith('h') ? 'h' : 'f';
+        const vecOf = (len: number) => d.numericDescOf({ len } as Any, scalarOf(a) as 'f32' | 'f16');
+        if (ma && mb) {
+            const [[ac, ar], [bc, br]] = [shape(a), shape(b)];
+            if (ac !== br) fail(`${a.wgslType} * ${b.wgslType} needs as many columns on the left as rows on the right`);
+            return (d as unknown as Record<string, Any>)[`mat${bc}x${ar}${suffix}`]!;
+        }
+        if (ma) {
+            if (lenOf(b) === 1) return a;
+            const [cols, rows] = shape(a);
+            if (cols !== lenOf(b)) fail(`${a.wgslType} * ${b.wgslType} needs a vec${cols}`);
+            return vecOf(rows);
+        }
+        if (lenOf(a) === 1) return b;
+        const [cols, rows] = shape(b);
+        if (lenOf(a) !== rows) fail(`${a.wgslType} * ${b.wgslType} needs a vec${rows} on the left`);
+        return vecOf(cols);
+    }
+    if (lenOf(a) === 1) return b;
+    if (lenOf(b) === 1 || lenOf(a) === lenOf(b)) return a;
+    return fail();
+}
+
+/** A factor node beside values of type `of`: of their element type, or, `orSame`, of their own type too. */
+function factorOperand(op: string, of: Any, t: Node<Any>, orSame: boolean): Node<Any> {
+    const element = scalarElementOf(of, op).wgslType;
+    if (t.type.wgslType === element || (orSame && t.type.wgslType === of.wgslType)) return t;
+    const want = orSame && element !== of.wgslType ? `${aType(element)} or ${aType(of.wgslType)}` : aType(element);
+    throw new Error(`[gpucat] ${op}: the factor beside ${aType(of.wgslType)} is ${want}, not ${aType(t.type.wgslType)}`);
+}
+
 /** Both sides of `+ - * / %` as nodes. A number takes the element type of the node on the other side, as a scalar,
  *  which WGSL accepts beside a vector, and for `*` beside a matrix. */
 function arithOperands(op: string, a: Operand, b: Operand, matrices: boolean): [Node<Any>, Node<Any>] {
@@ -1953,7 +2025,7 @@ function arithOperands(op: string, a: Operand, b: Operand, matrices: boolean): [
 /** Values that must share one type, as nodes. A number takes the type of a node among them, which must be a scalar:
  *  WGSL widens a literal to no vector here. Booleans alone are a bool. */
 function sameTypeOperands(op: string, values: readonly Operand[]): Node<Any>[] {
-    if (values.every(isNode)) return values as Node<Any>[];
+    if (values.every(isNode)) return assertSameType(op, values as Node<Any>[]);
     const node = values.find(isNode);
     const type = node?.type ?? (values.every((v) => typeof v === 'boolean') ? d.bool : undefined);
     if (type === undefined) {
@@ -1970,7 +2042,12 @@ function sameTypeOperands(op: string, values: readonly Operand[]): Node<Any>[] {
 
 /** A condition as a node: a boolean is a bool literal. */
 function boolOperand(op: string, v: Node<Any> | boolean): Node<Any> {
-    if (isNode(v)) return v;
+    if (isNode(v)) {
+        if (!('scalar' in v.type) || v.type.scalar !== 'bool') {
+            throw new Error(`[gpucat] ${op}: takes a bool, not ${aType(v.type.wgslType)}; compare it to make one`);
+        }
+        return v;
+    }
     if (typeof v !== 'boolean') throw new Error(`[gpucat] ${op}: takes true, false or a bool node, not ${v}`);
     return new LiteralNode(d.bool, v ? 1 : 0);
 }
@@ -1978,13 +2055,21 @@ function boolOperand(op: string, v: Node<Any> | boolean): Node<Any> {
 /** A Var or Let's initial value: a boolean is a bool; a number names no type. */
 function initOperand(op: string, init: Node<Any> | boolean): Node<Any> {
     if (typeof init === 'number') throw new Error(`[gpucat] ${op}: ${init} names no type; write f32(${init}) (or i32/u32)`);
-    return boolOperand(op, init);
+    return isNode(init) ? init : boolOperand(op, init);
 }
 
 /** A shift amount as a node: a number is a u32, for an integer scalar. */
 function shiftOperand(op: string, a: Node<Any>, b: Node<Any> | number): Node<Any> {
     if (!isNode(a)) throw new Error(`[gpucat] ${op}: a number shifted names no type; write u32(${a}) or i32(${a})`);
-    if (isNode(b)) return b;
+    const scalar = 'scalar' in a.type ? a.type.scalar : undefined;
+    if (scalar !== 'i32' && scalar !== 'u32') throw new Error(`[gpucat] ${op}: shifts an integer, not ${aType(a.type.wgslType)}`);
+    if (isNode(b)) {
+        const want = d.numericDescOf(a.type, 'u32').wgslType;
+        if (b.type.wgslType !== want) {
+            throw new Error(`[gpucat] ${op}: ${aType(a.type.wgslType)} shifts by ${aType(want)}, not ${aType(b.type.wgslType)}`);
+        }
+        return b;
+    }
     if ('len' in a.type && a.type.len > 1) {
         throw new Error(`[gpucat] ${op}: ${aType(a.type.wgslType)} shifts by a vec${a.type.len}u; write vec${a.type.len}u(${b})`);
     }
@@ -2051,16 +2136,18 @@ const arith =
     (op: BinaryOp, name: string): Arith =>
     (a: Operand, b: Operand) => {
         const [l, r] = arithOperands(name, a, b, false);
+        const type = arithResult(name, l, r, false);
         assertConstantBinary(name, op, l, r);
-        return new BinaryOpNode(op, d.arithResultDesc(l.type, r.type), l, r) as never;
+        return new BinaryOpNode(op, type, l, r) as never;
     };
 export const add: Arith = /*@__PURE__*/ arith('+', 'add');
 export const sub: Arith = /*@__PURE__*/ arith('-', 'sub');
 export const div: Arith = /*@__PURE__*/ arith('/', 'div');
 export const mul: Mul = (a: Operand, b: Operand) => {
     const [l, r] = arithOperands('mul', a, b, true);
+    const type = arithResult('mul', l, r, true);
     assertConstantBinary('mul', '*', l, r);
-    return new BinaryOpNode('*', d.mulResultDesc(l.type, r.type), l, r) as never;
+    return new BinaryOpNode('*', type, l, r) as never;
 };
 /** The dot product, in the vectors' element type: WGSL's `dot` of two `vec3i` is an `i32`. */
 export const dot = <D extends Any>(a: Node<D>, b: Node<D>): Node<VecElementDesc<D>> =>
@@ -2133,7 +2220,12 @@ export const saturate = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.t
 export const reflect = <D extends Any>(i: Node<D>, n: Node<D>): Node<D> => new CallNode(i.type, 'reflect', [i, n]);
 /** The incident direction `i` refracted through the surface normal `n` at the ratio of indices `eta`. */
 export const refract = <D extends Any>(i: Node<D>, n: Node<D>, eta: Node<VecElementDesc<D>> | number): Node<D> =>
-    new CallNode(i.type, 'refract', [i, n, isNode(eta) ? eta : literalOf(eta, scalarElementOf(i.type, 'refract'), 'refract')]);
+    new CallNode(i.type, 'refract', [
+        ...assertSameType('refract', [i, n]),
+        isNode(eta)
+            ? factorOperand('refract', i.type, eta, false)
+            : literalOf(eta, scalarElementOf(i.type, 'refract'), 'refract'),
+    ]);
 /** `n` turned to face against `i`, judged by the reference normal `nref`: `dot(nref, i) < 0 ? n : -n`. WGSL: `faceForward`; GLSL: `faceforward`. */
 export const faceForward = <D extends Any>(n: Node<D>, i: Node<D>, nref: Node<D>): Node<D> =>
     new CallNode(n.type, 'faceForward', [n, i, nref]);
@@ -2174,7 +2266,7 @@ export const mix: Mix = (a: Operand, b: Operand, t: Operand): never => {
         return new CallNode(tt!.type, 'mix', [l!, r!, tt!]) as never;
     }
     const [l, r] = sameTypeOperands('mix', [a, b]) as [Node<Any>, Node<Any>];
-    const factor = isNode(t) ? t : literalOf(t, scalarElementOf(l.type, 'mix'), 'mix');
+    const factor = isNode(t) ? factorOperand('mix', l.type, t, true) : literalOf(t, scalarElementOf(l.type, 'mix'), 'mix');
     return new CallNode(l.type, 'mix', [l, r, factor]) as never;
 };
 export const step: SameType2 = /*@__PURE__*/ sameTypeCall('step');

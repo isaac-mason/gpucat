@@ -775,22 +775,6 @@ export const cases: Case[] = [
         },
     },
     {
-        // Mixed-kind binary operands. GLSL ES 3.00 has NO implicit numeric conversion, so `uint + int`
-        // and `int * float` are hard compile errors unless one operand is wrapped in a conversion. The
-        // emitter must coerce to the common kind (float wins; else the result kind). Pre-fix this failed
-        // to compile ("no matching overloaded operator").
-        name: 'mixed-kind binary operands (int/uint/float coercion)',
-        build: () => {
-            const a = u32(5).add(i32(3)); // uint + int → coerce int → uint
-            const b = i32(3).mul(f32(2.0)); // int * float → coerce int → float
-            return {
-                vertex: vec4(attribute('position', d.vec3f), f32(1)),
-                fragment: vec4(vec3(a.toF32().add(b)), f32(1)),
-                depth: undefined,
-            };
-        },
-    },
-    {
         // Componentwise select on an INTEGER vector. GLSL ES 3.00's bvec-selector `mix` overload exists
         // only for float genType (the int/uint/bool form is ES 3.20+), so an integer-vector select must
         // expand to a per-component ternary. Pre-fix this emitted `mix(ivec3, ivec3, bvec3)` → no match.

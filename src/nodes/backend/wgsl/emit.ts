@@ -414,14 +414,10 @@ function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
         // In the vertex stage a varying emits its SOURCE expression rather than a name.
         if (ctx.stage === 'vertex') prec = emittedPrec(ctx, node.node.node);
     } else if (node.kind === NodeKind.BinaryOp) {
-        const rawLeft = generateExpr(ctx, node.left);
-        const rawRight = generateExpr(ctx, node.right);
-        let leftPrec = emittedPrec(ctx, node.left);
-        let rightPrec = emittedPrec(ctx, node.right);
-        const [left, right] = coerceBinaryOperands(node, rawLeft, rawRight);
-        // A coerced operand has been wrapped in a conversion constructor, so it no longer needs parens.
-        if (left !== rawLeft) leftPrec = Prec.Postfix;
-        if (right !== rawRight) rightPrec = Prec.Postfix;
+        const left = generateExpr(ctx, node.left);
+        const right = generateExpr(ctx, node.right);
+        const leftPrec = emittedPrec(ctx, node.left);
+        const rightPrec = emittedPrec(ctx, node.right);
         prec = binaryPrec(node.op);
         const [leftMin, rightMin] = wgslBinaryOperandMin(prec);
         expr = `${paren(left, leftPrec, leftMin)} ${node.op} ${paren(right, rightPrec, rightMin)}`;
@@ -1409,12 +1405,7 @@ function generateModuleScopeInitExpr(rawNode: Node<d.Any>): string {
         const args = node.args.map((a) => generateModuleScopeInitExpr(a));
         return `${node.type.wgslType}(${args.join(', ')})`;
     } else if (node.kind === NodeKind.BinaryOp) {
-        const [left, right] = coerceBinaryOperands(
-            node,
-            generateModuleScopeInitExpr(node.left),
-            generateModuleScopeInitExpr(node.right),
-        );
-        return `(${left} ${node.op} ${right})`;
+        return `(${generateModuleScopeInitExpr(node.left)} ${node.op} ${generateModuleScopeInitExpr(node.right)})`;
     } else if (node.kind === NodeKind.Call) {
         // Only const-evaluable built-in functions are allowed
         const args = node.args.map((a) => generateModuleScopeInitExpr(a));
@@ -1856,37 +1847,6 @@ export function emitDslFunctions(ctx: BuildContext): string {
     }
 
     return lines.join('\n');
-}
-
-/**
- * Coerce a binary op's operands to a common scalar kind. WGSL forbids mixing scalar kinds in an operator
- * (`5u + 3i` is an error), so wrap the operand whose kind differs from the target in a length-preserving
- * conversion constructor (`u32(x)` / `vec3f(x)` …). Target = the op's result kind for arithmetic, or the
- * promoted operand kind for comparisons (which produce bool). Bool operands (logical ops) are left alone, and so
- * are shifts: their amount is always unsigned, whatever the value's kind.
- */
-function coerceBinaryOperands(
-    node: { op: string; left: Node<d.Any>; right: Node<d.Any>; type: d.Any },
-    left: string,
-    right: string,
-): [string, string] {
-    if (node.op === '<<' || node.op === '>>') return [left, right];
-    const lk = (node.left.type as { scalar?: string }).scalar;
-    const rk = (node.right.type as { scalar?: string }).scalar;
-    if (!lk || !rk || lk === rk || lk === 'bool' || rk === 'bool') return [left, right];
-
-    const resultKind = (node.type as { scalar?: string }).scalar;
-    let target: string | undefined;
-    if (resultKind && resultKind !== 'bool') target = resultKind;
-    else if (lk === 'f32' || rk === 'f32') target = 'f32';
-    else if (lk === 'f16' || rk === 'f16') target = 'f16';
-    else if (lk === 'u32' || rk === 'u32') target = 'u32';
-    else target = 'i32';
-    if (target !== 'f32' && target !== 'f16' && target !== 'u32' && target !== 'i32') return [left, right];
-
-    const conv = (kind: string, operandType: d.Any, expr: string) =>
-        kind === target ? expr : `${d.numericDescOf(operandType, target as 'f32' | 'f16' | 'u32' | 'i32').wgslType}(${expr})`;
-    return [conv(lk, node.left.type, left), conv(rk, node.right.type, right)];
 }
 
 /**
