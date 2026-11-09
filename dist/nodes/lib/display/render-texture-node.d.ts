@@ -17,6 +17,12 @@ export type RenderTextureOptions = {
     /** GPUTextureFormat for the color render target. Defaults to 'rgba16float'. */
     colorFormat?: GPUTextureFormat;
     /**
+     * Colour attachments by name, in @location order, made up front: `{ output: 'rgba16float', normal: 'rgba8unorm' }`.
+     * The names are what `setMRT`'s outputs and `getTextureNode(name)` key on, and naming one the pass lacks throws
+     * rather than adding it. In place of `colorFormat`. Without it, attachments are added as they are first asked for.
+     */
+    attachments?: Record<string, GPUTextureFormat>;
+    /**
      * Format for the depth attachment. Defaults to 'depth24plus'. Takes precedence
      * over `stencilBuffer`, so pass this when you want a specific depth precision
      * alongside a stencil aspect (e.g. 'depth32float-stencil8'). Mirrors
@@ -91,13 +97,17 @@ export declare class RenderTextureNode extends Node<d.vec4f> {
     setSize(width: number, height: number): void;
     /** Sets the pixel ratio for the pass's render target and updates the size. */
     setPixelRatio(pixelRatio: number): void;
-    /** Sets the given MRT node to setup MRT for this pass. */
+    /**
+     * Sets the MRT node this pass writes through. Without `attachments`, any output the pass has no attachment for gets
+     * one now, in the order the outputs are written, so the pass can render before each is read with `getTextureNode`.
+     * With `attachments`, an output the pass lacks throws when the pass renders.
+     */
     setMRT(mrt: MRTNode | null): this;
     /** Returns the current MRT node. */
     getMRT(): MRTNode | null;
     /**
-     * Returns the texture for the given output name.
-     * Creates a new texture slot if it doesn't exist.
+     * Returns the texture for the given output name. Without `attachments`, a name the pass lacks gets a new attachment,
+     * in the first one's format; with them, or for `'depth'` on a pass without depth, it throws, naming what there is.
      */
     getTexture(name: string): Texture;
     /**

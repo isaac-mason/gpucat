@@ -1,5 +1,6 @@
-import { mat4, type Vec3 } from 'math';
+import { type Mat4, type Vec3 } from 'math';
 import { Object3D } from '../core/object3d';
+import type { View } from '../renderer/core/view';
 import { CoordinateSystem } from '../core/coordinate-system';
 export declare class Camera extends Object3D {
     readonly isCamera = true;
@@ -12,14 +13,16 @@ export declare class Camera extends Object3D {
      * [0,1]); the renderer stamps its own convention on before rendering and rebuilds the projection.
      */
     coordinateSystem: CoordinateSystem;
-    projectionMatrix: mat4.Mat4;
-    matrixWorldInverse: mat4.Mat4;
+    projectionMatrix: Mat4;
+    matrixWorldInverse: Mat4;
     constructor();
     /** Recompute the projection matrix for the current `coordinateSystem`. Overridden by subclasses. */
     updateProjectionMatrix(): void;
     /** recompute the matrixWorldInverse from the current matrixWorld. */
     updateViewMatrix(): void;
 }
+/** World to clip space for `view`, `projectionMatrix * matrixWorldInverse`, written into `out`. */
+export declare function viewProjection(out: Mat4, view: View): Mat4;
 /**
  * Unproject a point from NDC (normalized device coordinates) to world space.
  * NDC: x,y in [-1, 1], z in the CANONICAL [0, 1] near→far convention (WebGPU) — backend-agnostic.

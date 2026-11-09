@@ -5,6 +5,11 @@ import { UniformNode } from './uniform';
 export declare const cameraProjectionMatrix: UniformNode<d.mat4x4f>;
 /** View (world-to-camera) matrix. In renderGroup. */
 export declare const cameraViewMatrix: UniformNode<d.mat4x4f>;
+/**
+ * World to clip space, `cameraProjectionMatrix * cameraViewMatrix`: one node for the pair a shadow lookup or a
+ * reprojection reaches for. Built from the two camera uniforms, so it adds no binding of its own.
+ */
+export declare const cameraViewProjectionMatrix: Node<d.mat4x4f>;
 export declare const cameraPosition: UniformNode<d.vec3f>;
 /** Camera near plane distance. In renderGroup. */
 export declare const cameraNear: UniformNode<d.f32>;

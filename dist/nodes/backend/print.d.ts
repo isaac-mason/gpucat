@@ -75,11 +75,25 @@ export type Section = {
  */
 export declare function joinSections(sections: Section[]): string;
 /**
- * Shortest decimal spelling that round-trips to the same f32 as `value`.
+ * A float literal both WGSL and GLSL ES 3.00 parse back to the same `type` value as `value` rounds to: the fewest
+ * significant digits that round-trip, always with a `.` in the mantissa (`2.0`, `0.083333336`, `1.0e+21`) and `-0.0`
+ * keeping its sign. A bare `1` or `1e21` would read as an integer in GLSL, which has no implicit conversion, and JS's own
+ * `1e+21` spelling with `.0` appended is no literal at all. Callers add any suffix (`h`).
  *
- * Shader float literals are parsed at f32, so printing a JavaScript number's full f64 decimal
- * expansion (`0.08333333333333333` for 1/12) adds 8 digits that the target cannot represent. This
- * finds the fewest significant digits that still land on the same f32 (`0.083333336`). Callers handle
- * whole numbers themselves — those already have a short exact form and a required `.0` suffix.
+ * Throws on NaN and ±Infinity, which no shader literal spells, and on a value that rounds past the type's largest finite
+ * value: printed at its shortest, even the f32 maximum overflows in some compilers, so the search checks each candidate.
  */
-export declare function shortestF32(value: number): string;
+export declare function floatLiteral(value: number, type?: 'f32' | 'f16'): string;
+/** An i32 literal's digits, for a value already whole and in range. The smallest i32 can't be written as `-` applied
+ *  to `2147483648`, which overflows first, so WGSL spells it as a conversion of the abstract integer. */
+export declare function i32LiteralWgsl(value: number): string;
+/** A u32 literal's digits, for a value already whole and in range. */
+export declare function u32Literal(value: number): string;
+/**
+ * A numeric scalar literal converted as WGSL converts it, for folding `u32(-1i)` and the like into one literal. Float to
+ * integer truncates and saturates, NaN giving 0; i32 and u32 reinterpret each other's bits; anything to a float is
+ * that number, rounded when printed. The JS value alone would print `-1u`, which neither language accepts.
+ */
+export declare function convertScalarLiteral(value: number, from: string, to: string): number;
+/** Whether a literal printed for `value` starts with a minus, binding as a unary expression. */
+export declare function isNegativeLiteral(value: number): boolean;

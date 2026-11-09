@@ -42,6 +42,13 @@ export type RenderTargetOptions = {
     /** Number of color attachments (MRT). Default: 1. */
     count?: number;
     /**
+     * Colour attachments by name, in @location order: `{ output: 'rgba8unorm', normal: 'rgba16float' }`. The names
+     * are what `mrt()` keys on, so the target is ready for it as made. In place of `count`, `colorFormats` and
+     * `colorFormat`. A name can't be `'depth'`, the depth attachment's, or look like an integer, which JS would list
+     * ahead of the others and so move to an earlier location than written.
+     */
+    attachments?: Record<string, GPUTextureFormat>;
+    /**
      * The attachments' dimension, as `GPUTextureDimension`. A `'3d'` target draws a pass into one depth slice of its
      * colour textures, and has no depth attachment, since depth formats cannot be 3D. Default `'2d'`.
      */
@@ -61,7 +68,6 @@ export type RenderTargetOptions = {
      */
     storage?: boolean;
 };
-/** A render target's colour attachment: a 2D texture, an array of them, a 3D texture, or a cube's faces. */
 export type RenderTargetTexture = Texture | ArrayTexture | Data3DTexture | CubeTexture;
 /**
  * A render target is a buffer where the video card draws pixels for a scene

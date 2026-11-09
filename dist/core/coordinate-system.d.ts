@@ -4,8 +4,9 @@
  *  - WEBGL: OpenGL clip space, NDC z in [-1, 1] (perspectiveNO / orthoNO).
  *  - WEBGPU: WebGPU/D3D/Metal clip space, NDC z in [0, 1] (perspectiveZO / orthoZO).
  *
- * X and Y are identical between the two. Each renderer stamps its convention onto the camera before
- * rendering (the webgpu backend -> WEBGPU, webgl -> WEBGL) so the same Camera classes drive both.
+ * X and Y are identical between the two. Both renderers stamp WEBGPU onto the camera before rendering: clip space is
+ * WGSL's everywhere, and the WebGL vertex stage remaps z to GL's range itself. WEBGL remains for a matrix meant for a
+ * GL pipeline outside gpucat.
  */
 export declare enum CoordinateSystem {
     WEBGL = 0,

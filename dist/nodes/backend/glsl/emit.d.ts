@@ -73,6 +73,8 @@ export type GlslBuildContext = {
     flipHelperFns: Set<string>;
     /** the bit helper overloads (`fn:type`) this stage called; see {@link emitGlslBitHelpers}. */
     bitHelpers: Set<string>;
+    /** the arithmetic helper overloads (`fn:result:left:right`, GLSL types) this stage called; see {@link arithHelperDef}. */
+    arithHelpers: Set<string>;
     storageMirrors: Map<number, StorageMirror>;
     /** Cache of storage-mirror data-texture ids (derived from `storageMirrors`), built once on first
      *  lookup. Storage mirrors are populated before emission and never change, so this is safe to memo. */
@@ -106,7 +108,7 @@ export type GlslBuildContext = {
     paramIds: Set<number>;
 };
 export declare function createGlslContext(stage: ShaderStage, discovery: Discovery): GlslBuildContext;
-/** the bit helper overloads this stage called, with what they call, ahead of the stage's functions. */
+/** the bit helper overloads this stage called (with what they call) and its `_rem` overloads, ahead of its functions. */
 export declare function emitGlslBitHelpers(ctx: GlslBuildContext): string;
 /**
  * Emit GLSL `struct <Name> { <type> <field>; … };` declarations for every struct discovered in the

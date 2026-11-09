@@ -115,7 +115,7 @@ export declare function layoutAlignOf(schema: Any, memLayout?: MemoryLayout): nu
 export declare function getCompiledLayout<D extends Any>(schema: D, memLayout?: MemoryLayout): CompiledLayout<Infer<D>>;
 /** Pack a value into a DataView. */
 export declare function packToView<D extends Any>(schema: D, view: DataView, offset: number, 
-/** A typed array is accepted because the generated writer indexes positionally, as a tuple does. */
+/** A typed array is a vector or matrix's components, or an array's, tightly packed: see {@link writeValue}. */
 value: Infer<D> | TypedArrayFor<D>, memLayout?: MemoryLayout): void;
 /** Unpack a value from a DataView. */
 export declare function unpackFromView<D extends Any>(schema: D, view: DataView, offset: number, memLayout?: MemoryLayout): Infer<D>;

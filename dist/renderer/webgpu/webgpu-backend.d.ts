@@ -95,7 +95,8 @@ export declare class WebGPUBackend implements DeviceBackend {
     private readonly _deviceProvided;
     private _frame;
     constructor(opts?: WebGPUBackendOptions);
-    /** Logs a validation error and keeps it for `takeValidationErrors`, the newest MAX_VALIDATION_ERRORS. @internal */
+    /** Logs a validation error, keeps it for `takeValidationErrors` (the newest MAX_VALIDATION_ERRORS), and hands it to
+     *  the renderer's `onValidationError`. @internal */
     _reportValidation(message: string): void;
     /** Opens a pass's or submit's error scope, with `validation: 'per-pass'`. @internal */
     _openValidationScope(): void;

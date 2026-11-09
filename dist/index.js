@@ -1778,8 +1778,9 @@ function createObject3D() {
  *  - WEBGL: OpenGL clip space, NDC z in [-1, 1] (perspectiveNO / orthoNO).
  *  - WEBGPU: WebGPU/D3D/Metal clip space, NDC z in [0, 1] (perspectiveZO / orthoZO).
  *
- * X and Y are identical between the two. Each renderer stamps its convention onto the camera before
- * rendering (the webgpu backend -> WEBGPU, webgl -> WEBGL) so the same Camera classes drive both.
+ * X and Y are identical between the two. Both renderers stamp WEBGPU onto the camera before rendering: clip space is
+ * WGSL's everywhere, and the WebGL vertex stage remaps z to GL's range itself. WEBGL remains for a matrix meant for a
+ * GL pipeline outside gpucat.
  */
 var CoordinateSystem;
 (function (CoordinateSystem) {
@@ -1815,6 +1816,10 @@ class Camera extends Object3D {
         }
     }
 }
+/** World to clip space for `view`, `projectionMatrix * matrixWorldInverse`, written into `out`. */
+function viewProjection(out, view) {
+    return multiply(out, view.projectionMatrix, view.matrixWorldInverse);
+}
 /**
  * Unproject a point from NDC (normalized device coordinates) to world space.
  * NDC: x,y in [-1, 1], z in the CANONICAL [0, 1] near→far convention (WebGPU) — backend-agnostic.
@@ -1825,8 +1830,7 @@ class Camera extends Object3D {
  * near plane and z=1 for the far plane regardless of backend.
  */
 function unproject(out, ndc, camera) {
-    multiply(_invViewProj, camera.projectionMatrix, camera.matrixWorldInverse);
-    invert(_invViewProj, _invViewProj);
+    invert(_invViewProj, viewProjection(_invViewProj, camera));
     _ndc[0] = ndc[0];
     _ndc[1] = ndc[1];
     _ndc[2] = camera.coordinateSystem === CoordinateSystem.WEBGL ? ndc[2] * 2 - 1 : ndc[2];
@@ -3738,6 +3742,8 @@ function itemSizeOf(desc) {
     throw new Error(`[gpucat] itemSizeOf: unsupported type '${t}'`);
 }
 function typedArrayCtorOf(desc) {
+    if (isSizedArrayDesc(desc))
+        return typedArrayCtorOf(desc.element);
     const t = desc.wgslType;
     if (t === 'i32' || t === 'vec2i' || t === 'vec3i' || t === 'vec4i')
         return Int32Array;
@@ -5875,6 +5881,28 @@ function createData3DTexture(data = null, width = 1, height = 1, depth = 1, opti
     return new Data3DTexture(data, width, height, depth, options);
 }
 
+/** A render target's colour attachment: a 2D texture, an array of them, a 3D texture, or a cube's faces. */
+/** `opts.attachments` as [name, format] pairs in location order, or null; throws on what it can't place */
+function namedAttachments(opts) {
+    if (opts.attachments === undefined)
+        return null;
+    const who = `[RenderTarget] ${opts.label ?? 'a target'}`;
+    for (const other of ['count', 'colorFormats', 'colorFormat']) {
+        if (opts[other] !== undefined)
+            throw new Error(`${who}: attachments names every colour attachment, so ${other} has no say; drop one`);
+    }
+    const entries = Object.entries(opts.attachments);
+    if (entries.length === 0)
+        throw new Error(`${who}: attachments is empty; give at least one, or depthBuffer alone for a depth-only target`);
+    for (const [name] of entries) {
+        if (name === 'depth')
+            throw new Error(`${who}: 'depth' is the depth attachment's name, not a colour attachment's`);
+        if (/^(0|[1-9]\d*)$/.test(name)) {
+            throw new Error(`${who}: attachment '${name}' looks like an integer, which JS orders ahead of the other names, moving its location; name it in words`);
+        }
+    }
+    return entries;
+}
 /**
  * A render target is a buffer where the video card draws pixels for a scene
  * that is being rendered in the background. It is used in different effects,
@@ -5952,16 +5980,18 @@ class RenderTarget {
         this.layers = opts.layers ?? 1;
         this.mipLevels = opts.mipLevelCount ?? 1;
         assertLayout(this, opts);
+        const named = namedAttachments(opts);
         const defaultFormat = opts.colorFormat ?? 'rgba16float';
-        const count = opts.count ?? opts.colorFormats?.length ?? 1;
+        const count = named?.length ?? opts.count ?? opts.colorFormats?.length ?? 1;
         if (opts.colorFormats !== undefined && opts.colorFormats.length !== count) {
             throw new Error(`[RenderTarget] ${opts.label ?? 'a target'}: ${opts.colorFormats.length} colorFormats for ${count} attachments`);
         }
         const mipLevelCount = this.mipLevelCount;
         this.textures = [];
         for (let i = 0; i < count; i++) {
-            const texture = createRenderTargetTexture(this, width, height, opts.colorFormats?.[i] ?? defaultFormat);
-            texture.name = i === 0 ? 'output' : `output${i}`;
+            const format = named?.[i][1] ?? opts.colorFormats?.[i] ?? defaultFormat;
+            const texture = createRenderTargetTexture(this, width, height, format);
+            texture.name = named?.[i][0] ?? (i === 0 ? 'output' : `output${i}`);
             texture._gpuTexture.renderTarget = this;
             texture._gpuTexture.mipLevelCount = mipLevelCount;
             this.textures.push(texture);
@@ -6235,6 +6265,49 @@ function getLayout(schema, memLayout) {
     }
     return layout;
 }
+const flatWriterCache = new WeakMap();
+/**
+ * Writes `value` as `schema`. A typed array for a sized array is a flat run of its components, element by element and
+ * matrices column by column, with no padding: the layout's own padding goes in as it is written, so the same array
+ * means the same values under every layout. The generated writer alone would read it as nested, `value[i][j]`, which
+ * is undefined (NaN) for an array of vectors or matrices.
+ */
+function writeValue(schema, view, offset, value, memLayout) {
+    if (!isSizedArrayDesc(schema) || !ArrayBuffer.isView(value)) {
+        getLayout(schema, memLayout).write(view, offset, value);
+        return;
+    }
+    const flat = getFlatWriter(schema, memLayout);
+    const length = value.length;
+    if (length !== flat.length) {
+        throw new Error(`[gpucat] pack: a typed array for ${schema.wgslType} holds its components tightly packed, ${flat.length} ` +
+            `of them, but has ${length}. Padding is added for the layout, so leave it out.`);
+    }
+    flat.write(view, offset, value);
+}
+function getFlatWriter(schema, memLayout) {
+    let byMemoryLayout = flatWriterCache.get(schema);
+    if (!byMemoryLayout) {
+        byMemoryLayout = new Map();
+        flatWriterCache.set(schema, byMemoryLayout);
+    }
+    let writer = byMemoryLayout.get(memLayout);
+    if (!writer) {
+        let leaf = schema;
+        while (isSizedArrayDesc(leaf))
+            leaf = leaf.element;
+        if (isStructDesc(leaf) || isPackedDesc(leaf) || isBitsDesc(leaf) || isAtomicDesc(leaf)) {
+            throw new Error(`[gpucat] pack: ${schema.wgslType} can't be written from a typed array, only an array of scalars, ` +
+                `vectors or matrices can. Pass its elements as an array.`);
+        }
+        const ctx = { memLayout, offset: 0, lines: [], flat: 0 };
+        emitWrites(ctx, schema, 'd');
+        const write = new Function('f16', `return function(v,o,d){${ctx.lines.join('')}}`)(f32ToF16Bits);
+        writer = { length: ctx.flat, write };
+        byMemoryLayout.set(memLayout, writer);
+    }
+    return writer;
+}
 function toDataView(src) {
     if (src instanceof ArrayBuffer) {
         return new DataView(src);
@@ -6249,9 +6322,8 @@ function toDataView(src) {
  * const f32 = new Float32Array(buf);
  */
 function pack(schema, value, memLayout = 'std430') {
-    const layout = getLayout(schema, memLayout);
-    const buf = new ArrayBuffer(layout.totalSize);
-    layout.write(new DataView(buf), 0, value);
+    const buf = new ArrayBuffer(layoutSizeOf(schema, memLayout));
+    writeValue(schema, new DataView(buf), 0, value, memLayout);
     return buf;
 }
 /**
@@ -6284,8 +6356,7 @@ function packArray(schema, items, memLayout = 'std430') {
  * packTo(Particle, buf, stride, particle2);
  */
 function packTo(schema, dest, offset, value, memLayout = 'std430') {
-    const layout = getLayout(schema, memLayout);
-    layout.write(toDataView(dest), offset, value);
+    writeValue(schema, toDataView(dest), offset, value, memLayout);
 }
 /**
  * Unpack a value from a buffer.
@@ -6360,10 +6431,9 @@ function layoutAlignOf(schema, memLayout = 'std430') {
 // Internal: DataView-based pack/unpack (used by bindings.ts)
 /** Pack a value into a DataView. */
 function packToView(schema, view, offset, 
-/** A typed array is accepted because the generated writer indexes positionally, as a tuple does. */
+/** A typed array is a vector or matrix's components, or an array's, tightly packed: see {@link writeValue}. */
 value, memLayout = 'std430') {
-    const layout = getLayout(schema, memLayout);
-    layout.write(view, offset, value);
+    writeValue(schema, view, offset, value, memLayout);
 }
 // Alignment and Size (address-space aware)
 function roundUp$1(n, align) {
@@ -6568,7 +6638,25 @@ function emitWrites(ctx, schema, accessor) {
     }
     else {
         emitPrimitiveWrite(ctx, schema, accessor);
+        if (ctx.flat !== undefined)
+            ctx.flat += componentCountOf(schema);
     }
+}
+/** The JS expression for component `i` of the value at `accessor` (the value itself for a scalar), read from the flat
+ *  run instead when writing one. */
+function at(ctx, accessor, i) {
+    if (ctx.flat !== undefined)
+        return `${accessor}[${ctx.flat + (i ?? 0)}]`;
+    return i === undefined ? accessor : `${accessor}[${i}]`;
+}
+/** How many numbers a scalar, vector or matrix is made of. */
+function componentCountOf(schema) {
+    const t = schema.wgslType;
+    const mat = t.match(/^mat(\d)x(\d)[fh]$/);
+    if (mat)
+        return Number(mat[1]) * Number(mat[2]);
+    const vec = t.match(/^vec(\d)/);
+    return vec ? Number(vec[1]) : 1;
 }
 function emitStructWrites(ctx, schema, accessor) {
     for (const [key, fieldSchema] of Object.entries(schema.fields)) {
@@ -6584,7 +6672,8 @@ function emitArrayWrites(ctx, schema, accessor) {
     const startOffset = ctx.offset;
     for (let i = 0; i < schema.length; i++) {
         ctx.offset = startOffset + i * stride;
-        emitWrites(ctx, schema.element, `${accessor}[${i}]`);
+        // a flat run is one array for every element, read on from where the last one stopped
+        emitWrites(ctx, schema.element, ctx.flat === undefined ? `${accessor}[${i}]` : accessor);
     }
     // Position after the array (accounts for tail padding of last element)
     ctx.offset = startOffset + schema.length * stride;
@@ -6653,109 +6742,109 @@ function emitPrimitiveWrite(ctx, schema, accessor) {
     }
     // Scalars
     if (t === 'f32') {
-        ctx.lines.push(`v.setFloat32(o+${off},${accessor},true);`);
+        ctx.lines.push(`v.setFloat32(o+${off},${at(ctx, accessor)},true);`);
         ctx.offset += 4;
         return;
     }
     if (t === 'i32') {
-        ctx.lines.push(`v.setInt32(o+${off},${accessor},true);`);
+        ctx.lines.push(`v.setInt32(o+${off},${at(ctx, accessor)},true);`);
         ctx.offset += 4;
         return;
     }
     if (t === 'u32' || t === 'bool') {
-        ctx.lines.push(`v.setUint32(o+${off},${accessor},true);`);
+        ctx.lines.push(`v.setUint32(o+${off},${at(ctx, accessor)},true);`);
         ctx.offset += 4;
         return;
     }
     if (t === 'f16') {
-        ctx.lines.push(`v.setUint16(o+${off},f16(${accessor}),true);`);
+        ctx.lines.push(`v.setUint16(o+${off},f16(${at(ctx, accessor)}),true);`);
         ctx.offset += 2;
         return;
     }
     // vec2
     if (t === 'vec2f') {
-        ctx.lines.push(`v.setFloat32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 4},${accessor}[1],true);`);
+        ctx.lines.push(`v.setFloat32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
         ctx.offset += 8;
         return;
     }
     if (t === 'vec2i') {
-        ctx.lines.push(`v.setInt32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 4},${accessor}[1],true);`);
+        ctx.lines.push(`v.setInt32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
         ctx.offset += 8;
         return;
     }
     if (t === 'vec2u' || t === 'vec2<bool>') {
-        ctx.lines.push(`v.setUint32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 4},${accessor}[1],true);`);
+        ctx.lines.push(`v.setUint32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
         ctx.offset += 8;
         return;
     }
     if (t === 'vec2h') {
-        ctx.lines.push(`v.setUint16(o+${off},f16(${accessor}[0]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${accessor}[1]),true);`);
+        ctx.lines.push(`v.setUint16(o+${off},f16(${at(ctx, accessor, 0)}),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${at(ctx, accessor, 1)}),true);`);
         ctx.offset += 4;
         return;
     }
     // vec3
     if (t === 'vec3f') {
-        ctx.lines.push(`v.setFloat32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 8},${accessor}[2],true);`);
+        ctx.lines.push(`v.setFloat32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 8},${at(ctx, accessor, 2)},true);`);
         ctx.offset += 12;
         return;
     }
     if (t === 'vec3i') {
-        ctx.lines.push(`v.setInt32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 8},${accessor}[2],true);`);
+        ctx.lines.push(`v.setInt32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 8},${at(ctx, accessor, 2)},true);`);
         ctx.offset += 12;
         return;
     }
     if (t === 'vec3u' || t === 'vec3<bool>') {
-        ctx.lines.push(`v.setUint32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 8},${accessor}[2],true);`);
+        ctx.lines.push(`v.setUint32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 8},${at(ctx, accessor, 2)},true);`);
         ctx.offset += 12;
         return;
     }
     if (t === 'vec3h') {
-        ctx.lines.push(`v.setUint16(o+${off},f16(${accessor}[0]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${accessor}[1]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 4},f16(${accessor}[2]),true);`);
+        ctx.lines.push(`v.setUint16(o+${off},f16(${at(ctx, accessor, 0)}),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${at(ctx, accessor, 1)}),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 4},f16(${at(ctx, accessor, 2)}),true);`);
         ctx.offset += 6;
         return;
     }
     // vec4
     if (t === 'vec4f') {
-        ctx.lines.push(`v.setFloat32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 8},${accessor}[2],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 12},${accessor}[3],true);`);
+        ctx.lines.push(`v.setFloat32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 8},${at(ctx, accessor, 2)},true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 12},${at(ctx, accessor, 3)},true);`);
         ctx.offset += 16;
         return;
     }
     if (t === 'vec4i') {
-        ctx.lines.push(`v.setInt32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 8},${accessor}[2],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 12},${accessor}[3],true);`);
+        ctx.lines.push(`v.setInt32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 8},${at(ctx, accessor, 2)},true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 12},${at(ctx, accessor, 3)},true);`);
         ctx.offset += 16;
         return;
     }
     if (t === 'vec4u' || t === 'vec4<bool>') {
-        ctx.lines.push(`v.setUint32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 8},${accessor}[2],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 12},${accessor}[3],true);`);
+        ctx.lines.push(`v.setUint32(o+${off},${at(ctx, accessor, 0)},true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 4},${at(ctx, accessor, 1)},true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 8},${at(ctx, accessor, 2)},true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 12},${at(ctx, accessor, 3)},true);`);
         ctx.offset += 16;
         return;
     }
     if (t === 'vec4h') {
-        ctx.lines.push(`v.setUint16(o+${off},f16(${accessor}[0]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${accessor}[1]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 4},f16(${accessor}[2]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 6},f16(${accessor}[3]),true);`);
+        ctx.lines.push(`v.setUint16(o+${off},f16(${at(ctx, accessor, 0)}),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${at(ctx, accessor, 1)}),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 4},f16(${at(ctx, accessor, 2)}),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 6},f16(${at(ctx, accessor, 3)}),true);`);
         ctx.offset += 8;
         return;
     }
@@ -6773,10 +6862,10 @@ function emitPrimitiveWrite(ctx, schema, accessor) {
     if (isAtomicDesc(schema)) {
         const inner = schema.inner.wgslType;
         if (inner === 'i32') {
-            ctx.lines.push(`v.setInt32(o+${off},${accessor},true);`);
+            ctx.lines.push(`v.setInt32(o+${off},${at(ctx, accessor)},true);`);
         }
         else {
-            ctx.lines.push(`v.setUint32(o+${off},${accessor},true);`);
+            ctx.lines.push(`v.setUint32(o+${off},${at(ctx, accessor)},true);`);
         }
         ctx.offset += 4;
         return;
@@ -6796,7 +6885,7 @@ function emitMatrixWriteF32(ctx, t, accessor) {
     for (let c = 0; c < cols; c++) {
         for (let r = 0; r < rows; r++) {
             const idx = c * rows + r;
-            ctx.lines.push(`v.setFloat32(o+${off + r * 4},${accessor}[${idx}],true);`);
+            ctx.lines.push(`v.setFloat32(o+${off + r * 4},${at(ctx, accessor, idx)},true);`);
         }
         off += colStride;
     }
@@ -6814,7 +6903,7 @@ function emitMatrixWriteF16(ctx, t, accessor) {
     for (let c = 0; c < cols; c++) {
         for (let r = 0; r < rows; r++) {
             const idx = c * rows + r;
-            ctx.lines.push(`v.setUint16(o+${off + r * 2},f16(${accessor}[${idx}]),true);`);
+            ctx.lines.push(`v.setUint16(o+${off + r * 2},f16(${at(ctx, accessor, idx)}),true);`);
         }
         off += colStride;
     }
@@ -9944,6 +10033,209 @@ function invokeUniformGroupCallbacks(block, frame) {
     }
 }
 
+/**
+ * backend/print.ts — expression spelling rules shared by the WGSL and GLSL emitters.
+ *
+ * Both target languages order their operators the same way, so one table serves both, but WGSL's
+ * grammar also refuses some operands C precedence would accept ({@link wgslBinaryOperandMin}). An
+ * emitter asks {@link exprPrec}-style questions of its own node kinds and calls {@link paren} to wrap
+ * an operand only when the operand binds looser than the position it lands in. Nothing here touches
+ * the node graph — it is string + precedence arithmetic only.
+ */
+/**
+ * Binding strength of the top-level operator in an emitted expression string. An operand is
+ * parenthesised only when its strength is below the minimum its position demands.
+ *
+ * `Lowest` is the safe answer for anything whose shape is not known (raw inline source), since it
+ * parenthesises unconditionally.
+ */
+const Prec = {
+    Lowest: 0,
+    Ternary: 1,
+    LogicalOr: 2,
+    LogicalAnd: 3,
+    BitOr: 4,
+    BitXor: 5,
+    BitAnd: 6,
+    Equality: 7,
+    Relational: 8,
+    Shift: 9,
+    Additive: 10,
+    Multiplicative: 11,
+    Unary: 12,
+    /** Literals, identifiers, calls, constructors, and `a.b` / `a[i]` chains — never need parens. */
+    Postfix: 13,
+};
+const BINARY_PREC = {
+    '||': Prec.LogicalOr,
+    '&&': Prec.LogicalAnd,
+    '|': Prec.BitOr,
+    '^': Prec.BitXor,
+    '&': Prec.BitAnd,
+    '==': Prec.Equality,
+    '!=': Prec.Equality,
+    '<': Prec.Relational,
+    '>': Prec.Relational,
+    '<=': Prec.Relational,
+    '>=': Prec.Relational,
+    '<<': Prec.Shift,
+    '>>': Prec.Shift,
+    '+': Prec.Additive,
+    '-': Prec.Additive,
+    '*': Prec.Multiplicative,
+    '/': Prec.Multiplicative,
+    '%': Prec.Multiplicative,
+};
+/** Precedence of a binary operator, or `Lowest` for one not in the table (wrap it to be safe). */
+function binaryPrec(op) {
+    return BINARY_PREC[op] ?? Prec.Lowest;
+}
+/**
+ * Minimum precedence each operand of a left-associative binary operator must have to appear unwrapped.
+ *
+ * The right operand is held one level higher than the left, so a same-precedence chain keeps the
+ * grouping the graph actually describes: `a - (b - c)` and `a * (b / c)` retain their parentheses.
+ * That is not cosmetic — float addition and multiplication are not associative, so dropping those
+ * parens would change results.
+ *
+ * Comparison, equality, bitwise and logical operators additionally keep parens around an operand from
+ * that same family, so `a == (b >= c)` and `(x && y) || z` do not collapse into chains whose grouping
+ * a reader has to work out from the precedence table. Arithmetic operands stay bare, which is where
+ * nearly all the noise was.
+ */
+function binaryOperandMin(prec) {
+    if (prec <= Prec.Relational)
+        return [Prec.Additive, Prec.Additive];
+    return [prec, prec + 1];
+}
+/**
+ * {@link binaryOperandMin} for WGSL, whose grammar takes only unary expressions as the operands of a
+ * shift and of `&`, `|` and `^`: `a >> b * c` and `a & b + c` are syntax errors there, not lower
+ * precedence, so any operand with a binary operator of its own is parenthesised.
+ */
+function wgslBinaryOperandMin(prec) {
+    if (prec === Prec.Shift || prec === Prec.BitAnd || prec === Prec.BitOr || prec === Prec.BitXor) {
+        return [Prec.Unary, Prec.Unary];
+    }
+    return binaryOperandMin(prec);
+}
+/** Wrap `expr` in parentheses if its top-level operator binds looser than the position requires. */
+function paren(expr, prec, min) {
+    return prec < min ? `(${expr})` : expr;
+}
+/**
+ * Prefix unary operator applied to an already-emitted operand.
+ *
+ * The operand only needs wrapping below unary strength, with one extra case: an operand that itself
+ * starts with the same symbol is parenthesised so `-` and `-` cannot paste into the `--` token GLSL
+ * reads as a decrement.
+ */
+function unary(op, operand, prec) {
+    const wrapped = paren(operand, prec, Prec.Unary);
+    return wrapped.startsWith(op) ? `${op}(${wrapped})` : `${op}${wrapped}`;
+}
+/**
+ * Join sections with a blank line between them, dropping the empty ones — heading included, so a
+ * shader with no module-scope variables does not open on a comment announcing that it has none.
+ */
+function joinSections(sections) {
+    return sections
+        .filter((s) => s.body.trim() !== '')
+        .map((s) => (s.title === undefined ? s.body.trimEnd() : `${s.title}\n${s.body.trimEnd()}`))
+        .join('\n\n');
+}
+/** The largest finite f32 and f16. */
+const FLOAT_MAX = { f32: 3.4028234663852886e38, f16: 65504 };
+/** `value` rounded to the nearest f16, ties to even, subnormals kept. Overflows to ±Infinity as f32 rounding does. */
+function f16Round(value) {
+    const a = Math.abs(value);
+    if (!Number.isFinite(a) || a === 0)
+        return value;
+    if (a >= 65520)
+        return Math.sign(value) * Infinity;
+    let e = Math.max(Math.floor(Math.log2(a)), -14);
+    if (e > -14 && 2 ** e > a)
+        e--;
+    if (2 ** (e + 1) <= a)
+        e++;
+    const quantum = 2 ** (e - 10);
+    const q = a / quantum;
+    const f = Math.floor(q);
+    const n = q - f > 0.5 || (q - f === 0.5 && f % 2 === 1) ? f + 1 : f;
+    return Math.sign(value) * n * quantum;
+}
+/**
+ * A float literal both WGSL and GLSL ES 3.00 parse back to the same `type` value as `value` rounds to: the fewest
+ * significant digits that round-trip, always with a `.` in the mantissa (`2.0`, `0.083333336`, `1.0e+21`) and `-0.0`
+ * keeping its sign. A bare `1` or `1e21` would read as an integer in GLSL, which has no implicit conversion, and JS's own
+ * `1e+21` spelling with `.0` appended is no literal at all. Callers add any suffix (`h`).
+ *
+ * Throws on NaN and ±Infinity, which no shader literal spells, and on a value that rounds past the type's largest finite
+ * value: printed at its shortest, even the f32 maximum overflows in some compilers, so the search checks each candidate.
+ */
+function floatLiteral(value, type = 'f32') {
+    const round = type === 'f32' ? Math.fround : f16Round;
+    const target = round(value);
+    if (!Number.isFinite(target)) {
+        throw new Error(Number.isFinite(value)
+            ? `[gpucat] ${value} is beyond the largest ${type}, ${FLOAT_MAX[type]}`
+            : `[gpucat] ${value} has no ${type} literal: shaders spell no NaN or infinity`);
+    }
+    if (target === 0)
+        return Object.is(target, -0) ? '-0.0' : '0.0';
+    for (let digits = 1; digits <= 17; digits++) {
+        const candidate = target.toExponential(digits - 1);
+        const parsed = Number(candidate);
+        if (round(parsed) === target && Math.abs(parsed) <= FLOAT_MAX[type])
+            return spellFloat(candidate);
+    }
+    throw new Error(`[gpucat] no ${type} literal round-trips ${value}`);
+}
+/** `1.25e+2` as `125.0`, `1e+21` as `1.0e+21`: plain decimals where JS prints them so, an exponent otherwise. */
+function spellFloat(exponential) {
+    const [mantissa, exponent] = exponential.split('e');
+    const e = Number(exponent);
+    if (e >= -6 && e <= 15) {
+        const plain = `${Number(exponential)}`;
+        return plain.includes('.') ? plain : `${plain}.0`;
+    }
+    return `${mantissa.includes('.') ? mantissa : `${mantissa}.0`}e${e < 0 ? '-' : '+'}${Math.abs(e)}`;
+}
+/** An i32 literal's digits, for a value already whole and in range. The smallest i32 can't be written as `-` applied
+ *  to `2147483648`, which overflows first, so WGSL spells it as a conversion of the abstract integer. */
+function i32LiteralWgsl(value) {
+    if (!Number.isFinite(value))
+        throw new Error(`[gpucat] ${value} has no i32 literal`);
+    const v = Math.trunc(value);
+    return v === -2147483648 ? 'i32(-2147483648)' : `${v}i`;
+}
+/** A u32 literal's digits, for a value already whole and in range. */
+function u32Literal(value) {
+    if (!Number.isFinite(value))
+        throw new Error(`[gpucat] ${value} has no u32 literal`);
+    return `${Math.trunc(value)}u`;
+}
+/**
+ * A numeric scalar literal converted as WGSL converts it, for folding `u32(-1i)` and the like into one literal. Float to
+ * integer truncates and saturates, NaN giving 0; i32 and u32 reinterpret each other's bits; anything to a float is
+ * that number, rounded when printed. The JS value alone would print `-1u`, which neither language accepts.
+ */
+function convertScalarLiteral(value, from, to) {
+    if (from === to || to === 'f32' || to === 'f16')
+        return value;
+    if (from === 'f32' || from === 'f16') {
+        if (Number.isNaN(value))
+            return 0;
+        const t = Math.trunc(value);
+        return to === 'i32' ? Math.min(Math.max(t, -2147483648), 2147483647) : Math.min(Math.max(t, 0), 4294967295);
+    }
+    return to === 'u32' ? value >>> 0 : value | 0;
+}
+/** Whether a literal printed for `value` starts with a minus, binding as a unary expression. */
+function isNegativeLiteral(value) {
+    return value < 0 || Object.is(value, -0);
+}
+
 // ─── Node id utilities ────────────────────────────────────────────────────────
 let _nodeId = 0;
 // ─── Runtime type lookup tables ───────────────────────────────────────────────
@@ -10159,9 +10451,8 @@ class Node {
     notEqual(b) {
         return notEqual(this, b);
     }
-    /** `select(falseVal, trueVal, this)`, use `this` node as the condition. */
     select(ifTrue, ifFalse) {
-        return new ConditionalNode(this, ifTrue, ifFalse);
+        return select(ifFalse, ifTrue, this);
     }
     any() {
         return any(this);
@@ -10282,7 +10573,7 @@ class Node {
     }
     // ── Lang ──────────────────────────────────────────────────────────────────
     assign(value) {
-        addToStack(new AssignNode(this, value));
+        addToStack(new AssignNode(this, sameTypeOperands('assign', [this, value])[1]));
     }
     toVar(label) {
         return makeVar(this, label);
@@ -10305,11 +10596,27 @@ class Node {
     sign() {
         return sign(this);
     }
+    round() {
+        return round(this);
+    }
+    saturate() {
+        return saturate(this);
+    }
+    reflect(n) {
+        return reflect(this, n);
+    }
+    refract(n, eta) {
+        return refract(this, n, eta);
+    }
+    faceForward(i, nref) {
+        return faceForward(this, i, nref);
+    }
     mod(b) {
         return mod(this, b);
     }
+    /** `1 - this`, the 1 taking this node's element type */
     oneMinus() {
-        return sub(f32(1), this);
+        return sub(1, this);
     }
     or(b) {
         return or(this, b);
@@ -11150,12 +11457,16 @@ class BinaryOpNode extends Node {
     op;
     left;
     right;
+    divisorNonzero;
     kind = NodeKind.BinaryOp;
-    constructor(op, type, left, right) {
+    constructor(op, type, left, right, 
+    /** An integer `/` or `%` whose divisor can't be zero (a texture's width), so GLSL needs no WGSL guard. */
+    divisorNonzero = false) {
         super(type);
         this.op = op;
         this.left = left;
         this.right = right;
+        this.divisorNonzero = divisorNonzero;
     }
 }
 class CallNode extends Node {
@@ -11262,12 +11573,16 @@ const bitcastF32 = (node) => new CallNode(f32$1, 'bitcast<f32>', [node]);
 const bitcastU32 = (node) => new CallNode(u32$1, 'bitcast<u32>', [node]);
 /** Reinterpret an f32 or u32 bit pattern as i32. WGSL: `bitcast<i32>(x)`. */
 const bitcastI32 = (node) => new CallNode(i32$1, 'bitcast<i32>', [node]);
-const greaterThan = (a, b) => new BinaryOpNode('>', compareResultDesc(a.type), a, b);
-const lessThan = (a, b) => new BinaryOpNode('<', compareResultDesc(a.type), a, b);
-const greaterThanEqual = (a, b) => new BinaryOpNode('>=', compareResultDesc(a.type), a, b);
-const lessThanEqual = (a, b) => new BinaryOpNode('<=', compareResultDesc(a.type), a, b);
-const equal = (a, b) => new BinaryOpNode('==', compareResultDesc(a.type), a, b);
-const notEqual = (a, b) => new BinaryOpNode('!=', compareResultDesc(a.type), a, b);
+const compare = (op, name) => (a, b) => {
+    const [l, r] = sameTypeOperands(name, [a, b]);
+    return new BinaryOpNode(op, compareResultDesc(l.type), l, r);
+};
+const greaterThan = /*@__PURE__*/ compare('>', 'greaterThan');
+const lessThan = /*@__PURE__*/ compare('<', 'lessThan');
+const greaterThanEqual = /*@__PURE__*/ compare('>=', 'greaterThanEqual');
+const lessThanEqual = /*@__PURE__*/ compare('<=', 'lessThanEqual');
+const equal = /*@__PURE__*/ compare('==', 'equal');
+const notEqual = /*@__PURE__*/ compare('!=', 'notEqual');
 const any = (a) => new CallNode(bool$1, 'any', [a]);
 const all = (a) => new CallNode(bool$1, 'all', [a]);
 /**
@@ -11295,12 +11610,12 @@ function f16(v = 0) {
 function i32(v = 0) {
     if (isNode(v))
         return new CallNode(i32$1, 'i32', [v]);
-    return new LiteralNode(i32$1, Math.trunc(v));
+    return new LiteralNode(i32$1, convertedInteger(v, 'i32'));
 }
 function u32(v = 0) {
     if (isNode(v))
         return new CallNode(u32$1, 'u32', [v]);
-    return new LiteralNode(u32$1, Math.trunc(v));
+    return new LiteralNode(u32$1, convertedInteger(v, 'u32'));
 }
 const bool = (v) => new LiteralNode(bool$1, v ? 1 : 0);
 function wrapScalar(v, elemType) {
@@ -11309,9 +11624,9 @@ function wrapScalar(v, elemType) {
     if (elemType === 'bool')
         return new LiteralNode(bool$1, v ? 1 : 0);
     if (elemType === 'i32')
-        return new LiteralNode(i32$1, Math.trunc(v));
+        return new LiteralNode(i32$1, convertedInteger(v, 'i32'));
     if (elemType === 'u32')
-        return new LiteralNode(u32$1, Math.trunc(v));
+        return new LiteralNode(u32$1, convertedInteger(v, 'u32'));
     if (elemType === 'f16')
         return new LiteralNode(f16$1, v);
     return new LiteralNode(f32$1, v);
@@ -11410,12 +11725,157 @@ function mat3(c0, c1, c2, s10, s11, s12, s20, s21, s22) {
     const z = new LiteralNode(f32$1, 0);
     return new ConstructNode(mat3x3f$1, [c0, z, z, z, c0, z, z, z, c0]);
 }
-// ── Standalone math functions ─────────────────────────────────────────────────
-const add$1 = (a, b) => new BinaryOpNode('+', arithResultDesc(a.type, b.type), a, b);
-const sub = (a, b) => new BinaryOpNode('-', arithResultDesc(a.type, b.type), a, b);
-const div = (a, b) => new BinaryOpNode('/', arithResultDesc(a.type, b.type), a, b);
-const mul = (a, b) => new BinaryOpNode('*', mulResultDesc(a.type, b.type), a, b);
-const dot = (a, b) => new CallNode(f32$1, 'dot', [a, b]);
+/** `an i32`, `a u32`: a type name with its article, as said aloud. */
+function aType(t) {
+    return `${/^[if]/.test(t) ? 'an' : 'a'} ${t}`;
+}
+/** The scalar a number beside a `desc` value takes: its element type. */
+function scalarElementOf(desc, op) {
+    if (isMatDesc(desc))
+        return desc.wgslType.endsWith('h') ? f16$1 : f32$1;
+    if ('len' in desc && desc.scalar !== 'bool')
+        return vecElementDescOrSelf(desc);
+    throw new Error(`[gpucat] ${op}: ${aType(desc.wgslType)} takes no number`);
+}
+/** `v` as a literal of the scalar `elem`, throwing where `v` isn't exactly one: as WGSL does, but where it's written. */
+function literalOf(v, elem, op) {
+    const t = elem.wgslType;
+    if (typeof v === 'boolean') {
+        if (t !== 'bool')
+            throw new Error(`[gpucat] ${op}: ${v} is a bool, and ${aType(t)} takes a number`);
+        return new LiteralNode(bool$1, v ? 1 : 0);
+    }
+    if (t === 'bool')
+        throw new Error(`[gpucat] ${op}: a bool takes true or false, not ${v}`);
+    if (t === 'i32' || t === 'u32') {
+        if (!Number.isInteger(v)) {
+            throw new Error(`[gpucat] ${op}: ${v} is not ${aType(t)}, which takes whole numbers; do the maths in f32, or round it in JS`);
+        }
+        if (t === 'u32' && v < 0)
+            throw new Error(`[gpucat] ${op}: ${v} is not a u32, which takes no negatives`);
+        const [lo, hi] = t === 'i32' ? [-2147483648, 2147483647] : [0, 4294967295];
+        if (v < lo || v > hi)
+            throw new Error(`[gpucat] ${op}: ${v} is outside the ${t} range, ${lo} to ${hi}`);
+        return new LiteralNode(elem, v === 0 ? 0 : v);
+    }
+    try {
+        floatLiteral(v, t === 'f16' ? 'f16' : 'f32');
+    }
+    catch (e) {
+        throw new Error(`[gpucat] ${op}: ${e.message.replace('[gpucat] ', '')}`);
+    }
+    return new LiteralNode(elem, v);
+}
+/** Both sides of `+ - * / %` as nodes. A number takes the element type of the node on the other side, as a scalar,
+ *  which WGSL accepts beside a vector, and for `*` beside a matrix. */
+function arithOperands(op, a, b, matrices) {
+    if (isNode(a) && isNode(b))
+        return [a, b];
+    const node = isNode(a) ? a : isNode(b) ? b : undefined;
+    if (node === undefined) {
+        throw new Error(`[gpucat] ${op}: ${a} and ${b} are both numbers, which name no type; write f32(${a}) (or i32/u32)`);
+    }
+    if (isMatDesc(node.type) && !matrices) {
+        throw new Error(`[gpucat] ${op}: ${aType(node.type.wgslType)} meets only ${aType(node.type.wgslType)}, not a number; scale it with mul`);
+    }
+    const elem = scalarElementOf(node.type, op);
+    return isNode(a) ? [a, literalOf(b, elem, op)] : [literalOf(a, elem, op), b];
+}
+/** Values that must share one type, as nodes. A number takes the type of a node among them, which must be a scalar:
+ *  WGSL widens a literal to no vector here. Booleans alone are a bool. */
+function sameTypeOperands(op, values) {
+    if (values.every(isNode))
+        return values;
+    const node = values.find(isNode);
+    const type = node?.type ?? (values.every((v) => typeof v === 'boolean') ? bool$1 : undefined);
+    if (type === undefined) {
+        throw new Error(`[gpucat] ${op}: only numbers, which name no type; write f32(…) (or i32/u32) for one of them`);
+    }
+    if (!('len' in type) || type.len !== 1) {
+        const n = values.find((v) => !isNode(v));
+        throw new Error(`[gpucat] ${op}: ${aType(type.wgslType)} meets only ${aType(type.wgslType)}, not ${n}; write ${type.wgslType}(${n}) to splat it`);
+    }
+    return values.map((v) => (isNode(v) ? v : literalOf(v, type, op)));
+}
+/** A condition as a node: a boolean is a bool literal. */
+function boolOperand(op, v) {
+    if (isNode(v))
+        return v;
+    if (typeof v !== 'boolean')
+        throw new Error(`[gpucat] ${op}: takes true, false or a bool node, not ${v}`);
+    return new LiteralNode(bool$1, v ? 1 : 0);
+}
+/** A Var or Let's initial value: a boolean is a bool; a number names no type. */
+function initOperand(op, init) {
+    if (typeof init === 'number')
+        throw new Error(`[gpucat] ${op}: ${init} names no type; write f32(${init}) (or i32/u32)`);
+    return boolOperand(op, init);
+}
+/** A shift amount as a node: a number is a u32, for an integer scalar. */
+function shiftOperand(op, a, b) {
+    if (!isNode(a))
+        throw new Error(`[gpucat] ${op}: a number shifted names no type; write u32(${a}) or i32(${a})`);
+    if (isNode(b))
+        return b;
+    if ('len' in a.type && a.type.len > 1) {
+        throw new Error(`[gpucat] ${op}: ${aType(a.type.wgslType)} shifts by a vec${a.type.len}u; write vec${a.type.len}u(${b})`);
+    }
+    return literalOf(b, u32$1, op);
+}
+/** `i32(v)` or `u32(v)` of a number, converting as WGSL converts a float: truncated, then clamped to the range. */
+function convertedInteger(v, t) {
+    if (!Number.isFinite(v))
+        throw new Error(`[gpucat] ${t}(${v}): no ${t} has that value`);
+    return convertScalarLiteral(v, 'f32', t);
+}
+/** What WGSL rejects when the shader is created: an integer `/` or `%` by a literal 0, and an operation on two literals
+ *  whose result its type can't hold. Integer `+ - *` on literals wrap, as WGSL's do. */
+function assertConstantBinary(op, sym, l, r) {
+    const scalar = 'scalar' in l.type ? l.type.scalar : undefined;
+    const literal = (n) => (n.kind === NodeKind.Literal ? n.value : undefined);
+    const lv = literal(l);
+    const rv = literal(r);
+    const integer = scalar === 'i32' || scalar === 'u32';
+    if ((sym === '/' || sym === '%') && integer && (rv === 0 || (Array.isArray(rv) && rv.includes(0)))) {
+        throw new Error(`[gpucat] ${op}: an integer ${sym} by a literal 0 fails when the shader is created`);
+    }
+    if (typeof lv !== 'number' || typeof rv !== 'number')
+        return;
+    const fail = (why) => {
+        throw new Error(`[gpucat] ${op}: ${lv} ${sym} ${rv} ${why}, which WGSL rejects when the shader is created`);
+    };
+    if (scalar === 'i32' && (sym === '/' || sym === '%') && lv === -2147483648 && rv === -1)
+        fail('overflows an i32');
+    if (sym === '<<' && integer) {
+        const shifted = lv * 2 ** rv;
+        if (scalar === 'i32' ? shifted < -2147483648 || shifted > 2147483647 : shifted > 4294967295)
+            fail(`overflows ${aType(scalar)}`);
+    }
+    if ((scalar === 'f32' || scalar === 'f16') && (sym === '+' || sym === '-' || sym === '*' || sym === '/')) {
+        const result = sym === '+' ? lv + rv : sym === '-' ? lv - rv : sym === '*' ? lv * rv : lv / rv;
+        try {
+            floatLiteral(result, scalar);
+        }
+        catch {
+            fail(`is beyond ${aType(scalar)}`);
+        }
+    }
+}
+const arith = (op, name) => (a, b) => {
+    const [l, r] = arithOperands(name, a, b, false);
+    assertConstantBinary(name, op, l, r);
+    return new BinaryOpNode(op, arithResultDesc(l.type, r.type), l, r);
+};
+const add$1 = /*@__PURE__*/ arith('+', 'add');
+const sub = /*@__PURE__*/ arith('-', 'sub');
+const div = /*@__PURE__*/ arith('/', 'div');
+const mul = (a, b) => {
+    const [l, r] = arithOperands('mul', a, b, true);
+    assertConstantBinary('mul', '*', l, r);
+    return new BinaryOpNode('*', mulResultDesc(l.type, r.type), l, r);
+};
+/** The dot product, in the vectors' element type: WGSL's `dot` of two `vec3i` is an `i32`. */
+const dot = (a, b) => new CallNode(vecElementDescOrSelf(a.type), 'dot', [a, b]);
 const cross = (a, b) => new CallNode(a.type, 'cross', [a, b]);
 const normalize$1 = (a) => new CallNode(a.type, 'normalize', [a]);
 const length = (a) => new CallNode(f32$1, 'length', [a]);
@@ -11447,40 +11907,66 @@ const sqrt = (a) => new CallNode(a.type, 'sqrt', [a]);
 const sin = (a) => new CallNode(a.type, 'sin', [a]);
 const cos = (a) => new CallNode(a.type, 'cos', [a]);
 const negate = (a) => new CallNode(a.type, 'negate', [a]);
-const pow = (a, b) => new CallNode(a.type, 'pow', [a, b]);
+const sameTypeCall = (fn) => (...values) => {
+    const args = sameTypeOperands(fn, values);
+    return new CallNode(args.find(isNode).type, fn, args);
+};
+const pow = /*@__PURE__*/ sameTypeCall('pow');
 const exp = (a) => new CallNode(a.type, 'exp', [a]);
 const log = (a) => new CallNode(a.type, 'log', [a]);
 const exp2 = (a) => new CallNode(a.type, 'exp2', [a]);
 const log2 = (a) => new CallNode(a.type, 'log2', [a]);
 const tan = (a) => new CallNode(a.type, 'tan', [a]);
 const atan = (a) => new CallNode(a.type, 'atan', [a]);
-const atan2 = (y, x) => new CallNode(y.type, 'atan2', [y, x]);
+const atan2 = /*@__PURE__*/ sameTypeCall('atan2');
 const asin = (a) => new CallNode(a.type, 'asin', [a]);
 const acos = (a) => new CallNode(a.type, 'acos', [a]);
 const inverseSqrt = (a) => new CallNode(a.type, 'inverseSqrt', [a]);
-function max(a, b, ...rest) {
-    let result = new CallNode(a.type, 'max', [a, b]);
-    for (const n of rest) {
-        result = new CallNode(a.type, 'max', [result, n]);
-    }
+/** Round to the nearest whole number, halves to even. WGSL: `round`; GLSL: `roundEven`. */
+const round = (a) => new CallNode(a.type, 'round', [a]);
+/** Clamp to [0, 1]. WGSL: `saturate`; GLSL has none, so it lowers to `clamp(a, 0.0, 1.0)`. */
+const saturate = (a) => new CallNode(a.type, 'saturate', [a]);
+/** The incident direction `i` reflected about the surface normal `n`: `i - 2 * dot(n, i) * n`. */
+const reflect = (i, n) => new CallNode(i.type, 'reflect', [i, n]);
+/** The incident direction `i` refracted through the surface normal `n` at the ratio of indices `eta`. */
+const refract = (i, n, eta) => new CallNode(i.type, 'refract', [i, n, isNode(eta) ? eta : literalOf(eta, scalarElementOf(i.type, 'refract'), 'refract')]);
+/** `n` turned to face against `i`, judged by the reference normal `nref`: `dot(nref, i) < 0 ? n : -n`. WGSL: `faceForward`; GLSL: `faceforward`. */
+const faceForward = (n, i, nref) => new CallNode(n.type, 'faceForward', [n, i, nref]);
+function max(...values) {
+    return chainCall('max', values);
+}
+function min(...values) {
+    return chainCall('min', values);
+}
+/** `fn(fn(a, b), c)…`, one type throughout */
+function chainCall(fn, values) {
+    const [first, ...rest] = sameTypeOperands(fn, values);
+    let result = first;
+    for (const n of rest)
+        result = new CallNode(first.type, fn, [result, n]);
     return result;
 }
-function min(a, b, ...rest) {
-    let result = new CallNode(a.type, 'min', [a, b]);
-    for (const n of rest) {
-        result = new CallNode(a.type, 'min', [result, n]);
+const clamp = /*@__PURE__*/ sameTypeCall('clamp');
+const mix = (a, b, t) => {
+    if (!isNode(a) && !isNode(b)) {
+        const [l, r, tt] = sameTypeOperands('mix', [a, b, t]);
+        return new CallNode(tt.type, 'mix', [l, r, tt]);
     }
-    return result;
-}
-const clamp = (a, lo, hi) => new CallNode(a.type, 'clamp', [a, lo, hi]);
-const mix = (a, b, t) => new CallNode(a.type, 'mix', [a, b, t]);
-const step = (edge, x) => new CallNode(x.type, 'step', [edge, x]);
-const smoothstep = (lo, hi, x) => new CallNode(x.type, 'smoothstep', [lo, hi, x]);
+    const [l, r] = sameTypeOperands('mix', [a, b]);
+    const factor = isNode(t) ? t : literalOf(t, scalarElementOf(l.type, 'mix'), 'mix');
+    return new CallNode(l.type, 'mix', [l, r, factor]);
+};
+const step = /*@__PURE__*/ sameTypeCall('step');
+const smoothstep = /*@__PURE__*/ sameTypeCall('smoothstep');
 const sign = (a) => new CallNode(a.type, 'sign', [a]);
-const mod = (a, b) => new BinaryOpNode('%', a.type, a, b);
-const or = (a, b) => new BinaryOpNode('||', bool$1, a, b);
-const and = (a, b) => new BinaryOpNode('&&', bool$1, a, b);
-const not = (a) => new CallNode(bool$1, 'not', [a]);
+/**
+ * WGSL's `%`, on both backends: a truncating remainder, so the result takes the sign of `a` (`-1.5 % 1.0` is `-0.5`).
+ * GLSL's `mod()` floors instead; for that, write `a.sub(b.mul(floor(a.div(b))))`.
+ */
+const mod = /*@__PURE__*/ arith('%', 'mod');
+const or = (a, b) => new BinaryOpNode('||', bool$1, boolOperand('or', a), boolOperand('or', b));
+const and = (a, b) => new BinaryOpNode('&&', bool$1, boolOperand('and', a), boolOperand('and', b));
+const not = (a) => new CallNode(bool$1, 'not', [boolOperand('not', a)]);
 const transpose = (m) => new CallNode(m.type, 'transpose', [m]);
 // ── Bit-count builtins (integer-only) ────────────────────────────────────────
 const countOneBits = (a) => new CallNode(a.type, 'countOneBits', [a]);
@@ -11499,11 +11985,35 @@ const fwidthCoarse = (a) => new CallNode(a.type, 'fwidthCoarse', [a]);
 const dpdxFine = (a) => new CallNode(a.type, 'dpdxFine', [a]);
 const dpdyFine = (a) => new CallNode(a.type, 'dpdyFine', [a]);
 const fwidthFine = (a) => new CallNode(a.type, 'fwidthFine', [a]);
-const bitwiseAnd = (a, b) => new BinaryOpNode('&', a.type, a, b);
-const bitwiseOr = (a, b) => new BinaryOpNode('|', a.type, a, b);
-const bitwiseXor = (a, b) => new BinaryOpNode('^', a.type, a, b);
-const shiftLeft = (a, b) => new BinaryOpNode('<<', a.type, a, b);
-const shiftRight = (a, b) => new BinaryOpNode('>>', a.type, a, b);
+const bitwise = (op, name) => (a, b) => {
+    const [l, r] = sameTypeOperands(name, [a, b]);
+    return new BinaryOpNode(op, l.type, l, r);
+};
+const bitwiseAnd = /*@__PURE__*/ bitwise('&', 'bitwiseAnd');
+const bitwiseOr = /*@__PURE__*/ bitwise('|', 'bitwiseOr');
+const bitwiseXor = /*@__PURE__*/ bitwise('^', 'bitwiseXor');
+/** A literal amount of 32 or more is a WGSL shader-creation error (a runtime one is masked to its low five bits), and
+ *  GLSL would compile it silently, so it throws where it's written. */
+function assertShiftAmount(op, b) {
+    if (b.kind !== NodeKind.Literal)
+        return;
+    const value = b.value;
+    const amounts = Array.isArray(value) ? value : [value];
+    const bad = amounts.find((v) => typeof v === 'number' && v >= 32);
+    if (bad !== undefined)
+        throw new Error(`[gpucat] ${op}: a shift of ${bad} is past a 32-bit integer; shift by 0 to 31`);
+}
+const shiftLeft = (a, b) => {
+    const amount = shiftOperand('shiftLeft', a, b);
+    assertShiftAmount('shiftLeft', amount);
+    assertConstantBinary('shiftLeft', '<<', a, amount);
+    return new BinaryOpNode('<<', a.type, a, amount);
+};
+const shiftRight = (a, b) => {
+    const amount = shiftOperand('shiftRight', a, b);
+    assertShiftAmount('shiftRight', amount);
+    return new BinaryOpNode('>>', a.type, a, amount);
+};
 // ── Lang ──────────────────────────────────────────────────────────────────────
 class StackNode extends Node {
     kind = NodeKind.Stack;
@@ -11648,7 +12158,7 @@ function If(condition, thenBody) {
     finally {
         popStack(prev);
     }
-    const ifNode = new IfNode(condition, thenStack);
+    const ifNode = new IfNode(boolOperand('If', condition), thenStack);
     addToStack(ifNode);
     const chain = {
         ElseIf(c, body) {
@@ -11660,7 +12170,7 @@ function If(condition, thenBody) {
             finally {
                 popStack(f);
             }
-            ifNode.elseIfBranches.push({ condition: c, body: s });
+            ifNode.elseIfBranches.push({ condition: boolOperand('ElseIf', c), body: s });
             return chain;
         },
         Else(body) {
@@ -11782,12 +12292,11 @@ function Fn(jsFunc, layout) {
     const fnNode = new FnNode(returnType, paramDescs, jsFunc, layout?.name);
     return (...args) => new CallNode(returnType, fnNode.fnName, args, fnNode);
 }
-const cond = (condition, ifTrue, ifFalse) => new ConditionalNode(condition, ifTrue, ifFalse);
-/**
- * WGSL `select(falseVal, trueVal, condition)`.
- * Returns `trueVal` when `condition` is true, `falseVal` otherwise.
- */
-const select = (falseVal, trueVal, condition) => new ConditionalNode(condition, trueVal, falseVal);
+const cond = (condition, ifTrue, ifFalse) => new ConditionalNode(boolOperand('cond', condition), ifTrue, ifFalse === undefined ? undefined : sameTypeOperands('cond', [ifTrue, ifFalse])[1]);
+const select = (falseVal, trueVal, condition) => {
+    const [f, t] = sameTypeOperands('select', [falseVal, trueVal]);
+    return new ConditionalNode(boolOperand('select', condition), t, f);
+};
 function makeVar(init, label) {
     const v = new VarNode(init.type, label, init);
     // Add to current stack if building inside Fn, otherwise return standalone node.
@@ -11802,25 +12311,11 @@ function makeLet(init, label) {
         currentStack.push(v);
     return v;
 }
-/**
- * Function-scope mutable variable: `var name = init;`
- *
- * @example
- * const velocity = Var('velocity', vec3f(0));
- * // → var velocity = vec3f(0.0);
- */
 function Var(name, init) {
-    return makeVar(init, name);
+    return makeVar(initOperand('Var', init), name);
 }
-/**
- * Function-scope immutable binding: `let name = init;`
- *
- * @example
- * const half = Let('half', value.mul(0.5));
- * // → let half = (value * 0.5);
- */
 function Let(name, init) {
-    return makeLet(init, name);
+    return makeLet(initOperand('Let', init), name);
 }
 /** @deprecated Use Let() instead */
 function Const(name, init) {
@@ -12056,6 +12551,11 @@ const IDENTITY = /*@__PURE__*/ create$3();
 const cameraProjectionMatrix = /*@__PURE__*/ new UniformNode(new Uniform(mat4x4f$1, undefined, renderGroup), 'cameraProjectionMatrix').onRenderUpdate((frame) => frame.camera?.projectionMatrix ?? IDENTITY);
 /** View (world-to-camera) matrix. In renderGroup. */
 const cameraViewMatrix = /*@__PURE__*/ new UniformNode(new Uniform(mat4x4f$1, undefined, renderGroup), 'cameraViewMatrix').onRenderUpdate((frame) => frame.camera?.matrixWorldInverse ?? IDENTITY);
+/**
+ * World to clip space, `cameraProjectionMatrix * cameraViewMatrix`: one node for the pair a shadow lookup or a
+ * reprojection reaches for. Built from the two camera uniforms, so it adds no binding of its own.
+ */
+const cameraViewProjectionMatrix = /*@__PURE__*/ mul(cameraProjectionMatrix, cameraViewMatrix);
 /**
  * Camera world-space position. In renderGroup.
  *
@@ -17903,8 +18403,9 @@ function ensureU32(n) {
  *  indexing. Reading the width at runtime (never baking it) keeps the shader size- and binding-independent
  *  and correct when the underlying texture is resized under a cached program. */
 function readTexel(base, texelIndex, width) {
-    const x = i32(texelIndex.mod(width));
-    const y = i32(texelIndex.div(width));
+    // a texture is at least one texel wide, so the division needs no guard against zero
+    const x = i32(new BinaryOpNode('%', u32$1, texelIndex, width, true));
+    const y = i32(new BinaryOpNode('/', u32$1, texelIndex, width, true));
     return base.load(vec2i(x, y), i32(0));
 }
 /**
@@ -18767,19 +19268,23 @@ class RenderTextureNode extends Node {
         this.options = options;
         this.passId = pid;
         this.clearColor = options.clearColor ?? [0, 0, 0, 1];
+        if (options.attachments !== undefined && options.colorFormat !== undefined) {
+            throw new Error(`[renderTexture] ${pid}: attachments gives every attachment its format, so colorFormat has no say; drop one`);
+        }
         const target = createRenderTarget(this._width * this._pixelRatio, this._height * this._pixelRatio, {
-            colorFormat: options.colorFormat ?? 'rgba16float',
+            ...(options.attachments !== undefined
+                ? { attachments: options.attachments }
+                : { colorFormat: options.colorFormat ?? 'rgba16float', count: 1 }),
             // forwarded rather than resolved here: RenderTarget already owns the
             // depthFormat-beats-stencilBuffer precedence, and duplicating it is how
             // the two drift apart.
             depthFormat: options.depthFormat,
             stencilBuffer: options.stencilBuffer,
             samples: options.samples ?? 1,
-            count: 1,
         });
-        target.texture.name = 'output';
         this.renderTarget = target;
-        this._textures['output'] = target.texture;
+        for (const texture of target.textures)
+            this._textures[texture.name] = texture;
         // The depth ATTACHMENT, not the sampling-gated `depthTexture` getter, which is null until
         // getDepthTextureNode() declares sampling.
         if (target._depthAttachment) {
@@ -18813,9 +19318,17 @@ class RenderTextureNode extends Node {
         this._pixelRatio = pixelRatio;
         this.setSize(this._width, this._height);
     }
-    /** Sets the given MRT node to setup MRT for this pass. */
+    /**
+     * Sets the MRT node this pass writes through. Without `attachments`, any output the pass has no attachment for gets
+     * one now, in the order the outputs are written, so the pass can render before each is read with `getTextureNode`.
+     * With `attachments`, an output the pass lacks throws when the pass renders.
+     */
     setMRT(mrt) {
         this._mrt = mrt;
+        if (mrt !== null && this.options.attachments === undefined) {
+            for (const name in mrt.outputNodes)
+                this.getTexture(name);
+        }
         return this;
     }
     /** Returns the current MRT node. */
@@ -18823,12 +19336,16 @@ class RenderTextureNode extends Node {
         return this._mrt;
     }
     /**
-     * Returns the texture for the given output name.
-     * Creates a new texture slot if it doesn't exist.
+     * Returns the texture for the given output name. Without `attachments`, a name the pass lacks gets a new attachment,
+     * in the first one's format; with them, or for `'depth'` on a pass without depth, it throws, naming what there is.
      */
     getTexture(name) {
         let texture = this._textures[name];
         if (texture === undefined) {
+            if (this.options.attachments !== undefined || name === 'depth') {
+                const has = Object.keys(this._textures).join(', ');
+                throw new Error(`[renderTexture] ${this.passId}: no attachment '${name}'. It has: ${has}.`);
+            }
             // Clone the reference texture format and create new render target texture
             const refTexture = this.renderTarget.texture;
             const image = { width: this.renderTarget.width, height: this.renderTarget.height };
@@ -20580,144 +21097,6 @@ function tracedFnCallees(traced) {
     return callees;
 }
 
-/**
- * backend/print.ts — expression spelling rules shared by the WGSL and GLSL emitters.
- *
- * Both target languages order their operators the same way, so one table serves both, but WGSL's
- * grammar also refuses some operands C precedence would accept ({@link wgslBinaryOperandMin}). An
- * emitter asks {@link exprPrec}-style questions of its own node kinds and calls {@link paren} to wrap
- * an operand only when the operand binds looser than the position it lands in. Nothing here touches
- * the node graph — it is string + precedence arithmetic only.
- */
-/**
- * Binding strength of the top-level operator in an emitted expression string. An operand is
- * parenthesised only when its strength is below the minimum its position demands.
- *
- * `Lowest` is the safe answer for anything whose shape is not known (raw inline source), since it
- * parenthesises unconditionally.
- */
-const Prec = {
-    Lowest: 0,
-    Ternary: 1,
-    LogicalOr: 2,
-    LogicalAnd: 3,
-    BitOr: 4,
-    BitXor: 5,
-    BitAnd: 6,
-    Equality: 7,
-    Relational: 8,
-    Shift: 9,
-    Additive: 10,
-    Multiplicative: 11,
-    Unary: 12,
-    /** Literals, identifiers, calls, constructors, and `a.b` / `a[i]` chains — never need parens. */
-    Postfix: 13,
-};
-const BINARY_PREC = {
-    '||': Prec.LogicalOr,
-    '&&': Prec.LogicalAnd,
-    '|': Prec.BitOr,
-    '^': Prec.BitXor,
-    '&': Prec.BitAnd,
-    '==': Prec.Equality,
-    '!=': Prec.Equality,
-    '<': Prec.Relational,
-    '>': Prec.Relational,
-    '<=': Prec.Relational,
-    '>=': Prec.Relational,
-    '<<': Prec.Shift,
-    '>>': Prec.Shift,
-    '+': Prec.Additive,
-    '-': Prec.Additive,
-    '*': Prec.Multiplicative,
-    '/': Prec.Multiplicative,
-    '%': Prec.Multiplicative,
-};
-/** Precedence of a binary operator, or `Lowest` for one not in the table (wrap it to be safe). */
-function binaryPrec(op) {
-    return BINARY_PREC[op] ?? Prec.Lowest;
-}
-/**
- * Minimum precedence each operand of a left-associative binary operator must have to appear unwrapped.
- *
- * The right operand is held one level higher than the left, so a same-precedence chain keeps the
- * grouping the graph actually describes: `a - (b - c)` and `a * (b / c)` retain their parentheses.
- * That is not cosmetic — float addition and multiplication are not associative, so dropping those
- * parens would change results.
- *
- * Comparison, equality, bitwise and logical operators additionally keep parens around an operand from
- * that same family, so `a == (b >= c)` and `(x && y) || z` do not collapse into chains whose grouping
- * a reader has to work out from the precedence table. Arithmetic operands stay bare, which is where
- * nearly all the noise was.
- */
-function binaryOperandMin(prec) {
-    if (prec <= Prec.Relational)
-        return [Prec.Additive, Prec.Additive];
-    return [prec, prec + 1];
-}
-/**
- * {@link binaryOperandMin} for WGSL, whose grammar takes only unary expressions as the operands of a
- * shift and of `&`, `|` and `^`: `a >> b * c` and `a & b + c` are syntax errors there, not lower
- * precedence, so any operand with a binary operator of its own is parenthesised.
- */
-function wgslBinaryOperandMin(prec) {
-    if (prec === Prec.Shift || prec === Prec.BitAnd || prec === Prec.BitOr || prec === Prec.BitXor) {
-        return [Prec.Unary, Prec.Unary];
-    }
-    return binaryOperandMin(prec);
-}
-/** Wrap `expr` in parentheses if its top-level operator binds looser than the position requires. */
-function paren(expr, prec, min) {
-    return prec < min ? `(${expr})` : expr;
-}
-/**
- * Prefix unary operator applied to an already-emitted operand.
- *
- * The operand only needs wrapping below unary strength, with one extra case: an operand that itself
- * starts with the same symbol is parenthesised so `-` and `-` cannot paste into the `--` token GLSL
- * reads as a decrement.
- */
-function unary(op, operand, prec) {
-    const wrapped = paren(operand, prec, Prec.Unary);
-    return wrapped.startsWith(op) ? `${op}(${wrapped})` : `${op}${wrapped}`;
-}
-/**
- * Join sections with a blank line between them, dropping the empty ones — heading included, so a
- * shader with no module-scope variables does not open on a comment announcing that it has none.
- */
-function joinSections(sections) {
-    return sections
-        .filter((s) => s.body.trim() !== '')
-        .map((s) => (s.title === undefined ? s.body.trimEnd() : `${s.title}\n${s.body.trimEnd()}`))
-        .join('\n\n');
-}
-/**
- * Shortest decimal spelling that round-trips to the same f32 as `value`.
- *
- * Shader float literals are parsed at f32, so printing a JavaScript number's full f64 decimal
- * expansion (`0.08333333333333333` for 1/12) adds 8 digits that the target cannot represent. This
- * finds the fewest significant digits that still land on the same f32 (`0.083333336`). Callers handle
- * whole numbers themselves — those already have a short exact form and a required `.0` suffix.
- */
-function shortestF32(value) {
-    if (!Number.isFinite(value))
-        return `${value}`;
-    const target = Math.fround(value);
-    for (let digits = 1; digits <= 9; digits++) {
-        const candidate = target.toPrecision(digits);
-        if (Math.fround(Number(candidate)) === target)
-            return trimFloat(candidate);
-    }
-    return trimFloat(`${target}`);
-}
-/** Drop the trailing zeros `toPrecision` pads with (`0.30000` → `0.3`), keeping at least one decimal. */
-function trimFloat(s) {
-    if (s.includes('e') || s.includes('E') || !s.includes('.'))
-        return s;
-    const trimmed = s.replace(/0+$/, '');
-    return trimmed.endsWith('.') ? `${trimmed}0` : trimmed;
-}
-
 /** a binding's stages as a mask, with the bit values WebGPU's `GPUShaderStage` gives them. */
 const STAGE_VERTEX = 1;
 const STAGE_FRAGMENT = 2;
@@ -20827,7 +21206,9 @@ function foldScalarConversion$1(node) {
     const arg = node.args[0];
     if (arg.kind !== NodeKind.Literal || typeof arg.value !== 'number')
         return undefined;
-    return isNumericScalar(arg.type) ? arg.value : undefined;
+    return isNumericScalar(arg.type)
+        ? convertScalarLiteral(arg.value, glslScalarKind(arg.type), glslScalarKind(node.type))
+        : undefined;
 }
 /**
  * The operand of a one-argument conversion whose target type is ALREADY the argument's type — a
@@ -20935,7 +21316,7 @@ const CALL_RENAMES = {
     // the same in both, listed for clarity. (The coarse/fine variants have no GLSL ES 3.00 form and
     // are rejected in generateCall below.)
     dpdx: 'dFdx',
-    dpdy: 'dFdy',
+    // dpdy is negated, in generateCall
     fwidth: 'fwidth',
     // WGSL math builtins whose GLSL ES 3.00 spelling differs (same args, just renamed) — emitting the
     // WGSL name verbatim is a "no matching function" compile error otherwise. The integer bit builtins
@@ -20943,6 +21324,9 @@ const CALL_RENAMES = {
     // instead; see BIT_HELPER_FNS.
     atan2: 'atan', // GLSL's 2-arg atan(y, x) IS atan2
     inverseSqrt: 'inversesqrt',
+    // WGSL rounds halves to even; GLSL ES 3.00's round() leaves halves to the implementation, roundEven() is the match
+    round: 'roundEven',
+    faceForward: 'faceforward',
     // WGSL and GLSL agree on the remaining common math builtins; further overrides go here.
 };
 /**
@@ -20958,13 +21342,14 @@ function glslLiteral(wgslType, value) {
     const scalar = (t, v) => {
         switch (t) {
             case 'f32':
-                // Printed at the fewest digits that still round-trip through f32 — the full f64
-                // expansion of something like 1/12 carries eight digits GLSL cannot represent.
-                return Number.isInteger(v) ? `${v}.0` : shortestF32(v);
+                return floatLiteral(v);
             case 'i32':
+                // GLSL ES 3.00 reads `-2147483648` whole, so the smallest i32 needs no WGSL-style spelling
+                if (!Number.isFinite(v))
+                    throw new Error(`[gpucat] ${v} has no i32 literal`);
                 return `${Math.trunc(v)}`;
             case 'u32':
-                return `${Math.trunc(v)}u`;
+                return u32Literal(v);
             case 'bool':
                 return v !== 0 ? 'true' : 'false';
             default:
@@ -21007,6 +21392,7 @@ function createGlslContext(stage, discovery) {
         flipYTextures: new Set(),
         flipHelperFns: new Set(),
         bitHelpers: new Set(),
+        arithHelpers: new Set(),
         // Populated once by compileGlsl (shared across stages) — see storage() read-lowering.
         storageMirrors: new Map(),
         attributes: new Map(),
@@ -21175,7 +21561,7 @@ function generateExpr$1(ctx, rawNode) {
         case NodeKind.Literal:
             expr = glslLiteral(node.type.wgslType, node.value);
             // A negative scalar literal lexes as unary minus applied to a literal.
-            if (typeof node.value === 'number' && node.value < 0)
+            if (typeof node.value === 'number' && isNegativeLiteral(node.value))
                 prec = Prec.Unary;
             break;
         case NodeKind.Uniform:
@@ -21227,9 +21613,23 @@ function generateExpr$1(ctx, rawNode) {
                 expr = `${glslFn}(${left}, ${right})`;
             }
             else if (node.op === '%' && 'scalar' in node.type && node.type.scalar === 'f32') {
-                // GLSL ES 3.00 `%` is integer-only; the float remainder is the `mod()` builtin (WGSL/TSL
-                // allow `%` on floats). Keyed on the component scalar, since `vec4f` never spells `f32`.
-                expr = `mod(${left}, ${right})`;
+                // GLSL ES 3.00 `%` is integer-only, and its `mod()` floors where WGSL's `%` truncates: -1.5 % 1.0 is
+                // -0.5 in WGSL, 0.5 from mod(). A helper spells WGSL's `x - y * trunc(x / y)` once per operand pair, so
+                // neither side is evaluated twice. Keyed on the component scalar, since `vec4f` never spells `f32`.
+                expr = arithHelperCall(ctx, '_rem', node, left, right);
+            }
+            else if ((node.op === '/' || node.op === '%') && intDivisionNeedsHelper(node)) {
+                // GLSL ES 3.00 leaves an integer `/` by zero undefined, and `%` with a negative operand: SwiftShader
+                // gives -7 % 3 = 2. WGSL defines both, truncating: a / 0 = a, a % 0 = 0, MIN / -1 = MIN, the remainder
+                // taking the sign of a. The helpers compute that.
+                const signed = 'scalar' in node.type && node.type.scalar === 'i32';
+                expr = arithHelperCall(ctx, `_${signed ? 'i' : 'u'}${node.op === '/' ? 'div' : 'rem'}`, node, left, right);
+            }
+            else if (isShift && !isLiteralShiftInRange(node.right)) {
+                // WGSL shifts by the amount's low five bits (3 << 33u is 6); GLSL leaves 32 and up undefined
+                prec = binaryPrec(node.op);
+                const [leftMin] = binaryOperandMin(prec);
+                expr = `${paren(left, leftPrec, leftMin)} ${node.op} (${paren(right, rightPrec, binaryOperandMin(binaryPrec('&'))[0])} & 31u)`;
             }
             else {
                 prec = binaryPrec(node.op);
@@ -21242,7 +21642,7 @@ function generateExpr$1(ctx, rawNode) {
             const folded = foldScalarConversion$1(node);
             if (folded !== undefined) {
                 expr = glslLiteral(node.type.wgslType, folded);
-                if (folded < 0)
+                if (isNegativeLiteral(folded))
                     prec = Prec.Unary;
                 break;
             }
@@ -21735,7 +22135,7 @@ function callPrec$1(ctx, node) {
     if (node.fn === node.type.wgslType && 'glslType' in node.type) {
         const folded = foldScalarConversion$1(node);
         if (folded !== undefined)
-            return folded < 0 ? Prec.Unary : Prec.Postfix;
+            return isNegativeLiteral(folded) ? Prec.Unary : Prec.Postfix;
         const identity = identityConversionArg$1(node);
         if (identity)
             return emittedPrec$1(ctx, identity);
@@ -21743,9 +22143,8 @@ function callPrec$1(ctx, node) {
     if (node.args.length === 1) {
         if (node.fn === 'negate' || node.fn === 'not')
             return Prec.Unary;
-        // `x * 0.5 + 0.5`
         if (node.fn === 'ndcDepthToStorage')
-            return Prec.Additive;
+            return emittedPrec$1(ctx, node.args[0]);
         // `vec4(uvec4(…))/255.0`
         if (node.fn === 'unpack4x8unorm')
             return Prec.Multiplicative;
@@ -21781,10 +22180,17 @@ function generateCall$1(ctx, node) {
         return unary('-', args[0], emittedPrec$1(ctx, node.args[0]));
     if (node.fn === 'not' && args.length === 1)
         return unary('!', args[0], emittedPrec$1(ctx, node.args[0]));
-    // NDC depth → stored [0,1]. WebGL NDC z is [-1,1] (NO projection), so remap; WGSL passes through.
-    if (node.fn === 'ndcDepthToStorage' && args.length === 1) {
-        return `${paren(args[0], emittedPrec$1(ctx, node.args[0]), Prec.Multiplicative)} * 0.5 + 0.5`;
-    }
+    // NDC depth → stored [0,1]: NDC z is already [0,1] on both backends, the vertex stage remapping GL's clip z
+    if (node.fn === 'ndcDepthToStorage' && args.length === 1)
+        return args[0];
+    // GLSL ES 3.00 has no saturate; clamp's (genType, float, float) overload covers scalars and vectors alike
+    if (node.fn === 'saturate' && args.length === 1)
+        return `clamp(${args[0]}, 0.0, 1.0)`;
+    // WGSL's dpdy runs down the framebuffer, as gpucat's fragCoord does on both backends. GLSL's dFdy runs up the
+    // window, and the fragCoord flip doesn't reach it, so it is negated: dpdy(fragCoord.y) is +1 on both, and
+    // derivative normals (cross(dpdx(p), dpdy(p))) face the same way. fwidth sums magnitudes and needs nothing.
+    if (node.fn === 'dpdy' && args.length === 1)
+        return `(-dFdy(${args[0]}))`;
     if (UNSUPPORTED_DERIVATIVES.has(node.fn)) {
         throw new Error(`[glsl] ${node.fn} (coarse/fine derivative) is not supported on the WebGL2 backend; use dpdx/dpdy/fwidth`);
     }
@@ -21807,10 +22213,19 @@ function generateCall$1(ctx, node) {
     // matching the CPU encode (pack.ts `packedWriteExpr`).
     if (node.fn === 'pack2x16float')
         return `packHalf2x16(${args[0]})`;
-    if (node.fn === 'pack2x16unorm')
-        return `packUnorm2x16(${args[0]})`;
-    if (node.fn === 'pack2x16snorm')
-        return `packSnorm2x16(${args[0]})`;
+    // WGSL rounds a normalized pack as floor(0.5 + scale * x); GLSL's packUnorm/packSnorm round() leaves ties to the
+    // implementation, and SwiftShader packs -1.5/32767 as -2, not -1. pack4x8 has no GLSL ES 3.00 form at all.
+    if (node.fn in PACK_HELPERS) {
+        ctx.arithHelpers.add(`_${node.fn}`);
+        return `_${node.fn}(${args[0]})`;
+    }
+    // abs of an unsigned value is the value; GLSL has no abs(uint)
+    if (node.fn === 'abs' && 'scalar' in node.type && node.type.scalar === 'u32')
+        return `(${args[0]})`;
+    // GLSL's dot is float-only; WGSL's takes integer vectors too
+    if (node.fn === 'dot' && 'scalar' in node.type && (node.type.scalar === 'i32' || node.type.scalar === 'u32')) {
+        return arithHelperCall(ctx, '_dot', node, args[0], args[1]);
+    }
     if (node.fn === 'unpack2x16float')
         return `unpackHalf2x16(${args[0]})`;
     if (node.fn === 'unpack2x16unorm')
@@ -21918,7 +22333,7 @@ function bitHelperDeps(fn, type) {
         return [['countTrailingZeros', 'uint']];
     return [];
 }
-/** the bit helper overloads this stage called, with what they call, ahead of the stage's functions. */
+/** the bit helper overloads this stage called (with what they call) and its `_rem` overloads, ahead of its functions. */
 function emitGlslBitHelpers(ctx) {
     const needed = new Set();
     const require = (fn, type) => {
@@ -21940,7 +22355,96 @@ function emitGlslBitHelpers(ctx) {
                 defs.push(bitHelperDef(fn, type));
         }
     }
+    // scalar overloads first: a vector overload calls them per component
+    const arith = [...ctx.arithHelpers].sort((a, b) => Number(a.includes('vec')) - Number(b.includes('vec')));
+    for (const key of arith)
+        defs.push(arithHelperDef(key));
     return defs.join('\n');
+}
+/** A call to the `fn` overload for `node`'s operand types, recorded so the stage defines it. */
+function arithHelperCall(ctx, fn, node, left, right) {
+    const [leftNode, rightNode] = 'left' in node ? [node.left, node.right] : [node.args[0], node.args[1]];
+    const result = glslType(node.type);
+    const key = `${fn}:${result}:${glslType(leftNode.type)}:${glslType(rightNode.type)}`;
+    ctx.arithHelpers.add(key);
+    // an integer vector overload calls its scalar overload per component
+    if (fn !== '_rem' && result.includes('vec'))
+        ctx.arithHelpers.add(`${fn}:${scalarOf(result)}:${scalarOf(result)}:${scalarOf(result)}`);
+    return `${fn}(${left}, ${right})`;
+}
+/** `int` for `ivec3`, `uint` for `uvec2`, a scalar unchanged. */
+function scalarOf(glsl) {
+    if (glsl.startsWith('ivec'))
+        return 'int';
+    if (glsl.startsWith('uvec'))
+        return 'uint';
+    if (glsl.startsWith('vec'))
+        return 'float';
+    return glsl;
+}
+/** WGSL's normalized packs, component 0 in the low bits: unorm as u32(0.5 + scale * clamp(x, 0, 1)), snorm as the
+ *  two's-complement bits of i32(floor(0.5 + scale * clamp(x, -1, 1))). */
+const PACK_HELPERS = {
+    pack4x8unorm: 'uint _pack4x8unorm(vec4 e) { uvec4 b = uvec4(0.5 + 255.0 * clamp(e, 0.0, 1.0)); ' +
+        'return b.x | (b.y << 8u) | (b.z << 16u) | (b.w << 24u); }',
+    pack4x8snorm: 'uint _pack4x8snorm(vec4 e) { uvec4 b = uvec4(ivec4(floor(0.5 + 127.0 * clamp(e, -1.0, 1.0)))) & 0xFFu; ' +
+        'return b.x | (b.y << 8u) | (b.z << 16u) | (b.w << 24u); }',
+    pack2x16unorm: 'uint _pack2x16unorm(vec2 e) { uvec2 b = uvec2(0.5 + 65535.0 * clamp(e, 0.0, 1.0)); return b.x | (b.y << 16u); }',
+    pack2x16snorm: 'uint _pack2x16snorm(vec2 e) { uvec2 b = uvec2(ivec2(floor(0.5 + 32767.0 * clamp(e, -1.0, 1.0)))) & 0xFFFFu; ' +
+        'return b.x | (b.y << 16u); }',
+};
+/** WGSL integer division and remainder per scalar; a vector overload applies them per component. */
+const INT_ARITH_BODIES = {
+    // the magnitudes as uints, so MIN's is exact; MIN / -1 wraps to MIN in WGSL
+    _idiv: 'if (b == 0 || (a == int(0x80000000u) && b == -1)) return a; ' +
+        'uint q = uint(abs(a)) / uint(abs(b)); return (a < 0) != (b < 0) ? -int(q) : int(q);',
+    _irem: 'if (b == 0) return 0; uint r = uint(abs(a)) % uint(abs(b)); return a < 0 ? -int(r) : int(r);',
+    _udiv: 'return b == 0u ? a : a / b;',
+    _urem: 'return b == 0u ? 0u : a % b;',
+};
+/**
+ * One helper overload, keyed `fn:result:left:right`. `_rem` is WGSL's truncating float `%`, which takes the sign of `x`;
+ * the integer ones are {@link INT_ARITH_BODIES}.
+ */
+function arithHelperDef(key) {
+    if (!key.includes(':'))
+        return PACK_HELPERS[key.slice(1)];
+    const [fn, result, left, right] = key.split(':');
+    if (fn === '_rem')
+        return `${result} _rem(${left} x, ${right} y) { return x - y * trunc(x / y); }`;
+    if (fn === '_dot') {
+        const width = Number(left.slice(-1));
+        const terms = ['x', 'y', 'z', 'w'].slice(0, width).map((c) => `a.${c} * b.${c}`);
+        return `${result} _dot(${left} a, ${right} b) { return ${terms.join(' + ')}; }`;
+    }
+    if (!result.includes('vec'))
+        return `${result} ${fn}(${left} a, ${right} b) { ${INT_ARITH_BODIES[fn]} }`;
+    const width = Number(result.slice(-1));
+    const at = (type, name, c) => (type.includes('vec') ? `${name}.${c}` : name);
+    const components = ['x', 'y', 'z', 'w'].slice(0, width).map((c) => `${fn}(${at(left, 'a', c)}, ${at(right, 'b', c)})`);
+    return `${result} ${fn}(${left} a, ${right} b) { return ${result}(${components.join(', ')}); }`;
+}
+/** Whether an integer `/` or `%` can't use GLSL's operator as is: everything signed, and an unsigned one unless its
+ *  divisor is a nonzero literal or known nonzero. */
+function intDivisionNeedsHelper(node) {
+    const scalar = 'scalar' in node.type ? node.type.scalar : undefined;
+    if (scalar === 'i32')
+        return true;
+    if (scalar !== 'u32' || node.divisorNonzero)
+        return false;
+    const divisor = node.right;
+    if (divisor.kind !== NodeKind.Literal)
+        return true;
+    const value = divisor.value;
+    return Array.isArray(value) ? value.some((v) => v === 0) : value === 0;
+}
+/** Whether a shift amount is a literal already in [0, 31], needing no mask. */
+function isLiteralShiftInRange(amount) {
+    if (amount.kind !== NodeKind.Literal)
+        return false;
+    const value = amount.value;
+    const inRange = (v) => v >= 0 && v <= 31;
+    return Array.isArray(value) ? value.every(inRange) : typeof value === 'number' && inRange(value);
 }
 /**
  * Implicit-LOD sampling. GLSL ES 3.00's `texture()` (and its bias overload) derives the mip level from
@@ -23046,6 +23550,9 @@ function generateGlslVertexShader(slots, ctx) {
         lines.push(`    ${name} = ${vertexExpr};`);
     }
     lines.push(`    gl_Position = ${clipExpr};`);
+    // Clip space is WGSL's on both backends: z from 0 at the near plane to w at the far one. GL's runs from -w, so z is
+    // remapped here, and the depth stored is the same: a fullscreen triangle at z = 0 lands at depth 0, not 0.5.
+    lines.push('    gl_Position.z = 2.0 * gl_Position.z - gl_Position.w;');
     lines.push('}');
     return lines.join('\n');
 }
@@ -23321,15 +23828,13 @@ function constLiteral(type, value) {
     if (typeof value === 'number') {
         switch (type) {
             case 'f32':
-                // Fractions print at the fewest digits that still round-trip through f32: the full f64
-                // expansion of something like 1/12 carries eight digits the target cannot represent.
-                return Number.isInteger(value) ? `${value}.0` : shortestF32(value);
+                return floatLiteral(value);
             case 'f16':
-                return Number.isInteger(value) ? `${value}.0h` : `${value}h`;
+                return `${floatLiteral(value, 'f16')}h`;
             case 'i32':
-                return `${Math.trunc(value)}i`;
+                return i32LiteralWgsl(value);
             case 'u32':
-                return `${Math.trunc(value)}u`;
+                return u32Literal(value);
             case 'bool':
                 return value !== 0 ? 'true' : 'false';
             default:
@@ -23338,19 +23843,19 @@ function constLiteral(type, value) {
     }
     const components = value.map((v) => {
         if (type.startsWith('vec') && type.endsWith('f'))
-            return Number.isInteger(v) ? `${v}.0` : shortestF32(v);
+            return floatLiteral(v);
         if (type.startsWith('vec') && type.endsWith('h'))
-            return Number.isInteger(v) ? `${v}.0h` : `${v}h`;
+            return `${floatLiteral(v, 'f16')}h`;
         if (type.startsWith('vec') && type.endsWith('i'))
-            return `${Math.trunc(v)}i`;
+            return i32LiteralWgsl(v);
         if (type.startsWith('vec') && type.endsWith('u'))
-            return `${Math.trunc(v)}u`;
+            return u32Literal(v);
         if (type === 'vec2<bool>' || type === 'vec3<bool>' || type === 'vec4<bool>')
             return v !== 0 ? 'true' : 'false';
         if (type.startsWith('mat') && type.endsWith('h'))
-            return Number.isInteger(v) ? `${v}.0h` : `${v}h`;
+            return `${floatLiteral(v, 'f16')}h`;
         if (type.startsWith('mat'))
-            return Number.isInteger(v) ? `${v}.0` : shortestF32(v);
+            return floatLiteral(v);
         return `${v}`;
     });
     if (components.length === 0)
@@ -23591,7 +24096,7 @@ function generateExpr(ctx, rawNode) {
     if (node.kind === NodeKind.Literal) {
         expr = constLiteral(node.type.wgslType, node.value);
         // A negative scalar literal lexes as unary minus applied to a literal.
-        if (typeof node.value === 'number' && node.value < 0)
+        if (typeof node.value === 'number' && isNegativeLiteral(node.value))
             prec = Prec.Unary;
     }
     else if (node.kind === NodeKind.Uniform) {
@@ -23664,7 +24169,7 @@ function generateExpr(ctx, rawNode) {
         const identity = identityConversionArg(node);
         if (folded !== undefined) {
             expr = constLiteral(node.type.wgslType, folded);
-            if (folded < 0)
+            if (isNegativeLiteral(folded))
                 prec = Prec.Unary;
         }
         else if (identity) {
@@ -23801,7 +24306,8 @@ function foldScalarConversion(node) {
     const arg = node.args[0];
     if (arg.kind !== NodeKind.Literal || typeof arg.value !== 'number')
         return undefined;
-    return numericScalarKind(arg.type) === null ? undefined : arg.value;
+    const from = numericScalarKind(arg.type);
+    return from === null ? undefined : convertScalarLiteral(arg.value, from, numericScalarKind(node.type));
 }
 /**
  * The operand of a one-argument conversion whose target type is ALREADY the argument's type — a
@@ -24261,7 +24767,7 @@ function callPrec(ctx, node) {
     if (node.fn === node.type.wgslType) {
         const folded = foldScalarConversion(node);
         if (folded !== undefined)
-            return folded < 0 ? Prec.Unary : Prec.Postfix;
+            return isNegativeLiteral(folded) ? Prec.Unary : Prec.Postfix;
         const identity = identityConversionArg(node);
         if (identity)
             return emittedPrec(ctx, identity);
@@ -24318,7 +24824,7 @@ function generateCall(ctx, node) {
     if (node.fn === 'not' && args.length === 1) {
         return unary('!', args[0], emittedPrec(ctx, node.args[0]));
     }
-    // NDC depth → stored [0,1]. WebGPU NDC z is already [0,1] (ZO projection) — passthrough; GLSL remaps.
+    // NDC depth → stored [0,1]. NDC z is already [0,1] (ZO projection), on WebGL too, so it passes through.
     if (node.fn === 'ndcDepthToStorage' && args.length === 1) {
         return args[0];
     }
@@ -25605,7 +26111,7 @@ function compileGlsl(slots, opts = {}) {
         // instanceIndex lowers to `u_drawBase + gl_InstanceID` (base-inclusive, matching WebGPU); the batched draw loop
         // sets it per sub-draw, and it is 0 (the GL default) for single draws
         { body: drawBaseDeclaration(vertexCtx) },
-        { title: '// Bit helpers', body: bitHelpersGlsl },
+        { title: '// Helpers', body: bitHelpersGlsl },
         { title: '// Raw functions (wgslFn/glslFn)', body: rawFnsGlsl },
         { title: '// Functions', body: dslFnsGlsl },
         { title: '// Vertex shader', body: vertexBody },
@@ -25809,7 +26315,7 @@ function compileTransformFeedback(node, opts = {}) {
         { title: '// Module-scope variables', body: moduleScopeVarsGlsl },
         // a transform-feedback kernel never sets the draw base, so it stays 0
         { body: drawBaseDeclaration(ctx) },
-        { title: '// Bit helpers', body: bitHelpersGlsl },
+        { title: '// Helpers', body: bitHelpersGlsl },
         { title: '// Raw functions (wgslFn/glslFn)', body: rawFnsGlsl },
         { title: '// Functions', body: dslFnsGlsl },
         { title: '// Transform-feedback vertex shader', body: main },
@@ -26850,6 +27356,26 @@ function resolveTargetBlend(material, mrt, targetName) {
 function blendStateKey(blend) {
     return blend ? JSON.stringify(blend) : 'none';
 }
+/**
+ * Whether a fragment writes colour output `i`: a resolved MRT member there, or the one output of a plain colour. An
+ * attachment it doesn't write is masked off, `writeMask: 0` on WebGPU and `NONE` in WebGL's draw buffers, so it keeps
+ * what it held instead of taking whatever an absent output leaves.
+ */
+function writesTarget(fragment, i) {
+    if (!fragment || isVoidFragment(fragment))
+        return false;
+    if (fragment.kind === NodeKind.OutputStruct || fragment.kind === NodeKind.MRT) {
+        return fragment.members[i] !== undefined;
+    }
+    return i === 0;
+}
+/** Which of `count` attachments a fragment writes, as `1`s and `0`s by location. */
+function writtenTargets(fragment, count) {
+    let mask = '';
+    for (let i = 0; i < count; i++)
+        mask += writesTarget(fragment, i) ? '1' : '0';
+    return mask;
+}
 
 /**
  * Build a per-face stencil state from a material. Back faces default to the front-face ops unless the
@@ -26978,19 +27504,23 @@ function buildRenderPipelineDescriptor(device, renderObject, nodeState, bindGrou
     const names = renderContext.colorFormats !== null ? renderContext.colorNames : null;
     const mrt = renderContext.mrt;
     const colorTargets = [];
-    for (let i = 0; i < targetCount; i++) {
+    if (targetCount > colorFormats.length) {
+        throw new Error(`[webgpu] the fragment writes ${targetCount} colour output(s) and this pass's target has ` +
+            `${colorFormats.length}; output ${colorFormats.length} has no attachment to take its format from.`);
+    }
+    // A pipeline names every attachment of the pass, as WebGPU requires of one drawn in it, written or not; one the
+    // fragment leaves alone (an mrt() output missing, a lone colour into a g-buffer) is masked off (`writesTarget`).
+    const targetsDrawn = targetCount > 0 ? colorFormats.length : 0;
+    for (let i = 0; i < targetsDrawn; i++) {
         const format = colorFormats[i];
-        if (format === undefined) {
-            throw new Error(`[webgpu] the fragment writes ${targetCount} colour output(s) and this pass's target has ` +
-                `${colorFormats.length}; output ${i} has no attachment to take its format from.`);
-        }
+        const written = writesTarget(material.fragment, i);
         const targetName = mrt !== null && names !== null ? names[i] : null;
         // an integer format cannot blend: WebGPU rejects a blend state on one, whatever the material asks
         const integer = format.endsWith('uint') || format.endsWith('sint');
         colorTargets.push({
             format,
-            blend: integer ? undefined : resolveTargetBlend(material, mrt, targetName),
-            writeMask: material.colorWrite ? GPUColorWrite.ALL : 0,
+            blend: integer || !written ? undefined : resolveTargetBlend(material, mrt, targetName),
+            writeMask: material.colorWrite && written ? GPUColorWrite.ALL : 0,
         });
     }
     // Build pipeline descriptor.
@@ -27223,6 +27753,7 @@ function makeRenderPipelineKey(material, vertexLayout, samples, formats, depthFo
         material.stencilZPass,
         material.stencilBack ? JSON.stringify(material.stencilBack) : 'none',
         getTargetCount(material.fragment),
+        writtenTargets(material.fragment, formats.length),
         samples,
         formats.join(','),
         depthFormat ?? 'none',
@@ -28627,7 +29158,7 @@ function highlightWGSL(code) {
         // Built-in types
         .replace(/\b(bool|i32|u32|f32|f16|vec2|vec3|vec4|vec2f|vec3f|vec4f|vec2i|vec3i|vec4i|vec2u|vec3u|vec4u|mat2x2|mat3x3|mat4x4|mat2x2f|mat3x3f|mat4x4f|array|atomic|texture_2d|texture_depth_2d|texture_storage_2d|sampler|sampler_comparison|ptr|ref)\b/g, '<span class="wgsl-type">$1</span>')
         // Built-in functions
-        .replace(/\b(abs|acos|asin|atan|atan2|ceil|clamp|cos|cross|degrees|distance|dot|exp|exp2|floor|fma|fract|inverseSqrt|length|log|log2|max|min|mix|modf|normalize|pow|radians|reflect|refract|round|sign|sin|smoothstep|sqrt|step|tan|trunc|bitcast|select|arrayLength|textureLoad|textureSample|textureSampleBias|textureSampleCompare|textureSampleGrad|textureSampleLevel|textureStore|textureDimensions|dpdx|dpdy|fwidth|pack4x8snorm|pack4x8unorm|unpack4x8snorm|unpack4x8unorm)\b/g, '<span class="wgsl-builtin">$1</span>')
+        .replace(/\b(abs|acos|asin|atan|atan2|ceil|clamp|cos|cross|degrees|distance|dot|exp|exp2|faceForward|floor|fma|fract|inverseSqrt|length|log|log2|max|min|mix|modf|normalize|pow|radians|reflect|refract|round|saturate|sign|sin|smoothstep|sqrt|step|tan|trunc|bitcast|select|arrayLength|textureLoad|textureSample|textureSampleBias|textureSampleCompare|textureSampleGrad|textureSampleLevel|textureStore|textureDimensions|dpdx|dpdy|fwidth|pack4x8snorm|pack4x8unorm|unpack4x8snorm|unpack4x8unorm)\b/g, '<span class="wgsl-builtin">$1</span>')
         // Numeric literals (hex, float, int)
         .replace(/\b(0x[0-9a-fA-F]+|[0-9]*\.[0-9]+(?:[eE][+-]?[0-9]+)?[fh]?|[0-9]+[uif]?)\b/g, '<span class="wgsl-number">$1</span>'));
 }
@@ -39309,6 +39840,12 @@ class Renderer {
      *  so any number of readers can share it. */
     info = createRendererInfo();
     onDeviceLost = null;
+    /**
+     * Fired with each validation error the device reports (WebGPU), as well as the error being logged. They arrive
+     * after the call that caused them and never throw, and a console in a worker is easy to miss, so this is the way
+     * to surface them: to a page from a worker, to a test, to an overlay. WebGL reports its failures by throwing.
+     */
+    onValidationError = null;
     constructor(backend) {
         this.backend = backend;
         this._nodes = createNodeManagerState(backend, backend.name === 'webgl' ? 'std140' : 'wgsl-uniform');
@@ -40547,6 +41084,11 @@ function createContext(canvas, attrs) {
     gl.getExtension('EXT_color_buffer_half_float'); // half-float render targets (older path / fallback)
     gl.getExtension('OES_texture_float_linear'); // linear filtering of 32-bit-float textures
     gl.getExtension('EXT_float_blend'); // blending into 32-bit-float render targets
+    // A flat varying takes its value from a primitive's first vertex in WGSL, but from the last in GL. Where the
+    // extension exists (most desktop browsers; not SwiftShader) the first-vertex convention makes them agree;
+    // elsewhere a flat value that differs across a primitive's vertices comes from the last one.
+    const provoking = gl.getExtension('WEBGL_provoking_vertex');
+    provoking?.provokingVertexWEBGL(provoking.FIRST_VERTEX_CONVENTION_WEBGL);
     // Enable GPU timer queries so the inspector can report real per-pass GPU times. Missing (Safari,
     // some drivers) → returns null → inspector leaves gpuMs null (CPU-only timing).
     gl.getExtension('EXT_disjoint_timer_query_webgl2');
@@ -44272,6 +44814,11 @@ function encodeDraws$1(gl, caches, nodes, passCtx, params, prepared, preparedOpt
         }
     }
     uploadPassUniforms(gl, passUniforms, info);
+    // The target's FBO draws to every attachment; a draw whose fragment leaves one unwritten sets it to NONE for its
+    // turn, as WebGPU masks it off (`writesTarget`), and the pass puts them all back after its last draw.
+    const attachments = params.renderTarget?.textures.length ?? 0;
+    const allWritten = '1'.repeat(attachments);
+    let drawBuffers = allWritten;
     let currentView = -1;
     for (let blockIndex = 0; blockIndex < order.blockCount; blockIndex++) {
         const block = order.blocks[blockIndex];
@@ -44297,6 +44844,13 @@ function encodeDraws$1(gl, caches, nodes, passCtx, params, prepared, preparedOpt
             }
             // Program (deduped). Inspector: a program switch is the WebGL analogue of a pipeline switch.
             useProgram(gl, glState, programInfo.program);
+            if (attachments > 0) {
+                const written = writtenTargets(material.fragment, attachments);
+                if (written !== drawBuffers) {
+                    setDrawBuffers(gl, written);
+                    drawBuffers = written;
+                }
+            }
             // gl_FragCoord Y-flip height: @builtin(position)/screenUV lower to a flip against the framebuffer height so
             // they match WebGPU's top-left origin. A uniform keeps its value with its program, which passes share, so it
             // is written when this pass's height differs. null location = program doesn't use the builtin.
@@ -44431,6 +44985,15 @@ function encodeDraws$1(gl, caches, nodes, passCtx, params, prepared, preparedOpt
             updateAfter(nodes, renderObject);
         }
     }
+    if (drawBuffers !== allWritten)
+        setDrawBuffers(gl, allWritten);
+}
+/** Draw buffers by attachment: `COLOR_ATTACHMENTi` where `written` has a `1`, `NONE` where it has a `0`. */
+function setDrawBuffers(gl, written) {
+    const buffers = [];
+    for (let i = 0; i < written.length; i++)
+        buffers.push(written[i] === '1' ? gl.COLOR_ATTACHMENT0 + i : gl.NONE);
+    gl.drawBuffers(buffers);
 }
 
 /**
@@ -44740,7 +45303,7 @@ function beginPass$2(s, desc) {
     const { renderer } = s;
     // Everything that can throw runs before the pass takes its slot, so a refused pass leaves none behind.
     if (usable$1(s)) {
-        alignCameraToBackend(desc.camera, CoordinateSystem.WEBGL);
+        alignCameraToBackend(desc.camera, CoordinateSystem.WEBGPU);
         if (desc.mrt !== undefined) {
             const mrtTarget = renderTargetOf(desc.target);
             if (mrtTarget === null) {
@@ -44780,7 +45343,7 @@ function recordEntry$1(s, entry) {
         return;
     if (isViewRecord(entry)) {
         markViewChanged(open.order);
-        applyViewRecord(s.renderer, open.params, entry, CoordinateSystem.WEBGL);
+        applyViewRecord(s.renderer, open.params, entry, CoordinateSystem.WEBGPU);
         return;
     }
     if (entry.kind === 'bin') {
@@ -44806,7 +45369,7 @@ function recordEntry$1(s, entry) {
         const bundle = entry.bundle;
         const passCamera = open.params.camera;
         markViewChanged(open.order);
-        setPassCamera(s.renderer, open.params, bundle.camera, CoordinateSystem.WEBGL);
+        setPassCamera(s.renderer, open.params, bundle.camera, CoordinateSystem.WEBGPU);
         const { records, count } = bundle;
         for (let record = 0; record < count; record++) {
             const index = resolveDraw$1(s, open, records[record]);
@@ -44814,7 +45377,7 @@ function recordEntry$1(s, entry) {
                 addPassDraw(open.order, index, open.params);
         }
         markViewChanged(open.order);
-        setPassCamera(s.renderer, open.params, passCamera, CoordinateSystem.WEBGL);
+        setPassCamera(s.renderer, open.params, passCamera, CoordinateSystem.WEBGPU);
     }
     catch (error) {
         // A throw inside a nested pass (a render texture's contents) left it begun; this pass records on.
@@ -47410,12 +47973,14 @@ class WebGPUBackend {
         this._deviceProvided = opts.device !== undefined;
         this.validation = opts.validation ?? 'device';
     }
-    /** Logs a validation error and keeps it for `takeValidationErrors`, the newest MAX_VALIDATION_ERRORS. @internal */
+    /** Logs a validation error, keeps it for `takeValidationErrors` (the newest MAX_VALIDATION_ERRORS), and hands it to
+     *  the renderer's `onValidationError`. @internal */
     _reportValidation(message) {
         console.error(message);
         this._validationErrors.push(message);
         if (this._validationErrors.length > MAX_VALIDATION_ERRORS)
             this._validationErrors.shift();
+        this.renderer.onValidationError?.(message);
     }
     /** Opens a pass's or submit's error scope, with `validation: 'per-pass'`. @internal */
     _openValidationScope() {
@@ -48035,5 +48600,5 @@ function createDataTexture(data, width, height, options = {}) {
     return new DataTexture(data, width, height, options);
 }
 
-export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, GpuTextureView, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, STAGE_COMPUTE, STAGE_FRAGMENT, STAGE_VERTEX, Scene, Source, TOUCH, Texture, TextureViewRange, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WHOLE_TEXTURE, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, assertSameSampleType, assertSubresource, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, copyBuffer, copyTexture, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, formatSampleType, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, invariant, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, materialGroup, max, memoryReport, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer$2 as readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture$1 as renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, schemaArrayCtor, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId, writeBuffer, writeTexture };
+export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, GpuTextureView, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, STAGE_COMPUTE, STAGE_FRAGMENT, STAGE_VERTEX, Scene, Source, TOUCH, Texture, TextureViewRange, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WHOLE_TEXTURE, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, assertSameSampleType, assertSubresource, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, cameraViewProjectionMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, copyBuffer, copyTexture, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, faceForward, field, fields, firstLeadingBit, firstTrailingBit, floor, formatSampleType, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, invariant, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, materialGroup, max, memoryReport, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer$2 as readBuffer, reflect, refract, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture$1 as renderTexture, resetRendererInfo, reverseBits, rgb, round, sRGBTransferEOTF, sRGBTransferOETF, sampler, saturate, schemaArrayCtor, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, viewProjection, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId, writeBuffer, writeTexture };
 //# sourceMappingURL=index.js.map

@@ -134,20 +134,22 @@ export declare class Node<D extends Any> {
     toI32(): Node<NumericDescOf<D, d.i32>>;
     field<K extends StructKeys<D>>(name: K): Node<StructField<D, K>>;
     fields(): Fields<d.StructSchemaOf<D>>;
-    greaterThan(b: Node<D>): Node<CompareResultDesc<D>>;
-    lessThan(b: Node<D>): Node<CompareResultDesc<D>>;
-    greaterThanEqual(b: Node<D>): Node<CompareResultDesc<D>>;
-    lessThanEqual(b: Node<D>): Node<CompareResultDesc<D>>;
-    equal(b: Node<D>): Node<CompareResultDesc<D>>;
-    notEqual(b: Node<D>): Node<CompareResultDesc<D>>;
+    greaterThan(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>>;
+    lessThan(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>>;
+    greaterThanEqual(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>>;
+    lessThanEqual(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>>;
+    equal(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>>;
+    notEqual(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>>;
     /** `select(falseVal, trueVal, this)`, use `this` node as the condition. */
-    select<T extends Any>(ifTrue: Node<T>, ifFalse: Node<T>): Node<T>;
+    select<T extends Any>(ifTrue: Node<T>, ifFalse: Node<T> | ScalarLiteral<T>): Node<T>;
+    select<T extends Any>(ifTrue: ScalarLiteral<T>, ifFalse: Node<T>): Node<T>;
+    select(ifTrue: boolean, ifFalse: boolean): Node<d.bool>;
     any(): Node<d.bool>;
     all(): Node<d.bool>;
-    add<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>>;
-    sub<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>>;
-    div<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>>;
-    mul<N extends Node<Any>>(b: N): Node<MulResultDesc<D, N['type']>>;
+    add<N extends Node<Any> | ArithLiteral<D>>(b: N): Node<ArithResultDesc<D, OperandDesc<N, D>>>;
+    sub<N extends Node<Any> | ArithLiteral<D>>(b: N): Node<ArithResultDesc<D, OperandDesc<N, D>>>;
+    div<N extends Node<Any> | ArithLiteral<D>>(b: N): Node<ArithResultDesc<D, OperandDesc<N, D>>>;
+    mul<N extends Node<Any> | MulLiteral<D>>(b: N): Node<MulResultDesc<D, OperandDesc<N, D>>>;
     abs(): Node<D>;
     floor(): Node<D>;
     ceil(): Node<D>;
@@ -158,15 +160,15 @@ export declare class Node<D extends Any> {
     negate(): Node<D>;
     normalize(): Node<D>;
     length(): Node<d.f32>;
-    dot(b: Node<D>): Node<d.f32>;
+    dot(b: Node<D>): Node<VecElementDesc<D>>;
     cross(b: Node<D>): Node<D>;
-    pow(b: Node<D>): Node<D>;
-    max(b: Node<D>): Node<D>;
-    min(b: Node<D>): Node<D>;
-    clamp(lo: Node<D>, hi: Node<D>): Node<D>;
-    mix(b: Node<D>, t: Node<Any>): Node<D>;
-    step(x: Node<D>): Node<D>;
-    smoothstep(hi: Node<D>, x: Node<D>): Node<D>;
+    pow(b: Node<D> | ScalarLiteral<D>): Node<D>;
+    max(b: Node<D> | ScalarLiteral<D>): Node<D>;
+    min(b: Node<D> | ScalarLiteral<D>): Node<D>;
+    clamp(lo: Node<D> | ScalarLiteral<D>, hi: Node<D> | ScalarLiteral<D>): Node<D>;
+    mix(b: Node<D> | ScalarLiteral<D>, t: Node<Any> | number): Node<D>;
+    step(x: Node<D> | ScalarLiteral<D>): Node<D>;
+    smoothstep(hi: Node<D> | ScalarLiteral<D>, x: Node<D> | ScalarLiteral<D>): Node<D>;
     dpdx(): Node<D>;
     dpdy(): Node<D>;
     fwidth(): Node<D>;
@@ -177,24 +179,30 @@ export declare class Node<D extends Any> {
     dpdyFine(): Node<D>;
     fwidthFine(): Node<D>;
     element(idx: Node<Any>): Node<d.ElementOf<D>>;
-    assign(value: Node<D>): void;
+    assign(value: Node<D> | ScalarLiteral<D>): void;
     toVar(label?: string): VarNode<D>;
     toConst(label?: string): LetNode<D>;
-    addAssign<N extends Node<Any>>(v: N): void;
-    subAssign<N extends Node<Any>>(v: N): void;
-    mulAssign<N extends Node<Any>>(v: N): void;
-    divAssign<N extends Node<Any>>(v: N): void;
+    addAssign<N extends Node<Any> | ArithLiteral<D>>(v: N): void;
+    subAssign<N extends Node<Any> | ArithLiteral<D>>(v: N): void;
+    mulAssign<N extends Node<Any> | MulLiteral<D>>(v: N): void;
+    divAssign<N extends Node<Any> | ArithLiteral<D>>(v: N): void;
     sign(): Node<D>;
-    mod(b: Node<D>): Node<D>;
+    round(): Node<D>;
+    saturate(): Node<D>;
+    reflect(n: Node<D>): Node<D>;
+    refract(n: Node<D>, eta: Node<VecElementDesc<D>> | number): Node<D>;
+    faceForward(i: Node<D>, nref: Node<D>): Node<D>;
+    mod<N extends Node<Any> | ArithLiteral<D>>(b: N): Node<ArithResultDesc<D, OperandDesc<N, D>>>;
+    /** `1 - this`, the 1 taking this node's element type */
     oneMinus(): Node<D>;
-    or(b: Node<d.bool>): Node<d.bool>;
-    and(b: Node<d.bool>): Node<d.bool>;
+    or(b: Node<d.bool> | boolean): Node<d.bool>;
+    and(b: Node<d.bool> | boolean): Node<d.bool>;
     not(): Node<d.bool>;
-    bitwiseAnd(b: Node<D>): Node<D>;
-    bitwiseOr(b: Node<D>): Node<D>;
-    bitwiseXor(b: Node<D>): Node<D>;
-    shiftLeft(b: Node<ShiftAmount<D>>): Node<D>;
-    shiftRight(b: Node<ShiftAmount<D>>): Node<D>;
+    bitwiseAnd(b: Node<D> | ScalarLiteral<D>): Node<D>;
+    bitwiseOr(b: Node<D> | ScalarLiteral<D>): Node<D>;
+    bitwiseXor(b: Node<D> | ScalarLiteral<D>): Node<D>;
+    shiftLeft(b: Node<ShiftAmount<D>> | ShiftLiteral<D>): Node<D>;
+    shiftRight(b: Node<ShiftAmount<D>> | ShiftLiteral<D>): Node<D>;
     transpose(): Node<D>;
     get x(): Node<VecElementDesc<D>>;
     get y(): Node<VecElementDesc<D>>;
@@ -529,8 +537,12 @@ export declare class BinaryOpNode<D extends Any> extends Node<D> {
     readonly op: BinaryOp;
     readonly left: Node<Any>;
     readonly right: Node<Any>;
+    /** An integer `/` or `%` whose divisor can't be zero (a texture's width), so GLSL needs no WGSL guard. */
+    readonly divisorNonzero: boolean;
     readonly kind = NodeKind.BinaryOp;
-    constructor(op: BinaryOp, type: D, left: Node<Any>, right: Node<Any>);
+    constructor(op: BinaryOp, type: D, left: Node<Any>, right: Node<Any>, 
+    /** An integer `/` or `%` whose divisor can't be zero (a texture's width), so GLSL needs no WGSL guard. */
+    divisorNonzero?: boolean);
 }
 /** Opaque reference to WgslFunctionNode to avoid circular import */
 export interface WgslFunctionNodeRef {
@@ -609,12 +621,17 @@ export declare const bitcastF32: (node: Node<d.u32 | d.i32>) => Node<d.f32>;
 export declare const bitcastU32: (node: Node<d.f32 | d.i32>) => Node<d.u32>;
 /** Reinterpret an f32 or u32 bit pattern as i32. WGSL: `bitcast<i32>(x)`. */
 export declare const bitcastI32: (node: Node<d.f32 | d.u32>) => Node<d.i32>;
-export declare const greaterThan: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
-export declare const lessThan: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
-export declare const greaterThanEqual: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
-export declare const lessThanEqual: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
-export declare const equal: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
-export declare const notEqual: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
+/** A comparison of two values of one type; a number on either side takes a scalar node's type. */
+export type Compare = {
+    <D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>>;
+    <D extends Any>(a: ScalarLiteral<D>, b: Node<D>): Node<CompareResultDesc<D>>;
+};
+export declare const greaterThan: Compare;
+export declare const lessThan: Compare;
+export declare const greaterThanEqual: Compare;
+export declare const lessThanEqual: Compare;
+export declare const equal: Compare;
+export declare const notEqual: Compare;
 export declare const any: <D extends Any>(a: Node<D>) => Node<d.bool>;
 export declare const all: <D extends Any>(a: Node<D>) => Node<d.bool>;
 /**
@@ -776,11 +793,47 @@ export declare const mat4: (c0: Node<d.Vec4>, c1: Node<d.Vec4>, c2: Node<d.Vec4>
 export declare function mat3(c0: Node<d.Vec3>, c1: Node<d.Vec3>, c2: Node<d.Vec3>): Node<d.mat3x3f>;
 export declare function mat3(diag: Node<d.f32>): Node<d.mat3x3f>;
 export declare function mat3(s00: Node<d.f32>, s01: Node<d.f32>, s02: Node<d.f32>, s10: Node<d.f32>, s11: Node<d.f32>, s12: Node<d.f32>, s20: Node<d.f32>, s21: Node<d.f32>, s22: Node<d.f32>): Node<d.mat3x3f>;
-export declare const add: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<ArithResultDesc<NA["type"], NB["type"]>>;
-export declare const sub: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<ArithResultDesc<NA["type"], NB["type"]>>;
-export declare const div: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<ArithResultDesc<NA["type"], NB["type"]>>;
-export declare const mul: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<MulResultDesc<NA["type"], NB["type"]>>;
-export declare const dot: (a: Node<Any>, b: Node<Any>) => Node<d.f32>;
+/**
+ * A JS number or boolean where a node is expected. It takes the type of the node it meets, as a WGSL literal does, and
+ * is accepted exactly where WGSL accepts one: beside a vector only in arithmetic (`v.mul(2)`, `mix(a, b, 0.5)`),
+ * otherwise beside a scalar (`clamp(t, 0, 1)`, `t.lessThan(0.5)`). A number must be exactly a value of that type.
+ */
+export type Literal = number | boolean;
+/** A node, or a {@link Literal} standing in for one. */
+export type Operand = Node<Any> | Literal;
+export type NumericScalar = d.f32 | d.i32 | d.u32 | d.f16;
+export type NumericScalarOrVec = NumericScalar | d.vec2f | d.vec3f | d.vec4f | d.vec2i | d.vec3i | d.vec4i | d.vec2u | d.vec3u | d.vec4u | d.vec2h | d.vec3h | d.vec4h;
+/** A literal where it must be a `D` itself: a number for a numeric scalar, a boolean for a bool, nothing otherwise. */
+export type ScalarLiteral<D extends Any> = D extends d.bool ? boolean : D extends NumericScalar ? number : never;
+/** A number beside a `D` in `+ - / %`: a numeric scalar or vector meets one. */
+export type ArithLiteral<D extends Any> = D extends NumericScalarOrVec ? number : never;
+/** A number beside a `D` in `*`: a matrix meets one too. */
+export type MulLiteral<D extends Any> = D extends NumericScalarOrVec | d.Mat ? number : never;
+/** A number for a shift amount: only an integer scalar shifts by one; a vector shifts by a vector. */
+export type ShiftLiteral<D extends Any> = D extends d.i32 | d.u32 ? number : never;
+/** The type a number takes beside a `D`: its element type. */
+export type LiteralDesc<D extends Any> = D extends d.Mat ? D extends {
+    wgslType: `${string}h`;
+} ? d.f16 : d.f32 : VecElementDesc<D>;
+/** An operand's type: a node's own, or for a number, what it takes beside a `D`. */
+export type OperandDesc<N, D extends Any> = N extends Node<Any> ? N['type'] : LiteralDesc<D>;
+/** `+ - / %`: a number on either side takes the element type of the node on the other, as a scalar, which WGSL
+ *  accepts beside a vector. */
+export type Arith = {
+    <NA extends Node<Any>, NB extends Node<Any> | ArithLiteral<NA['type']>>(a: NA, b: NB): Node<ArithResultDesc<NA['type'], OperandDesc<NB, NA['type']>>>;
+    <NB extends Node<Any>>(a: ArithLiteral<NB['type']>, b: NB): Node<ArithResultDesc<LiteralDesc<NB['type']>, NB['type']>>;
+};
+/** `*`: as {@link Arith}, and a number also scales a matrix. */
+export type Mul = {
+    <NA extends Node<Any>, NB extends Node<Any> | MulLiteral<NA['type']>>(a: NA, b: NB): Node<MulResultDesc<NA['type'], OperandDesc<NB, NA['type']>>>;
+    <NB extends Node<Any>>(a: MulLiteral<NB['type']>, b: NB): Node<MulResultDesc<LiteralDesc<NB['type']>, NB['type']>>;
+};
+export declare const add: Arith;
+export declare const sub: Arith;
+export declare const div: Arith;
+export declare const mul: Mul;
+/** The dot product, in the vectors' element type: WGSL's `dot` of two `vec3i` is an `i32`. */
+export declare const dot: <D extends Any>(a: Node<D>, b: Node<D>) => Node<VecElementDesc<D>>;
 export declare const cross: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
 export declare const normalize: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const length: (a: Node<Any>) => Node<d.f32>;
@@ -812,28 +865,64 @@ export declare const sqrt: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const sin: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const cos: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const negate: <D extends Any>(a: Node<D>) => Node<D>;
-export declare const pow: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+/** A builtin of two values of one type; a number on either side takes a scalar node's type. */
+export type SameType2 = {
+    <D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>): Node<D>;
+    <D extends Any>(a: ScalarLiteral<D>, b: Node<D>): Node<D>;
+};
+/** A builtin of three values of one type; numbers anywhere take the type of a scalar node among them. */
+export type SameType3 = {
+    <D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>, c: Node<D> | ScalarLiteral<D>): Node<D>;
+    <D extends Any>(a: ScalarLiteral<D>, b: Node<D>, c: Node<D> | ScalarLiteral<D>): Node<D>;
+    <D extends Any>(a: ScalarLiteral<D>, b: ScalarLiteral<D>, c: Node<D>): Node<D>;
+};
+export declare const pow: SameType2;
 export declare const exp: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const log: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const exp2: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const log2: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const tan: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const atan: <D extends Any>(a: Node<D>) => Node<D>;
-export declare const atan2: <D extends Any>(y: Node<D>, x: Node<D>) => Node<D>;
+export declare const atan2: SameType2;
 export declare const asin: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const acos: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const inverseSqrt: <D extends Any>(a: Node<D>) => Node<D>;
-export declare function max<D extends Any>(a: Node<D>, b: Node<D>, ...rest: Node<D>[]): Node<D>;
-export declare function min<D extends Any>(a: Node<D>, b: Node<D>, ...rest: Node<D>[]): Node<D>;
-export declare const clamp: <D extends Any>(a: Node<D>, lo: Node<D>, hi: Node<D>) => Node<D>;
-export declare const mix: <D extends Any>(a: Node<D>, b: Node<D>, t: Node<Any>) => Node<D>;
-export declare const step: <D extends Any>(edge: Node<D>, x: Node<D>) => Node<D>;
-export declare const smoothstep: <D extends Any>(lo: Node<D>, hi: Node<D>, x: Node<D>) => Node<D>;
+/** Round to the nearest whole number, halves to even. WGSL: `round`; GLSL: `roundEven`. */
+export declare const round: <D extends Any>(a: Node<D>) => Node<D>;
+/** Clamp to [0, 1]. WGSL: `saturate`; GLSL has none, so it lowers to `clamp(a, 0.0, 1.0)`. */
+export declare const saturate: <D extends Any>(a: Node<D>) => Node<D>;
+/** The incident direction `i` reflected about the surface normal `n`: `i - 2 * dot(n, i) * n`. */
+export declare const reflect: <D extends Any>(i: Node<D>, n: Node<D>) => Node<D>;
+/** The incident direction `i` refracted through the surface normal `n` at the ratio of indices `eta`. */
+export declare const refract: <D extends Any>(i: Node<D>, n: Node<D>, eta: Node<VecElementDesc<D>> | number) => Node<D>;
+/** `n` turned to face against `i`, judged by the reference normal `nref`: `dot(nref, i) < 0 ? n : -n`. WGSL: `faceForward`; GLSL: `faceforward`. */
+export declare const faceForward: <D extends Any>(n: Node<D>, i: Node<D>, nref: Node<D>) => Node<D>;
+export declare function max<D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>, ...rest: (Node<D> | ScalarLiteral<D>)[]): Node<D>;
+export declare function max<D extends Any>(a: ScalarLiteral<D>, b: Node<D>, ...rest: (Node<D> | ScalarLiteral<D>)[]): Node<D>;
+export declare function min<D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>, ...rest: (Node<D> | ScalarLiteral<D>)[]): Node<D>;
+export declare function min<D extends Any>(a: ScalarLiteral<D>, b: Node<D>, ...rest: (Node<D> | ScalarLiteral<D>)[]): Node<D>;
+export declare const clamp: SameType3;
+/**
+ * `a` to `b` by `t`. A number for `t` takes the element type of `a` and `b`, as a scalar, which WGSL accepts beside
+ * vectors; numbers for `a` and `b` take the type of a scalar node among the three.
+ */
+export type Mix = {
+    <D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>, t: Node<Any> | number): Node<D>;
+    <D extends Any>(a: ScalarLiteral<D>, b: Node<D>, t: Node<Any> | number): Node<D>;
+    <D extends Any>(a: ScalarLiteral<D>, b: ScalarLiteral<D>, t: Node<D>): Node<D>;
+};
+export declare const mix: Mix;
+export declare const step: SameType2;
+export declare const smoothstep: SameType3;
 export declare const sign: <D extends Any>(a: Node<D>) => Node<D>;
-export declare const mod: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
-export declare const or: (a: Node<d.bool>, b: Node<d.bool>) => Node<d.bool>;
-export declare const and: (a: Node<d.bool>, b: Node<d.bool>) => Node<d.bool>;
-export declare const not: (a: Node<d.bool>) => Node<d.bool>;
+/**
+ * WGSL's `%`, on both backends: a truncating remainder, so the result takes the sign of `a` (`-1.5 % 1.0` is `-0.5`).
+ * GLSL's `mod()` floors instead; for that, write `a.sub(b.mul(floor(a.div(b))))`.
+ */
+export declare const mod: Arith;
+export declare const or: (a: Node<d.bool> | boolean, b: Node<d.bool> | boolean) => Node<d.bool>;
+export declare const and: (a: Node<d.bool> | boolean, b: Node<d.bool> | boolean) => Node<d.bool>;
+export declare const not: (a: Node<d.bool> | boolean) => Node<d.bool>;
 export declare const transpose: <D extends d.Mat>(m: Node<D>) => Node<D>;
 export declare const countOneBits: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const countTrailingZeros: <D extends Any>(a: Node<D>) => Node<D>;
@@ -850,9 +939,9 @@ export declare const fwidthCoarse: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const dpdxFine: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const dpdyFine: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const fwidthFine: <D extends Any>(a: Node<D>) => Node<D>;
-export declare const bitwiseAnd: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
-export declare const bitwiseOr: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
-export declare const bitwiseXor: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+export declare const bitwiseAnd: SameType2;
+export declare const bitwiseOr: SameType2;
+export declare const bitwiseXor: SameType2;
 /**
  * what a value of type D shifts by: WGSL takes an unsigned amount whatever the value's signedness, one lane per lane of
  * the value, so `i32 >> u32` (arithmetic) and `vec3i << vec3u` are the valid forms.
@@ -864,8 +953,8 @@ export type ShiftAmount<D> = D extends {
 } ? d.vec3u : D extends {
     len: 4;
 } ? d.vec4u : d.u32;
-export declare const shiftLeft: <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>>) => Node<D>;
-export declare const shiftRight: <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>>) => Node<D>;
+export declare const shiftLeft: <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>> | ShiftLiteral<D>) => Node<D>;
+export declare const shiftRight: <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>> | ShiftLiteral<D>) => Node<D>;
 export declare class StackNode extends Node<d.Void> {
     readonly kind = NodeKind.Stack;
     readonly body: Node<Any>[];
@@ -966,10 +1055,10 @@ export declare class DiscardNode extends Node<d.Void> {
     constructor();
 }
 export type IfChain = {
-    ElseIf(condition: Node<Any>, body: () => void): IfChain;
+    ElseIf(condition: Node<Any> | boolean, body: () => void): IfChain;
     Else(body: () => void): IfChain;
 };
-export declare function If(condition: Node<Any>, thenBody: () => void): IfChain;
+export declare function If(condition: Node<Any> | boolean, thenBody: () => void): IfChain;
 /** The loop variable is a scalar; `i32` unless a `LoopParam` names another `type`. */
 export type LoopVars = Record<string, Node<d.i32>>;
 export declare function Loop(range: number, callback: (vars: LoopVars) => void): LoopNode;
@@ -1019,12 +1108,18 @@ export declare function Fn<P extends readonly ParamDesc[]>(jsFunc: (...args: Par
     readonly return?: undefined;
 }): (...args: ParamDescsToNodes<P>) => CallNode<d.Void>;
 export declare function Fn<D extends Any>(jsFunc: (...args: Node<Any>[]) => Node<D>): (...args: Node<Any>[]) => CallNode<D>;
-export declare const cond: <D extends Any>(condition: Node<Any>, ifTrue: Node<D>, ifFalse?: Node<D>) => ConditionalNode<D>;
+export declare const cond: <D extends Any>(condition: Node<Any> | boolean, ifTrue: Node<D>, ifFalse?: Node<D> | ScalarLiteral<D>) => ConditionalNode<D>;
 /**
  * WGSL `select(falseVal, trueVal, condition)`.
- * Returns `trueVal` when `condition` is true, `falseVal` otherwise.
+ * Returns `trueVal` when `condition` is true, `falseVal` otherwise. A number for one value takes a scalar node's type
+ * from the other; two booleans are a bool.
  */
-export declare const select: <D extends Any>(falseVal: Node<D>, trueVal: Node<D>, condition: Node<Any>) => Node<D>;
+export type Select = {
+    <D extends Any>(falseVal: Node<D>, trueVal: Node<D> | ScalarLiteral<D>, condition: Node<Any> | boolean): Node<D>;
+    <D extends Any>(falseVal: ScalarLiteral<D>, trueVal: Node<D>, condition: Node<Any> | boolean): Node<D>;
+    (falseVal: boolean, trueVal: boolean, condition: Node<Any> | boolean): Node<d.bool>;
+};
+export declare const select: Select;
 /**
  * Function-scope mutable variable: `var name = init;`
  *
@@ -1033,6 +1128,7 @@ export declare const select: <D extends Any>(falseVal: Node<D>, trueVal: Node<D>
  * // → var velocity = vec3f(0.0);
  */
 export declare function Var<D extends Any>(name: string, init: Node<D>): VarNode<D>;
+export declare function Var(name: string, init: boolean): VarNode<d.bool>;
 /**
  * Function-scope immutable binding: `let name = init;`
  *
@@ -1041,6 +1137,7 @@ export declare function Var<D extends Any>(name: string, init: Node<D>): VarNode
  * // → let half = (value * 0.5);
  */
 export declare function Let<D extends Any>(name: string, init: Node<D>): LetNode<D>;
+export declare function Let(name: string, init: boolean): LetNode<d.bool>;
 /** @deprecated Use Let() instead */
 export declare function Const<D extends Any>(name: string, init: Node<D>): LetNode<D>;
 /**
