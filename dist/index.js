@@ -23902,7 +23902,7 @@ function constLiteral(type, value) {
     if (typeof value === 'number') {
         switch (type) {
             case 'f32':
-                return floatLiteral(value);
+                return `${floatLiteral(value)}f`;
             case 'f16':
                 return `${floatLiteral(value, 'f16')}h`;
             case 'i32':
@@ -23917,7 +23917,7 @@ function constLiteral(type, value) {
     }
     const components = value.map((v) => {
         if (type.startsWith('vec') && type.endsWith('f'))
-            return floatLiteral(v);
+            return `${floatLiteral(v)}f`;
         if (type.startsWith('vec') && type.endsWith('h'))
             return `${floatLiteral(v, 'f16')}h`;
         if (type.startsWith('vec') && type.endsWith('i'))
@@ -23929,7 +23929,7 @@ function constLiteral(type, value) {
         if (type.startsWith('mat') && type.endsWith('h'))
             return `${floatLiteral(v, 'f16')}h`;
         if (type.startsWith('mat'))
-            return floatLiteral(v);
+            return `${floatLiteral(v)}f`;
         return `${v}`;
     });
     if (components.length === 0)
@@ -24608,7 +24608,7 @@ function generateTexture(ctx, node) {
     // textureSample (default). Implicit-LOD sampling needs fragment-stage derivatives and is forbidden
     // in the vertex stage, so sample at the base level there.
     if (ctx.stage === 'vertex') {
-        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, 0.0${offsetSuffix})`;
+        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, 0.0f${offsetSuffix})`;
     }
     return `textureSample(${name}, ${samplerName}, ${uvExpr}${offsetSuffix})`;
 }
@@ -24631,7 +24631,7 @@ function generateCubeTexture(ctx, node) {
     // Always negate the sample direction's X for WebGPU cube sampling. The CubeCamera stores
     // faces with swapped X (by design), and negating the sample direction un-does the swap so
     // the correct face is selected by the hardware.
-    const sampleDir = `${generateOperand(ctx, node.directionNode, Prec.Multiplicative)} * vec3f(-1.0, 1.0, 1.0)`;
+    const sampleDir = `${generateOperand(ctx, node.directionNode, Prec.Multiplicative)} * vec3f(-1.0f, 1.0f, 1.0f)`;
     // Cube textures do NOT support offset
     // textureSampleGrad (vec3f gradients for cube textures)
     if (node.samplingMode === 'grad') {
@@ -24660,7 +24660,7 @@ function generateCubeTexture(ctx, node) {
     }
     // textureSample (default). Implicit LOD is vertex-forbidden — sample at base level there.
     if (ctx.stage === 'vertex') {
-        return `textureSampleLevel(${name}, ${samplerName}, ${sampleDir}, 0.0)`;
+        return `textureSampleLevel(${name}, ${samplerName}, ${sampleDir}, 0.0f)`;
     }
     return `textureSample(${name}, ${samplerName}, ${sampleDir})`;
 }
@@ -24756,7 +24756,7 @@ function generateArrayTexture(ctx, node) {
     }
     // textureSample(t, s, coords, array_index [, offset]). Implicit LOD is vertex-forbidden — base level.
     if (ctx.stage === 'vertex') {
-        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${layerExpr}, 0.0${offsetSuffix})`;
+        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${layerExpr}, 0.0f${offsetSuffix})`;
     }
     return `textureSample(${name}, ${samplerName}, ${uvExpr}, ${layerExpr}${offsetSuffix})`;
 }
