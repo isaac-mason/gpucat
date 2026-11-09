@@ -7,15 +7,16 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    clamp,
     comparisonSampler,
     type compileGlsl,
     compileTransformFeedback,
     createStorageTexture,
     d,
     depthTexture,
-    faceForward,
     Fn,
     f32,
+    faceForward,
     fxaa,
     GpuSampler,
     GpuTexture,
@@ -27,20 +28,25 @@ import {
     inverseSqrt,
     Let,
     Loop,
+    max,
+    mix,
     modelNormalMatrix,
     modelWorldMatrix,
     mrt,
+    type Node,
     reflect,
     refract,
     round,
     saturate,
-    type Node,
     screenCoordinate,
     screenUV,
     select,
+    smoothstep,
     sRGBTransferOETF,
+    step,
     storage,
     struct,
+    sub,
     texture,
     textureNumLayers,
     textureSampleCompare,
@@ -262,6 +268,31 @@ export const cases: Case[] = [
             return {
                 vertex: vec4(attribute('position', d.vec3f), f32(1)),
                 fragment: wrapped,
+                depth: undefined,
+            };
+        },
+    },
+    {
+        // number operands: plain numbers where WGSL takes a literal, each taking the type of the node it meets
+        name: 'number operands',
+        build: () => {
+            const x = screenCoordinate.x;
+            const v = vec3(x, x, x);
+            const i = i32(x);
+            const u = u32(x);
+            const s = clamp(x, 0, 1)
+                .add(smoothstep(0, 1, x))
+                .add(step(0.5, x))
+                .add(max(0, x))
+                .add(mix(v, v, 0.5).y)
+                .add(v.mul(2).sub(1).x)
+                .add(sub(1, x).div(2))
+                .add(select(f32(0), 1, x.lessThan(0.5).and(true)))
+                .add(f32(i.mul(3).add(-1).mod(4)))
+                .add(f32(u.shiftLeft(2).bitwiseAnd(255).add(1)));
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: vec4(s, v.mod(2).x, i.oneMinus().toF32(), f32(1)),
                 depth: undefined,
             };
         },

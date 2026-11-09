@@ -15,6 +15,7 @@ import type {
 } from '../../schema/schema';
 import * as d from '../../schema/schema';
 import { isStructDef } from '../../schema/schema';
+import { convertScalarLiteral, floatLiteral } from '../backend/print';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -402,28 +403,31 @@ export class Node<D extends Any> {
     }
 
     // ── Comparisons ───────────────────────────────────────────────────────────
-    greaterThan(b: Node<D>): Node<CompareResultDesc<D>> {
+    greaterThan(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>> {
         return greaterThan(this, b);
     }
-    lessThan(b: Node<D>): Node<CompareResultDesc<D>> {
+    lessThan(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>> {
         return lessThan(this, b);
     }
-    greaterThanEqual(b: Node<D>): Node<CompareResultDesc<D>> {
+    greaterThanEqual(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>> {
         return greaterThanEqual(this, b);
     }
-    lessThanEqual(b: Node<D>): Node<CompareResultDesc<D>> {
+    lessThanEqual(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>> {
         return lessThanEqual(this, b);
     }
-    equal(b: Node<D>): Node<CompareResultDesc<D>> {
+    equal(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>> {
         return equal(this, b);
     }
-    notEqual(b: Node<D>): Node<CompareResultDesc<D>> {
+    notEqual(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>> {
         return notEqual(this, b);
     }
 
     /** `select(falseVal, trueVal, this)`, use `this` node as the condition. */
-    select<T extends Any>(ifTrue: Node<T>, ifFalse: Node<T>): Node<T> {
-        return new ConditionalNode(this as Node<Any>, ifTrue, ifFalse);
+    select<T extends Any>(ifTrue: Node<T>, ifFalse: Node<T> | ScalarLiteral<T>): Node<T>;
+    select<T extends Any>(ifTrue: ScalarLiteral<T>, ifFalse: Node<T>): Node<T>;
+    select(ifTrue: boolean, ifFalse: boolean): Node<d.bool>;
+    select(ifTrue: Operand, ifFalse: Operand): Node<Any> {
+        return select(ifFalse as Node<Any>, ifTrue as Node<Any>, this as Node<Any>);
     }
 
     any(): Node<d.bool> {
@@ -434,17 +438,17 @@ export class Node<D extends Any> {
     }
 
     // ── Math ──────────────────────────────────────────────────────────────────
-    add<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>> {
-        return add(this, b) as Node<ArithResultDesc<D, N['type']>>;
+    add<N extends Node<Any> | ArithLiteral<D>>(b: N): Node<ArithResultDesc<D, OperandDesc<N, D>>> {
+        return add(this, b as Node<Any>) as unknown as Node<ArithResultDesc<D, OperandDesc<N, D>>>;
     }
-    sub<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>> {
-        return sub(this, b) as Node<ArithResultDesc<D, N['type']>>;
+    sub<N extends Node<Any> | ArithLiteral<D>>(b: N): Node<ArithResultDesc<D, OperandDesc<N, D>>> {
+        return sub(this, b as Node<Any>) as unknown as Node<ArithResultDesc<D, OperandDesc<N, D>>>;
     }
-    div<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>> {
-        return div(this, b) as Node<ArithResultDesc<D, N['type']>>;
+    div<N extends Node<Any> | ArithLiteral<D>>(b: N): Node<ArithResultDesc<D, OperandDesc<N, D>>> {
+        return div(this, b as Node<Any>) as unknown as Node<ArithResultDesc<D, OperandDesc<N, D>>>;
     }
-    mul<N extends Node<Any>>(b: N): Node<MulResultDesc<D, N['type']>> {
-        return mul(this, b) as Node<MulResultDesc<D, N['type']>>;
+    mul<N extends Node<Any> | MulLiteral<D>>(b: N): Node<MulResultDesc<D, OperandDesc<N, D>>> {
+        return mul(this, b as Node<Any>) as unknown as Node<MulResultDesc<D, OperandDesc<N, D>>>;
     }
     abs(): Node<D> {
         return abs(this) as Node<D>;
@@ -482,25 +486,25 @@ export class Node<D extends Any> {
     cross(b: Node<D>): Node<D> {
         return cross(this, b) as Node<D>;
     }
-    pow(b: Node<D>): Node<D> {
+    pow(b: Node<D> | ScalarLiteral<D>): Node<D> {
         return pow(this, b) as Node<D>;
     }
-    max(b: Node<D>): Node<D> {
+    max(b: Node<D> | ScalarLiteral<D>): Node<D> {
         return max(this, b) as Node<D>;
     }
-    min(b: Node<D>): Node<D> {
+    min(b: Node<D> | ScalarLiteral<D>): Node<D> {
         return min(this, b) as Node<D>;
     }
-    clamp(lo: Node<D>, hi: Node<D>): Node<D> {
+    clamp(lo: Node<D> | ScalarLiteral<D>, hi: Node<D> | ScalarLiteral<D>): Node<D> {
         return clamp(this, lo, hi) as Node<D>;
     }
-    mix(b: Node<D>, t: Node<Any>): Node<D> {
+    mix(b: Node<D> | ScalarLiteral<D>, t: Node<Any> | number): Node<D> {
         return mix(this, b, t) as Node<D>;
     }
-    step(x: Node<D>): Node<D> {
+    step(x: Node<D> | ScalarLiteral<D>): Node<D> {
         return step(this, x) as Node<D>;
     }
-    smoothstep(hi: Node<D>, x: Node<D>): Node<D> {
+    smoothstep(hi: Node<D> | ScalarLiteral<D>, x: Node<D> | ScalarLiteral<D>): Node<D> {
         return smoothstep(this, hi, x) as Node<D>;
     }
     dpdx(): Node<D> {
@@ -549,8 +553,8 @@ export class Node<D extends Any> {
     }
 
     // ── Lang ──────────────────────────────────────────────────────────────────
-    assign(value: Node<D>): void {
-        addToStack(new AssignNode(this, value));
+    assign(value: Node<D> | ScalarLiteral<D>): void {
+        addToStack(new AssignNode(this, sameTypeOperands('assign', [this, value])[1]!));
     }
     toVar(label?: string): VarNode<D> {
         return makeVar(this, label);
@@ -559,17 +563,17 @@ export class Node<D extends Any> {
         return makeLet(this, label);
     }
 
-    addAssign<N extends Node<Any>>(v: N): void {
-        addToStack(new AssignNode(this, add(this, v) as unknown as Node<D>));
+    addAssign<N extends Node<Any> | ArithLiteral<D>>(v: N): void {
+        addToStack(new AssignNode(this, add(this, v as Node<Any>) as unknown as Node<D>));
     }
-    subAssign<N extends Node<Any>>(v: N): void {
-        addToStack(new AssignNode(this, sub(this, v) as unknown as Node<D>));
+    subAssign<N extends Node<Any> | ArithLiteral<D>>(v: N): void {
+        addToStack(new AssignNode(this, sub(this, v as Node<Any>) as unknown as Node<D>));
     }
-    mulAssign<N extends Node<Any>>(v: N): void {
-        addToStack(new AssignNode(this, mul(this, v) as unknown as Node<D>));
+    mulAssign<N extends Node<Any> | MulLiteral<D>>(v: N): void {
+        addToStack(new AssignNode(this, mul(this, v as Node<Any>) as unknown as Node<D>));
     }
-    divAssign<N extends Node<Any>>(v: N): void {
-        addToStack(new AssignNode(this, div(this, v) as unknown as Node<D>));
+    divAssign<N extends Node<Any> | ArithLiteral<D>>(v: N): void {
+        addToStack(new AssignNode(this, div(this, v as Node<Any>) as unknown as Node<D>));
     }
 
     sign(): Node<D> {
@@ -584,43 +588,44 @@ export class Node<D extends Any> {
     reflect(n: Node<D>): Node<D> {
         return reflect(this, n) as Node<D>;
     }
-    refract(n: Node<D>, eta: Node<d.f32>): Node<D> {
+    refract(n: Node<D>, eta: Node<VecElementDesc<D>> | number): Node<D> {
         return refract(this, n, eta) as Node<D>;
     }
     faceForward(i: Node<D>, nref: Node<D>): Node<D> {
         return faceForward(this, i, nref) as Node<D>;
     }
-    mod(b: Node<D>): Node<D> {
-        return mod(this, b) as Node<D>;
+    mod<N extends Node<Any> | ArithLiteral<D>>(b: N): Node<ArithResultDesc<D, OperandDesc<N, D>>> {
+        return mod(this, b as Node<Any>) as unknown as Node<ArithResultDesc<D, OperandDesc<N, D>>>;
     }
 
+    /** `1 - this`, the 1 taking this node's element type */
     oneMinus(): Node<D> {
-        return sub(f32(1), this) as unknown as Node<D>;
+        return sub(1, this as Node<Any>) as unknown as Node<D>;
     }
 
-    or(b: Node<d.bool>): Node<d.bool> {
+    or(b: Node<d.bool> | boolean): Node<d.bool> {
         return or(this as unknown as Node<d.bool>, b);
     }
-    and(b: Node<d.bool>): Node<d.bool> {
+    and(b: Node<d.bool> | boolean): Node<d.bool> {
         return and(this as unknown as Node<d.bool>, b);
     }
     not(): Node<d.bool> {
         return not(this as unknown as Node<d.bool>);
     }
 
-    bitwiseAnd(b: Node<D>): Node<D> {
+    bitwiseAnd(b: Node<D> | ScalarLiteral<D>): Node<D> {
         return bitwiseAnd(this, b);
     }
-    bitwiseOr(b: Node<D>): Node<D> {
+    bitwiseOr(b: Node<D> | ScalarLiteral<D>): Node<D> {
         return bitwiseOr(this, b);
     }
-    bitwiseXor(b: Node<D>): Node<D> {
+    bitwiseXor(b: Node<D> | ScalarLiteral<D>): Node<D> {
         return bitwiseXor(this, b);
     }
-    shiftLeft(b: Node<ShiftAmount<D>>): Node<D> {
+    shiftLeft(b: Node<ShiftAmount<D>> | ShiftLiteral<D>): Node<D> {
         return shiftLeft(this, b);
     }
-    shiftRight(b: Node<ShiftAmount<D>>): Node<D> {
+    shiftRight(b: Node<ShiftAmount<D>> | ShiftLiteral<D>): Node<D> {
         return shiftRight(this, b);
     }
 
@@ -1634,18 +1639,23 @@ export const bitcastU32 = (node: Node<d.f32 | d.i32>): Node<d.u32> => new CallNo
 /** Reinterpret an f32 or u32 bit pattern as i32. WGSL: `bitcast<i32>(x)`. */
 export const bitcastI32 = (node: Node<d.f32 | d.u32>): Node<d.i32> => new CallNode(d.i32, 'bitcast<i32>', [node]);
 
-export const greaterThan = <D extends Any>(a: Node<D>, b: Node<D>): Node<CompareResultDesc<D>> =>
-    new BinaryOpNode('>', d.compareResultDesc(a.type), a, b) as unknown as Node<CompareResultDesc<D>>;
-export const lessThan = <D extends Any>(a: Node<D>, b: Node<D>): Node<CompareResultDesc<D>> =>
-    new BinaryOpNode('<', d.compareResultDesc(a.type), a, b) as unknown as Node<CompareResultDesc<D>>;
-export const greaterThanEqual = <D extends Any>(a: Node<D>, b: Node<D>): Node<CompareResultDesc<D>> =>
-    new BinaryOpNode('>=', d.compareResultDesc(a.type), a, b) as unknown as Node<CompareResultDesc<D>>;
-export const lessThanEqual = <D extends Any>(a: Node<D>, b: Node<D>): Node<CompareResultDesc<D>> =>
-    new BinaryOpNode('<=', d.compareResultDesc(a.type), a, b) as unknown as Node<CompareResultDesc<D>>;
-export const equal = <D extends Any>(a: Node<D>, b: Node<D>): Node<CompareResultDesc<D>> =>
-    new BinaryOpNode('==', d.compareResultDesc(a.type), a, b) as unknown as Node<CompareResultDesc<D>>;
-export const notEqual = <D extends Any>(a: Node<D>, b: Node<D>): Node<CompareResultDesc<D>> =>
-    new BinaryOpNode('!=', d.compareResultDesc(a.type), a, b) as unknown as Node<CompareResultDesc<D>>;
+/** A comparison of two values of one type; a number on either side takes a scalar node's type. */
+export type Compare = {
+    <D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>>;
+    <D extends Any>(a: ScalarLiteral<D>, b: Node<D>): Node<CompareResultDesc<D>>;
+};
+const compare =
+    (op: BinaryOp, name: string): Compare =>
+    (a: Operand, b: Operand) => {
+        const [l, r] = sameTypeOperands(name, [a, b]) as [Node<Any>, Node<Any>];
+        return new BinaryOpNode(op, d.compareResultDesc(l.type), l, r) as never;
+    };
+export const greaterThan: Compare = /*@__PURE__*/ compare('>', 'greaterThan');
+export const lessThan: Compare = /*@__PURE__*/ compare('<', 'lessThan');
+export const greaterThanEqual: Compare = /*@__PURE__*/ compare('>=', 'greaterThanEqual');
+export const lessThanEqual: Compare = /*@__PURE__*/ compare('<=', 'lessThanEqual');
+export const equal: Compare = /*@__PURE__*/ compare('==', 'equal');
+export const notEqual: Compare = /*@__PURE__*/ compare('!=', 'notEqual');
 
 export const any = <D extends Any>(a: Node<D>): Node<d.bool> => new CallNode(d.bool, 'any', [a]);
 export const all = <D extends Any>(a: Node<D>): Node<d.bool> => new CallNode(d.bool, 'all', [a]);
@@ -1695,14 +1705,14 @@ export function i32(v?: number): LiteralNode<d.i32>;
 export function i32(v: Node<Any>): Node<d.i32>;
 export function i32(v: number | Node<Any> = 0): LiteralNode<d.i32> | Node<d.i32> {
     if (isNode(v)) return new CallNode(d.i32, 'i32', [v]);
-    return new LiteralNode(d.i32, Math.trunc(v as number));
+    return new LiteralNode(d.i32, convertedInteger(v, 'i32'));
 }
 
 export function u32(v?: number): LiteralNode<d.u32>;
 export function u32(v: Node<Any>): Node<d.u32>;
 export function u32(v: number | Node<Any> = 0): LiteralNode<d.u32> | Node<d.u32> {
     if (isNode(v)) return new CallNode(d.u32, 'u32', [v]);
-    return new LiteralNode(d.u32, Math.trunc(v as number));
+    return new LiteralNode(d.u32, convertedInteger(v, 'u32'));
 }
 
 export const bool = (v: boolean): LiteralNode<d.bool> => new LiteralNode(d.bool, v ? 1 : 0);
@@ -1713,8 +1723,8 @@ type ScalarElemType = 'f32' | 'f16' | 'i32' | 'u32' | 'bool';
 function wrapScalar(v: Scalar, elemType: ScalarElemType): Node<Any> {
     if (isNode(v)) return v;
     if (elemType === 'bool') return new LiteralNode(d.bool, (v as boolean | number) ? 1 : 0);
-    if (elemType === 'i32') return new LiteralNode(d.i32, Math.trunc(v as number));
-    if (elemType === 'u32') return new LiteralNode(d.u32, Math.trunc(v as number));
+    if (elemType === 'i32') return new LiteralNode(d.i32, convertedInteger(v as number, 'i32'));
+    if (elemType === 'u32') return new LiteralNode(d.u32, convertedInteger(v as number, 'u32'));
     if (elemType === 'f16') return new LiteralNode(d.f16, v as number);
     return new LiteralNode(d.f32, v as number);
 }
@@ -1841,16 +1851,217 @@ export function mat3(
     return new ConstructNode(d.mat3x3f, [c0, z, z, z, c0, z, z, z, c0]);
 }
 
+// ── Plain numbers and booleans as operands ───────────────────────────────────
+
+/**
+ * A JS number or boolean where a node is expected. It takes the type of the node it meets, as a WGSL literal does, and
+ * is accepted exactly where WGSL accepts one: beside a vector only in arithmetic (`v.mul(2)`, `mix(a, b, 0.5)`),
+ * otherwise beside a scalar (`clamp(t, 0, 1)`, `t.lessThan(0.5)`). A number must be exactly a value of that type.
+ */
+export type Literal = number | boolean;
+/** A node, or a {@link Literal} standing in for one. */
+export type Operand = Node<Any> | Literal;
+
+export type NumericScalar = d.f32 | d.i32 | d.u32 | d.f16;
+export type NumericScalarOrVec =
+    | NumericScalar
+    | d.vec2f
+    | d.vec3f
+    | d.vec4f
+    | d.vec2i
+    | d.vec3i
+    | d.vec4i
+    | d.vec2u
+    | d.vec3u
+    | d.vec4u
+    | d.vec2h
+    | d.vec3h
+    | d.vec4h;
+/** A literal where it must be a `D` itself: a number for a numeric scalar, a boolean for a bool, nothing otherwise. */
+export type ScalarLiteral<D extends Any> = D extends d.bool ? boolean : D extends NumericScalar ? number : never;
+/** A number beside a `D` in `+ - / %`: a numeric scalar or vector meets one. */
+export type ArithLiteral<D extends Any> = D extends NumericScalarOrVec ? number : never;
+/** A number beside a `D` in `*`: a matrix meets one too. */
+export type MulLiteral<D extends Any> = D extends NumericScalarOrVec | d.Mat ? number : never;
+/** A number for a shift amount: only an integer scalar shifts by one; a vector shifts by a vector. */
+export type ShiftLiteral<D extends Any> = D extends d.i32 | d.u32 ? number : never;
+/** The type a number takes beside a `D`: its element type. */
+export type LiteralDesc<D extends Any> = D extends d.Mat
+    ? D extends { wgslType: `${string}h` }
+        ? d.f16
+        : d.f32
+    : VecElementDesc<D>;
+/** An operand's type: a node's own, or for a number, what it takes beside a `D`. */
+export type OperandDesc<N, D extends Any> = N extends Node<Any> ? N['type'] : LiteralDesc<D>;
+
+/** `an i32`, `a u32`: a type name with its article, as said aloud. */
+function aType(t: string): string {
+    return `${/^[if]/.test(t) ? 'an' : 'a'} ${t}`;
+}
+
+/** The scalar a number beside a `desc` value takes: its element type. */
+function scalarElementOf(desc: Any, op: string): Any {
+    if (d.isMatDesc(desc)) return desc.wgslType.endsWith('h') ? d.f16 : d.f32;
+    if ('len' in desc && desc.scalar !== 'bool') return d.vecElementDescOrSelf(desc);
+    throw new Error(`[gpucat] ${op}: ${aType(desc.wgslType)} takes no number`);
+}
+
+/** `v` as a literal of the scalar `elem`, throwing where `v` isn't exactly one: as WGSL does, but where it's written. */
+function literalOf(v: Literal, elem: Any, op: string): LiteralNode<Any> {
+    const t = elem.wgslType;
+    if (typeof v === 'boolean') {
+        if (t !== 'bool') throw new Error(`[gpucat] ${op}: ${v} is a bool, and ${aType(t)} takes a number`);
+        return new LiteralNode(d.bool, v ? 1 : 0);
+    }
+    if (t === 'bool') throw new Error(`[gpucat] ${op}: a bool takes true or false, not ${v}`);
+    if (t === 'i32' || t === 'u32') {
+        if (!Number.isInteger(v)) {
+            throw new Error(
+                `[gpucat] ${op}: ${v} is not ${aType(t)}, which takes whole numbers; do the maths in f32, or round it in JS`,
+            );
+        }
+        if (t === 'u32' && v < 0) throw new Error(`[gpucat] ${op}: ${v} is not a u32, which takes no negatives`);
+        const [lo, hi] = t === 'i32' ? [-2147483648, 2147483647] : [0, 4294967295];
+        if (v < lo || v > hi) throw new Error(`[gpucat] ${op}: ${v} is outside the ${t} range, ${lo} to ${hi}`);
+        return new LiteralNode(elem, v === 0 ? 0 : v);
+    }
+    try {
+        floatLiteral(v, t === 'f16' ? 'f16' : 'f32');
+    } catch (e) {
+        throw new Error(`[gpucat] ${op}: ${(e as Error).message.replace('[gpucat] ', '')}`);
+    }
+    return new LiteralNode(elem, v);
+}
+
+/** Both sides of `+ - * / %` as nodes. A number takes the element type of the node on the other side, as a scalar,
+ *  which WGSL accepts beside a vector, and for `*` beside a matrix. */
+function arithOperands(op: string, a: Operand, b: Operand, matrices: boolean): [Node<Any>, Node<Any>] {
+    if (isNode(a) && isNode(b)) return [a, b];
+    const node = isNode(a) ? a : isNode(b) ? b : undefined;
+    if (node === undefined) {
+        throw new Error(`[gpucat] ${op}: ${a} and ${b} are both numbers, which name no type; write f32(${a}) (or i32/u32)`);
+    }
+    if (d.isMatDesc(node.type) && !matrices) {
+        throw new Error(
+            `[gpucat] ${op}: ${aType(node.type.wgslType)} meets only ${aType(node.type.wgslType)}, not a number; scale it with mul`,
+        );
+    }
+    const elem = scalarElementOf(node.type, op);
+    return isNode(a) ? [a, literalOf(b as Literal, elem, op)] : [literalOf(a, elem, op), b as Node<Any>];
+}
+
+/** Values that must share one type, as nodes. A number takes the type of a node among them, which must be a scalar:
+ *  WGSL widens a literal to no vector here. Booleans alone are a bool. */
+function sameTypeOperands(op: string, values: readonly Operand[]): Node<Any>[] {
+    if (values.every(isNode)) return values as Node<Any>[];
+    const node = values.find(isNode);
+    const type = node?.type ?? (values.every((v) => typeof v === 'boolean') ? d.bool : undefined);
+    if (type === undefined) {
+        throw new Error(`[gpucat] ${op}: only numbers, which name no type; write f32(…) (or i32/u32) for one of them`);
+    }
+    if (!('len' in type) || type.len !== 1) {
+        const n = values.find((v) => !isNode(v));
+        throw new Error(
+            `[gpucat] ${op}: ${aType(type.wgslType)} meets only ${aType(type.wgslType)}, not ${n}; write ${type.wgslType}(${n}) to splat it`,
+        );
+    }
+    return values.map((v) => (isNode(v) ? v : literalOf(v, type, op)));
+}
+
+/** A condition as a node: a boolean is a bool literal. */
+function boolOperand(op: string, v: Node<Any> | boolean): Node<Any> {
+    if (isNode(v)) return v;
+    if (typeof v !== 'boolean') throw new Error(`[gpucat] ${op}: takes true, false or a bool node, not ${v}`);
+    return new LiteralNode(d.bool, v ? 1 : 0);
+}
+
+/** A Var or Let's initial value: a boolean is a bool; a number names no type. */
+function initOperand(op: string, init: Node<Any> | boolean): Node<Any> {
+    if (typeof init === 'number') throw new Error(`[gpucat] ${op}: ${init} names no type; write f32(${init}) (or i32/u32)`);
+    return boolOperand(op, init);
+}
+
+/** A shift amount as a node: a number is a u32, for an integer scalar. */
+function shiftOperand(op: string, a: Node<Any>, b: Node<Any> | number): Node<Any> {
+    if (!isNode(a)) throw new Error(`[gpucat] ${op}: a number shifted names no type; write u32(${a}) or i32(${a})`);
+    if (isNode(b)) return b;
+    if ('len' in a.type && a.type.len > 1) {
+        throw new Error(`[gpucat] ${op}: ${aType(a.type.wgslType)} shifts by a vec${a.type.len}u; write vec${a.type.len}u(${b})`);
+    }
+    return literalOf(b, d.u32, op);
+}
+
+/** `i32(v)` or `u32(v)` of a number, converting as WGSL converts a float: truncated, then clamped to the range. */
+function convertedInteger(v: number, t: 'i32' | 'u32'): number {
+    if (!Number.isFinite(v)) throw new Error(`[gpucat] ${t}(${v}): no ${t} has that value`);
+    return convertScalarLiteral(v, 'f32', t);
+}
+
+/** What WGSL rejects when the shader is created: an integer `/` or `%` by a literal 0, and an operation on two literals
+ *  whose result its type can't hold. Integer `+ - *` on literals wrap, as WGSL's do. */
+function assertConstantBinary(op: string, sym: string, l: Node<Any>, r: Node<Any>): void {
+    const scalar = 'scalar' in l.type ? l.type.scalar : undefined;
+    const literal = (n: Node<Any>) => (n.kind === NodeKind.Literal ? (n as LiteralNode<Any>).value : undefined);
+    const lv = literal(l);
+    const rv = literal(r);
+    const integer = scalar === 'i32' || scalar === 'u32';
+    if ((sym === '/' || sym === '%') && integer && (rv === 0 || (Array.isArray(rv) && rv.includes(0)))) {
+        throw new Error(`[gpucat] ${op}: an integer ${sym} by a literal 0 fails when the shader is created`);
+    }
+    if (typeof lv !== 'number' || typeof rv !== 'number') return;
+    const fail = (why: string) => {
+        throw new Error(`[gpucat] ${op}: ${lv} ${sym} ${rv} ${why}, which WGSL rejects when the shader is created`);
+    };
+    if (scalar === 'i32' && (sym === '/' || sym === '%') && lv === -2147483648 && rv === -1) fail('overflows an i32');
+    if (sym === '<<' && integer) {
+        const shifted = lv * 2 ** rv;
+        if (scalar === 'i32' ? shifted < -2147483648 || shifted > 2147483647 : shifted > 4294967295)
+            fail(`overflows ${aType(scalar)}`);
+    }
+    if ((scalar === 'f32' || scalar === 'f16') && (sym === '+' || sym === '-' || sym === '*' || sym === '/')) {
+        const result = sym === '+' ? lv + rv : sym === '-' ? lv - rv : sym === '*' ? lv * rv : lv / rv;
+        try {
+            floatLiteral(result, scalar);
+        } catch {
+            fail(`is beyond ${aType(scalar)}`);
+        }
+    }
+}
+
 // ── Standalone math functions ─────────────────────────────────────────────────
 
-export const add = <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB): Node<ArithResultDesc<NA['type'], NB['type']>> =>
-    new BinaryOpNode('+', d.arithResultDesc(a.type, b.type), a, b) as unknown as Node<ArithResultDesc<NA['type'], NB['type']>>;
-export const sub = <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB): Node<ArithResultDesc<NA['type'], NB['type']>> =>
-    new BinaryOpNode('-', d.arithResultDesc(a.type, b.type), a, b) as unknown as Node<ArithResultDesc<NA['type'], NB['type']>>;
-export const div = <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB): Node<ArithResultDesc<NA['type'], NB['type']>> =>
-    new BinaryOpNode('/', d.arithResultDesc(a.type, b.type), a, b) as unknown as Node<ArithResultDesc<NA['type'], NB['type']>>;
-export const mul = <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB): Node<MulResultDesc<NA['type'], NB['type']>> =>
-    new BinaryOpNode('*', d.mulResultDesc(a.type, b.type), a, b) as unknown as Node<MulResultDesc<NA['type'], NB['type']>>;
+/** `+ - / %`: a number on either side takes the element type of the node on the other, as a scalar, which WGSL
+ *  accepts beside a vector. */
+export type Arith = {
+    <NA extends Node<Any>, NB extends Node<Any> | ArithLiteral<NA['type']>>(
+        a: NA,
+        b: NB,
+    ): Node<ArithResultDesc<NA['type'], OperandDesc<NB, NA['type']>>>;
+    <NB extends Node<Any>>(a: ArithLiteral<NB['type']>, b: NB): Node<ArithResultDesc<LiteralDesc<NB['type']>, NB['type']>>;
+};
+/** `*`: as {@link Arith}, and a number also scales a matrix. */
+export type Mul = {
+    <NA extends Node<Any>, NB extends Node<Any> | MulLiteral<NA['type']>>(
+        a: NA,
+        b: NB,
+    ): Node<MulResultDesc<NA['type'], OperandDesc<NB, NA['type']>>>;
+    <NB extends Node<Any>>(a: MulLiteral<NB['type']>, b: NB): Node<MulResultDesc<LiteralDesc<NB['type']>, NB['type']>>;
+};
+const arith =
+    (op: BinaryOp, name: string): Arith =>
+    (a: Operand, b: Operand) => {
+        const [l, r] = arithOperands(name, a, b, false);
+        assertConstantBinary(name, op, l, r);
+        return new BinaryOpNode(op, d.arithResultDesc(l.type, r.type), l, r) as never;
+    };
+export const add: Arith = /*@__PURE__*/ arith('+', 'add');
+export const sub: Arith = /*@__PURE__*/ arith('-', 'sub');
+export const div: Arith = /*@__PURE__*/ arith('/', 'div');
+export const mul: Mul = (a: Operand, b: Operand) => {
+    const [l, r] = arithOperands('mul', a, b, true);
+    assertConstantBinary('mul', '*', l, r);
+    return new BinaryOpNode('*', d.mulResultDesc(l.type, r.type), l, r) as never;
+};
 /** The dot product, in the vectors' element type: WGSL's `dot` of two `vec3i` is an `i32`. */
 export const dot = <D extends Any>(a: Node<D>, b: Node<D>): Node<VecElementDesc<D>> =>
     new CallNode(d.vecElementDescOrSelf(a.type), 'dot', [a, b]) as unknown as Node<VecElementDesc<D>>;
@@ -1886,14 +2097,31 @@ export const sqrt = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type,
 export const sin = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'sin', [a]);
 export const cos = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'cos', [a]);
 export const negate = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'negate', [a]);
-export const pow = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'pow', [a, b]);
+/** A builtin of two values of one type; a number on either side takes a scalar node's type. */
+export type SameType2 = {
+    <D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>): Node<D>;
+    <D extends Any>(a: ScalarLiteral<D>, b: Node<D>): Node<D>;
+};
+/** A builtin of three values of one type; numbers anywhere take the type of a scalar node among them. */
+export type SameType3 = {
+    <D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>, c: Node<D> | ScalarLiteral<D>): Node<D>;
+    <D extends Any>(a: ScalarLiteral<D>, b: Node<D>, c: Node<D> | ScalarLiteral<D>): Node<D>;
+    <D extends Any>(a: ScalarLiteral<D>, b: ScalarLiteral<D>, c: Node<D>): Node<D>;
+};
+const sameTypeCall =
+    (fn: string) =>
+    (...values: Operand[]): never => {
+        const args = sameTypeOperands(fn, values);
+        return new CallNode(args.find(isNode)!.type, fn, args) as never;
+    };
+export const pow: SameType2 = /*@__PURE__*/ sameTypeCall('pow');
 export const exp = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'exp', [a]);
 export const log = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'log', [a]);
 export const exp2 = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'exp2', [a]);
 export const log2 = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'log2', [a]);
 export const tan = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'tan', [a]);
 export const atan = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'atan', [a]);
-export const atan2 = <D extends Any>(y: Node<D>, x: Node<D>): Node<D> => new CallNode(y.type, 'atan2', [y, x]);
+export const atan2: SameType2 = /*@__PURE__*/ sameTypeCall('atan2');
 export const asin = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'asin', [a]);
 export const acos = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'acos', [a]);
 export const inverseSqrt = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'inverseSqrt', [a]);
@@ -1904,42 +2132,64 @@ export const saturate = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.t
 /** The incident direction `i` reflected about the surface normal `n`: `i - 2 * dot(n, i) * n`. */
 export const reflect = <D extends Any>(i: Node<D>, n: Node<D>): Node<D> => new CallNode(i.type, 'reflect', [i, n]);
 /** The incident direction `i` refracted through the surface normal `n` at the ratio of indices `eta`. */
-export const refract = <D extends Any>(i: Node<D>, n: Node<D>, eta: Node<d.f32>): Node<D> =>
-    new CallNode(i.type, 'refract', [i, n, eta]);
+export const refract = <D extends Any>(i: Node<D>, n: Node<D>, eta: Node<VecElementDesc<D>> | number): Node<D> =>
+    new CallNode(i.type, 'refract', [i, n, isNode(eta) ? eta : literalOf(eta, scalarElementOf(i.type, 'refract'), 'refract')]);
 /** `n` turned to face against `i`, judged by the reference normal `nref`: `dot(nref, i) < 0 ? n : -n`. WGSL: `faceForward`; GLSL: `faceforward`. */
 export const faceForward = <D extends Any>(n: Node<D>, i: Node<D>, nref: Node<D>): Node<D> =>
     new CallNode(n.type, 'faceForward', [n, i, nref]);
 
-export function max<D extends Any>(a: Node<D>, b: Node<D>, ...rest: Node<D>[]): Node<D> {
-    let result: Node<D> = new CallNode(a.type, 'max', [a, b]);
-    for (const n of rest) {
-        result = new CallNode(a.type, 'max', [result, n]);
-    }
+export function max<D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>, ...rest: (Node<D> | ScalarLiteral<D>)[]): Node<D>;
+export function max<D extends Any>(a: ScalarLiteral<D>, b: Node<D>, ...rest: (Node<D> | ScalarLiteral<D>)[]): Node<D>;
+export function max(...values: Operand[]): Node<Any> {
+    return chainCall('max', values);
+}
+
+export function min<D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>, ...rest: (Node<D> | ScalarLiteral<D>)[]): Node<D>;
+export function min<D extends Any>(a: ScalarLiteral<D>, b: Node<D>, ...rest: (Node<D> | ScalarLiteral<D>)[]): Node<D>;
+export function min(...values: Operand[]): Node<Any> {
+    return chainCall('min', values);
+}
+
+/** `fn(fn(a, b), c)…`, one type throughout */
+function chainCall(fn: string, values: Operand[]): Node<Any> {
+    const [first, ...rest] = sameTypeOperands(fn, values) as [Node<Any>, ...Node<Any>[]];
+    let result = first;
+    for (const n of rest) result = new CallNode(first.type, fn, [result, n]);
     return result;
 }
 
-export function min<D extends Any>(a: Node<D>, b: Node<D>, ...rest: Node<D>[]): Node<D> {
-    let result: Node<D> = new CallNode(a.type, 'min', [a, b]);
-    for (const n of rest) {
-        result = new CallNode(a.type, 'min', [result, n]);
+export const clamp: SameType3 = /*@__PURE__*/ sameTypeCall('clamp');
+/**
+ * `a` to `b` by `t`. A number for `t` takes the element type of `a` and `b`, as a scalar, which WGSL accepts beside
+ * vectors; numbers for `a` and `b` take the type of a scalar node among the three.
+ */
+export type Mix = {
+    <D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>, t: Node<Any> | number): Node<D>;
+    <D extends Any>(a: ScalarLiteral<D>, b: Node<D>, t: Node<Any> | number): Node<D>;
+    <D extends Any>(a: ScalarLiteral<D>, b: ScalarLiteral<D>, t: Node<D>): Node<D>;
+};
+export const mix: Mix = (a: Operand, b: Operand, t: Operand): never => {
+    if (!isNode(a) && !isNode(b)) {
+        const [l, r, tt] = sameTypeOperands('mix', [a, b, t]);
+        return new CallNode(tt!.type, 'mix', [l!, r!, tt!]) as never;
     }
-    return result;
-}
-
-export const clamp = <D extends Any>(a: Node<D>, lo: Node<D>, hi: Node<D>): Node<D> => new CallNode(a.type, 'clamp', [a, lo, hi]);
-export const mix = <D extends Any>(a: Node<D>, b: Node<D>, t: Node<Any>): Node<D> => new CallNode(a.type, 'mix', [a, b, t]);
-export const step = <D extends Any>(edge: Node<D>, x: Node<D>): Node<D> => new CallNode(x.type, 'step', [edge, x]);
-export const smoothstep = <D extends Any>(lo: Node<D>, hi: Node<D>, x: Node<D>): Node<D> =>
-    new CallNode(x.type, 'smoothstep', [lo, hi, x]);
+    const [l, r] = sameTypeOperands('mix', [a, b]) as [Node<Any>, Node<Any>];
+    const factor = isNode(t) ? t : literalOf(t, scalarElementOf(l.type, 'mix'), 'mix');
+    return new CallNode(l.type, 'mix', [l, r, factor]) as never;
+};
+export const step: SameType2 = /*@__PURE__*/ sameTypeCall('step');
+export const smoothstep: SameType3 = /*@__PURE__*/ sameTypeCall('smoothstep');
 export const sign = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'sign', [a]);
 /**
  * WGSL's `%`, on both backends: a truncating remainder, so the result takes the sign of `a` (`-1.5 % 1.0` is `-0.5`).
  * GLSL's `mod()` floors instead; for that, write `a.sub(b.mul(floor(a.div(b))))`.
  */
-export const mod = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinaryOpNode('%', a.type, a, b);
-export const or = (a: Node<d.bool>, b: Node<d.bool>): Node<d.bool> => new BinaryOpNode('||', d.bool, a, b);
-export const and = (a: Node<d.bool>, b: Node<d.bool>): Node<d.bool> => new BinaryOpNode('&&', d.bool, a, b);
-export const not = (a: Node<d.bool>): Node<d.bool> => new CallNode(d.bool, 'not', [a]);
+export const mod: Arith = /*@__PURE__*/ arith('%', 'mod');
+export const or = (a: Node<d.bool> | boolean, b: Node<d.bool> | boolean): Node<d.bool> =>
+    new BinaryOpNode('||', d.bool, boolOperand('or', a), boolOperand('or', b));
+export const and = (a: Node<d.bool> | boolean, b: Node<d.bool> | boolean): Node<d.bool> =>
+    new BinaryOpNode('&&', d.bool, boolOperand('and', a), boolOperand('and', b));
+export const not = (a: Node<d.bool> | boolean): Node<d.bool> => new CallNode(d.bool, 'not', [boolOperand('not', a)]);
 export const transpose = <D extends d.Mat>(m: Node<D>): Node<D> => new CallNode(m.type, 'transpose', [m]);
 
 // ── Bit-count builtins (integer-only) ────────────────────────────────────────
@@ -1961,9 +2211,15 @@ export const dpdxFine = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.t
 export const dpdyFine = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'dpdyFine', [a]);
 export const fwidthFine = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'fwidthFine', [a]);
 
-export const bitwiseAnd = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinaryOpNode('&', a.type, a, b);
-export const bitwiseOr = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinaryOpNode('|', a.type, a, b);
-export const bitwiseXor = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinaryOpNode('^', a.type, a, b);
+const bitwise =
+    (op: BinaryOp, name: string): SameType2 =>
+    (a: Operand, b: Operand) => {
+        const [l, r] = sameTypeOperands(name, [a, b]) as [Node<Any>, Node<Any>];
+        return new BinaryOpNode(op, l.type, l, r) as never;
+    };
+export const bitwiseAnd: SameType2 = /*@__PURE__*/ bitwise('&', 'bitwiseAnd');
+export const bitwiseOr: SameType2 = /*@__PURE__*/ bitwise('|', 'bitwiseOr');
+export const bitwiseXor: SameType2 = /*@__PURE__*/ bitwise('^', 'bitwiseXor');
 /**
  * what a value of type D shifts by: WGSL takes an unsigned amount whatever the value's signedness, one lane per lane of
  * the value, so `i32 >> u32` (arithmetic) and `vec3i << vec3u` are the valid forms.
@@ -1985,13 +2241,16 @@ function assertShiftAmount(op: string, b: Node<Any>): void {
     const bad = amounts.find((v) => typeof v === 'number' && v >= 32);
     if (bad !== undefined) throw new Error(`[gpucat] ${op}: a shift of ${bad} is past a 32-bit integer; shift by 0 to 31`);
 }
-export const shiftLeft = <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>>): Node<D> => {
-    assertShiftAmount('shiftLeft', b);
-    return new BinaryOpNode('<<', a.type, a, b);
+export const shiftLeft = <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>> | ShiftLiteral<D>): Node<D> => {
+    const amount = shiftOperand('shiftLeft', a, b);
+    assertShiftAmount('shiftLeft', amount);
+    assertConstantBinary('shiftLeft', '<<', a, amount);
+    return new BinaryOpNode('<<', a.type, a, amount);
 };
-export const shiftRight = <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>>): Node<D> => {
-    assertShiftAmount('shiftRight', b);
-    return new BinaryOpNode('>>', a.type, a, b);
+export const shiftRight = <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>> | ShiftLiteral<D>): Node<D> => {
+    const amount = shiftOperand('shiftRight', a, b);
+    assertShiftAmount('shiftRight', amount);
+    return new BinaryOpNode('>>', a.type, a, amount);
 };
 
 // ── Lang ──────────────────────────────────────────────────────────────────────
@@ -2164,11 +2423,11 @@ export class DiscardNode extends Node<d.Void> {
 }
 
 export type IfChain = {
-    ElseIf(condition: Node<Any>, body: () => void): IfChain;
+    ElseIf(condition: Node<Any> | boolean, body: () => void): IfChain;
     Else(body: () => void): IfChain;
 };
 
-export function If(condition: Node<Any>, thenBody: () => void): IfChain {
+export function If(condition: Node<Any> | boolean, thenBody: () => void): IfChain {
     const thenStack = new StackNode();
     const prev = pushStack(thenStack);
     try {
@@ -2176,10 +2435,10 @@ export function If(condition: Node<Any>, thenBody: () => void): IfChain {
     } finally {
         popStack(prev);
     }
-    const ifNode = new IfNode(condition, thenStack);
+    const ifNode = new IfNode(boolOperand('If', condition), thenStack);
     addToStack(ifNode);
     const chain: IfChain = {
-        ElseIf(c: Node<Any>, body: () => void): IfChain {
+        ElseIf(c: Node<Any> | boolean, body: () => void): IfChain {
             const s = new StackNode();
             const f = pushStack(s);
             try {
@@ -2187,7 +2446,7 @@ export function If(condition: Node<Any>, thenBody: () => void): IfChain {
             } finally {
                 popStack(f);
             }
-            ifNode.elseIfBranches.push({ condition: c, body: s });
+            ifNode.elseIfBranches.push({ condition: boolOperand('ElseIf', c), body: s });
             return chain;
         },
         Else(body: () => void): IfChain {
@@ -2361,15 +2620,27 @@ export function Fn<D extends Any>(
     return (...args: Node<Any>[]): CallNode<D> => new CallNode<D>(returnType as D, fnNode.fnName, args, fnNode);
 }
 
-export const cond = <D extends Any>(condition: Node<Any>, ifTrue: Node<D>, ifFalse?: Node<D>) =>
-    new ConditionalNode(condition, ifTrue, ifFalse);
+export const cond = <D extends Any>(condition: Node<Any> | boolean, ifTrue: Node<D>, ifFalse?: Node<D> | ScalarLiteral<D>) =>
+    new ConditionalNode(
+        boolOperand('cond', condition),
+        ifTrue,
+        ifFalse === undefined ? undefined : (sameTypeOperands('cond', [ifTrue, ifFalse])[1] as Node<D>),
+    );
 
 /**
  * WGSL `select(falseVal, trueVal, condition)`.
- * Returns `trueVal` when `condition` is true, `falseVal` otherwise.
+ * Returns `trueVal` when `condition` is true, `falseVal` otherwise. A number for one value takes a scalar node's type
+ * from the other; two booleans are a bool.
  */
-export const select = <D extends Any>(falseVal: Node<D>, trueVal: Node<D>, condition: Node<Any>): Node<D> =>
-    new ConditionalNode(condition, trueVal, falseVal);
+export type Select = {
+    <D extends Any>(falseVal: Node<D>, trueVal: Node<D> | ScalarLiteral<D>, condition: Node<Any> | boolean): Node<D>;
+    <D extends Any>(falseVal: ScalarLiteral<D>, trueVal: Node<D>, condition: Node<Any> | boolean): Node<D>;
+    (falseVal: boolean, trueVal: boolean, condition: Node<Any> | boolean): Node<d.bool>;
+};
+export const select: Select = (falseVal: Operand, trueVal: Operand, condition: Node<Any> | boolean): never => {
+    const [f, t] = sameTypeOperands('select', [falseVal, trueVal]) as [Node<Any>, Node<Any>];
+    return new ConditionalNode(boolOperand('select', condition), t, f) as never;
+};
 
 function makeVar<D extends Any>(init: Node<D>, label?: string): VarNode<D> {
     const v = new VarNode(init.type, label, init);
@@ -2392,8 +2663,10 @@ function makeLet<D extends Any>(init: Node<D>, label?: string): LetNode<D> {
  * const velocity = Var('velocity', vec3f(0));
  * // → var velocity = vec3f(0.0);
  */
-export function Var<D extends Any>(name: string, init: Node<D>): VarNode<D> {
-    return makeVar(init, name);
+export function Var<D extends Any>(name: string, init: Node<D>): VarNode<D>;
+export function Var(name: string, init: boolean): VarNode<d.bool>;
+export function Var(name: string, init: Node<Any> | boolean): VarNode<Any> {
+    return makeVar(initOperand('Var', init), name);
 }
 
 /**
@@ -2403,8 +2676,10 @@ export function Var<D extends Any>(name: string, init: Node<D>): VarNode<D> {
  * const half = Let('half', value.mul(0.5));
  * // → let half = (value * 0.5);
  */
-export function Let<D extends Any>(name: string, init: Node<D>): LetNode<D> {
-    return makeLet(init, name);
+export function Let<D extends Any>(name: string, init: Node<D>): LetNode<D>;
+export function Let(name: string, init: boolean): LetNode<d.bool>;
+export function Let(name: string, init: Node<Any> | boolean): LetNode<Any> {
+    return makeLet(initOperand('Let', init), name);
 }
 
 /** @deprecated Use Let() instead */

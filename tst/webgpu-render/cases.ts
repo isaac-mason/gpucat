@@ -9,6 +9,7 @@ import {
     cameraPosition,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    clamp,
     compile,
     copyBuffer,
     copyTexture,
@@ -47,6 +48,7 @@ import {
     Mesh,
     max,
     min,
+    mix,
     mod,
     modelWorldMatrix,
     mrt,
@@ -67,9 +69,11 @@ import {
     screenSize,
     screenUV,
     select,
+    smoothstep,
     storage,
     storageTexture,
     struct,
+    sub,
     type Texture,
     texture,
     textureDimensions,
@@ -213,6 +217,53 @@ async function caseUniform(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
 
     const pixel = centerPixel(await read(gpu, target));
     return { name: 'uniform', pixel, expected: [0, 255, 0, 255] };
+}
+
+/**
+ * number-operands: plain numbers in every form WGSL takes a literal, each taking the type of the node it meets, compute
+ * the same values on both backends. Green when every one holds.
+ */
+async function caseNumberOperands(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const zf = uniform(f32(0), 'zf');
+    const zi = uniform(i32(0), 'zi');
+    const zu = uniform(u32(0), 'zu');
+    // plain numbers in every form WGSL takes a literal, each meeting a runtime value so nothing folds
+    const near = (a: Node<d.f32>, b: number) => a.sub(b).abs().lessThan(0.001);
+    const v = vec3(zf, zf.add(1), zf.add(2));
+    const checks = [
+        near(zf.add(3).mul(2).sub(1), 5),
+        near(sub(10, zf.add(4)).div(2), 3),
+        near(clamp(zf.add(5), 0, 1), 1),
+        near(mix(v, v.add(2), 0.25).y, 1.5),
+        near(v.mul(2).z, 4),
+        near(smoothstep(0, 2, zf.add(1)), 0.5),
+        near(select(f32(0), 1, zf.greaterThan(-0.5)), 1),
+        zi.add(7).mod(3).equal(1),
+        zi.sub(7).div(2).equal(-3),
+        zu.add(5).shiftLeft(2).equal(20),
+        zi.add(6).bitwiseAnd(3).equal(2),
+        zi.oneMinus().equal(1),
+    ];
+    const fragment = select(
+        vec4(1, 0, 0, 1),
+        vec4(0, 1, 0, 1),
+        checks.reduce((a, b) => a.and(b)),
+    );
+    const mesh = new Mesh(
+        fullscreenTriangle(),
+        new Material({ vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment, depthTest: false }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const pass = f.pass({ target: target, clear: [0, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixel = centerPixel(await read(gpu, target));
+    return { name: 'number-operands', pixel, expected: [0, 255, 0, 255], note: 'red: a lifted number computed differently' };
 }
 
 /**
@@ -3916,6 +3967,7 @@ const CASES: Record<string, Case> = {
     'derivative-orientation': caseDerivativeOrientation,
     'pack-and-integer-builtins': casePackAndIntegerBuiltins,
     'clip-depth': caseClipDepth,
+    'number-operands': caseNumberOperands,
     'named-parameters': caseNamedParameters,
     scene: caseScene,
     'clear-ignores-scissor': caseClearIgnoresScissor,

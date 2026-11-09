@@ -62,7 +62,8 @@ describe('a typed array for a sized array packs as its components tightly packed
     });
 
     test('nested sized arrays read on through the one run', () => {
-        const schema = d.sizedArray(d.sizedArray(d.vec2f, 2), 2);
+        // an array of arrays isn't in the static `Any` union, though the packer handles it
+        const schema = d.sizedArray(d.sizedArray(d.vec2f, 2), 2) as unknown as d.Any;
         const view = new DataView(new ArrayBuffer(layoutSizeOf(schema, 'std430')));
         packToView(schema, view, 0, new Float32Array([1, 2, 3, 4, 5, 6, 7, 8]) as never, 'std430');
         expect(unpackFromView(schema, view, 0, 'std430')).toEqual([

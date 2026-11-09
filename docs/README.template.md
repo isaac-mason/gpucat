@@ -746,7 +746,14 @@ A camera's uniforms are written once, when you set it. A draw moved next to anot
 
 ## Constants and constructors
 
-Scalar and vector constructors turn javascript numbers into typed constant nodes. `f32(0.5)`, `vec3(1, 0, 0)`, `mat4(...)`. The `vec*` constructors accept a mix of scalars and smaller vectors, so `vec4(rgb, 1)` works.
+Scalar and vector constructors turn javascript numbers into typed constant nodes. `f32(0.5)`, `vec3(1, 0, 0)`, `mat4(...)`. The `vec*` constructors accept a mix of scalars and smaller vectors, so `vec4(rgb, 1)` works. They convert as WGSL does: `i32(1.7)` is `1`, `u32(-1)` is `0`.
+
+A plain number works where WGSL takes a literal, and takes the type of the node it meets, as a WGSL literal does: `v.mul(2)`, `sub(1, x)`, `clamp(t, 0, 1)`, `mix(a, b, 0.5)`, `i.shiftLeft(3)`. A boolean works wherever a bool does: `c.and(true)`, `If(true, …)`. Beside a vector a number goes only in arithmetic and in `mix`'s and `refract`'s factors, as in WGSL; elsewhere write the vector, `clamp(v, vec3f(0), vec3f(1))`. A number must be exactly a value of its type, so `i.mul(0.5)` and `u.add(-1)` throw where they're written, and numbers alone, as in `add(1, 2)`, name no type.
+
+```ts
+const shade = mix(shadow, lit, saturate(ndotl.mul(0.5).add(0.5)));
+const band = step(0.5, fract(height.mul(4)));
+```
 
 <RenderCategory name="constructors" compact />
 
@@ -755,7 +762,7 @@ Scalar and vector constructors turn javascript numbers into typed constant nodes
 Math and operators exist as free functions, and (see [method chaining](#method-chaining)) as methods. `add(a, b)` is `a.add(b)`. They are type-directed: `mul(mat4, vec4)` is a matrix-vector multiply, `mul(vec3, vec3)` is component-wise.
 
 ```ts
-const lit = vec3(0.4, 0.7, 1.0).mul(f32(0.15).add(diffuse));
+const lit = vec3(0.4, 0.7, 1.0).mul(diffuse.add(0.15));
 ```
 
 <RenderCategory name="math/operators" compact />

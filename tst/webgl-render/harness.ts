@@ -8,6 +8,7 @@ import {
     CubeTexture,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    clamp,
     compile,
     copyBuffer,
     copyTexture,
@@ -49,6 +50,7 @@ import {
     Material,
     Mesh,
     type MRTNode,
+    mix,
     mod,
     modelNormalMatrix,
     modelWorldMatrix,
@@ -73,8 +75,10 @@ import {
     screenCoordinate,
     screenUV,
     select,
+    smoothstep,
     storage,
     struct,
+    sub,
     Texture,
     type TransformFeedbackDispatch,
     type TransformFeedbackNode,
@@ -1562,6 +1566,54 @@ async function caseMrt(): Promise<CaseResult> {
     const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'mrt', pixel, expected: [u8(colB[0]), u8(colB[1]), u8(colB[2]), 255] };
+}
+
+/**
+ * number-operands: plain numbers in every form WGSL takes a literal, each taking the type of the node it meets, compute
+ * the same values on both backends. Green when every one holds.
+ */
+async function caseNumberOperands(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const zf = uniform(f32(0), 'zf');
+    const zi = uniform(i32(0), 'zi');
+    const zu = uniform(u32(0), 'zu');
+    // plain numbers in every form WGSL takes a literal, each meeting a runtime value so nothing folds
+    const near = (a: Node<d.f32>, b: number) => a.sub(b).abs().lessThan(0.001);
+    const v = vec3(zf, zf.add(1), zf.add(2));
+    const checks = [
+        near(zf.add(3).mul(2).sub(1), 5),
+        near(sub(10, zf.add(4)).div(2), 3),
+        near(clamp(zf.add(5), 0, 1), 1),
+        near(mix(v, v.add(2), 0.25).y, 1.5),
+        near(v.mul(2).z, 4),
+        near(smoothstep(0, 2, zf.add(1)), 0.5),
+        near(select(f32(0), 1, zf.greaterThan(-0.5)), 1),
+        zi.add(7).mod(3).equal(1),
+        zi.sub(7).div(2).equal(-3),
+        zu.add(5).shiftLeft(2).equal(20),
+        zi.add(6).bitwiseAnd(3).equal(2),
+        zi.oneMinus().equal(1),
+    ];
+    const fragment = select(
+        vec4(1, 0, 0, 1),
+        vec4(0, 1, 0, 1),
+        checks.reduce((a, b) => a.and(b)),
+    );
+    const mesh = new Mesh(
+        createFullscreenTriangleGeometry(),
+        new Material({ vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment, depthTest: false }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(renderer);
+    const pass = f.pass({ target: renderer.backend.target, clear: [0, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    return { name: 'number-operands', pixel, expected: [0, 255, 0, 255], note: 'red: a lifted number computed differently' };
 }
 
 /**
@@ -5985,6 +6037,7 @@ export async function run(): Promise<RunResult> {
             caseDerivativeOrientation,
             casePackAndIntegerBuiltins,
             caseClipDepth,
+            caseNumberOperands,
             caseMrt4Rgba8,
             caseMrt2Rgba16f,
             caseMrt4Rgba16fUpfront,

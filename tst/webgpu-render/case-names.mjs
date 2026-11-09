@@ -11,6 +11,7 @@ export const CASE_NAMES = [
     'derivative-orientation',
     'pack-and-integer-builtins',
     'clip-depth',
+    'number-operands',
     'named-parameters',
     'scene',
     'clear-ignores-scissor',

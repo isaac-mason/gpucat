@@ -43,20 +43,22 @@ export class Node<D extends Any> {
     toI32(): Node<NumericDescOf<D, d.i32>>;
     field<K extends StructKeys<D>>(name: K): Node<StructField<D, K>>;
     fields(): Fields<d.StructSchemaOf<D>>;
-    greaterThan(b: Node<D>): Node<CompareResultDesc<D>>;
-    lessThan(b: Node<D>): Node<CompareResultDesc<D>>;
-    greaterThanEqual(b: Node<D>): Node<CompareResultDesc<D>>;
-    lessThanEqual(b: Node<D>): Node<CompareResultDesc<D>>;
-    equal(b: Node<D>): Node<CompareResultDesc<D>>;
-    notEqual(b: Node<D>): Node<CompareResultDesc<D>>;
+    greaterThan(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>>;
+    lessThan(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>>;
+    greaterThanEqual(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>>;
+    lessThanEqual(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>>;
+    equal(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>>;
+    notEqual(b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>>;
     /** `select(falseVal, trueVal, this)`, use `this` node as the condition. */
-    select<T extends Any>(ifTrue: Node<T>, ifFalse: Node<T>): Node<T>;
+    select<T extends Any>(ifTrue: Node<T>, ifFalse: Node<T> | ScalarLiteral<T>): Node<T>;
+    select<T extends Any>(ifTrue: ScalarLiteral<T>, ifFalse: Node<T>): Node<T>;
+    select(ifTrue: boolean, ifFalse: boolean): Node<d.bool>;
     any(): Node<d.bool>;
     all(): Node<d.bool>;
-    add<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>>;
-    sub<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>>;
-    div<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>>;
-    mul<N extends Node<Any>>(b: N): Node<MulResultDesc<D, N['type']>>;
+    add<N extends Node<Any> | ArithLiteral<D>>(b: N): Node<ArithResultDesc<D, OperandDesc<N, D>>>;
+    sub<N extends Node<Any> | ArithLiteral<D>>(b: N): Node<ArithResultDesc<D, OperandDesc<N, D>>>;
+    div<N extends Node<Any> | ArithLiteral<D>>(b: N): Node<ArithResultDesc<D, OperandDesc<N, D>>>;
+    mul<N extends Node<Any> | MulLiteral<D>>(b: N): Node<MulResultDesc<D, OperandDesc<N, D>>>;
     abs(): Node<D>;
     floor(): Node<D>;
     ceil(): Node<D>;
@@ -69,13 +71,13 @@ export class Node<D extends Any> {
     length(): Node<d.f32>;
     dot(b: Node<D>): Node<VecElementDesc<D>>;
     cross(b: Node<D>): Node<D>;
-    pow(b: Node<D>): Node<D>;
-    max(b: Node<D>): Node<D>;
-    min(b: Node<D>): Node<D>;
-    clamp(lo: Node<D>, hi: Node<D>): Node<D>;
-    mix(b: Node<D>, t: Node<Any>): Node<D>;
-    step(x: Node<D>): Node<D>;
-    smoothstep(hi: Node<D>, x: Node<D>): Node<D>;
+    pow(b: Node<D> | ScalarLiteral<D>): Node<D>;
+    max(b: Node<D> | ScalarLiteral<D>): Node<D>;
+    min(b: Node<D> | ScalarLiteral<D>): Node<D>;
+    clamp(lo: Node<D> | ScalarLiteral<D>, hi: Node<D> | ScalarLiteral<D>): Node<D>;
+    mix(b: Node<D> | ScalarLiteral<D>, t: Node<Any> | number): Node<D>;
+    step(x: Node<D> | ScalarLiteral<D>): Node<D>;
+    smoothstep(hi: Node<D> | ScalarLiteral<D>, x: Node<D> | ScalarLiteral<D>): Node<D>;
     dpdx(): Node<D>;
     dpdy(): Node<D>;
     fwidth(): Node<D>;
@@ -86,29 +88,30 @@ export class Node<D extends Any> {
     dpdyFine(): Node<D>;
     fwidthFine(): Node<D>;
     element(idx: Node<Any>): Node<d.ElementOf<D>>;
-    assign(value: Node<D>): void;
+    assign(value: Node<D> | ScalarLiteral<D>): void;
     toVar(label?: string): VarNode<D>;
     toConst(label?: string): LetNode<D>;
-    addAssign<N extends Node<Any>>(v: N): void;
-    subAssign<N extends Node<Any>>(v: N): void;
-    mulAssign<N extends Node<Any>>(v: N): void;
-    divAssign<N extends Node<Any>>(v: N): void;
+    addAssign<N extends Node<Any> | ArithLiteral<D>>(v: N): void;
+    subAssign<N extends Node<Any> | ArithLiteral<D>>(v: N): void;
+    mulAssign<N extends Node<Any> | MulLiteral<D>>(v: N): void;
+    divAssign<N extends Node<Any> | ArithLiteral<D>>(v: N): void;
     sign(): Node<D>;
     round(): Node<D>;
     saturate(): Node<D>;
     reflect(n: Node<D>): Node<D>;
-    refract(n: Node<D>, eta: Node<d.f32>): Node<D>;
+    refract(n: Node<D>, eta: Node<VecElementDesc<D>> | number): Node<D>;
     faceForward(i: Node<D>, nref: Node<D>): Node<D>;
-    mod(b: Node<D>): Node<D>;
+    mod<N extends Node<Any> | ArithLiteral<D>>(b: N): Node<ArithResultDesc<D, OperandDesc<N, D>>>;
+    /** `1 - this`, the 1 taking this node's element type */
     oneMinus(): Node<D>;
-    or(b: Node<d.bool>): Node<d.bool>;
-    and(b: Node<d.bool>): Node<d.bool>;
+    or(b: Node<d.bool> | boolean): Node<d.bool>;
+    and(b: Node<d.bool> | boolean): Node<d.bool>;
     not(): Node<d.bool>;
-    bitwiseAnd(b: Node<D>): Node<D>;
-    bitwiseOr(b: Node<D>): Node<D>;
-    bitwiseXor(b: Node<D>): Node<D>;
-    shiftLeft(b: Node<ShiftAmount<D>>): Node<D>;
-    shiftRight(b: Node<ShiftAmount<D>>): Node<D>;
+    bitwiseAnd(b: Node<D> | ScalarLiteral<D>): Node<D>;
+    bitwiseOr(b: Node<D> | ScalarLiteral<D>): Node<D>;
+    bitwiseXor(b: Node<D> | ScalarLiteral<D>): Node<D>;
+    shiftLeft(b: Node<ShiftAmount<D>> | ShiftLiteral<D>): Node<D>;
+    shiftRight(b: Node<ShiftAmount<D>> | ShiftLiteral<D>): Node<D>;
     transpose(): Node<D>;
     get x(): Node<VecElementDesc<D>>;
     get y(): Node<VecElementDesc<D>>;
@@ -366,67 +369,71 @@ The full node DSL, grouped by category. Learn it with examples in the [guide](./
 </tr><tr>
 <td><a href="#uniformgroupblock"><code>UniformGroupBlock</code></a></td><td><a href="#uniformmember"><code>UniformMember</code></a></td><td><a href="#varyingentry"><code>VaryingEntry</code></a></td><td><a href="#vertexbuffergroup"><code>VertexBufferGroup</code></a></td>
 </tr><tr>
-<td><a href="#arraysamplingmode"><code>ArraySamplingMode</code></a></td><td><a href="#atomicptrdesc"><code>AtomicPtrDesc</code></a></td><td><a href="#attributeoptions"><code>AttributeOptions</code></a></td><td><a href="#abs"><code>abs</code></a></td>
+<td><a href="#arith"><code>Arith</code></a></td><td><a href="#arithliteral"><code>ArithLiteral</code></a></td><td><a href="#arraysamplingmode"><code>ArraySamplingMode</code></a></td><td><a href="#atomicptrdesc"><code>AtomicPtrDesc</code></a></td>
 </tr><tr>
-<td><a href="#acestonemapping"><code>acesToneMapping</code></a></td><td><a href="#acos"><code>acos</code></a></td><td><a href="#add"><code>add</code></a></td><td><a href="#and"><code>and</code></a></td>
+<td><a href="#attributeoptions"><code>AttributeOptions</code></a></td><td><a href="#abs"><code>abs</code></a></td><td><a href="#acestonemapping"><code>acesToneMapping</code></a></td><td><a href="#acos"><code>acos</code></a></td>
 </tr><tr>
-<td><a href="#array"><code>array</code></a></td><td><a href="#arraytexture"><code>arrayTexture</code></a></td><td><a href="#asin"><code>asin</code></a></td><td><a href="#atan"><code>atan</code></a></td>
+<td><a href="#add"><code>add</code></a></td><td><a href="#and"><code>and</code></a></td><td><a href="#array"><code>array</code></a></td><td><a href="#arraytexture"><code>arrayTexture</code></a></td>
 </tr><tr>
-<td><a href="#atan2"><code>atan2</code></a></td><td><a href="#atomicadd"><code>atomicAdd</code></a></td><td><a href="#atomicand"><code>atomicAnd</code></a></td><td><a href="#atomiccompareexchangeweak"><code>atomicCompareExchangeWeak</code></a></td>
+<td><a href="#asin"><code>asin</code></a></td><td><a href="#atan"><code>atan</code></a></td><td><a href="#atan2"><code>atan2</code></a></td><td><a href="#atomicadd"><code>atomicAdd</code></a></td>
 </tr><tr>
-<td><a href="#atomicexchange"><code>atomicExchange</code></a></td><td><a href="#atomicload"><code>atomicLoad</code></a></td><td><a href="#atomicmax"><code>atomicMax</code></a></td><td><a href="#atomicmin"><code>atomicMin</code></a></td>
+<td><a href="#atomicand"><code>atomicAnd</code></a></td><td><a href="#atomiccompareexchangeweak"><code>atomicCompareExchangeWeak</code></a></td><td><a href="#atomicexchange"><code>atomicExchange</code></a></td><td><a href="#atomicload"><code>atomicLoad</code></a></td>
 </tr><tr>
-<td><a href="#atomicor"><code>atomicOr</code></a></td><td><a href="#atomicstore"><code>atomicStore</code></a></td><td><a href="#atomicsub"><code>atomicSub</code></a></td><td><a href="#atomicxor"><code>atomicXor</code></a></td>
+<td><a href="#atomicmax"><code>atomicMax</code></a></td><td><a href="#atomicmin"><code>atomicMin</code></a></td><td><a href="#atomicor"><code>atomicOr</code></a></td><td><a href="#atomicstore"><code>atomicStore</code></a></td>
 </tr><tr>
-<td><a href="#attribute"><code>attribute</code></a></td><td><a href="#binaryop"><code>BinaryOp</code></a></td><td><a href="#break"><code>Break</code></a></td><td><a href="#builtinkind"><code>BuiltinKind</code></a></td>
+<td><a href="#atomicsub"><code>atomicSub</code></a></td><td><a href="#atomicxor"><code>atomicXor</code></a></td><td><a href="#attribute"><code>attribute</code></a></td><td><a href="#binaryop"><code>BinaryOp</code></a></td>
 </tr><tr>
-<td><a href="#bitcastf32"><code>bitcastF32</code></a></td><td><a href="#bitcasti32"><code>bitcastI32</code></a></td><td><a href="#bitcastu32"><code>bitcastU32</code></a></td><td><a href="#bitwiseand"><code>bitwiseAnd</code></a></td>
+<td><a href="#break"><code>Break</code></a></td><td><a href="#builtinkind"><code>BuiltinKind</code></a></td><td><a href="#bitcastf32"><code>bitcastF32</code></a></td><td><a href="#bitcasti32"><code>bitcastI32</code></a></td>
 </tr><tr>
-<td><a href="#bitwiseor"><code>bitwiseOr</code></a></td><td><a href="#bitwisexor"><code>bitwiseXor</code></a></td><td><a href="#bool"><code>bool</code></a></td><td><a href="#builtin"><code>builtin</code></a></td>
+<td><a href="#bitcastu32"><code>bitcastU32</code></a></td><td><a href="#bitwiseand"><code>bitwiseAnd</code></a></td><td><a href="#bitwiseor"><code>bitwiseOr</code></a></td><td><a href="#bitwisexor"><code>bitwiseXor</code></a></td>
 </tr><tr>
-<td><a href="#computenodeoptions"><code>ComputeNodeOptions</code></a></td><td><a href="#computeoptions"><code>ComputeOptions</code></a></td><td><a href="#const"><code>Const</code></a></td><td><a href="#continue"><code>Continue</code></a></td>
+<td><a href="#bool"><code>bool</code></a></td><td><a href="#builtin"><code>builtin</code></a></td><td><a href="#compare"><code>Compare</code></a></td><td><a href="#computenodeoptions"><code>ComputeNodeOptions</code></a></td>
 </tr><tr>
-<td><a href="#cubesamplingmode"><code>CubeSamplingMode</code></a></td><td><a href="#camerafar"><code>cameraFar</code></a></td><td><a href="#cameranear"><code>cameraNear</code></a></td><td><a href="#cameraposition"><code>cameraPosition</code></a></td>
+<td><a href="#computeoptions"><code>ComputeOptions</code></a></td><td><a href="#const"><code>Const</code></a></td><td><a href="#continue"><code>Continue</code></a></td><td><a href="#cubesamplingmode"><code>CubeSamplingMode</code></a></td>
 </tr><tr>
-<td><a href="#cameraprojectionmatrix"><code>cameraProjectionMatrix</code></a></td><td><a href="#cameraviewmatrix"><code>cameraViewMatrix</code></a></td><td><a href="#cameraviewprojectionmatrix"><code>cameraViewProjectionMatrix</code></a></td><td><a href="#ceil"><code>ceil</code></a></td>
+<td><a href="#camerafar"><code>cameraFar</code></a></td><td><a href="#cameranear"><code>cameraNear</code></a></td><td><a href="#cameraposition"><code>cameraPosition</code></a></td><td><a href="#cameraprojectionmatrix"><code>cameraProjectionMatrix</code></a></td>
 </tr><tr>
-<td><a href="#clamp"><code>clamp</code></a></td><td><a href="#comparisonsampler"><code>comparisonSampler</code></a></td><td><a href="#compute"><code>compute</code></a></td><td><a href="#computeindex"><code>computeIndex</code></a></td>
+<td><a href="#cameraviewmatrix"><code>cameraViewMatrix</code></a></td><td><a href="#cameraviewprojectionmatrix"><code>cameraViewProjectionMatrix</code></a></td><td><a href="#ceil"><code>ceil</code></a></td><td><a href="#clamp"><code>clamp</code></a></td>
 </tr><tr>
-<td><a href="#cond"><code>cond</code></a></td><td><a href="#cos"><code>cos</code></a></td><td><a href="#countleadingzeros"><code>countLeadingZeros</code></a></td><td><a href="#countonebits"><code>countOneBits</code></a></td>
+<td><a href="#comparisonsampler"><code>comparisonSampler</code></a></td><td><a href="#compute"><code>compute</code></a></td><td><a href="#computeindex"><code>computeIndex</code></a></td><td><a href="#cond"><code>cond</code></a></td>
 </tr><tr>
-<td><a href="#counttrailingzeros"><code>countTrailingZeros</code></a></td><td><a href="#cross"><code>cross</code></a></td><td><a href="#cubetexture"><code>cubeTexture</code></a></td><td><a href="#depthsamplingmode"><code>DepthSamplingMode</code></a></td>
+<td><a href="#cos"><code>cos</code></a></td><td><a href="#countleadingzeros"><code>countLeadingZeros</code></a></td><td><a href="#countonebits"><code>countOneBits</code></a></td><td><a href="#counttrailingzeros"><code>countTrailingZeros</code></a></td>
 </tr><tr>
-<td><a href="#discard"><code>Discard</code></a></td><td><a href="#drawindexedindirect"><code>DrawIndexedIndirect</code></a></td><td><a href="#drawindirect"><code>DrawIndirect</code></a></td><td><a href="#depthtexture"><code>depthTexture</code></a></td>
+<td><a href="#cross"><code>cross</code></a></td><td><a href="#cubetexture"><code>cubeTexture</code></a></td><td><a href="#depthsamplingmode"><code>DepthSamplingMode</code></a></td><td><a href="#discard"><code>Discard</code></a></td>
 </tr><tr>
-<td><a href="#div"><code>div</code></a></td><td><a href="#dot"><code>dot</code></a></td><td><a href="#dpdx"><code>dpdx</code></a></td><td><a href="#dpdxcoarse"><code>dpdxCoarse</code></a></td>
+<td><a href="#drawindexedindirect"><code>DrawIndexedIndirect</code></a></td><td><a href="#drawindirect"><code>DrawIndirect</code></a></td><td><a href="#depthtexture"><code>depthTexture</code></a></td><td><a href="#div"><code>div</code></a></td>
 </tr><tr>
-<td><a href="#dpdxfine"><code>dpdxFine</code></a></td><td><a href="#dpdy"><code>dpdy</code></a></td><td><a href="#dpdycoarse"><code>dpdyCoarse</code></a></td><td><a href="#dpdyfine"><code>dpdyFine</code></a></td>
+<td><a href="#dot"><code>dot</code></a></td><td><a href="#dpdx"><code>dpdx</code></a></td><td><a href="#dpdxcoarse"><code>dpdxCoarse</code></a></td><td><a href="#dpdxfine"><code>dpdxFine</code></a></td>
 </tr><tr>
-<td><a href="#equal"><code>equal</code></a></td><td><a href="#exp"><code>exp</code></a></td><td><a href="#exp2"><code>exp2</code></a></td><td><a href="#faceforward"><code>faceForward</code></a></td>
+<td><a href="#dpdy"><code>dpdy</code></a></td><td><a href="#dpdycoarse"><code>dpdyCoarse</code></a></td><td><a href="#dpdyfine"><code>dpdyFine</code></a></td><td><a href="#equal"><code>equal</code></a></td>
 </tr><tr>
-<td><a href="#fieldaccessor"><code>FieldAccessor</code></a></td><td><a href="#fields"><code>Fields</code></a></td><td><a href="#fn"><code>Fn</code></a></td><td><a href="#fnlayout"><code>FnLayout</code></a></td>
+<td><a href="#exp"><code>exp</code></a></td><td><a href="#exp2"><code>exp2</code></a></td><td><a href="#fieldaccessor"><code>FieldAccessor</code></a></td><td><a href="#fields"><code>Fields</code></a></td>
 </tr><tr>
-<td><a href="#for"><code>For</code></a></td><td><a href="#f16"><code>f16</code></a></td><td><a href="#f32"><code>f32</code></a></td><td><a href="#field"><code>field</code></a></td>
+<td><a href="#fn"><code>Fn</code></a></td><td><a href="#fnlayout"><code>FnLayout</code></a></td><td><a href="#for"><code>For</code></a></td><td><a href="#f16"><code>f16</code></a></td>
 </tr><tr>
-<td><a href="#fields-2"><code>fields</code></a></td><td><a href="#firstleadingbit"><code>firstLeadingBit</code></a></td><td><a href="#firsttrailingbit"><code>firstTrailingBit</code></a></td><td><a href="#floor"><code>floor</code></a></td>
+<td><a href="#f32"><code>f32</code></a></td><td><a href="#faceforward"><code>faceForward</code></a></td><td><a href="#field"><code>field</code></a></td><td><a href="#fields-2"><code>fields</code></a></td>
 </tr><tr>
-<td><a href="#fract"><code>fract</code></a></td><td><a href="#fragcoord"><code>fragCoord</code></a></td><td><a href="#fwidth"><code>fwidth</code></a></td><td><a href="#fwidthcoarse"><code>fwidthCoarse</code></a></td>
+<td><a href="#firstleadingbit"><code>firstLeadingBit</code></a></td><td><a href="#firsttrailingbit"><code>firstTrailingBit</code></a></td><td><a href="#floor"><code>floor</code></a></td><td><a href="#fract"><code>fract</code></a></td>
 </tr><tr>
-<td><a href="#fwidthfine"><code>fwidthFine</code></a></td><td><a href="#fxaa"><code>fxaa</code></a></td><td><a href="#glslfnlayout"><code>GlslFnLayout</code></a></td><td><a href="#gputypedarray"><code>GpuTypedArray</code></a></td>
+<td><a href="#fragcoord"><code>fragCoord</code></a></td><td><a href="#fwidth"><code>fwidth</code></a></td><td><a href="#fwidthcoarse"><code>fwidthCoarse</code></a></td><td><a href="#fwidthfine"><code>fwidthFine</code></a></td>
 </tr><tr>
-<td><a href="#globalid"><code>globalId</code></a></td><td><a href="#glsl"><code>glsl</code></a></td><td><a href="#glslfn"><code>glslFn</code></a></td><td><a href="#greaterthan"><code>greaterThan</code></a></td>
+<td><a href="#fxaa"><code>fxaa</code></a></td><td><a href="#glslfnlayout"><code>GlslFnLayout</code></a></td><td><a href="#gputypedarray"><code>GpuTypedArray</code></a></td><td><a href="#globalid"><code>globalId</code></a></td>
 </tr><tr>
-<td><a href="#greaterthanequal"><code>greaterThanEqual</code></a></td><td><a href="#highleveltexture"><code>HighLevelTexture</code></a></td><td><a href="#if"><code>If</code></a></td><td><a href="#ifchain"><code>IfChain</code></a></td>
+<td><a href="#glsl"><code>glsl</code></a></td><td><a href="#glslfn"><code>glslFn</code></a></td><td><a href="#greaterthan"><code>greaterThan</code></a></td><td><a href="#greaterthanequal"><code>greaterThanEqual</code></a></td>
 </tr><tr>
-<td><a href="#interpolationsampling"><code>InterpolationSampling</code></a></td><td><a href="#interpolationtype"><code>InterpolationType</code></a></td><td><a href="#i32"><code>i32</code></a></td><td><a href="#index"><code>index</code></a></td>
+<td><a href="#highleveltexture"><code>HighLevelTexture</code></a></td><td><a href="#if"><code>If</code></a></td><td><a href="#ifchain"><code>IfChain</code></a></td><td><a href="#interpolationsampling"><code>InterpolationSampling</code></a></td>
 </tr><tr>
-<td><a href="#instanceindex"><code>instanceIndex</code></a></td><td><a href="#invariant"><code>invariant</code></a></td><td><a href="#inversesqrt"><code>inverseSqrt</code></a></td><td><a href="#let"><code>Let</code></a></td>
+<td><a href="#interpolationtype"><code>InterpolationType</code></a></td><td><a href="#i32"><code>i32</code></a></td><td><a href="#index"><code>index</code></a></td><td><a href="#instanceindex"><code>instanceIndex</code></a></td>
 </tr><tr>
-<td><a href="#loop"><code>Loop</code></a></td><td><a href="#loopparam"><code>LoopParam</code></a></td><td><a href="#loopvars"><code>LoopVars</code></a></td><td><a href="#length"><code>length</code></a></td>
+<td><a href="#invariant"><code>invariant</code></a></td><td><a href="#inversesqrt"><code>inverseSqrt</code></a></td><td><a href="#let"><code>Let</code></a></td><td><a href="#literal"><code>Literal</code></a></td>
 </tr><tr>
-<td><a href="#lessthan"><code>lessThan</code></a></td><td><a href="#lessthanequal"><code>lessThanEqual</code></a></td><td><a href="#localid"><code>localId</code></a></td><td><a href="#localindex"><code>localIndex</code></a></td>
+<td><a href="#literaldesc"><code>LiteralDesc</code></a></td><td><a href="#loop"><code>Loop</code></a></td><td><a href="#loopparam"><code>LoopParam</code></a></td><td><a href="#loopvars"><code>LoopVars</code></a></td>
 </tr><tr>
-<td><a href="#log"><code>log</code></a></td><td><a href="#log2"><code>log2</code></a></td><td><a href="#mattype"><code>MatType</code></a></td><td><a href="#mat2x2f"><code>mat2x2f</code></a></td>
+<td><a href="#length"><code>length</code></a></td><td><a href="#lessthan"><code>lessThan</code></a></td><td><a href="#lessthanequal"><code>lessThanEqual</code></a></td><td><a href="#localid"><code>localId</code></a></td>
+</tr><tr>
+<td><a href="#localindex"><code>localIndex</code></a></td><td><a href="#log"><code>log</code></a></td><td><a href="#log2"><code>log2</code></a></td><td><a href="#mattype"><code>MatType</code></a></td>
+</tr><tr>
+<td><a href="#mix"><code>Mix</code></a></td><td><a href="#mul"><code>Mul</code></a></td><td><a href="#mulliteral"><code>MulLiteral</code></a></td><td><a href="#mat2x2f"><code>mat2x2f</code></a></td>
 </tr><tr>
 <td><a href="#mat2x2h"><code>mat2x2h</code></a></td><td><a href="#mat2x3f"><code>mat2x3f</code></a></td><td><a href="#mat2x3h"><code>mat2x3h</code></a></td><td><a href="#mat2x4f"><code>mat2x4f</code></a></td>
 </tr><tr>
@@ -438,77 +445,83 @@ The full node DSL, grouped by category. Learn it with examples in the [guide](./
 </tr><tr>
 <td><a href="#mat4x3h"><code>mat4x3h</code></a></td><td><a href="#mat4x4f"><code>mat4x4f</code></a></td><td><a href="#mat4x4h"><code>mat4x4h</code></a></td><td><a href="#max"><code>max</code></a></td>
 </tr><tr>
-<td><a href="#min"><code>min</code></a></td><td><a href="#mix"><code>mix</code></a></td><td><a href="#mod"><code>mod</code></a></td><td><a href="#modelnormalmatrix"><code>modelNormalMatrix</code></a></td>
+<td><a href="#min"><code>min</code></a></td><td><a href="#mix-2"><code>mix</code></a></td><td><a href="#mod"><code>mod</code></a></td><td><a href="#modelnormalmatrix"><code>modelNormalMatrix</code></a></td>
 </tr><tr>
-<td><a href="#modelworldmatrix"><code>modelWorldMatrix</code></a></td><td><a href="#mrt"><code>mrt</code></a></td><td><a href="#mul"><code>mul</code></a></td><td><a href="#nodekind"><code>NodeKind</code></a></td>
+<td><a href="#modelworldmatrix"><code>modelWorldMatrix</code></a></td><td><a href="#mrt"><code>mrt</code></a></td><td><a href="#mul-2"><code>mul</code></a></td><td><a href="#nodekind"><code>NodeKind</code></a></td>
 </tr><tr>
-<td><a href="#numerictype"><code>NumericType</code></a></td><td><a href="#ndcdepthtostorage"><code>ndcDepthToStorage</code></a></td><td><a href="#normalize"><code>normalize</code></a></td><td><a href="#notequal"><code>notEqual</code></a></td>
+<td><a href="#numericscalar"><code>NumericScalar</code></a></td><td><a href="#numericscalarorvec"><code>NumericScalarOrVec</code></a></td><td><a href="#numerictype"><code>NumericType</code></a></td><td><a href="#ndcdepthtostorage"><code>ndcDepthToStorage</code></a></td>
 </tr><tr>
-<td><a href="#numworkgroups"><code>numWorkgroups</code></a></td><td><a href="#outputcolorspace"><code>OutputColorSpace</code></a></td><td><a href="#or"><code>or</code></a></td><td><a href="#paramdesc"><code>ParamDesc</code></a></td>
+<td><a href="#normalize"><code>normalize</code></a></td><td><a href="#notequal"><code>notEqual</code></a></td><td><a href="#numworkgroups"><code>numWorkgroups</code></a></td><td><a href="#operand"><code>Operand</code></a></td>
+</tr><tr>
+<td><a href="#operanddesc"><code>OperandDesc</code></a></td><td><a href="#outputcolorspace"><code>OutputColorSpace</code></a></td><td><a href="#or"><code>or</code></a></td><td><a href="#paramdesc"><code>ParamDesc</code></a></td>
 </tr><tr>
 <td><a href="#paramdescstonodes"><code>ParamDescsToNodes</code></a></td><td><a href="#privatevar"><code>PrivateVar</code></a></td><td><a href="#pack2x16float"><code>pack2x16float</code></a></td><td><a href="#pack2x16snorm"><code>pack2x16snorm</code></a></td>
 </tr><tr>
 <td><a href="#pack2x16unorm"><code>pack2x16unorm</code></a></td><td><a href="#pack4x8snorm"><code>pack4x8snorm</code></a></td><td><a href="#pack4x8unorm"><code>pack4x8unorm</code></a></td><td><a href="#positionclip"><code>positionClip</code></a></td>
 </tr><tr>
-<td><a href="#pow"><code>pow</code></a></td><td><a href="#recordaccessor"><code>RecordAccessor</code></a></td><td><a href="#reflect"><code>reflect</code></a></td><td><a href="#refract"><code>refract</code></a></td>
+<td><a href="#pow"><code>pow</code></a></td><td><a href="#recordaccessor"><code>RecordAccessor</code></a></td><td><a href="#renderoutputoptions"><code>RenderOutputOptions</code></a></td><td><a href="#rendertexturecontents"><code>RenderTextureContents</code></a></td>
 </tr><tr>
-<td><a href="#renderoutputoptions"><code>RenderOutputOptions</code></a></td><td><a href="#rendertexturecontents"><code>RenderTextureContents</code></a></td><td><a href="#rendertextureoptions"><code>RenderTextureOptions</code></a></td><td><a href="#resolvedstoragebuffertexture"><code>ResolvedStorageBufferTexture</code></a></td>
+<td><a href="#rendertextureoptions"><code>RenderTextureOptions</code></a></td><td><a href="#resolvedstoragebuffertexture"><code>ResolvedStorageBufferTexture</code></a></td><td><a href="#return"><code>Return</code></a></td><td><a href="#reflect"><code>reflect</code></a></td>
 </tr><tr>
-<td><a href="#return"><code>Return</code></a></td><td><a href="#reinhardtonemapping"><code>reinhardToneMapping</code></a></td><td><a href="#renderoutput"><code>renderOutput</code></a></td><td><a href="#rendertexture"><code>renderTexture</code></a></td>
+<td><a href="#refract"><code>refract</code></a></td><td><a href="#reinhardtonemapping"><code>reinhardToneMapping</code></a></td><td><a href="#renderoutput"><code>renderOutput</code></a></td><td><a href="#rendertexture"><code>renderTexture</code></a></td>
 </tr><tr>
-<td><a href="#reversebits"><code>reverseBits</code></a></td><td><a href="#rgb"><code>rgb</code></a></td><td><a href="#round"><code>round</code></a></td><td><a href="#samplertype"><code>SamplerType</code></a></td>
+<td><a href="#reversebits"><code>reverseBits</code></a></td><td><a href="#rgb"><code>rgb</code></a></td><td><a href="#round"><code>round</code></a></td><td><a href="#sametype2"><code>SameType2</code></a></td>
 </tr><tr>
-<td><a href="#samplingmode"><code>SamplingMode</code></a></td><td><a href="#saturate"><code>saturate</code></a></td><td><a href="#scalarresultdesc"><code>ScalarResultDesc</code></a></td><td><a href="#scalartype"><code>ScalarType</code></a></td>
+<td><a href="#sametype3"><code>SameType3</code></a></td><td><a href="#samplertype"><code>SamplerType</code></a></td><td><a href="#samplingmode"><code>SamplingMode</code></a></td><td><a href="#scalarliteral"><code>ScalarLiteral</code></a></td>
 </tr><tr>
-<td><a href="#shiftamount"><code>ShiftAmount</code></a></td><td><a href="#storagebuffertexturesource"><code>StorageBufferTextureSource</code></a></td><td><a href="#storagecoord"><code>StorageCoord</code></a></td><td><a href="#storagesampledof"><code>StorageSampledOf</code></a></td>
+<td><a href="#scalarresultdesc"><code>ScalarResultDesc</code></a></td><td><a href="#scalartype"><code>ScalarType</code></a></td><td><a href="#select"><code>Select</code></a></td><td><a href="#shiftamount"><code>ShiftAmount</code></a></td>
+</tr><tr>
+<td><a href="#shiftliteral"><code>ShiftLiteral</code></a></td><td><a href="#storagebuffertexturesource"><code>StorageBufferTextureSource</code></a></td><td><a href="#storagecoord"><code>StorageCoord</code></a></td><td><a href="#storagesampledof"><code>StorageSampledOf</code></a></td>
 </tr><tr>
 <td><a href="#storagevalue"><code>StorageValue</code></a></td><td><a href="#structdef"><code>StructDef</code></a></td><td><a href="#structinstance"><code>StructInstance</code></a></td><td><a href="#structmember"><code>StructMember</code></a></td>
 </tr><tr>
-<td><a href="#sampler"><code>sampler</code></a></td><td><a href="#screencoordinate"><code>screenCoordinate</code></a></td><td><a href="#screensize"><code>screenSize</code></a></td><td><a href="#screenuv"><code>screenUV</code></a></td>
+<td><a href="#sampler"><code>sampler</code></a></td><td><a href="#saturate"><code>saturate</code></a></td><td><a href="#screencoordinate"><code>screenCoordinate</code></a></td><td><a href="#screensize"><code>screenSize</code></a></td>
 </tr><tr>
-<td><a href="#select"><code>select</code></a></td><td><a href="#shiftleft"><code>shiftLeft</code></a></td><td><a href="#shiftright"><code>shiftRight</code></a></td><td><a href="#sign"><code>sign</code></a></td>
+<td><a href="#screenuv"><code>screenUV</code></a></td><td><a href="#select-2"><code>select</code></a></td><td><a href="#shiftleft"><code>shiftLeft</code></a></td><td><a href="#shiftright"><code>shiftRight</code></a></td>
 </tr><tr>
-<td><a href="#sin"><code>sin</code></a></td><td><a href="#smoothstep"><code>smoothstep</code></a></td><td><a href="#sqrt"><code>sqrt</code></a></td><td><a href="#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td>
+<td><a href="#sign"><code>sign</code></a></td><td><a href="#sin"><code>sin</code></a></td><td><a href="#smoothstep"><code>smoothstep</code></a></td><td><a href="#sqrt"><code>sqrt</code></a></td>
 </tr><tr>
-<td><a href="#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td><td><a href="#step"><code>step</code></a></td><td><a href="#storage"><code>storage</code></a></td><td><a href="#storagebarrier"><code>storageBarrier</code></a></td>
+<td><a href="#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td><td><a href="#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td><td><a href="#step"><code>step</code></a></td><td><a href="#storage"><code>storage</code></a></td>
 </tr><tr>
-<td><a href="#storagetexture"><code>storageTexture</code></a></td><td><a href="#struct"><code>struct</code></a></td><td><a href="#sub"><code>sub</code></a></td><td><a href="#texturetype"><code>TextureType</code></a></td>
+<td><a href="#storagebarrier"><code>storageBarrier</code></a></td><td><a href="#storagetexture"><code>storageTexture</code></a></td><td><a href="#struct"><code>struct</code></a></td><td><a href="#sub"><code>sub</code></a></td>
 </tr><tr>
-<td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td><td><a href="#transformfeedbackcallback"><code>TransformFeedbackCallback</code></a></td><td><a href="#transformfeedbacklayout"><code>TransformFeedbackLayout</code></a></td><td><a href="#tan"><code>tan</code></a></td>
+<td><a href="#texturetype"><code>TextureType</code></a></td><td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td><td><a href="#transformfeedbackcallback"><code>TransformFeedbackCallback</code></a></td><td><a href="#transformfeedbacklayout"><code>TransformFeedbackLayout</code></a></td>
 </tr><tr>
-<td><a href="#targetcolor"><code>targetColor</code></a></td><td><a href="#targetdepth"><code>targetDepth</code></a></td><td><a href="#texture"><code>texture</code></a></td><td><a href="#texturebarrier"><code>textureBarrier</code></a></td>
+<td><a href="#tan"><code>tan</code></a></td><td><a href="#targetcolor"><code>targetColor</code></a></td><td><a href="#targetdepth"><code>targetDepth</code></a></td><td><a href="#texture"><code>texture</code></a></td>
 </tr><tr>
-<td><a href="#texturebinding"><code>textureBinding</code></a></td><td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td><td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td>
+<td><a href="#texturebarrier"><code>textureBarrier</code></a></td><td><a href="#texturebinding"><code>textureBinding</code></a></td><td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td>
 </tr><tr>
-<td><a href="#textureload"><code>textureLoad</code></a></td><td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td><td><a href="#texturesample"><code>textureSample</code></a></td>
+<td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td><td><a href="#textureload"><code>textureLoad</code></a></td><td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td>
 </tr><tr>
-<td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td><td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td>
+<td><a href="#texturesample"><code>textureSample</code></a></td><td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td>
 </tr><tr>
-<td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transformfeedback"><code>transformFeedback</code></a></td><td><a href="#transpose"><code>transpose</code></a></td>
+<td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transformfeedback"><code>transformFeedback</code></a></td>
 </tr><tr>
-<td><a href="#u32"><code>u32</code></a></td><td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td><td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td>
+<td><a href="#transpose"><code>transpose</code></a></td><td><a href="#u32"><code>u32</code></a></td><td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td>
 </tr><tr>
-<td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td><td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td><td><a href="#var"><code>Var</code></a></td>
+<td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td><td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td><td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td>
 </tr><tr>
-<td><a href="#vec2type"><code>Vec2Type</code></a></td><td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td><td><a href="#vectype"><code>VecType</code></a></td>
+<td><a href="#var"><code>Var</code></a></td><td><a href="#vec2type"><code>Vec2Type</code></a></td><td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td>
 </tr><tr>
-<td><a href="#varying"><code>varying</code></a></td><td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td><td><a href="#vec2f"><code>vec2f</code></a></td>
+<td><a href="#vectype"><code>VecType</code></a></td><td><a href="#varying"><code>varying</code></a></td><td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td>
 </tr><tr>
-<td><a href="#vec2h"><code>vec2h</code></a></td><td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td><td><a href="#vec3"><code>vec3</code></a></td>
+<td><a href="#vec2f"><code>vec2f</code></a></td><td><a href="#vec2h"><code>vec2h</code></a></td><td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td>
 </tr><tr>
-<td><a href="#vec3b"><code>vec3b</code></a></td><td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td><td><a href="#vec3i"><code>vec3i</code></a></td>
+<td><a href="#vec3"><code>vec3</code></a></td><td><a href="#vec3b"><code>vec3b</code></a></td><td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td>
 </tr><tr>
-<td><a href="#vec3u"><code>vec3u</code></a></td><td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td><td><a href="#vec4f"><code>vec4f</code></a></td>
+<td><a href="#vec3i"><code>vec3i</code></a></td><td><a href="#vec3u"><code>vec3u</code></a></td><td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td>
 </tr><tr>
-<td><a href="#vec4h"><code>vec4h</code></a></td><td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td><td><a href="#vertexindex"><code>vertexIndex</code></a></td>
+<td><a href="#vec4f"><code>vec4f</code></a></td><td><a href="#vec4h"><code>vec4h</code></a></td><td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td>
 </tr><tr>
-<td><a href="#wgslfncallable"><code>WgslFnCallable</code></a></td><td><a href="#wgslfncallabletyped"><code>WgslFnCallableTyped</code></a></td><td><a href="#wgslfncallableuntyped"><code>WgslFnCallableUntyped</code></a></td><td><a href="#wgslfnlayout"><code>WgslFnLayout</code></a></td>
+<td><a href="#vertexindex"><code>vertexIndex</code></a></td><td><a href="#wgslfncallable"><code>WgslFnCallable</code></a></td><td><a href="#wgslfncallabletyped"><code>WgslFnCallableTyped</code></a></td><td><a href="#wgslfncallableuntyped"><code>WgslFnCallableUntyped</code></a></td>
 </tr><tr>
-<td><a href="#wgslfunctionnoderef"><code>WgslFunctionNodeRef</code></a></td><td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunction-2"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td>
+<td><a href="#wgslfnlayout"><code>WgslFnLayout</code></a></td><td><a href="#wgslfunctionnoderef"><code>WgslFunctionNodeRef</code></a></td><td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunction-2"><code>WgslNodeFunction</code></a></td>
 </tr><tr>
-<td><a href="#wgslnodefunctioninput-2"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgsltype"><code>WgslType</code></a></td><td><a href="#while"><code>While</code></a></td><td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td>
+<td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgslnodefunctioninput-2"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgsltype"><code>WgslType</code></a></td><td><a href="#while"><code>While</code></a></td>
 </tr><tr>
-<td><a href="#wgsl"><code>wgsl</code></a></td><td><a href="#wgslfn"><code>wgslFn</code></a></td><td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td><td><a href="#workgroupid"><code>workgroupId</code></a></td>
+<td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td><td><a href="#wgsl"><code>wgsl</code></a></td><td><a href="#wgslfn"><code>wgslFn</code></a></td><td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td>
+</tr><tr>
+<td><a href="#workgroupid"><code>workgroupId</code></a></td><td></td><td></td><td></td>
 </tr></table>
 
 ### Renderer
@@ -1499,6 +1512,24 @@ export type VertexBufferGroup = {
 };
 ```
 
+#### `Arith`
+
+```ts
+/** `+ - / %`: a number on either side takes the element type of the node on the other, as a scalar, which WGSL
+ *  accepts beside a vector. */
+export type Arith = {
+    <NA extends Node<Any>, NB extends Node<Any> | ArithLiteral<NA['type']>>(a: NA, b: NB): Node<ArithResultDesc<NA['type'], OperandDesc<NB, NA['type']>>>;
+    <NB extends Node<Any>>(a: ArithLiteral<NB['type']>, b: NB): Node<ArithResultDesc<LiteralDesc<NB['type']>, NB['type']>>;
+};
+```
+
+#### `ArithLiteral`
+
+```ts
+/** A number beside a `D` in `+ - / %`: a numeric scalar or vector meets one. */
+export type ArithLiteral<D extends Any> = D extends NumericScalarOrVec ? number : never;
+```
+
 #### `ArraySamplingMode`
 
 ```ts
@@ -1564,13 +1595,13 @@ export const acos: <D extends Any>(a: Node<D>) => Node<D>;
 #### `add`
 
 ```ts
-export const add: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<ArithResultDesc<NA["type"], NB["type"]>>;
+export const add: Arith;
 ```
 
 #### `and`
 
 ```ts
-export const and: (a: Node<d.bool>, b: Node<d.bool>) => Node<d.bool>;
+export const and: (a: Node<d.bool> | boolean, b: Node<d.bool> | boolean) => Node<d.bool>;
 ```
 
 #### `array`
@@ -1637,7 +1668,7 @@ export const atan: <D extends Any>(a: Node<D>) => Node<D>;
 #### `atan2`
 
 ```ts
-export const atan2: <D extends Any>(y: Node<D>, x: Node<D>) => Node<D>;
+export const atan2: SameType2;
 ```
 
 #### `atomicAdd`
@@ -1833,19 +1864,19 @@ export const bitcastU32: (node: Node<d.f32 | d.i32>) => Node<d.u32>;
 #### `bitwiseAnd`
 
 ```ts
-export const bitwiseAnd: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+export const bitwiseAnd: SameType2;
 ```
 
 #### `bitwiseOr`
 
 ```ts
-export const bitwiseOr: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+export const bitwiseOr: SameType2;
 ```
 
 #### `bitwiseXor`
 
 ```ts
-export const bitwiseXor: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+export const bitwiseXor: SameType2;
 ```
 
 #### `bool`
@@ -1865,6 +1896,16 @@ export const bool: bool;
 
 ```ts
 export const builtin: <D extends Any>(builtinKind: BuiltinKind, desc: D) => BuiltinNode<D>;
+```
+
+#### `Compare`
+
+```ts
+/** A comparison of two values of one type; a number on either side takes a scalar node's type. */
+export type Compare = {
+    <D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>): Node<CompareResultDesc<D>>;
+    <D extends Any>(a: ScalarLiteral<D>, b: Node<D>): Node<CompareResultDesc<D>>;
+};
 ```
 
 #### `ComputeNodeOptions`
@@ -1960,7 +2001,7 @@ export const ceil: <D extends Any>(a: Node<D>) => Node<D>;
 #### `clamp`
 
 ```ts
-export const clamp: <D extends Any>(a: Node<D>, lo: Node<D>, hi: Node<D>) => Node<D>;
+export const clamp: SameType3;
 ```
 
 #### `comparisonSampler`
@@ -2000,7 +2041,7 @@ export const computeIndex: ComputeIndexNode;
 #### `cond`
 
 ```ts
-export const cond: <D extends Any>(condition: Node<Any>, ifTrue: Node<D>, ifFalse?: Node<D>) => ConditionalNode<D>;
+export const cond: <D extends Any>(condition: Node<Any> | boolean, ifTrue: Node<D>, ifFalse?: Node<D> | ScalarLiteral<D>) => ConditionalNode<D>;
 ```
 
 #### `cos`
@@ -2144,7 +2185,7 @@ export function depthTexture(source: TextureSource<FlatDepthTexture>, gpuSampler
 #### `div`
 
 ```ts
-export const div: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<ArithResultDesc<NA["type"], NB["type"]>>;
+export const div: Arith;
 ```
 
 #### `dot`
@@ -2193,7 +2234,7 @@ export const dpdyFine: <D extends Any>(a: Node<D>) => Node<D>;
 #### `equal`
 
 ```ts
-export const equal: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
+export const equal: Compare;
 ```
 
 #### `exp`
@@ -2206,13 +2247,6 @@ export const exp: <D extends Any>(a: Node<D>) => Node<D>;
 
 ```ts
 export const exp2: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `faceForward`
-
-```ts
-/** `n` turned to face against `i`, judged by the reference normal `nref`: `dot(nref, i) < 0 ? n : -n`. WGSL: `faceForward`; GLSL: `faceforward`. */
-export const faceForward: <D extends Any>(n: Node<D>, i: Node<D>, nref: Node<D>) => Node<D>;
 ```
 
 #### `FieldAccessor`
@@ -2315,6 +2349,13 @@ export type f32 = {
     len: 1;
 };
 export const f32: f32;
+```
+
+#### `faceForward`
+
+```ts
+/** `n` turned to face against `i`, judged by the reference normal `nref`: `dot(nref, i) < 0 ? n : -n`. WGSL: `faceForward`; GLSL: `faceforward`. */
+export const faceForward: <D extends Any>(n: Node<D>, i: Node<D>, nref: Node<D>) => Node<D>;
 ```
 
 #### `field`
@@ -2500,13 +2541,13 @@ export function glslFn<D extends d.Any>(source: string, layout: {
 #### `greaterThan`
 
 ```ts
-export const greaterThan: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
+export const greaterThan: Compare;
 ```
 
 #### `greaterThanEqual`
 
 ```ts
-export const greaterThanEqual: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
+export const greaterThanEqual: Compare;
 ```
 
 #### `HighLevelTexture`
@@ -2522,14 +2563,14 @@ export type HighLevelTexture = Texture | CubeTexture | DepthTexture | ArrayTextu
 #### `If`
 
 ```ts
-export function If(condition: Node<Any>, thenBody: () => void): IfChain;
+export function If(condition: Node<Any> | boolean, thenBody: () => void): IfChain;
 ```
 
 #### `IfChain`
 
 ```ts
 export type IfChain = {
-    ElseIf(condition: Node<Any>, body: () => void): IfChain;
+    ElseIf(condition: Node<Any> | boolean, body: () => void): IfChain;
     Else(body: () => void): IfChain;
 };
 ```
@@ -2620,6 +2661,27 @@ export const inverseSqrt: <D extends Any>(a: Node<D>) => Node<D>;
  * // → let half = (value * 0.5);
  */
 export function Let<D extends Any>(name: string, init: Node<D>): LetNode<D>;
+export function Let(name: string, init: boolean): LetNode<d.bool>;
+```
+
+#### `Literal`
+
+```ts
+/**
+ * A JS number or boolean where a node is expected. It takes the type of the node it meets, as a WGSL literal does, and
+ * is accepted exactly where WGSL accepts one: beside a vector only in arithmetic (`v.mul(2)`, `mix(a, b, 0.5)`),
+ * otherwise beside a scalar (`clamp(t, 0, 1)`, `t.lessThan(0.5)`). A number must be exactly a value of that type.
+ */
+export type Literal = number | boolean;
+```
+
+#### `LiteralDesc`
+
+```ts
+/** The type a number takes beside a `D`: its element type. */
+export type LiteralDesc<D extends Any> = D extends d.Mat ? D extends {
+    wgslType: `${string}h`;
+} ? d.f16 : d.f32 : VecElementDesc<D>;
 ```
 
 #### `Loop`
@@ -2665,13 +2727,13 @@ export const length: (a: Node<Any>) => Node<d.f32>;
 #### `lessThan`
 
 ```ts
-export const lessThan: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
+export const lessThan: Compare;
 ```
 
 #### `lessThanEqual`
 
 ```ts
-export const lessThanEqual: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
+export const lessThanEqual: Compare;
 ```
 
 #### `localId`
@@ -2704,6 +2766,37 @@ export const log2: <D extends Any>(a: Node<D>) => Node<D>;
 
 ```ts
 export type MatType = 'mat2x2f' | 'mat2x3f' | 'mat2x4f' | 'mat3x2f' | 'mat3x3f' | 'mat3x4f' | 'mat4x2f' | 'mat4x3f' | 'mat4x4f' | 'mat2x2h' | 'mat2x3h' | 'mat2x4h' | 'mat3x2h' | 'mat3x3h' | 'mat3x4h' | 'mat4x2h' | 'mat4x3h' | 'mat4x4h';
+```
+
+#### `Mix`
+
+```ts
+/**
+ * `a` to `b` by `t`. A number for `t` takes the element type of `a` and `b`, as a scalar, which WGSL accepts beside
+ * vectors; numbers for `a` and `b` take the type of a scalar node among the three.
+ */
+export type Mix = {
+    <D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>, t: Node<Any> | number): Node<D>;
+    <D extends Any>(a: ScalarLiteral<D>, b: Node<D>, t: Node<Any> | number): Node<D>;
+    <D extends Any>(a: ScalarLiteral<D>, b: ScalarLiteral<D>, t: Node<D>): Node<D>;
+};
+```
+
+#### `Mul`
+
+```ts
+/** `*`: as {@link Arith}, and a number also scales a matrix. */
+export type Mul = {
+    <NA extends Node<Any>, NB extends Node<Any> | MulLiteral<NA['type']>>(a: NA, b: NB): Node<MulResultDesc<NA['type'], OperandDesc<NB, NA['type']>>>;
+    <NB extends Node<Any>>(a: MulLiteral<NB['type']>, b: NB): Node<MulResultDesc<LiteralDesc<NB['type']>, NB['type']>>;
+};
+```
+
+#### `MulLiteral`
+
+```ts
+/** A number beside a `D` in `*`: a matrix meets one too. */
+export type MulLiteral<D extends Any> = D extends NumericScalarOrVec | d.Mat ? number : never;
 ```
 
 #### `mat2x2f`
@@ -2939,19 +3032,21 @@ export const mat4x4h: mat4x4h;
 #### `max`
 
 ```ts
-export function max<D extends Any>(a: Node<D>, b: Node<D>, ...rest: Node<D>[]): Node<D>;
+export function max<D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>, ...rest: (Node<D> | ScalarLiteral<D>)[]): Node<D>;
+export function max<D extends Any>(a: ScalarLiteral<D>, b: Node<D>, ...rest: (Node<D> | ScalarLiteral<D>)[]): Node<D>;
 ```
 
 #### `min`
 
 ```ts
-export function min<D extends Any>(a: Node<D>, b: Node<D>, ...rest: Node<D>[]): Node<D>;
+export function min<D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>, ...rest: (Node<D> | ScalarLiteral<D>)[]): Node<D>;
+export function min<D extends Any>(a: ScalarLiteral<D>, b: Node<D>, ...rest: (Node<D> | ScalarLiteral<D>)[]): Node<D>;
 ```
 
 #### `mix`
 
 ```ts
-export const mix: <D extends Any>(a: Node<D>, b: Node<D>, t: Node<Any>) => Node<D>;
+export const mix: Mix;
 ```
 
 #### `mod`
@@ -2961,7 +3056,7 @@ export const mix: <D extends Any>(a: Node<D>, b: Node<D>, t: Node<Any>) => Node<
  * WGSL's `%`, on both backends: a truncating remainder, so the result takes the sign of `a` (`-1.5 % 1.0` is `-0.5`).
  * GLSL's `mod()` floors instead; for that, write `a.sub(b.mul(floor(a.div(b))))`.
  */
-export const mod: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+export const mod: Arith;
 ```
 
 #### `modelNormalMatrix`
@@ -3006,7 +3101,7 @@ export function mrt(outputNodes: Record<string, Node<d.Any>>): MRTNode;
 #### `mul`
 
 ```ts
-export const mul: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<MulResultDesc<NA["type"], NB["type"]>>;
+export const mul: Mul;
 ```
 
 #### `NodeKind`
@@ -3070,6 +3165,18 @@ export enum NodeKind {
 }
 ```
 
+#### `NumericScalar`
+
+```ts
+export type NumericScalar = d.f32 | d.i32 | d.u32 | d.f16;
+```
+
+#### `NumericScalarOrVec`
+
+```ts
+export type NumericScalarOrVec = NumericScalar | d.vec2f | d.vec3f | d.vec4f | d.vec2i | d.vec3i | d.vec4i | d.vec2u | d.vec3u | d.vec4u | d.vec2h | d.vec3h | d.vec4h;
+```
+
 #### `NumericType`
 
 ```ts
@@ -3101,7 +3208,7 @@ export const normalize: <D extends Any>(a: Node<D>) => Node<D>;
 #### `notEqual`
 
 ```ts
-export const notEqual: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
+export const notEqual: Compare;
 ```
 
 #### `numWorkgroups`
@@ -3109,6 +3216,20 @@ export const notEqual: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareRe
 ```ts
 /** @builtin(num_workgroups), total number of workgroups dispatched. */
 export const numWorkgroups: BuiltinNode<d.vec3u>;
+```
+
+#### `Operand`
+
+```ts
+/** A node, or a {@link Literal} standing in for one. */
+export type Operand = Node<Any> | Literal;
+```
+
+#### `OperandDesc`
+
+```ts
+/** An operand's type: a node's own, or for a number, what it takes beside a `D`. */
+export type OperandDesc<N, D extends Any> = N extends Node<Any> ? N['type'] : LiteralDesc<D>;
 ```
 
 #### `OutputColorSpace`
@@ -3120,7 +3241,7 @@ export type OutputColorSpace = 'srgb' | 'linear';
 #### `or`
 
 ```ts
-export const or: (a: Node<d.bool>, b: Node<d.bool>) => Node<d.bool>;
+export const or: (a: Node<d.bool> | boolean, b: Node<d.bool> | boolean) => Node<d.bool>;
 ```
 
 #### `ParamDesc`
@@ -3205,7 +3326,7 @@ export const positionClip: Node<d.vec4f>;
 #### `pow`
 
 ```ts
-export const pow: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+export const pow: SameType2;
 ```
 
 #### `RecordAccessor`
@@ -3215,20 +3336,6 @@ export const pow: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
 export type RecordAccessor<S extends d.StructSchema> = {
     readonly [K in keyof S]: FieldAccessor<S[K]>;
 };
-```
-
-#### `reflect`
-
-```ts
-/** The incident direction `i` reflected about the surface normal `n`: `i - 2 * dot(n, i) * n`. */
-export const reflect: <D extends Any>(i: Node<D>, n: Node<D>) => Node<D>;
-```
-
-#### `refract`
-
-```ts
-/** The incident direction `i` refracted through the surface normal `n` at the ratio of indices `eta`. */
-export const refract: <D extends Any>(i: Node<D>, n: Node<D>, eta: Node<d.f32>) => Node<D>;
 ```
 
 #### `RenderOutputOptions`
@@ -3342,6 +3449,20 @@ export function Return(): void;
 export function Return<D extends Any>(value: Node<D>): void;
 ```
 
+#### `reflect`
+
+```ts
+/** The incident direction `i` reflected about the surface normal `n`: `i - 2 * dot(n, i) * n`. */
+export const reflect: <D extends Any>(i: Node<D>, n: Node<D>) => Node<D>;
+```
+
+#### `refract`
+
+```ts
+/** The incident direction `i` refracted through the surface normal `n` at the ratio of indices `eta`. */
+export const refract: <D extends Any>(i: Node<D>, n: Node<D>, eta: Node<VecElementDesc<D>> | number) => Node<D>;
+```
+
 #### `reinhardToneMapping`
 
 ```ts
@@ -3412,6 +3533,27 @@ export function rgb(input: ColorInput): import("./core").ConstructNode<import(".
 export const round: <D extends Any>(a: Node<D>) => Node<D>;
 ```
 
+#### `SameType2`
+
+```ts
+/** A builtin of two values of one type; a number on either side takes a scalar node's type. */
+export type SameType2 = {
+    <D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>): Node<D>;
+    <D extends Any>(a: ScalarLiteral<D>, b: Node<D>): Node<D>;
+};
+```
+
+#### `SameType3`
+
+```ts
+/** A builtin of three values of one type; numbers anywhere take the type of a scalar node among them. */
+export type SameType3 = {
+    <D extends Any>(a: Node<D>, b: Node<D> | ScalarLiteral<D>, c: Node<D> | ScalarLiteral<D>): Node<D>;
+    <D extends Any>(a: ScalarLiteral<D>, b: Node<D>, c: Node<D> | ScalarLiteral<D>): Node<D>;
+    <D extends Any>(a: ScalarLiteral<D>, b: ScalarLiteral<D>, c: Node<D>): Node<D>;
+};
+```
+
 #### `SamplerType`
 
 ```ts
@@ -3428,11 +3570,11 @@ export type SamplerType = 'sampler' | 'sampler_comparison';
 export type SamplingMode = 'sample' | 'level' | 'bias' | 'grad' | 'load';
 ```
 
-#### `saturate`
+#### `ScalarLiteral`
 
 ```ts
-/** Clamp to [0, 1]. WGSL: `saturate`; GLSL has none, so it lowers to `clamp(a, 0.0, 1.0)`. */
-export const saturate: <D extends Any>(a: Node<D>) => Node<D>;
+/** A literal where it must be a `D` itself: a number for a numeric scalar, a boolean for a bool, nothing otherwise. */
+export type ScalarLiteral<D extends Any> = D extends d.bool ? boolean : D extends NumericScalar ? number : never;
 ```
 
 #### `ScalarResultDesc`
@@ -3445,6 +3587,21 @@ export type ScalarResultDesc = d.i32 | d.u32;
 
 ```ts
 export type ScalarType = 'f32' | 'i32' | 'u32' | 'bool' | 'f16';
+```
+
+#### `Select`
+
+```ts
+/**
+ * WGSL `select(falseVal, trueVal, condition)`.
+ * Returns `trueVal` when `condition` is true, `falseVal` otherwise. A number for one value takes a scalar node's type
+ * from the other; two booleans are a bool.
+ */
+export type Select = {
+    <D extends Any>(falseVal: Node<D>, trueVal: Node<D> | ScalarLiteral<D>, condition: Node<Any> | boolean): Node<D>;
+    <D extends Any>(falseVal: ScalarLiteral<D>, trueVal: Node<D>, condition: Node<Any> | boolean): Node<D>;
+    (falseVal: boolean, trueVal: boolean, condition: Node<Any> | boolean): Node<d.bool>;
+};
 ```
 
 #### `ShiftAmount`
@@ -3461,6 +3618,13 @@ export type ShiftAmount<D> = D extends {
 } ? d.vec3u : D extends {
     len: 4;
 } ? d.vec4u : d.u32;
+```
+
+#### `ShiftLiteral`
+
+```ts
+/** A number for a shift amount: only an integer scalar shifts by one; a vector shifts by a vector. */
+export type ShiftLiteral<D extends Any> = D extends d.i32 | d.u32 ? number : never;
 ```
 
 #### `StorageBufferTextureSource`
@@ -3540,6 +3704,13 @@ export type sampler = {
 export const sampler: sampler;
 ```
 
+#### `saturate`
+
+```ts
+/** Clamp to [0, 1]. WGSL: `saturate`; GLSL has none, so it lowers to `clamp(a, 0.0, 1.0)`. */
+export const saturate: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
 #### `screenCoordinate`
 
 ```ts
@@ -3590,23 +3761,19 @@ export const screenUV: Node<d.vec2f>;
 #### `select`
 
 ```ts
-/**
- * WGSL `select(falseVal, trueVal, condition)`.
- * Returns `trueVal` when `condition` is true, `falseVal` otherwise.
- */
-export const select: <D extends Any>(falseVal: Node<D>, trueVal: Node<D>, condition: Node<Any>) => Node<D>;
+export const select: Select;
 ```
 
 #### `shiftLeft`
 
 ```ts
-export const shiftLeft: <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>>) => Node<D>;
+export const shiftLeft: <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>> | ShiftLiteral<D>) => Node<D>;
 ```
 
 #### `shiftRight`
 
 ```ts
-export const shiftRight: <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>>) => Node<D>;
+export const shiftRight: <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>> | ShiftLiteral<D>) => Node<D>;
 ```
 
 #### `sign`
@@ -3624,7 +3791,7 @@ export const sin: <D extends Any>(a: Node<D>) => Node<D>;
 #### `smoothstep`
 
 ```ts
-export const smoothstep: <D extends Any>(lo: Node<D>, hi: Node<D>, x: Node<D>) => Node<D>;
+export const smoothstep: SameType3;
 ```
 
 #### `sqrt`
@@ -3656,7 +3823,7 @@ export const sRGBTransferOETF: (args_0: import("../core").Node<d.vec3f>) => impo
 #### `step`
 
 ```ts
-export const step: <D extends Any>(edge: Node<D>, x: Node<D>) => Node<D>;
+export const step: SameType2;
 ```
 
 #### `storage`
@@ -3723,7 +3890,7 @@ export function struct<S extends d.StructSchema>(name: string, fields: S): Struc
 #### `sub`
 
 ```ts
-export const sub: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<ArithResultDesc<NA["type"], NB["type"]>>;
+export const sub: Arith;
 ```
 
 #### `TextureType`
@@ -4098,6 +4265,7 @@ export const unpack4x8unorm: (v: Node<d.u32>) => Node<d.vec4f>;
  * // → var velocity = vec3f(0.0);
  */
 export function Var<D extends Any>(name: string, init: Node<D>): VarNode<D>;
+export function Var(name: string, init: boolean): VarNode<d.bool>;
 ```
 
 #### `Vec2Type`
