@@ -101,6 +101,7 @@ import {
     writeBuffer,
     writeTexture,
 } from '../../src/index';
+import type { Data3DTexture } from '../../src/texture/texture-3d';
 import { RendererInspector } from '../../src/inspector/renderer-inspector';
 import * as Programs from '../../src/renderer/webgl/programs';
 import * as TextureHomes from '../../src/renderer/webgl/texture-homes';
@@ -4672,6 +4673,46 @@ async function caseCopyTextureFromTarget(): Promise<CaseResult> {
     };
 }
 
+/**
+ * copy-texture-from-layer: a layer of a 2D-array target, drawn top red and bottom green, copied a row from the top and
+ * a row from the bottom into a texture, keeps them in place. WebGL renders a layer bottom-up, as it does a 2D target.
+ */
+async function caseCopyTextureFromLayer(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const position = attribute('position', d.vec3f);
+    const clipY = varying(position.y, 'vyCopyLayer');
+    const twoTone = new Mesh(
+        createFullscreenTriangleGeometry(),
+        new Material({
+            vertex: vec4(position, f32(1)),
+            fragment: select(vec4(0, 1, 0, 1), vec4(1, 0, 0, 1), clipY.greaterThan(0)),
+            depthTest: false,
+        }),
+    );
+    twoTone.updateWorldMatrix();
+    const layered = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', layers: 2, depthBuffer: false });
+    const f = frame(renderer);
+    const pass = f.pass({ target: layered, layer: 1, clear: [0, 0, 0, 1] });
+    pass.draw(twoTone);
+    pass.end();
+    f.submit();
+
+    const rows = new GpuTexture(d.texture2d(), { width: SIZE, height: 2, cpu: false });
+    copyTexture(renderer, layered.texture!, rows, { y: 3, z: 1, height: 1 });
+    copyTexture(renderer, layered.texture!, rows, { y: SIZE - 4, z: 1, height: 1 }, { y: 1 });
+    const node = texture(rows, new GpuSampler({ minFilter: 'nearest', magFilter: 'nearest' }));
+    const top = node.load(vec2i(i32(CENTER), i32(0)));
+    const bottom = node.load(vec2i(i32(CENTER), i32(1)));
+    const pixel = drawFullscreen(renderer, vec4(top.x, bottom.y, top.y, f32(1)));
+    renderer.dispose();
+    return {
+        name: 'copy-texture-from-layer',
+        pixel,
+        expected: [255, 255, 0, 255],
+        note: 'red and green swapped means the rows came across flipped',
+    };
+}
+
 /** copy-texture-into-target: a texture's top and bottom rows land at the top and bottom of a render target. */
 async function caseCopyTextureIntoTarget(): Promise<CaseResult> {
     const renderer = await newRenderer();
@@ -5086,6 +5127,71 @@ async function caseRenderTargetFlip(): Promise<CaseResult> {
     renderer.dispose();
     // v=0.25 is the top region, so RED (matching WebGPU's top-left sampling origin).
     return { name: 'rtt-flip', pixel, expected: [255, 0, 0, 255] };
+}
+
+/**
+ * rt-layer-orient: a layer of a 2D-array target and a slice of a 3D one, each drawn top red and bottom green, read
+ * back by top-left screenUV: red is the array's sample, green its load, blue the 3D sample. All three run top to
+ * bottom as WebGPU's do, so the top is white and the bottom black. WebGL renders bottom-up, and a 2D target's reads
+ * were flipped back while these weren't, so they came out mirrored there.
+ */
+async function caseRtLayerOrient(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const position = attribute('position', d.vec3f);
+    const clipY = varying(position.y, 'vyLayerOrient');
+    const twoTone = new Mesh(
+        createFullscreenTriangleGeometry(),
+        new Material({
+            vertex: vec4(position, f32(1)),
+            fragment: select(vec4(0, 1, 0, 1), vec4(1, 0, 0, 1), clipY.greaterThan(0)),
+            depthTest: false,
+        }),
+    );
+    twoTone.updateWorldMatrix();
+    const layered = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', layers: 2, depthBuffer: false });
+    const volume = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', dimension: '3d', layers: 2, depthBuffer: false });
+    const drawn = frame(renderer);
+    for (const target of [layered, volume]) {
+        const pass = drawn.pass({ target, layer: 1, clear: [0, 0, 0, 1] });
+        pass.draw(twoTone);
+        pass.end();
+    }
+    drawn.submit();
+
+    const array = layered.texture as ArrayTexture;
+    const texel = vec2i(screenUV.mul(SIZE));
+    const show = new Mesh(
+        createFullscreenTriangleGeometry(),
+        new Material({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(
+                arrayTexture(array, i32(1)).sample(screenUV).x,
+                arrayTexture(array, i32(1)).load(texel).x,
+                texture(volume.texture as Data3DTexture).sample(vec3(screenUV, 0.75)).x,
+                f32(1),
+            ),
+            depthTest: false,
+        }),
+    );
+    show.updateWorldMatrix();
+    const shown = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const f = frame(renderer);
+    const pass = f.pass({ target: shown, clear: [0, 0, 0, 1] });
+    pass.draw(show);
+    pass.end();
+    f.submit();
+
+    const pixels = await read(renderer, shown);
+    const top = texelOf(pixels, SIZE, CENTER, 3);
+    const bottom = texelOf(pixels, SIZE, CENTER, SIZE - 4);
+    renderer.dispose();
+    const ok = top.slice(0, 3).every((c) => c > 128) && bottom.slice(0, 3).every((c) => c < 128);
+    return {
+        name: 'rt-layer-orient',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `top=[${top.slice(0, 3)}] wants all high, bottom=[${bottom.slice(0, 3)}] all low (array sample, array load, 3D sample); swapped means mirrored`,
+    };
 }
 
 /**
@@ -5974,6 +6080,7 @@ export async function run(): Promise<RunResult> {
             caseInterleavedAttrs,
             caseRenderTargetFlip,
             caseRtLoadOrient,
+            caseRtLayerOrient,
             caseDepthLoadRead,
             casePassDepthSample,
             casePassOcclude,
@@ -6008,6 +6115,7 @@ export async function run(): Promise<RunResult> {
             caseCopyBufferUnpack,
             caseCopyTexture,
             caseCopyTextureFromTarget,
+            caseCopyTextureFromLayer,
             caseCopyTextureIntoTarget,
             caseWriteTexture,
             caseWriteTextureLayers,

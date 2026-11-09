@@ -4,9 +4,9 @@ import { bindUploadTexture, type TextureCache, updateTexture, withCopyFramebuffe
 
 /**
  * `copyTexture` for WebGL2: the source level and layer attach to a read framebuffer, and
- * `copyTexSubImage` reads the box out of it into the destination. A 2D render-target texture is
- * rendered bottom-up while every other texture holds row 0 at the top, so between one of each the
- * rows go across one at a time, reversed.
+ * `copyTexSubImage` reads the box out of it into the destination. A render-target texture is rendered
+ * bottom-up, a 2D-array layer or 3D slice as much as a 2D target, while every other texture (and a cube
+ * face) holds row 0 at the top, so between one of each the rows go across one at a time, reversed.
  */
 export function copyTextureRegion(
     gl: WebGL2RenderingContext,
@@ -20,8 +20,8 @@ export function copyTextureRegion(
     const to = updateTexture(gl, state, destination);
     const fromHeight = Math.max(1, source.height >> region.level);
     const toHeight = Math.max(1, destination.height >> origin.level);
-    const fromBottomUp = source.isRenderTargetTexture && from.target === gl.TEXTURE_2D;
-    const toBottomUp = destination.isRenderTargetTexture && to.target === gl.TEXTURE_2D;
+    const fromBottomUp = source.isRenderTargetTexture && from.target !== gl.TEXTURE_CUBE_MAP;
+    const toBottomUp = destination.isRenderTargetTexture && to.target !== gl.TEXTURE_CUBE_MAP;
     /** the GL row a top-down row of `height` rows is stored at. */
     const glRow = (row: number, rows: number, height: number, bottomUp: boolean) => (bottomUp ? height - row - rows : row);
 
