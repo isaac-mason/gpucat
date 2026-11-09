@@ -46,6 +46,7 @@ import {
     Mesh,
     type MRTNode,
     modelNormalMatrix,
+    mod,
     modelWorldMatrix,
     mrt,
     mul,
@@ -1552,6 +1553,40 @@ async function caseMrt(): Promise<CaseResult> {
     const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'mrt', pixel, expected: [u8(colB[0]), u8(colB[1]), u8(colB[2]), 255] };
+}
+
+/**
+ * float-remainder: a float `%` truncates on both backends, as WGSL defines it: -1.5 % 1.0 is -0.5, where GLSL's mod()
+ * would give 0.5. Green when the scalar and each vector component take the sign of the left side.
+ */
+async function caseFloatRemainder(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const zero = uniform(f32(0), 'zero');
+    // the left side is runtime, so the compiler can't fold the remainder away
+    const scalar = mod(zero.sub(f32(1.5)), f32(1));
+    const vector = mod(vec3(zero, zero, zero).sub(vec3(f32(1.5), f32(-2.25), f32(3.75))), vec3(f32(1), f32(2), f32(-2)));
+    const near = (a: Node<d.f32>, b: number) =>
+        a
+            .sub(f32(b))
+            .lessThan(f32(1e-4))
+            .and(f32(b).sub(a).lessThan(f32(1e-4)));
+    const truncated = near(scalar, -0.5).and(near(vector.x, -0.5)).and(near(vector.y, 0.25)).and(near(vector.z, -1.75));
+    const fragment = select(vec4(1, 0, 0, 1), vec4(0, 1, 0, 1), truncated);
+    const mesh = new Mesh(
+        createFullscreenTriangleGeometry(),
+        new Material({ vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment, depthTest: false }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(renderer);
+    const pass = f.pass({ target: renderer.backend.target, clear: [0, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    return { name: 'float-remainder', pixel, expected: [0, 255, 0, 255], note: 'red: floored, or a wrong remainder' };
 }
 
 /**
@@ -5756,6 +5791,7 @@ export async function run(): Promise<RunResult> {
             caseMrtUnwrittenKept,
             caseUniformArrayFlat,
             caseLiteralEdges,
+            caseFloatRemainder,
             caseMrt4Rgba8,
             caseMrt2Rgba16f,
             caseMrt4Rgba16fUpfront,

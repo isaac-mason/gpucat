@@ -350,6 +350,8 @@ export type GlslBuildContext = {
     flipHelperFns: Set<string>;
     /** the bit helper overloads (`fn:type`) this stage called; see {@link emitGlslBitHelpers}. */
     bitHelpers: Set<string>;
+    /** the float remainder overloads (`result:left:right` GLSL types) this stage called; see {@link remHelperDef}. */
+    remHelpers: Set<string>;
 
     // Read-only storage() buffers reinterpreted as rgba32uint mirror textures (WebGL has no SSBO).
     // Keyed by StorageNode id → the mirror's base texture node + its texel width, so a `storage[i].field`
@@ -411,6 +413,7 @@ export function createGlslContext(stage: ShaderStage, discovery: Discovery): Gls
         flipYTextures: new Set(),
         flipHelperFns: new Set(),
         bitHelpers: new Set(),
+        remHelpers: new Set(),
         // Populated once by compileGlsl (shared across stages) — see storage() read-lowering.
         storageMirrors: new Map(),
         attributes: new Map(),
@@ -641,9 +644,12 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
             if (glslFn && isBoolVec(node.type)) {
                 expr = `${glslFn}(${left}, ${right})`;
             } else if (node.op === '%' && 'scalar' in node.type && node.type.scalar === 'f32') {
-                // GLSL ES 3.00 `%` is integer-only; the float remainder is the `mod()` builtin (WGSL/TSL
-                // allow `%` on floats). Keyed on the component scalar, since `vec4f` never spells `f32`.
-                expr = `mod(${left}, ${right})`;
+                // GLSL ES 3.00 `%` is integer-only, and its `mod()` floors where WGSL's `%` truncates: -1.5 % 1.0 is
+                // -0.5 in WGSL, 0.5 from mod(). A helper spells WGSL's `x - y * trunc(x / y)` once per operand pair, so
+                // neither side is evaluated twice. Keyed on the component scalar, since `vec4f` never spells `f32`.
+                const key = `${glslType(node.type)}:${glslType(node.left.type)}:${glslType(node.right.type)}`;
+                ctx.remHelpers.add(key);
+                expr = `_rem(${left}, ${right})`;
             } else {
                 prec = binaryPrec(node.op);
                 const [leftMin, rightMin] = binaryOperandMin(prec);
@@ -1354,7 +1360,7 @@ function bitHelperDeps(fn: BitHelperFn, type: string): Array<[BitHelperFn, strin
     return [];
 }
 
-/** the bit helper overloads this stage called, with what they call, ahead of the stage's functions. */
+/** the bit helper overloads this stage called (with what they call) and its `_rem` overloads, ahead of its functions. */
 export function emitGlslBitHelpers(ctx: GlslBuildContext): string {
     const needed = new Set<string>();
     const require = (fn: BitHelperFn, type: string): void => {
@@ -1373,7 +1379,14 @@ export function emitGlslBitHelpers(ctx: GlslBuildContext): string {
             if (needed.has(bitHelperKey(fn, type))) defs.push(bitHelperDef(fn, type));
         }
     }
+    for (const key of ctx.remHelpers) defs.push(remHelperDef(key));
     return defs.join('\n');
+}
+
+/** WGSL's float `%`, truncating: the result takes the sign of `x`. One overload per `result:left:right` key. */
+function remHelperDef(key: string): string {
+    const [result, left, right] = key.split(':') as [string, string, string];
+    return `${result} _rem(${left} x, ${right} y) { return x - y * trunc(x / y); }`;
 }
 
 /**

@@ -1928,6 +1928,10 @@ export const step = <D extends Any>(edge: Node<D>, x: Node<D>): Node<D> => new C
 export const smoothstep = <D extends Any>(lo: Node<D>, hi: Node<D>, x: Node<D>): Node<D> =>
     new CallNode(x.type, 'smoothstep', [lo, hi, x]);
 export const sign = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'sign', [a]);
+/**
+ * WGSL's `%`, on both backends: a truncating remainder, so the result takes the sign of `a` (`-1.5 % 1.0` is `-0.5`).
+ * GLSL's `mod()` floors instead; for that, write `a.sub(b.mul(floor(a.div(b))))`.
+ */
 export const mod = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinaryOpNode('%', a.type, a, b);
 export const or = (a: Node<d.bool>, b: Node<d.bool>): Node<d.bool> => new BinaryOpNode('||', d.bool, a, b);
 export const and = (a: Node<d.bool>, b: Node<d.bool>): Node<d.bool> => new BinaryOpNode('&&', d.bool, a, b);
