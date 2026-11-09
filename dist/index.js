@@ -3977,7 +3977,7 @@ function compareResultDesc(d) {
     return COMPARE_RESULT[d.wgslType] ?? bool$1;
 }
 
-var schema = /*#__PURE__*/Object.freeze({
+var d = /*#__PURE__*/Object.freeze({
     __proto__: null,
     PACKED_SPECS: PACKED_SPECS,
     STORAGE_FORMATS: STORAGE_FORMATS,
@@ -11766,6 +11766,83 @@ function literalOf(v, elem, op) {
     }
     return new LiteralNode(elem, v);
 }
+/** `nodes`, which must share one type: WGSL converts none of them, so gpucat doesn't either. */
+function assertSameType(op, nodes) {
+    const t = nodes[0].type.wgslType;
+    const other = nodes.find((n) => n.type.wgslType !== t);
+    if (other !== undefined)
+        throw new Error(`[gpucat] ${op}: ${mismatch(nodes[0].type, other.type)}`);
+    return nodes;
+}
+/** why `a` can't meet `b`, and the conversion to write when one would do */
+function mismatch(a, b) {
+    const [ta, tb] = [a.wgslType, b.wgslType];
+    const lenOf = (t) => (isMatDesc(t) ? 0 : 'len' in t ? t.len : -1);
+    const numeric = (t) => 'scalar' in t && t.scalar !== 'bool';
+    const hint = numeric(a) && numeric(b) && lenOf(a) === lenOf(b) && lenOf(a) > 0 ? `; convert one, with ${ta}(…) or ${tb}(…)` : '';
+    return `${aType(ta)} meets only ${aType(ta)}, not ${aType(tb)}${hint}`;
+}
+/** The type of `l op r` for `+ - / %`, or for `*` with `matrices`, as WGSL types it, throwing where WGSL rejects it:
+ *  both sides of one element type, and a scalar beside a vector the only mix of shapes. */
+function arithResult(op, l, r, matrices) {
+    const [a, b] = [l.type, r.type];
+    const scalarOf = (t) => ('scalar' in t ? t.scalar : undefined);
+    const fail = (why = mismatch(a, b)) => {
+        throw new Error(`[gpucat] ${op}: ${why}`);
+    };
+    if (scalarOf(a) === undefined || scalarOf(a) === 'bool' || scalarOf(b) === undefined || scalarOf(b) === 'bool') {
+        fail(`takes numbers, not ${aType(scalarOf(a) === undefined || scalarOf(a) === 'bool' ? a.wgslType : b.wgslType)}`);
+    }
+    if (scalarOf(a) !== scalarOf(b))
+        fail();
+    const ma = isMatDesc(a);
+    const mb = isMatDesc(b);
+    const lenOf = (t) => ('len' in t ? t.len : 1);
+    if (ma || mb) {
+        if (!matrices)
+            return a.wgslType === b.wgslType && op !== 'div' && op !== 'mod' ? a : fail();
+        // matCxR: C columns of R rows
+        const shape = (t) => t.wgslType
+            .match(/^mat(\d)x(\d)/)
+            .slice(1)
+            .map(Number);
+        const suffix = a.wgslType.endsWith('h') || b.wgslType.endsWith('h') ? 'h' : 'f';
+        const vecOf = (len) => numericDescOf({ len }, scalarOf(a));
+        if (ma && mb) {
+            const [[ac, ar], [bc, br]] = [shape(a), shape(b)];
+            if (ac !== br)
+                fail(`${a.wgslType} * ${b.wgslType} needs as many columns on the left as rows on the right`);
+            return d[`mat${bc}x${ar}${suffix}`];
+        }
+        if (ma) {
+            if (lenOf(b) === 1)
+                return a;
+            const [cols, rows] = shape(a);
+            if (cols !== lenOf(b))
+                fail(`${a.wgslType} * ${b.wgslType} needs a vec${cols}`);
+            return vecOf(rows);
+        }
+        if (lenOf(a) === 1)
+            return b;
+        const [cols, rows] = shape(b);
+        if (lenOf(a) !== rows)
+            fail(`${a.wgslType} * ${b.wgslType} needs a vec${rows} on the left`);
+        return vecOf(cols);
+    }
+    if (lenOf(a) === 1)
+        return b;
+    if (lenOf(b) === 1 || lenOf(a) === lenOf(b))
+        return a;
+    return fail();
+}
+/** A factor node beside values of type `of`: of their element type, or, `orSame`, of their own type too. */
+function factorOperand(op, of, t, orSame) {
+    const element = scalarElementOf(of, op).wgslType;
+    if (t.type.wgslType === element || (orSame && t.type.wgslType === of.wgslType))
+        return t;
+    const want = orSame && element !== of.wgslType ? `${aType(element)} or ${aType(of.wgslType)}` : aType(element);
+    throw new Error(`[gpucat] ${op}: the factor beside ${aType(of.wgslType)} is ${want}, not ${aType(t.type.wgslType)}`);
+}
 /** Both sides of `+ - * / %` as nodes. A number takes the element type of the node on the other side, as a scalar,
  *  which WGSL accepts beside a vector, and for `*` beside a matrix. */
 function arithOperands(op, a, b, matrices) {
@@ -11785,7 +11862,7 @@ function arithOperands(op, a, b, matrices) {
  *  WGSL widens a literal to no vector here. Booleans alone are a bool. */
 function sameTypeOperands(op, values) {
     if (values.every(isNode))
-        return values;
+        return assertSameType(op, values);
     const node = values.find(isNode);
     const type = node?.type ?? (values.every((v) => typeof v === 'boolean') ? bool$1 : undefined);
     if (type === undefined) {
@@ -11799,8 +11876,12 @@ function sameTypeOperands(op, values) {
 }
 /** A condition as a node: a boolean is a bool literal. */
 function boolOperand(op, v) {
-    if (isNode(v))
+    if (isNode(v)) {
+        if (!('scalar' in v.type) || v.type.scalar !== 'bool') {
+            throw new Error(`[gpucat] ${op}: takes a bool, not ${aType(v.type.wgslType)}; compare it to make one`);
+        }
         return v;
+    }
     if (typeof v !== 'boolean')
         throw new Error(`[gpucat] ${op}: takes true, false or a bool node, not ${v}`);
     return new LiteralNode(bool$1, v ? 1 : 0);
@@ -11809,14 +11890,22 @@ function boolOperand(op, v) {
 function initOperand(op, init) {
     if (typeof init === 'number')
         throw new Error(`[gpucat] ${op}: ${init} names no type; write f32(${init}) (or i32/u32)`);
-    return boolOperand(op, init);
+    return isNode(init) ? init : boolOperand(op, init);
 }
 /** A shift amount as a node: a number is a u32, for an integer scalar. */
 function shiftOperand(op, a, b) {
     if (!isNode(a))
         throw new Error(`[gpucat] ${op}: a number shifted names no type; write u32(${a}) or i32(${a})`);
-    if (isNode(b))
+    const scalar = 'scalar' in a.type ? a.type.scalar : undefined;
+    if (scalar !== 'i32' && scalar !== 'u32')
+        throw new Error(`[gpucat] ${op}: shifts an integer, not ${aType(a.type.wgslType)}`);
+    if (isNode(b)) {
+        const want = numericDescOf(a.type, 'u32').wgslType;
+        if (b.type.wgslType !== want) {
+            throw new Error(`[gpucat] ${op}: ${aType(a.type.wgslType)} shifts by ${aType(want)}, not ${aType(b.type.wgslType)}`);
+        }
         return b;
+    }
     if ('len' in a.type && a.type.len > 1) {
         throw new Error(`[gpucat] ${op}: ${aType(a.type.wgslType)} shifts by a vec${a.type.len}u; write vec${a.type.len}u(${b})`);
     }
@@ -11863,16 +11952,18 @@ function assertConstantBinary(op, sym, l, r) {
 }
 const arith = (op, name) => (a, b) => {
     const [l, r] = arithOperands(name, a, b, false);
+    const type = arithResult(name, l, r, false);
     assertConstantBinary(name, op, l, r);
-    return new BinaryOpNode(op, arithResultDesc(l.type, r.type), l, r);
+    return new BinaryOpNode(op, type, l, r);
 };
 const add$1 = /*@__PURE__*/ arith('+', 'add');
 const sub = /*@__PURE__*/ arith('-', 'sub');
 const div = /*@__PURE__*/ arith('/', 'div');
 const mul = (a, b) => {
     const [l, r] = arithOperands('mul', a, b, true);
+    const type = arithResult('mul', l, r, true);
     assertConstantBinary('mul', '*', l, r);
-    return new BinaryOpNode('*', mulResultDesc(l.type, r.type), l, r);
+    return new BinaryOpNode('*', type, l, r);
 };
 /** The dot product, in the vectors' element type: WGSL's `dot` of two `vec3i` is an `i32`. */
 const dot = (a, b) => new CallNode(vecElementDescOrSelf(a.type), 'dot', [a, b]);
@@ -11929,7 +12020,12 @@ const saturate = (a) => new CallNode(a.type, 'saturate', [a]);
 /** The incident direction `i` reflected about the surface normal `n`: `i - 2 * dot(n, i) * n`. */
 const reflect = (i, n) => new CallNode(i.type, 'reflect', [i, n]);
 /** The incident direction `i` refracted through the surface normal `n` at the ratio of indices `eta`. */
-const refract = (i, n, eta) => new CallNode(i.type, 'refract', [i, n, isNode(eta) ? eta : literalOf(eta, scalarElementOf(i.type, 'refract'), 'refract')]);
+const refract = (i, n, eta) => new CallNode(i.type, 'refract', [
+    ...assertSameType('refract', [i, n]),
+    isNode(eta)
+        ? factorOperand('refract', i.type, eta, false)
+        : literalOf(eta, scalarElementOf(i.type, 'refract'), 'refract'),
+]);
 /** `n` turned to face against `i`, judged by the reference normal `nref`: `dot(nref, i) < 0 ? n : -n`. WGSL: `faceForward`; GLSL: `faceforward`. */
 const faceForward = (n, i, nref) => new CallNode(n.type, 'faceForward', [n, i, nref]);
 function max(...values) {
@@ -11953,7 +12049,7 @@ const mix = (a, b, t) => {
         return new CallNode(tt.type, 'mix', [l, r, tt]);
     }
     const [l, r] = sameTypeOperands('mix', [a, b]);
-    const factor = isNode(t) ? t : literalOf(t, scalarElementOf(l.type, 'mix'), 'mix');
+    const factor = isNode(t) ? factorOperand('mix', l.type, t, true) : literalOf(t, scalarElementOf(l.type, 'mix'), 'mix');
     return new CallNode(l.type, 'mix', [l, r, factor]);
 };
 const step = /*@__PURE__*/ sameTypeCall('step');
@@ -21242,20 +21338,6 @@ function glslCtorFor(len, scalar) {
     return `${prefix}vec${len}`;
 }
 /**
- * Wrap an operand expression in a component-kind conversion if it differs from `target`, preserving the
- * operand's own vector length (so `vec3f * i32` coerces the scalar to `float`, not to `vec3`). Returns
- * the expression unchanged when kinds already match or the operand is not a plain scalar/vector.
- */
-function coerceOperandScalar(node, expr, target) {
-    const kind = glslScalarKind(node.type);
-    if (kind === null || kind === target)
-        return expr;
-    const len = glslVecLen(node.type);
-    if (len === null)
-        return expr;
-    return `${glslCtorFor(len, target)}(${expr})`;
-}
-/**
  * Interpolation qualifier for a GLSL varying declaration, derived from the same `interpolationType` /
  * `interpolationSampling` the WGSL emitter reads. Returns a leading-space qualifier ('flat ' /
  * 'centroid ') or '' for the perspective-correct default. The SAME qualifier must be emitted on the
@@ -21580,31 +21662,12 @@ function generateExpr$1(ctx, rawNode) {
             expr = generateBuiltin$1(ctx, node);
             break;
         case NodeKind.BinaryOp: {
-            let left = generateExpr$1(ctx, node.left);
-            let right = generateExpr$1(ctx, node.right);
-            let leftPrec = emittedPrec$1(ctx, node.left);
-            let rightPrec = emittedPrec$1(ctx, node.right);
-            // Operand coercion: GLSL ES 3.00 has no implicit numeric conversions, so a mixed-kind binary
-            // op (int with uint, int/uint with float) is a hard compile error unless one side is wrapped
-            // in an explicit conversion. Shifts are exempt — GLSL allows a differing-kind shift amount —
-            // and comparisons/arithmetic coerce to the common kind (float wins; else the result kind).
-            const leftKind = glslScalarKind(node.left.type);
-            const rightKind = glslScalarKind(node.right.type);
+            // the operands share a kind, as the node builders insist, so none needs converting
+            const left = generateExpr$1(ctx, node.left);
+            const right = generateExpr$1(ctx, node.right);
+            const leftPrec = emittedPrec$1(ctx, node.left);
+            const rightPrec = emittedPrec$1(ctx, node.right);
             const isShift = node.op === '<<' || node.op === '>>';
-            if (!isShift && leftKind && rightKind && leftKind !== rightKind && leftKind !== 'bool' && rightKind !== 'bool') {
-                const target = leftKind === 'f32' || rightKind === 'f32'
-                    ? 'f32'
-                    : (glslScalarKind(node.type) ?? 'i32');
-                const rawLeft = left;
-                const rawRight = right;
-                left = coerceOperandScalar(node.left, left, target);
-                right = coerceOperandScalar(node.right, right, target);
-                // A coerced operand is now a conversion constructor, which never needs parens.
-                if (left !== rawLeft)
-                    leftPrec = Prec.Postfix;
-                if (right !== rawRight)
-                    rightPrec = Prec.Postfix;
-            }
             // Componentwise vector comparisons: GLSL ES rejects the relational/equality OPERATORS on
             // vectors and instead provides built-in functions returning a bvec. Detect via the result
             // type being a bool vector (`vecN<bool>`); scalar comparisons keep the operator.
@@ -24142,16 +24205,10 @@ function generateExpr(ctx, rawNode) {
             prec = emittedPrec(ctx, node.node.node);
     }
     else if (node.kind === NodeKind.BinaryOp) {
-        const rawLeft = generateExpr(ctx, node.left);
-        const rawRight = generateExpr(ctx, node.right);
-        let leftPrec = emittedPrec(ctx, node.left);
-        let rightPrec = emittedPrec(ctx, node.right);
-        const [left, right] = coerceBinaryOperands(node, rawLeft, rawRight);
-        // A coerced operand has been wrapped in a conversion constructor, so it no longer needs parens.
-        if (left !== rawLeft)
-            leftPrec = Prec.Postfix;
-        if (right !== rawRight)
-            rightPrec = Prec.Postfix;
+        const left = generateExpr(ctx, node.left);
+        const right = generateExpr(ctx, node.right);
+        const leftPrec = emittedPrec(ctx, node.left);
+        const rightPrec = emittedPrec(ctx, node.right);
         prec = binaryPrec(node.op);
         const [leftMin, rightMin] = wgslBinaryOperandMin(prec);
         expr = `${paren(left, leftPrec, leftMin)} ${node.op} ${paren(right, rightPrec, rightMin)}`;
@@ -25078,8 +25135,7 @@ function generateModuleScopeInitExpr(rawNode) {
         return `${node.type.wgslType}(${args.join(', ')})`;
     }
     else if (node.kind === NodeKind.BinaryOp) {
-        const [left, right] = coerceBinaryOperands(node, generateModuleScopeInitExpr(node.left), generateModuleScopeInitExpr(node.right));
-        return `(${left} ${node.op} ${right})`;
+        return `(${generateModuleScopeInitExpr(node.left)} ${node.op} ${generateModuleScopeInitExpr(node.right)})`;
     }
     else if (node.kind === NodeKind.Call) {
         // Only const-evaluable built-in functions are allowed
@@ -25447,37 +25503,6 @@ function emitDslFunctions(ctx) {
         lines.push('');
     }
     return lines.join('\n');
-}
-/**
- * Coerce a binary op's operands to a common scalar kind. WGSL forbids mixing scalar kinds in an operator
- * (`5u + 3i` is an error), so wrap the operand whose kind differs from the target in a length-preserving
- * conversion constructor (`u32(x)` / `vec3f(x)` …). Target = the op's result kind for arithmetic, or the
- * promoted operand kind for comparisons (which produce bool). Bool operands (logical ops) are left alone, and so
- * are shifts: their amount is always unsigned, whatever the value's kind.
- */
-function coerceBinaryOperands(node, left, right) {
-    if (node.op === '<<' || node.op === '>>')
-        return [left, right];
-    const lk = node.left.type.scalar;
-    const rk = node.right.type.scalar;
-    if (!lk || !rk || lk === rk || lk === 'bool' || rk === 'bool')
-        return [left, right];
-    const resultKind = node.type.scalar;
-    let target;
-    if (resultKind && resultKind !== 'bool')
-        target = resultKind;
-    else if (lk === 'f32' || rk === 'f32')
-        target = 'f32';
-    else if (lk === 'f16' || rk === 'f16')
-        target = 'f16';
-    else if (lk === 'u32' || rk === 'u32')
-        target = 'u32';
-    else
-        target = 'i32';
-    if (target !== 'f32' && target !== 'f16' && target !== 'u32' && target !== 'i32')
-        return [left, right];
-    const conv = (kind, operandType, expr) => kind === target ? expr : `${numericDescOf(operandType, target).wgslType}(${expr})`;
-    return [conv(lk, node.left.type, left), conv(rk, node.right.type, right)];
 }
 /**
  * WGSL `@interpolate(...)` attribute for a varying (leading space), or '' for the default. Integer
@@ -48600,5 +48625,5 @@ function createDataTexture(data, width, height, options = {}) {
     return new DataTexture(data, width, height, options);
 }
 
-export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, GpuTextureView, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, STAGE_COMPUTE, STAGE_FRAGMENT, STAGE_VERTEX, Scene, Source, TOUCH, Texture, TextureViewRange, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WHOLE_TEXTURE, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, assertSameSampleType, assertSubresource, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, cameraViewProjectionMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, copyBuffer, copyTexture, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, faceForward, field, fields, firstLeadingBit, firstTrailingBit, floor, formatSampleType, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, invariant, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, materialGroup, max, memoryReport, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer$2 as readBuffer, reflect, refract, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture$1 as renderTexture, resetRendererInfo, reverseBits, rgb, round, sRGBTransferEOTF, sRGBTransferOETF, sampler, saturate, schemaArrayCtor, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, viewProjection, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId, writeBuffer, writeTexture };
+export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, GpuTextureView, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, STAGE_COMPUTE, STAGE_FRAGMENT, STAGE_VERTEX, Scene, Source, TOUCH, Texture, TextureViewRange, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WHOLE_TEXTURE, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, assertSameSampleType, assertSubresource, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, cameraViewProjectionMatrix, canvasFormat, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, copyBuffer, copyTexture, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, faceForward, field, fields, firstLeadingBit, firstTrailingBit, floor, formatSampleType, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, invariant, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, materialGroup, max, memoryReport, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer$2 as readBuffer, reflect, refract, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture$1 as renderTexture, resetRendererInfo, reverseBits, rgb, round, sRGBTransferEOTF, sRGBTransferOETF, sampler, saturate, schemaArrayCtor, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, viewProjection, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId, writeBuffer, writeTexture };
 //# sourceMappingURL=index.js.map
