@@ -267,6 +267,27 @@ export const cases: Case[] = [
         },
     },
     {
+        // literal edges: floats past 1e21, near-whole fractions, the f32 maximum, -0 negated, the smallest i32 and the
+        // largest u32, each meeting a runtime value so nothing folds them away. JS's own spellings were invalid in one
+        // compiler or another (`1e+21.0`, `x * 1`, `3.4028235e+38`, `-2147483648i`, `--0.0`).
+        name: 'literal edges',
+        build: () => {
+            const x = screenCoordinate.x;
+            const big = x
+                .mul(f32(1e21))
+                .add(f32(0.99999999999))
+                .add(f32(3.4028234663852886e38).mul(f32(1e-38)));
+            const tiny = x.add(f32(1e-50)).add(f32(-1.5e-7)).sub(f32(-0).negate());
+            const ints = i32(x).add(i32(-2147483648)).sub(i32(-2147483647));
+            const uints = u32(x).add(u32(4294967295));
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: vec4(big, tiny, f32(ints), f32(uints)),
+                depth: undefined,
+            };
+        },
+    },
+    {
         // round / saturate / reflect / refract / faceForward: round must become GLSL's roundEven (WGSL rounds halves
         // to even), faceForward GLSL's faceforward, and saturate, which GLSL lacks, a clamp; scalars and vectors both
         name: 'round, saturate, reflect, refract, faceForward',

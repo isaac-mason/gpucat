@@ -1555,6 +1555,41 @@ async function caseMrt(): Promise<CaseResult> {
 }
 
 /**
+ * literal-edges: the smallest i32, the largest u32, a float past 1e21, the f32 maximum and a fraction that rounds to 1,
+ * each added to a runtime zero, show green when they arrive as written. JS's own spellings of them were rejected by
+ * Tint or ANGLE, or read as integers.
+ */
+async function caseLiteralEdges(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const zero = uniform(f32(0), 'zero');
+    // each literal meets a runtime zero, so the compiler parses it rather than folding it away
+    const intact = i32(zero)
+        .add(i32(-2147483648))
+        .add(i32(2147483647))
+        .equal(i32(-1))
+        .and(u32(zero).add(u32(4294967295)).equal(u32(4294967295)))
+        .and(zero.add(f32(1e21)).greaterThan(f32(9.9e20)))
+        .and(zero.add(f32(3.4028234663852886e38)).greaterThan(f32(3.4e38)))
+        .and(zero.add(f32(0.99999999999)).equal(f32(1)));
+    const fragment = select(vec4(1, 0, 0, 1), vec4(0, 1, 0, 1), intact);
+    const mesh = new Mesh(
+        createFullscreenTriangleGeometry(),
+        new Material({ vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment, depthTest: false }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(renderer);
+    const pass = f.pass({ target: renderer.backend.target, clear: [0, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    return { name: 'literal-edges', pixel, expected: [0, 255, 0, 255], note: 'red: a literal changed, black: not drawn' };
+}
+
+/**
  * uniform-array-flat: an array of vec4s set from a flat Float32Array, read in both stages, under std140 (each element
  * 16 bytes). The vertex stage offsets the triangle by element `instanceIndex * 2`, the fragment shows element 1. Read
  * as nested, the typed array packed as NaN and nothing was drawn.
@@ -5720,6 +5755,7 @@ export async function run(): Promise<RunResult> {
             caseMrt,
             caseMrtUnwrittenKept,
             caseUniformArrayFlat,
+            caseLiteralEdges,
             caseMrt4Rgba8,
             caseMrt2Rgba16f,
             caseMrt4Rgba16fUpfront,

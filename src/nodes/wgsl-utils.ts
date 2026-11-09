@@ -4,7 +4,7 @@
  * These are pure functions that convert JavaScript values to WGSL syntax strings.
  */
 
-import { shortestF32 } from './backend/print';
+import { floatLiteral, i32LiteralWgsl, u32Literal } from './backend/print';
 
 /**
  * Generate a WGSL literal string for a constant value.
@@ -18,15 +18,13 @@ export function constLiteral(type: string, value: number | number[] | string): s
     if (typeof value === 'number') {
         switch (type) {
             case 'f32':
-                // Fractions print at the fewest digits that still round-trip through f32: the full f64
-                // expansion of something like 1/12 carries eight digits the target cannot represent.
-                return Number.isInteger(value) ? `${value}.0` : shortestF32(value);
+                return floatLiteral(value);
             case 'f16':
-                return Number.isInteger(value) ? `${value}.0h` : `${value}h`;
+                return `${floatLiteral(value, 'f16')}h`;
             case 'i32':
-                return `${Math.trunc(value)}i`;
+                return i32LiteralWgsl(value);
             case 'u32':
-                return `${Math.trunc(value)}u`;
+                return u32Literal(value);
             case 'bool':
                 return value !== 0 ? 'true' : 'false';
             default:
@@ -34,13 +32,13 @@ export function constLiteral(type: string, value: number | number[] | string): s
         }
     }
     const components = (value as number[]).map((v) => {
-        if (type.startsWith('vec') && type.endsWith('f')) return Number.isInteger(v) ? `${v}.0` : shortestF32(v);
-        if (type.startsWith('vec') && type.endsWith('h')) return Number.isInteger(v) ? `${v}.0h` : `${v}h`;
-        if (type.startsWith('vec') && type.endsWith('i')) return `${Math.trunc(v)}i`;
-        if (type.startsWith('vec') && type.endsWith('u')) return `${Math.trunc(v)}u`;
+        if (type.startsWith('vec') && type.endsWith('f')) return floatLiteral(v);
+        if (type.startsWith('vec') && type.endsWith('h')) return `${floatLiteral(v, 'f16')}h`;
+        if (type.startsWith('vec') && type.endsWith('i')) return i32LiteralWgsl(v);
+        if (type.startsWith('vec') && type.endsWith('u')) return u32Literal(v);
         if (type === 'vec2<bool>' || type === 'vec3<bool>' || type === 'vec4<bool>') return v !== 0 ? 'true' : 'false';
-        if (type.startsWith('mat') && type.endsWith('h')) return Number.isInteger(v) ? `${v}.0h` : `${v}h`;
-        if (type.startsWith('mat')) return Number.isInteger(v) ? `${v}.0` : shortestF32(v);
+        if (type.startsWith('mat') && type.endsWith('h')) return `${floatLiteral(v, 'f16')}h`;
+        if (type.startsWith('mat')) return floatLiteral(v);
         return `${v}`;
     });
     if (components.length === 0) return `${type}()`;

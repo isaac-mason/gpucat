@@ -122,27 +122,78 @@ export function joinSections(sections: Section[]): string {
         .join('\n\n');
 }
 
-/**
- * Shortest decimal spelling that round-trips to the same f32 as `value`.
- *
- * Shader float literals are parsed at f32, so printing a JavaScript number's full f64 decimal
- * expansion (`0.08333333333333333` for 1/12) adds 8 digits that the target cannot represent. This
- * finds the fewest significant digits that still land on the same f32 (`0.083333336`). Callers handle
- * whole numbers themselves — those already have a short exact form and a required `.0` suffix.
- */
-export function shortestF32(value: number): string {
-    if (!Number.isFinite(value)) return `${value}`;
-    const target = Math.fround(value);
-    for (let digits = 1; digits <= 9; digits++) {
-        const candidate = target.toPrecision(digits);
-        if (Math.fround(Number(candidate)) === target) return trimFloat(candidate);
-    }
-    return trimFloat(`${target}`);
+/** The largest finite f32 and f16. */
+const FLOAT_MAX = { f32: 3.4028234663852886e38, f16: 65504 };
+
+/** `value` rounded to the nearest f16, ties to even, subnormals kept. Overflows to ±Infinity as f32 rounding does. */
+function f16Round(value: number): number {
+    const a = Math.abs(value);
+    if (!Number.isFinite(a) || a === 0) return value;
+    if (a >= 65520) return Math.sign(value) * Infinity;
+    let e = Math.max(Math.floor(Math.log2(a)), -14);
+    if (e > -14 && 2 ** e > a) e--;
+    if (2 ** (e + 1) <= a) e++;
+    const quantum = 2 ** (e - 10);
+    const q = a / quantum;
+    const f = Math.floor(q);
+    const n = q - f > 0.5 || (q - f === 0.5 && f % 2 === 1) ? f + 1 : f;
+    return Math.sign(value) * n * quantum;
 }
 
-/** Drop the trailing zeros `toPrecision` pads with (`0.30000` → `0.3`), keeping at least one decimal. */
-function trimFloat(s: string): string {
-    if (s.includes('e') || s.includes('E') || !s.includes('.')) return s;
-    const trimmed = s.replace(/0+$/, '');
-    return trimmed.endsWith('.') ? `${trimmed}0` : trimmed;
+/**
+ * A float literal both WGSL and GLSL ES 3.00 parse back to the same `type` value as `value` rounds to: the fewest
+ * significant digits that round-trip, always with a `.` in the mantissa (`2.0`, `0.083333336`, `1.0e+21`) and `-0.0`
+ * keeping its sign. A bare `1` or `1e21` would read as an integer in GLSL, which has no implicit conversion, and JS's own
+ * `1e+21` spelling with `.0` appended is no literal at all. Callers add any suffix (`h`).
+ *
+ * Throws on NaN and ±Infinity, which no shader literal spells, and on a value that rounds past the type's largest finite
+ * value: printed at its shortest, even the f32 maximum overflows in some compilers, so the search checks each candidate.
+ */
+export function floatLiteral(value: number, type: 'f32' | 'f16' = 'f32'): string {
+    const round = type === 'f32' ? Math.fround : f16Round;
+    const target = round(value);
+    if (!Number.isFinite(target)) {
+        throw new Error(
+            Number.isFinite(value)
+                ? `[gpucat] ${value} is beyond the largest ${type}, ${FLOAT_MAX[type]}`
+                : `[gpucat] ${value} has no ${type} literal: shaders spell no NaN or infinity`,
+        );
+    }
+    if (target === 0) return Object.is(target, -0) ? '-0.0' : '0.0';
+    for (let digits = 1; digits <= 17; digits++) {
+        const candidate = target.toExponential(digits - 1);
+        const parsed = Number(candidate);
+        if (round(parsed) === target && Math.abs(parsed) <= FLOAT_MAX[type]) return spellFloat(candidate);
+    }
+    throw new Error(`[gpucat] no ${type} literal round-trips ${value}`);
+}
+
+/** `1.25e+2` as `125.0`, `1e+21` as `1.0e+21`: plain decimals where JS prints them so, an exponent otherwise. */
+function spellFloat(exponential: string): string {
+    const [mantissa, exponent] = exponential.split('e') as [string, string];
+    const e = Number(exponent);
+    if (e >= -6 && e <= 15) {
+        const plain = `${Number(exponential)}`;
+        return plain.includes('.') ? plain : `${plain}.0`;
+    }
+    return `${mantissa.includes('.') ? mantissa : `${mantissa}.0`}e${e < 0 ? '-' : '+'}${Math.abs(e)}`;
+}
+
+/** An i32 literal's digits, for a value already whole and in range. The smallest i32 can't be written as `-` applied
+ *  to `2147483648`, which overflows first, so WGSL spells it as a conversion of the abstract integer. */
+export function i32LiteralWgsl(value: number): string {
+    if (!Number.isFinite(value)) throw new Error(`[gpucat] ${value} has no i32 literal`);
+    const v = Math.trunc(value);
+    return v === -2147483648 ? 'i32(-2147483648)' : `${v}i`;
+}
+
+/** A u32 literal's digits, for a value already whole and in range. */
+export function u32Literal(value: number): string {
+    if (!Number.isFinite(value)) throw new Error(`[gpucat] ${value} has no u32 literal`);
+    return `${Math.trunc(value)}u`;
+}
+
+/** Whether a literal printed for `value` starts with a minus, binding as a unary expression. */
+export function isNegativeLiteral(value: number): boolean {
+    return value < 0 || Object.is(value, -0);
 }

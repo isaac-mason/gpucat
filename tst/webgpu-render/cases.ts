@@ -207,6 +207,40 @@ async function caseUniform(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
 }
 
 /**
+ * literal-edges: the smallest i32, the largest u32, a float past 1e21, the f32 maximum and a fraction that rounds to 1,
+ * each added to a runtime zero, show green when they arrive as written. JS's own spellings of them were rejected by
+ * Tint or ANGLE, or read as integers.
+ */
+async function caseLiteralEdges(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const zero = uniform(f32(0), 'zero');
+    // each literal meets a runtime zero, so the compiler parses it rather than folding it away
+    const intact = i32(zero)
+        .add(i32(-2147483648))
+        .add(i32(2147483647))
+        .equal(i32(-1))
+        .and(u32(zero).add(u32(4294967295)).equal(u32(4294967295)))
+        .and(zero.add(f32(1e21)).greaterThan(f32(9.9e20)))
+        .and(zero.add(f32(3.4028234663852886e38)).greaterThan(f32(3.4e38)))
+        .and(zero.add(f32(0.99999999999)).equal(f32(1)));
+    const fragment = select(vec4(1, 0, 0, 1), vec4(0, 1, 0, 1), intact);
+    const mesh = new Mesh(
+        fullscreenTriangle(),
+        new Material({ vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment, depthTest: false }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const pass = f.pass({ target, clear: [0, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixel = centerPixel(await read(gpu, target));
+    return { name: 'literal-edges', pixel, expected: [0, 255, 0, 255], note: 'red: a literal changed, black: not drawn' };
+}
+
+/**
  * uniform-array-flat: an array of vec4s set from a flat Float32Array, read in both stages. The vertex stage offsets the
  * triangle by element `instanceIndex * 2`, the fragment shows element 1. Read as nested, the typed array packed as NaN:
  * the triangle went nowhere with no error, and a fragment-only read showed black.
@@ -3658,6 +3692,7 @@ const CASES: Record<string, Case> = {
     solid: caseSolid,
     uniform: caseUniform,
     'uniform-array-flat': caseUniformArrayFlat,
+    'literal-edges': caseLiteralEdges,
     'named-parameters': caseNamedParameters,
     scene: caseScene,
     'clear-ignores-scissor': caseClearIgnoresScissor,

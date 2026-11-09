@@ -74,7 +74,7 @@ import {
     reserveName,
     tracedFnCallees,
 } from '../names';
-import { binaryPrec, Prec, paren, unary, wgslBinaryOperandMin } from '../print';
+import { binaryPrec, isNegativeLiteral, Prec, paren, unary, wgslBinaryOperandMin } from '../print';
 import { type RenderStageReach, renderStagesOf, STAGE_COMPUTE } from '../stage-reach';
 
 type ShaderStage = 'vertex' | 'fragment' | 'compute';
@@ -383,7 +383,7 @@ function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
     if (node.kind === NodeKind.Literal) {
         expr = constLiteral(node.type.wgslType, node.value);
         // A negative scalar literal lexes as unary minus applied to a literal.
-        if (typeof node.value === 'number' && node.value < 0) prec = Prec.Unary;
+        if (typeof node.value === 'number' && isNegativeLiteral(node.value)) prec = Prec.Unary;
     } else if (node.kind === NodeKind.Uniform) {
         expr = generateUniform(ctx, node);
     } else if (node.kind === NodeKind.Attribute) {
@@ -436,7 +436,7 @@ function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
         const identity = identityConversionArg(node);
         if (folded !== undefined) {
             expr = constLiteral(node.type.wgslType, folded);
-            if (folded < 0) prec = Prec.Unary;
+            if (isNegativeLiteral(folded)) prec = Prec.Unary;
         } else if (identity) {
             expr = generateExpr(ctx, identity);
             prec = emittedPrec(ctx, identity);
@@ -1081,7 +1081,7 @@ function generateBuiltin(ctx: BuildContext, node: BuiltinNode<d.Any>): string {
 function callPrec(ctx: BuildContext, node: CallNode<d.Any>): Prec {
     if (node.fn === node.type.wgslType) {
         const folded = foldScalarConversion(node);
-        if (folded !== undefined) return folded < 0 ? Prec.Unary : Prec.Postfix;
+        if (folded !== undefined) return isNegativeLiteral(folded) ? Prec.Unary : Prec.Postfix;
         const identity = identityConversionArg(node);
         if (identity) return emittedPrec(ctx, identity);
     }

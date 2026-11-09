@@ -68,7 +68,7 @@ import {
     reserveName,
     tracedFnCallees,
 } from '../names';
-import { binaryOperandMin, binaryPrec, Prec, paren, shortestF32, unary } from '../print';
+import { binaryOperandMin, binaryPrec, floatLiteral, isNegativeLiteral, Prec, paren, u32Literal, unary } from '../print';
 import { STAGE_FRAGMENT, STAGE_VERTEX } from '../stage-reach';
 import type { TracedFn } from '../wgsl/emit';
 
@@ -258,13 +258,13 @@ function glslLiteral(wgslType: string, value: number | number[] | string): strin
     const scalar = (t: string, v: number): string => {
         switch (t) {
             case 'f32':
-                // Printed at the fewest digits that still round-trip through f32 — the full f64
-                // expansion of something like 1/12 carries eight digits GLSL cannot represent.
-                return Number.isInteger(v) ? `${v}.0` : shortestF32(v);
+                return floatLiteral(v);
             case 'i32':
+                // GLSL ES 3.00 reads `-2147483648` whole, so the smallest i32 needs no WGSL-style spelling
+                if (!Number.isFinite(v)) throw new Error(`[gpucat] ${v} has no i32 literal`);
                 return `${Math.trunc(v)}`;
             case 'u32':
-                return `${Math.trunc(v)}u`;
+                return u32Literal(v);
             case 'bool':
                 return v !== 0 ? 'true' : 'false';
             default:
@@ -593,7 +593,7 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
         case NodeKind.Literal:
             expr = glslLiteral(node.type.wgslType, node.value);
             // A negative scalar literal lexes as unary minus applied to a literal.
-            if (typeof node.value === 'number' && node.value < 0) prec = Prec.Unary;
+            if (typeof node.value === 'number' && isNegativeLiteral(node.value)) prec = Prec.Unary;
             break;
         case NodeKind.Uniform:
             expr = generateUniform(ctx, node);
@@ -655,7 +655,7 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
             const folded = foldScalarConversion(node);
             if (folded !== undefined) {
                 expr = glslLiteral(node.type.wgslType, folded);
-                if (folded < 0) prec = Prec.Unary;
+                if (isNegativeLiteral(folded)) prec = Prec.Unary;
                 break;
             }
             const identity = identityConversionArg(node);
@@ -1164,7 +1164,7 @@ const TEXTURE_FNS = new Set([
 function callPrec(ctx: GlslBuildContext, node: CallNode<d.Any>): Prec {
     if (node.fn === node.type.wgslType && 'glslType' in node.type) {
         const folded = foldScalarConversion(node);
-        if (folded !== undefined) return folded < 0 ? Prec.Unary : Prec.Postfix;
+        if (folded !== undefined) return isNegativeLiteral(folded) ? Prec.Unary : Prec.Postfix;
         const identity = identityConversionArg(node);
         if (identity) return emittedPrec(ctx, identity);
     }
