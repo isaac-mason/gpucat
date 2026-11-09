@@ -298,8 +298,8 @@ async function caseFloatRemainder(gpu: Renderer<WebGPUBackend>): Promise<CaseRes
 }
 
 /**
- * literal-edges: the smallest i32, the largest u32, a float past 1e21, the f32 maximum and a fraction that rounds to 1,
- * each added to a runtime zero, show green when they arrive as written. JS's own spellings of them were rejected by
+ * literal-edges: the smallest i32, the largest u32, a float past 1e21, the f32 maximum, a fraction that rounds to 1 and
+ * folded conversions, each added to a runtime zero, show green when they arrive as written. JS's own spellings of them were rejected by
  * Tint or ANGLE, or read as integers.
  */
 async function caseLiteralEdges(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
@@ -313,7 +313,29 @@ async function caseLiteralEdges(gpu: Renderer<WebGPUBackend>): Promise<CaseResul
         .and(u32(zero).add(u32(4294967295)).equal(u32(4294967295)))
         .and(zero.add(f32(1e21)).greaterThan(f32(9.9e20)))
         .and(zero.add(f32(3.4028234663852886e38)).greaterThan(f32(3.4e38)))
-        .and(zero.add(f32(0.99999999999)).equal(f32(1)));
+        .and(zero.add(f32(0.99999999999)).equal(f32(1)))
+        // conversions of literals fold as WGSL converts: bits reinterpreted between i32 and u32, floats truncated
+        // and saturated
+        .and(
+            u32(zero)
+                .add(u32(i32(-1)))
+                .equal(u32(4294967295)),
+        )
+        .and(
+            i32(zero)
+                .add(i32(u32(4294967295)))
+                .equal(i32(-1)),
+        )
+        .and(
+            i32(zero)
+                .add(i32(f32(3e10)))
+                .equal(i32(2147483647)),
+        )
+        .and(
+            u32(zero)
+                .add(u32(f32(-1.5)))
+                .equal(u32(0)),
+        );
     const fragment = select(vec4(1, 0, 0, 1), vec4(0, 1, 0, 1), intact);
     const mesh = new Mesh(
         fullscreenTriangle(),

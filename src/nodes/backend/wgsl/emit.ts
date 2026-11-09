@@ -74,7 +74,7 @@ import {
     reserveName,
     tracedFnCallees,
 } from '../names';
-import { binaryPrec, isNegativeLiteral, Prec, paren, unary, wgslBinaryOperandMin } from '../print';
+import { binaryPrec, convertScalarLiteral, isNegativeLiteral, Prec, paren, unary, wgslBinaryOperandMin } from '../print';
 import { type RenderStageReach, renderStagesOf, STAGE_COMPUTE } from '../stage-reach';
 
 type ShaderStage = 'vertex' | 'fragment' | 'compute';
@@ -563,7 +563,8 @@ function foldScalarConversion(node: { args: readonly Node<d.Any>[]; type: d.Any 
     if (node.args.length !== 1 || numericScalarKind(node.type) === null) return undefined;
     const arg = node.args[0] as AnyNode;
     if (arg.kind !== NodeKind.Literal || typeof arg.value !== 'number') return undefined;
-    return numericScalarKind(arg.type) === null ? undefined : arg.value;
+    const from = numericScalarKind(arg.type);
+    return from === null ? undefined : convertScalarLiteral(arg.value, from, numericScalarKind(node.type)!);
 }
 
 /**

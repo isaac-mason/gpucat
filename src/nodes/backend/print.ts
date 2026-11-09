@@ -193,6 +193,21 @@ export function u32Literal(value: number): string {
     return `${Math.trunc(value)}u`;
 }
 
+/**
+ * A numeric scalar literal converted as WGSL converts it, for folding `u32(-1i)` and the like into one literal. Float to
+ * integer truncates and saturates, NaN giving 0; i32 and u32 reinterpret each other's bits; anything to a float is
+ * that number, rounded when printed. The JS value alone would print `-1u`, which neither language accepts.
+ */
+export function convertScalarLiteral(value: number, from: string, to: string): number {
+    if (from === to || to === 'f32' || to === 'f16') return value;
+    if (from === 'f32' || from === 'f16') {
+        if (Number.isNaN(value)) return 0;
+        const t = Math.trunc(value);
+        return to === 'i32' ? Math.min(Math.max(t, -2147483648), 2147483647) : Math.min(Math.max(t, 0), 4294967295);
+    }
+    return to === 'u32' ? value >>> 0 : value | 0;
+}
+
 /** Whether a literal printed for `value` starts with a minus, binding as a unary expression. */
 export function isNegativeLiteral(value: number): boolean {
     return value < 0 || Object.is(value, -0);

@@ -70,7 +70,17 @@ import {
     reserveName,
     tracedFnCallees,
 } from '../names';
-import { binaryOperandMin, binaryPrec, floatLiteral, isNegativeLiteral, Prec, paren, u32Literal, unary } from '../print';
+import {
+    binaryOperandMin,
+    binaryPrec,
+    convertScalarLiteral,
+    floatLiteral,
+    isNegativeLiteral,
+    Prec,
+    paren,
+    u32Literal,
+    unary,
+} from '../print';
 import { STAGE_FRAGMENT, STAGE_VERTEX } from '../stage-reach';
 import type { TracedFn } from '../wgsl/emit';
 
@@ -119,7 +129,9 @@ function foldScalarConversion(node: { args: readonly Node<d.Any>[]; type: d.Any 
     if (node.args.length !== 1 || !isNumericScalar(node.type)) return undefined;
     const arg = node.args[0] as AnyNode;
     if (arg.kind !== NodeKind.Literal || typeof arg.value !== 'number') return undefined;
-    return isNumericScalar(arg.type) ? arg.value : undefined;
+    return isNumericScalar(arg.type)
+        ? convertScalarLiteral(arg.value, glslScalarKind(arg.type)!, glslScalarKind(node.type)!)
+        : undefined;
 }
 
 /**

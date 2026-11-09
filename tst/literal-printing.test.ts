@@ -103,3 +103,18 @@ describe('in emitted shaders', () => {
         }
     });
 });
+
+describe('folded conversions', () => {
+    // a conversion of a literal folds into one literal, converted as WGSL converts it, not printed from the JS value
+    test.each([
+        ['u32(i32(-1))', () => u32(i32(-1)), '4294967295u'],
+        ['i32(u32(4294967295))', () => i32(u32(4294967295)), '-1i'],
+        ['i32(f32(3e10))', () => i32(f32(3e10)), '2147483647i'],
+        ['i32(f32(-3e10))', () => i32(f32(-3e10)), 'i32(-2147483648)'],
+        ['u32(f32(-1.5))', () => u32(f32(-1.5)), '0u'],
+        ['i32(f32(-2.7))', () => i32(f32(-2.7)), '-2i'],
+    ])('%s folds to %s', (_, build, literal) => {
+        const { wgsl } = compileBoth(vec3(f32(build() as Node<d.i32>), f32(0), f32(0)));
+        expect(wgsl).toContain(`f32(${literal})`);
+    });
+});
