@@ -1199,8 +1199,7 @@ function callPrec(ctx: GlslBuildContext, node: CallNode<d.Any>): Prec {
     }
     if (node.args.length === 1) {
         if (node.fn === 'negate' || node.fn === 'not') return Prec.Unary;
-        // `x * 0.5 + 0.5`
-        if (node.fn === 'ndcDepthToStorage') return Prec.Additive;
+        if (node.fn === 'ndcDepthToStorage') return emittedPrec(ctx, node.args[0]!);
         // `vec4(uvec4(…))/255.0`
         if (node.fn === 'unpack4x8unorm') return Prec.Multiplicative;
     }
@@ -1240,10 +1239,8 @@ function generateCall(ctx: GlslBuildContext, node: CallNode<d.Any>): string {
 
     if (node.fn === 'negate' && args.length === 1) return unary('-', args[0], emittedPrec(ctx, node.args[0]));
     if (node.fn === 'not' && args.length === 1) return unary('!', args[0], emittedPrec(ctx, node.args[0]));
-    // NDC depth → stored [0,1]. WebGL NDC z is [-1,1] (NO projection), so remap; WGSL passes through.
-    if (node.fn === 'ndcDepthToStorage' && args.length === 1) {
-        return `${paren(args[0], emittedPrec(ctx, node.args[0]), Prec.Multiplicative)} * 0.5 + 0.5`;
-    }
+    // NDC depth → stored [0,1]: NDC z is already [0,1] on both backends, the vertex stage remapping GL's clip z
+    if (node.fn === 'ndcDepthToStorage' && args.length === 1) return args[0]!;
 
     // GLSL ES 3.00 has no saturate; clamp's (genType, float, float) overload covers scalars and vectors alike
     if (node.fn === 'saturate' && args.length === 1) return `clamp(${args[0]}, 0.0, 1.0)`;
@@ -2689,6 +2686,9 @@ export function generateGlslVertexShader(slots: CompileSlots, ctx: GlslBuildCont
         lines.push(`    ${name} = ${vertexExpr};`);
     }
     lines.push(`    gl_Position = ${clipExpr};`);
+    // Clip space is WGSL's on both backends: z from 0 at the near plane to w at the far one. GL's runs from -w, so z is
+    // remapped here, and the depth stored is the same: a fullscreen triangle at z = 0 lands at depth 0, not 0.5.
+    lines.push('    gl_Position.z = 2.0 * gl_Position.z - gl_Position.w;');
     lines.push('}');
 
     return lines.join('\n');

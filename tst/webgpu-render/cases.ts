@@ -28,6 +28,7 @@ import {
     Fn,
     f32,
     fields,
+    fragCoord,
     fullscreen,
     Geometry,
     GpuSampler,
@@ -212,6 +213,30 @@ async function caseUniform(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
 
     const pixel = centerPixel(await read(gpu, target));
     return { name: 'uniform', pixel, expected: [0, 255, 0, 255] };
+}
+
+/**
+ * clip-depth: clip space is WGSL's on both backends, z running from 0 at the near plane to w at the far one, so a
+ * hand-built clip z of 0.5 lands at depth 0.5. GL's own clip space would put it at 0.75, and a fullscreen pass at z = 0
+ * at 0.5 rather than 0.
+ */
+async function caseClipDepth(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const position = attribute('position', d.vec3f);
+    // clip z of half of w, by hand: WGSL's clip space puts that at depth 0.5, where GL's would put it at 0.75
+    const vertex = vec4(position.x, position.y, f32(0.5), f32(1));
+    const fragment = select(vec4(1, 0, 0, 1), vec4(0, 1, 0, 1), fragCoord.z.sub(f32(0.5)).abs().lessThan(f32(0.01)));
+    const mesh = new Mesh(fullscreenTriangle(), new Material({ vertex, fragment, depthTest: false }));
+    mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const pass = f.pass({ target: target, clear: [0, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixel = centerPixel(await read(gpu, target));
+    return { name: 'clip-depth', pixel, expected: [0, 255, 0, 255], note: 'red: depth from GL clip space' };
 }
 
 /**
@@ -3890,6 +3915,7 @@ const CASES: Record<string, Case> = {
     'integer-division': caseIntegerDivision,
     'derivative-orientation': caseDerivativeOrientation,
     'pack-and-integer-builtins': casePackAndIntegerBuiltins,
+    'clip-depth': caseClipDepth,
     'named-parameters': caseNamedParameters,
     scene: caseScene,
     'clear-ignores-scissor': caseClearIgnoresScissor,

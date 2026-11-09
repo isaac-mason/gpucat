@@ -32,6 +32,7 @@ import {
     equal,
     Fn,
     f32,
+    fragCoord,
     frame,
     frameGroup,
     fullscreen,
@@ -1561,6 +1562,31 @@ async function caseMrt(): Promise<CaseResult> {
     const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'mrt', pixel, expected: [u8(colB[0]), u8(colB[1]), u8(colB[2]), 255] };
+}
+
+/**
+ * clip-depth: clip space is WGSL's on both backends, z running from 0 at the near plane to w at the far one, so a
+ * hand-built clip z of 0.5 lands at depth 0.5. GL's own clip space would put it at 0.75, and a fullscreen pass at z = 0
+ * at 0.5 rather than 0.
+ */
+async function caseClipDepth(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const position = attribute('position', d.vec3f);
+    // clip z of half of w, by hand: WGSL's clip space puts that at depth 0.5, where GL's would put it at 0.75
+    const vertex = vec4(position.x, position.y, f32(0.5), f32(1));
+    const fragment = select(vec4(1, 0, 0, 1), vec4(0, 1, 0, 1), fragCoord.z.sub(f32(0.5)).abs().lessThan(f32(0.01)));
+    const mesh = new Mesh(createFullscreenTriangleGeometry(), new Material({ vertex, fragment, depthTest: false }));
+    mesh.updateWorldMatrix();
+
+    const f = frame(renderer);
+    const pass = f.pass({ target: renderer.backend.target, clear: [0, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    return { name: 'clip-depth', pixel, expected: [0, 255, 0, 255], note: 'red: depth from GL clip space' };
 }
 
 /**
@@ -5958,6 +5984,7 @@ export async function run(): Promise<RunResult> {
             caseIntegerDivision,
             caseDerivativeOrientation,
             casePackAndIntegerBuiltins,
+            caseClipDepth,
             caseMrt4Rgba8,
             caseMrt2Rgba16f,
             caseMrt4Rgba16fUpfront,

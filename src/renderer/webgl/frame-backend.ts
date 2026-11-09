@@ -116,7 +116,7 @@ export function beginPass(s: WebGLFrameBackendState, desc: PassDesc): void {
     const { renderer } = s;
     // Everything that can throw runs before the pass takes its slot, so a refused pass leaves none behind.
     if (usable(s)) {
-        alignCameraToBackend(desc.camera, CoordinateSystem.WEBGL);
+        alignCameraToBackend(desc.camera, CoordinateSystem.WEBGPU);
         if (desc.mrt !== undefined) {
             const mrtTarget = renderTargetOf(desc.target);
             if (mrtTarget === null) {
@@ -162,7 +162,7 @@ export function recordEntry(s: WebGLFrameBackendState, entry: PassEntry): void {
     if (open.skipped) return;
     if (isViewRecord(entry)) {
         markViewChanged(open.order);
-        applyViewRecord(s.renderer, open.params, entry, CoordinateSystem.WEBGL);
+        applyViewRecord(s.renderer, open.params, entry, CoordinateSystem.WEBGPU);
         return;
     }
     if (entry.kind === 'bin') {
@@ -196,14 +196,14 @@ export function recordEntry(s: WebGLFrameBackendState, entry: PassEntry): void {
         const bundle = entry.bundle;
         const passCamera = open.params.camera;
         markViewChanged(open.order);
-        setPassCamera(s.renderer, open.params, bundle.camera, CoordinateSystem.WEBGL);
+        setPassCamera(s.renderer, open.params, bundle.camera, CoordinateSystem.WEBGPU);
         const { records, count } = bundle;
         for (let record = 0; record < count; record++) {
             const index = resolveDraw(s, open, records[record] as DrawRecord);
             if (index >= 0) addPassDraw(open.order, index, open.params);
         }
         markViewChanged(open.order);
-        setPassCamera(s.renderer, open.params, passCamera, CoordinateSystem.WEBGL);
+        setPassCamera(s.renderer, open.params, passCamera, CoordinateSystem.WEBGPU);
     } catch (error) {
         // A throw inside a nested pass (a render texture's contents) left it begun; this pass records on.
         unwindTo(s, depth);

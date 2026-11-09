@@ -1141,7 +1141,7 @@ function generateCall(ctx: BuildContext, node: CallNode<d.Any>): string {
     if (node.fn === 'not' && args.length === 1) {
         return unary('!', args[0], emittedPrec(ctx, node.args[0]));
     }
-    // NDC depth → stored [0,1]. WebGPU NDC z is already [0,1] (ZO projection) — passthrough; GLSL remaps.
+    // NDC depth → stored [0,1]. NDC z is already [0,1] (ZO projection), on WebGL too, so it passes through.
     if (node.fn === 'ndcDepthToStorage' && args.length === 1) {
         return args[0];
     }
