@@ -485,7 +485,7 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
         // instanceIndex lowers to `u_drawBase + gl_InstanceID` (base-inclusive, matching WebGPU); the batched draw loop
         // sets it per sub-draw, and it is 0 (the GL default) for single draws
         { body: drawBaseDeclaration(vertexCtx) },
-        { title: '// Bit helpers', body: bitHelpersGlsl },
+        { title: '// Helpers', body: bitHelpersGlsl },
         { title: '// Raw functions (wgslFn/glslFn)', body: rawFnsGlsl },
         { title: '// Functions', body: dslFnsGlsl },
         { title: '// Vertex shader', body: vertexBody },
@@ -731,7 +731,7 @@ export function compileTransformFeedback(
         { title: '// Module-scope variables', body: moduleScopeVarsGlsl },
         // a transform-feedback kernel never sets the draw base, so it stays 0
         { body: drawBaseDeclaration(ctx) },
-        { title: '// Bit helpers', body: bitHelpersGlsl },
+        { title: '// Helpers', body: bitHelpersGlsl },
         { title: '// Raw functions (wgslFn/glslFn)', body: rawFnsGlsl },
         { title: '// Functions', body: dslFnsGlsl },
         { title: '// Transform-feedback vertex shader', body: main },

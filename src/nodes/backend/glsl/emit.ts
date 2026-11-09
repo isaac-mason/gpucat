@@ -25,12 +25,14 @@ import { type AnyNode, getChildren, isPlaceAccess } from '../../graph';
 import type { AttributeNode } from '../../lib/attribute';
 import type { BuiltinNode } from '../../lib/builtin';
 import {
+    type BinaryOpNode,
     type CallNode,
     type FnNode,
     type IfNode,
     type IndexNode,
     isNode,
     type LetNode,
+    type LiteralNode,
     type LoopNode,
     loopRange,
     type Node,
@@ -350,8 +352,8 @@ export type GlslBuildContext = {
     flipHelperFns: Set<string>;
     /** the bit helper overloads (`fn:type`) this stage called; see {@link emitGlslBitHelpers}. */
     bitHelpers: Set<string>;
-    /** the float remainder overloads (`result:left:right` GLSL types) this stage called; see {@link remHelperDef}. */
-    remHelpers: Set<string>;
+    /** the arithmetic helper overloads (`fn:result:left:right`, GLSL types) this stage called; see {@link arithHelperDef}. */
+    arithHelpers: Set<string>;
 
     // Read-only storage() buffers reinterpreted as rgba32uint mirror textures (WebGL has no SSBO).
     // Keyed by StorageNode id → the mirror's base texture node + its texel width, so a `storage[i].field`
@@ -413,7 +415,7 @@ export function createGlslContext(stage: ShaderStage, discovery: Discovery): Gls
         flipYTextures: new Set(),
         flipHelperFns: new Set(),
         bitHelpers: new Set(),
-        remHelpers: new Set(),
+        arithHelpers: new Set(),
         // Populated once by compileGlsl (shared across stages) — see storage() read-lowering.
         storageMirrors: new Map(),
         attributes: new Map(),
@@ -647,9 +649,18 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
                 // GLSL ES 3.00 `%` is integer-only, and its `mod()` floors where WGSL's `%` truncates: -1.5 % 1.0 is
                 // -0.5 in WGSL, 0.5 from mod(). A helper spells WGSL's `x - y * trunc(x / y)` once per operand pair, so
                 // neither side is evaluated twice. Keyed on the component scalar, since `vec4f` never spells `f32`.
-                const key = `${glslType(node.type)}:${glslType(node.left.type)}:${glslType(node.right.type)}`;
-                ctx.remHelpers.add(key);
-                expr = `_rem(${left}, ${right})`;
+                expr = arithHelperCall(ctx, '_rem', node, left, right);
+            } else if ((node.op === '/' || node.op === '%') && intDivisionNeedsHelper(node)) {
+                // GLSL ES 3.00 leaves an integer `/` by zero undefined, and `%` with a negative operand: SwiftShader
+                // gives -7 % 3 = 2. WGSL defines both, truncating: a / 0 = a, a % 0 = 0, MIN / -1 = MIN, the remainder
+                // taking the sign of a. The helpers compute that.
+                const signed = 'scalar' in node.type && node.type.scalar === 'i32';
+                expr = arithHelperCall(ctx, `_${signed ? 'i' : 'u'}${node.op === '/' ? 'div' : 'rem'}`, node, left, right);
+            } else if (isShift && !isLiteralShiftInRange(node.right)) {
+                // WGSL shifts by the amount's low five bits (3 << 33u is 6); GLSL leaves 32 and up undefined
+                prec = binaryPrec(node.op);
+                const [leftMin] = binaryOperandMin(prec);
+                expr = `${paren(left, leftPrec, leftMin)} ${node.op} (${paren(right, rightPrec, binaryOperandMin(binaryPrec('&'))[0])} & 31u)`;
             } else {
                 prec = binaryPrec(node.op);
                 const [leftMin, rightMin] = binaryOperandMin(prec);
@@ -1379,14 +1390,74 @@ export function emitGlslBitHelpers(ctx: GlslBuildContext): string {
             if (needed.has(bitHelperKey(fn, type))) defs.push(bitHelperDef(fn, type));
         }
     }
-    for (const key of ctx.remHelpers) defs.push(remHelperDef(key));
+    // scalar overloads first: a vector overload calls them per component
+    const arith = [...ctx.arithHelpers].sort((a, b) => Number(a.includes('vec')) - Number(b.includes('vec')));
+    for (const key of arith) defs.push(arithHelperDef(key));
     return defs.join('\n');
 }
 
-/** WGSL's float `%`, truncating: the result takes the sign of `x`. One overload per `result:left:right` key. */
-function remHelperDef(key: string): string {
-    const [result, left, right] = key.split(':') as [string, string, string];
-    return `${result} _rem(${left} x, ${right} y) { return x - y * trunc(x / y); }`;
+/** A call to the `fn` overload for `node`'s operand types, recorded so the stage defines it. */
+function arithHelperCall(ctx: GlslBuildContext, fn: string, node: BinaryOpNode<d.Any>, left: string, right: string): string {
+    const result = glslType(node.type);
+    const key = `${fn}:${result}:${glslType(node.left.type)}:${glslType(node.right.type)}`;
+    ctx.arithHelpers.add(key);
+    // an integer vector overload calls its scalar overload per component
+    if (fn !== '_rem' && result.includes('vec'))
+        ctx.arithHelpers.add(`${fn}:${scalarOf(result)}:${scalarOf(result)}:${scalarOf(result)}`);
+    return `${fn}(${left}, ${right})`;
+}
+
+/** `int` for `ivec3`, `uint` for `uvec2`, a scalar unchanged. */
+function scalarOf(glsl: string): string {
+    if (glsl.startsWith('ivec')) return 'int';
+    if (glsl.startsWith('uvec')) return 'uint';
+    if (glsl.startsWith('vec')) return 'float';
+    return glsl;
+}
+
+/** WGSL integer division and remainder per scalar; a vector overload applies them per component. */
+const INT_ARITH_BODIES: Record<string, string> = {
+    // the magnitudes as uints, so MIN's is exact; MIN / -1 wraps to MIN in WGSL
+    _idiv:
+        'if (b == 0 || (a == int(0x80000000u) && b == -1)) return a; ' +
+        'uint q = uint(abs(a)) / uint(abs(b)); return (a < 0) != (b < 0) ? -int(q) : int(q);',
+    _irem: 'if (b == 0) return 0; uint r = uint(abs(a)) % uint(abs(b)); return a < 0 ? -int(r) : int(r);',
+    _udiv: 'return b == 0u ? a : a / b;',
+    _urem: 'return b == 0u ? 0u : a % b;',
+};
+
+/**
+ * One helper overload, keyed `fn:result:left:right`. `_rem` is WGSL's truncating float `%`, which takes the sign of `x`;
+ * the integer ones are {@link INT_ARITH_BODIES}.
+ */
+function arithHelperDef(key: string): string {
+    const [fn, result, left, right] = key.split(':') as [string, string, string, string];
+    if (fn === '_rem') return `${result} _rem(${left} x, ${right} y) { return x - y * trunc(x / y); }`;
+    if (!result.includes('vec')) return `${result} ${fn}(${left} a, ${right} b) { ${INT_ARITH_BODIES[fn]} }`;
+    const width = Number(result.slice(-1));
+    const at = (type: string, name: string, c: string) => (type.includes('vec') ? `${name}.${c}` : name);
+    const components = ['x', 'y', 'z', 'w'].slice(0, width).map((c) => `${fn}(${at(left, 'a', c)}, ${at(right, 'b', c)})`);
+    return `${result} ${fn}(${left} a, ${right} b) { return ${result}(${components.join(', ')}); }`;
+}
+
+/** Whether an integer `/` or `%` can't use GLSL's operator as is: everything signed, and an unsigned one unless its
+ *  divisor is a nonzero literal or known nonzero. */
+function intDivisionNeedsHelper(node: BinaryOpNode<d.Any>): boolean {
+    const scalar = 'scalar' in node.type ? node.type.scalar : undefined;
+    if (scalar === 'i32') return true;
+    if (scalar !== 'u32' || node.divisorNonzero) return false;
+    const divisor = node.right;
+    if (divisor.kind !== NodeKind.Literal) return true;
+    const value = (divisor as LiteralNode<d.Any>).value;
+    return Array.isArray(value) ? value.some((v) => v === 0) : value === 0;
+}
+
+/** Whether a shift amount is a literal already in [0, 31], needing no mask. */
+function isLiteralShiftInRange(amount: Node<d.Any>): boolean {
+    if (amount.kind !== NodeKind.Literal) return false;
+    const value = (amount as LiteralNode<d.Any>).value;
+    const inRange = (v: number) => v >= 0 && v <= 31;
+    return Array.isArray(value) ? value.every(inRange) : typeof value === 'number' && inRange(value);
 }
 
 /**

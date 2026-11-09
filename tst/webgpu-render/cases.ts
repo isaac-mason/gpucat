@@ -208,6 +208,63 @@ async function caseUniform(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
 }
 
 /**
+ * integer-division: WGSL's integer `/`, `%` and shifts, defined where GLSL ES 3.00 leaves them undefined: a negative
+ * remainder takes the dividend's sign (-7 % 3 = -1, where SwiftShader's own `%` gives 2), a / 0 = a, a % 0 = 0,
+ * MIN / -1 = MIN, and a shift uses its amount's low five bits (3 << 33 = 6). Green when every one holds.
+ */
+async function caseIntegerDivision(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const zi = uniform(i32(0), 'zi');
+    const zu = uniform(u32(0), 'zu');
+    // every operand is runtime, so neither compiler folds the WGSL-defined results away
+    const minus = (n: number) => zi.sub(i32(n));
+    const plus = (n: number) => zi.add(i32(n));
+    const smallest = zi.add(i32(-2147483648));
+    const v = vec3i(minus(7), plus(7), minus(8)).mod(vec3i(i32(3), i32(-3), zi));
+    const checks = [
+        minus(7).mod(i32(3)).equal(i32(-1)),
+        plus(7).mod(minus(3)).equal(i32(1)),
+        minus(7).div(i32(2)).equal(i32(-3)),
+        plus(5).div(zi).equal(i32(5)),
+        minus(7).mod(zi).equal(i32(0)),
+        smallest.div(minus(1)).equal(i32(-2147483648)),
+        smallest.mod(minus(1)).equal(i32(0)),
+        zu.add(u32(33)).div(zu).equal(u32(33)),
+        zu.add(u32(33)).mod(zu).equal(u32(0)),
+        v.x
+            .equal(i32(-1))
+            .and(v.y.equal(i32(1)))
+            .and(v.z.equal(i32(0))),
+        zu
+            .add(u32(3))
+            .shiftLeft(zu.add(u32(33)))
+            .equal(u32(6)),
+        minus(7)
+            .shiftRight(zu.add(u32(33)))
+            .equal(i32(-4)),
+    ];
+    const fragment = select(
+        vec4(1, 0, 0, 1),
+        vec4(0, 1, 0, 1),
+        checks.reduce((a, b) => a.and(b)),
+    );
+    const mesh = new Mesh(
+        fullscreenTriangle(),
+        new Material({ vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment, depthTest: false }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const pass = f.pass({ target: target, clear: [0, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixel = centerPixel(await read(gpu, target));
+    return { name: 'integer-division', pixel, expected: [0, 255, 0, 255], note: 'red: a result differs from WGSL' };
+}
+
+/**
  * float-remainder: a float `%` truncates on both backends, as WGSL defines it: -1.5 % 1.0 is -0.5, where GLSL's mod()
  * would give 0.5. Green when the scalar and each vector component take the sign of the left side.
  */
@@ -3728,6 +3785,7 @@ const CASES: Record<string, Case> = {
     'uniform-array-flat': caseUniformArrayFlat,
     'literal-edges': caseLiteralEdges,
     'float-remainder': caseFloatRemainder,
+    'integer-division': caseIntegerDivision,
     'named-parameters': caseNamedParameters,
     scene: caseScene,
     'clear-ignores-scissor': caseClearIgnoresScissor,

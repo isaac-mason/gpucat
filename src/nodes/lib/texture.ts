@@ -15,6 +15,7 @@ import type { Data3DTexture } from '../../texture/texture-3d';
 import { uv } from './attribute';
 import {
     addToStack,
+    BinaryOpNode,
     bitcastF32,
     bitcastI32,
     bitwiseAnd,
@@ -577,8 +578,9 @@ function readTexel(
     texelIndex: Node<d.u32>,
     width: Node<d.u32>,
 ): TextureNode<FlatSampledTexture> {
-    const x = i32(texelIndex.mod(width));
-    const y = i32(texelIndex.div(width));
+    // a texture is at least one texel wide, so the division needs no guard against zero
+    const x = i32(new BinaryOpNode('%', d.u32, texelIndex, width, true) as Node<d.u32>);
+    const y = i32(new BinaryOpNode('/', d.u32, texelIndex, width, true) as Node<d.u32>);
     return base.load(vec2i(x, y), i32(0)) as TextureNode<FlatSampledTexture>;
 }
 

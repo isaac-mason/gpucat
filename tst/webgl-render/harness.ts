@@ -80,6 +80,7 @@ import {
     vec2f,
     vec2i,
     vec3,
+    vec3i,
     vec4,
     vertexIndex,
     type WebGLBackend,
@@ -1553,6 +1554,64 @@ async function caseMrt(): Promise<CaseResult> {
     const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'mrt', pixel, expected: [u8(colB[0]), u8(colB[1]), u8(colB[2]), 255] };
+}
+
+/**
+ * integer-division: WGSL's integer `/`, `%` and shifts, defined where GLSL ES 3.00 leaves them undefined: a negative
+ * remainder takes the dividend's sign (-7 % 3 = -1, where SwiftShader's own `%` gives 2), a / 0 = a, a % 0 = 0,
+ * MIN / -1 = MIN, and a shift uses its amount's low five bits (3 << 33 = 6). Green when every one holds.
+ */
+async function caseIntegerDivision(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const zi = uniform(i32(0), 'zi');
+    const zu = uniform(u32(0), 'zu');
+    // every operand is runtime, so neither compiler folds the WGSL-defined results away
+    const minus = (n: number) => zi.sub(i32(n));
+    const plus = (n: number) => zi.add(i32(n));
+    const smallest = zi.add(i32(-2147483648));
+    const v = vec3i(minus(7), plus(7), minus(8)).mod(vec3i(i32(3), i32(-3), zi));
+    const checks = [
+        minus(7).mod(i32(3)).equal(i32(-1)),
+        plus(7).mod(minus(3)).equal(i32(1)),
+        minus(7).div(i32(2)).equal(i32(-3)),
+        plus(5).div(zi).equal(i32(5)),
+        minus(7).mod(zi).equal(i32(0)),
+        smallest.div(minus(1)).equal(i32(-2147483648)),
+        smallest.mod(minus(1)).equal(i32(0)),
+        zu.add(u32(33)).div(zu).equal(u32(33)),
+        zu.add(u32(33)).mod(zu).equal(u32(0)),
+        v.x
+            .equal(i32(-1))
+            .and(v.y.equal(i32(1)))
+            .and(v.z.equal(i32(0))),
+        zu
+            .add(u32(3))
+            .shiftLeft(zu.add(u32(33)))
+            .equal(u32(6)),
+        minus(7)
+            .shiftRight(zu.add(u32(33)))
+            .equal(i32(-4)),
+    ];
+    const fragment = select(
+        vec4(1, 0, 0, 1),
+        vec4(0, 1, 0, 1),
+        checks.reduce((a, b) => a.and(b)),
+    );
+    const mesh = new Mesh(
+        createFullscreenTriangleGeometry(),
+        new Material({ vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment, depthTest: false }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(renderer);
+    const pass = f.pass({ target: renderer.backend.target, clear: [0, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    return { name: 'integer-division', pixel, expected: [0, 255, 0, 255], note: 'red: a result differs from WGSL' };
 }
 
 /**
@@ -5792,6 +5851,7 @@ export async function run(): Promise<RunResult> {
             caseUniformArrayFlat,
             caseLiteralEdges,
             caseFloatRemainder,
+            caseIntegerDivision,
             caseMrt4Rgba8,
             caseMrt2Rgba16f,
             caseMrt4Rgba16fUpfront,

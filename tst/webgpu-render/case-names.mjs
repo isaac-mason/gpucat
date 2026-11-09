@@ -7,6 +7,7 @@ export const CASE_NAMES = [
     'uniform-array-flat',
     'literal-edges',
     'float-remainder',
+    'integer-division',
     'named-parameters',
     'scene',
     'clear-ignores-scissor',

@@ -34,9 +34,9 @@ describe('float remainder', () => {
         expect(glsl.match(/float _rem\(float x, float y\)/g)).toHaveLength(1);
     });
 
-    test('integer % stays an operator', () => {
+    test('integer % takes the integer helper, not the float one', () => {
         const { glsl } = compileBoth(vec4(f32(mod(i32(screenCoordinate.x), i32(3))), f32(0), f32(0), f32(1)));
-        expect(glsl).toMatch(/ % 3\b/);
-        expect(glsl).not.toContain('_rem');
+        expect(glsl).toContain('_irem(');
+        expect(glsl).not.toContain('_rem(');
     });
 });

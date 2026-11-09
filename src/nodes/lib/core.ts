@@ -1466,6 +1466,8 @@ export class BinaryOpNode<D extends Any> extends Node<D> {
         type: D,
         readonly left: Node<Any>,
         readonly right: Node<Any>,
+        /** An integer `/` or `%` whose divisor can't be zero (a texture's width), so GLSL needs no WGSL guard. */
+        readonly divisorNonzero = false,
     ) {
         super(type);
     }
@@ -1972,8 +1974,23 @@ export type ShiftAmount<D> = D extends { len: 2 }
         ? d.vec4u
         : d.u32;
 
-export const shiftLeft = <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>>): Node<D> => new BinaryOpNode('<<', a.type, a, b);
-export const shiftRight = <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>>): Node<D> => new BinaryOpNode('>>', a.type, a, b);
+/** A literal amount of 32 or more is a WGSL shader-creation error (a runtime one is masked to its low five bits), and
+ *  GLSL would compile it silently, so it throws where it's written. */
+function assertShiftAmount(op: string, b: Node<Any>): void {
+    if (b.kind !== NodeKind.Literal) return;
+    const value = (b as LiteralNode<Any>).value;
+    const amounts = Array.isArray(value) ? value : [value];
+    const bad = amounts.find((v) => typeof v === 'number' && v >= 32);
+    if (bad !== undefined) throw new Error(`[gpucat] ${op}: a shift of ${bad} is past a 32-bit integer; shift by 0 to 31`);
+}
+export const shiftLeft = <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>>): Node<D> => {
+    assertShiftAmount('shiftLeft', b);
+    return new BinaryOpNode('<<', a.type, a, b);
+};
+export const shiftRight = <D extends Any>(a: Node<D>, b: Node<ShiftAmount<D>>): Node<D> => {
+    assertShiftAmount('shiftRight', b);
+    return new BinaryOpNode('>>', a.type, a, b);
+};
 
 // ── Lang ──────────────────────────────────────────────────────────────────────
 
