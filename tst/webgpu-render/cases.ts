@@ -18,9 +18,11 @@ import {
     cubeTexture,
     DataTexture,
     DepthTexture,
-    d,
     Discard,
+    d,
     depthTexture,
+    dpdx,
+    dpdy,
     drawScene,
     Fn,
     f32,
@@ -30,8 +32,8 @@ import {
     GpuSampler,
     GpuTexture,
     globalId,
-    i32,
     If,
+    i32,
     index,
     init,
     instanceIndex,
@@ -41,10 +43,10 @@ import {
     LineSegmentsGeometry,
     Material,
     Mesh,
-    mod,
-    modelWorldMatrix,
     max,
     min,
+    mod,
+    modelWorldMatrix,
     mrt,
     mul,
     type Node,
@@ -205,6 +207,36 @@ async function caseUniform(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
 
     const pixel = centerPixel(await read(gpu, target));
     return { name: 'uniform', pixel, expected: [0, 255, 0, 255] };
+}
+
+/**
+ * derivative-orientation: dpdy runs down the framebuffer, as fragCoord does, so dpdy(fragCoord.y) is +1 on both
+ * backends. GLSL's own dFdy runs up the window, which turned derivative normals inside out on WebGL.
+ */
+async function caseDerivativeOrientation(gpu: Renderer<WebGPUBackend>): Promise<CaseResult> {
+    const target = createRenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm' });
+    const p = screenCoordinate;
+    // fragCoord runs right and down on both backends, so its derivatives are +1 each way. One comparison, with no
+    // short-circuit `&&` to put a derivative in non-uniform control flow.
+    const off = dpdx(p.x)
+        .sub(f32(1))
+        .abs()
+        .add(dpdy(p.y).sub(f32(1)).abs());
+    const fragment = select(vec4(1, 0, 0, 1), vec4(0, 1, 0, 1), off.lessThan(f32(0.5)));
+    const mesh = new Mesh(
+        fullscreenTriangle(),
+        new Material({ vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment, depthTest: false }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(gpu);
+    const pass = f.pass({ target: target, clear: [0, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixel = centerPixel(await read(gpu, target));
+    return { name: 'derivative-orientation', pixel, expected: [0, 255, 0, 255], note: 'red: a derivative runs the wrong way' };
 }
 
 /**
@@ -3808,6 +3840,7 @@ const CASES: Record<string, Case> = {
     'literal-edges': caseLiteralEdges,
     'float-remainder': caseFloatRemainder,
     'integer-division': caseIntegerDivision,
+    'derivative-orientation': caseDerivativeOrientation,
     'named-parameters': caseNamedParameters,
     scene: caseScene,
     'clear-ignores-scissor': caseClearIgnoresScissor,

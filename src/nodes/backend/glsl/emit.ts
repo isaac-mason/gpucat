@@ -244,7 +244,7 @@ const CALL_RENAMES: Record<string, string> = {
     // the same in both, listed for clarity. (The coarse/fine variants have no GLSL ES 3.00 form and
     // are rejected in generateCall below.)
     dpdx: 'dFdx',
-    dpdy: 'dFdy',
+    // dpdy is negated, in generateCall
     fwidth: 'fwidth',
     // WGSL math builtins whose GLSL ES 3.00 spelling differs (same args, just renamed) — emitting the
     // WGSL name verbatim is a "no matching function" compile error otherwise. The integer bit builtins
@@ -1247,6 +1247,11 @@ function generateCall(ctx: GlslBuildContext, node: CallNode<d.Any>): string {
 
     // GLSL ES 3.00 has no saturate; clamp's (genType, float, float) overload covers scalars and vectors alike
     if (node.fn === 'saturate' && args.length === 1) return `clamp(${args[0]}, 0.0, 1.0)`;
+
+    // WGSL's dpdy runs down the framebuffer, as gpucat's fragCoord does on both backends. GLSL's dFdy runs up the
+    // window, and the fragCoord flip doesn't reach it, so it is negated: dpdy(fragCoord.y) is +1 on both, and
+    // derivative normals (cross(dpdx(p), dpdy(p))) face the same way. fwidth sums magnitudes and needs nothing.
+    if (node.fn === 'dpdy' && args.length === 1) return `(-dFdy(${args[0]}))`;
 
     if (UNSUPPORTED_DERIVATIVES.has(node.fn)) {
         throw new Error(

@@ -8,6 +8,7 @@ export const CASE_NAMES = [
     'literal-edges',
     'float-remainder',
     'integer-division',
+    'derivative-orientation',
     'named-parameters',
     'scene',
     'clear-ignores-scissor',

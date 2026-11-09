@@ -25,6 +25,8 @@ import {
     DrawIndirect,
     d,
     depthTexture,
+    dpdx,
+    dpdy,
     drawScene,
     equal,
     Fn,
@@ -45,8 +47,8 @@ import {
     Material,
     Mesh,
     type MRTNode,
-    modelNormalMatrix,
     mod,
+    modelNormalMatrix,
     modelWorldMatrix,
     mrt,
     mul,
@@ -1554,6 +1556,37 @@ async function caseMrt(): Promise<CaseResult> {
     const pixel = readCenter(renderer.backend.gl!);
     renderer.dispose();
     return { name: 'mrt', pixel, expected: [u8(colB[0]), u8(colB[1]), u8(colB[2]), 255] };
+}
+
+/**
+ * derivative-orientation: dpdy runs down the framebuffer, as fragCoord does, so dpdy(fragCoord.y) is +1 on both
+ * backends. GLSL's own dFdy runs up the window, which turned derivative normals inside out on WebGL.
+ */
+async function caseDerivativeOrientation(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const p = screenCoordinate;
+    // fragCoord runs right and down on both backends, so its derivatives are +1 each way. One comparison, with no
+    // short-circuit `&&` to put a derivative in non-uniform control flow.
+    const off = dpdx(p.x)
+        .sub(f32(1))
+        .abs()
+        .add(dpdy(p.y).sub(f32(1)).abs());
+    const fragment = select(vec4(1, 0, 0, 1), vec4(0, 1, 0, 1), off.lessThan(f32(0.5)));
+    const mesh = new Mesh(
+        createFullscreenTriangleGeometry(),
+        new Material({ vertex: vec4(attribute('position', d.vec3f), f32(1)), fragment, depthTest: false }),
+    );
+    mesh.updateWorldMatrix();
+
+    const f = frame(renderer);
+    const pass = f.pass({ target: renderer.backend.target, clear: [0, 0, 0, 1] });
+    pass.draw(mesh);
+    pass.end();
+    f.submit();
+
+    const pixel = readCenter(renderer.backend.gl!);
+    renderer.dispose();
+    return { name: 'derivative-orientation', pixel, expected: [0, 255, 0, 255], note: 'red: a derivative runs the wrong way' };
 }
 
 /**
@@ -5874,6 +5907,7 @@ export async function run(): Promise<RunResult> {
             caseLiteralEdges,
             caseFloatRemainder,
             caseIntegerDivision,
+            caseDerivativeOrientation,
             caseMrt4Rgba8,
             caseMrt2Rgba16f,
             caseMrt4Rgba16fUpfront,
