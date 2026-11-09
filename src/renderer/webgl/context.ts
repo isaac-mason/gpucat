@@ -47,6 +47,15 @@ export function createContext(
     gl.getExtension('OES_texture_float_linear'); // linear filtering of 32-bit-float textures
     gl.getExtension('EXT_float_blend'); // blending into 32-bit-float render targets
 
+    // A flat varying takes its value from a primitive's first vertex in WGSL, but from the last in GL. Where the
+    // extension exists (most desktop browsers; not SwiftShader) the first-vertex convention makes them agree;
+    // elsewhere a flat value that differs across a primitive's vertices comes from the last one.
+    const provoking = gl.getExtension('WEBGL_provoking_vertex') as {
+        FIRST_VERTEX_CONVENTION_WEBGL: number;
+        provokingVertexWEBGL(mode: number): void;
+    } | null;
+    provoking?.provokingVertexWEBGL(provoking.FIRST_VERTEX_CONVENTION_WEBGL);
+
     // Enable GPU timer queries so the inspector can report real per-pass GPU times. Missing (Safari,
     // some drivers) → returns null → inspector leaves gpuMs null (CPU-only timing).
     gl.getExtension('EXT_disjoint_timer_query_webgl2');

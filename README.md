@@ -1425,7 +1425,7 @@ This matters because a node referenced from the fragment side is otherwise compu
 
 A varying is perspective-correct by default (the WGSL default for floats). `setInterpolation(type, sampling?)` sets the WGSL `@interpolate` qualifier:
 
-- `type`: `'perspective'` (default), `'linear'` (non-perspective-correct), or `'flat'` (no interpolation, takes the provoking vertex's value). `'flat'` is required for integer varyings.
+- `type`: `'perspective'` (default), `'linear'` (non-perspective-correct), or `'flat'` (no interpolation, takes the primitive's first vertex's value; on WebGL without `WEBGL_provoking_vertex`, its last). `'flat'` is required for integer varyings.
 - `sampling` (optional, only with perspective/linear): `'center'` (default), `'centroid'`, `'sample'`, or `'either'`, for MSAA edge cases.
 
 ```ts
