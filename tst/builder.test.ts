@@ -48,10 +48,10 @@ describe('control flow', () => {
 
         const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
-        expect(result.code).toContain('if (1.0 > 0.0)');
+        expect(result.code).toContain('if (1.0f > 0.0f)');
         expect(result.code).toContain('} else {');
         expect(result.code).toContain('result = 1.0');
-        expect(result.code).toContain('result = 0.0');
+        expect(result.code).toContain('result = 0.0f');
     });
 
     test('ElseIf chaining generates flat structure with all conditions', () => {
@@ -73,14 +73,14 @@ describe('control flow', () => {
 
         const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
-        expect(result.code).toContain('if (15.0 > 10.0)');
-        expect(result.code).toContain('} else if (7.0 > 5.0)');
-        expect(result.code).toContain('} else if (2.0 > 0.0)');
+        expect(result.code).toContain('if (15.0f > 10.0f)');
+        expect(result.code).toContain('} else if (7.0f > 5.0f)');
+        expect(result.code).toContain('} else if (2.0f > 0.0f)');
         expect(result.code).toContain('} else {');
-        expect(result.code).toContain('result = 100.0');
-        expect(result.code).toContain('result = 50.0');
-        expect(result.code).toContain('result = 10.0');
-        expect(result.code).toContain('result = 0.0');
+        expect(result.code).toContain('result = 100.0f');
+        expect(result.code).toContain('result = 50.0f');
+        expect(result.code).toContain('result = 10.0f');
+        expect(result.code).toContain('result = 0.0f');
 
         const lines = result.code.split('\n');
         const elseIfLines = lines.filter((l) => l.includes('} else if ('));
@@ -216,7 +216,7 @@ describe('struct.construct', () => {
         });
 
         const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
-        expect(result.code).toContain('MyStruct(vec3f(1.0, 2.0, 3.0), 4.0)');
+        expect(result.code).toContain('MyStruct(vec3f(1.0f, 2.0f, 3.0f), 4.0f)');
     });
 
     test('construct args are in declaration order regardless of object key order', () => {
@@ -236,7 +236,7 @@ describe('struct.construct', () => {
 
         const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
         // Args should be pos first, mass second (declaration order)
-        expect(result.code).toContain('MyStruct(vec3f(1.0, 2.0, 3.0), 4.0)');
+        expect(result.code).toContain('MyStruct(vec3f(1.0f, 2.0f, 3.0f), 4.0f)');
         expect(result.code).not.toContain('MyStruct(4.0');
     });
 });
@@ -266,7 +266,7 @@ describe('module-scope variables', () => {
 
         const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
-        expect(result.code).toContain('var<private> scale: f32 = 2.5;');
+        expect(result.code).toContain('var<private> scale: f32 = 2.5f;');
     });
 
     test('privateVar with vec3 initializer emits proper constructor', () => {
@@ -279,7 +279,7 @@ describe('module-scope variables', () => {
 
         const result = compileComputeWgsl(fn.compute({ workgroupSize: [64, 1, 1] }));
 
-        expect(result.code).toContain('var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);');
+        expect(result.code).toContain('var<private> gravity: vec3f = vec3f(0.0f, -9.8f, 0.0f);');
     });
 
     test('workgroupVar emits var<workgroup> declaration', () => {

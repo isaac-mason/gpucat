@@ -18,7 +18,7 @@ export function constLiteral(type: string, value: number | number[] | string): s
     if (typeof value === 'number') {
         switch (type) {
             case 'f32':
-                return floatLiteral(value);
+                return `${floatLiteral(value)}f`;
             case 'f16':
                 return `${floatLiteral(value, 'f16')}h`;
             case 'i32':
@@ -32,13 +32,13 @@ export function constLiteral(type: string, value: number | number[] | string): s
         }
     }
     const components = (value as number[]).map((v) => {
-        if (type.startsWith('vec') && type.endsWith('f')) return floatLiteral(v);
+        if (type.startsWith('vec') && type.endsWith('f')) return `${floatLiteral(v)}f`;
         if (type.startsWith('vec') && type.endsWith('h')) return `${floatLiteral(v, 'f16')}h`;
         if (type.startsWith('vec') && type.endsWith('i')) return i32LiteralWgsl(v);
         if (type.startsWith('vec') && type.endsWith('u')) return u32Literal(v);
         if (type === 'vec2<bool>' || type === 'vec3<bool>' || type === 'vec4<bool>') return v !== 0 ? 'true' : 'false';
         if (type.startsWith('mat') && type.endsWith('h')) return `${floatLiteral(v, 'f16')}h`;
-        if (type.startsWith('mat')) return floatLiteral(v);
+        if (type.startsWith('mat')) return `${floatLiteral(v)}f`;
         return `${v}`;
     });
     if (components.length === 0) return `${type}()`;

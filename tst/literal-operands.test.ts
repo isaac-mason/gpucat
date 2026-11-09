@@ -69,8 +69,8 @@ describe('accepted, as WGSL accepts a literal', () => {
         expectTypeOf(sub(1, v)).toEqualTypeOf<Node<d.vec3f>>();
         expectTypeOf(add(1, u)).toEqualTypeOf<Node<d.u32>>();
         const { wgsl } = compileBoth(sub(1, x).add(div(2, x)));
-        expect(wgsl).toMatch(/1\.0 - /);
-        expect(wgsl).toMatch(/2\.0 \/ /);
+        expect(wgsl).toMatch(/1\.0f - /);
+        expect(wgsl).toMatch(/2\.0f \/ /);
     });
 
     test('oneMinus keeps its node type', () => {
@@ -84,8 +84,8 @@ describe('accepted, as WGSL accepts a literal', () => {
     });
 
     test('mix and refract take scalar factors beside vectors', () => {
-        expect(compileBoth(mix(v, v, 0.5).x).wgsl).toMatch(/mix\([^;]*, 0\.5\)/);
-        expect(compileBoth(refract(v, v, 1.5).x).wgsl).toMatch(/refract\([^;]*, 1\.5\)/);
+        expect(compileBoth(mix(v, v, 0.5).x).wgsl).toMatch(/mix\([^;]*, 0\.5f\)/);
+        expect(compileBoth(refract(v, v, 1.5).x).wgsl).toMatch(/refract\([^;]*, 1\.5f\)/);
         expect(mix(0, 1, x).type).toBe(d.f32);
     });
 
@@ -100,9 +100,9 @@ describe('accepted, as WGSL accepts a literal', () => {
             .add(pow(x, 2))
             .add(select(f32(0), 1, lessThan(0.5, x)));
         const { wgsl, glsl } = compileBoth(value);
-        expect(wgsl).toMatch(/clamp\([^;]*, 0\.0, 1\.0\)/);
-        expect(wgsl).toMatch(/smoothstep\(0\.0, 1\.0, /);
-        expect(wgsl).toMatch(/0\.5 < /);
+        expect(wgsl).toMatch(/clamp\([^;]*, 0\.0f, 1\.0f\)/);
+        expect(wgsl).toMatch(/smoothstep\(0\.0f, 1\.0f, /);
+        expect(wgsl).toMatch(/0\.5f < /);
         expect(glsl).toMatch(/clamp\([^;]*, 0\.0, 1\.0\)/);
     });
 

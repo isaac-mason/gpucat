@@ -86,7 +86,7 @@ describe('in emitted shaders', () => {
             expect(code).not.toMatch(/e\+21\.0/);
             expect(code).not.toContain('3.4028235e+38');
         }
-        expect(wgsl).toContain('vec3f(1.0e+21, 1.0, 3.402823466e+38)');
+        expect(wgsl).toContain('vec3f(1.0e+21f, 1.0f, 3.402823466e+38f)');
     });
 
     test('the smallest i32 converted to f32 is folded into a float', () => {
@@ -97,10 +97,9 @@ describe('in emitted shaders', () => {
 
     test('negating -0 parenthesises it, as any negative literal', () => {
         const { wgsl, glsl } = compileBoth(vec3(f32(-0).negate(), f32(0), f32(0)));
-        for (const code of [wgsl, glsl]) {
-            expect(code).not.toContain('--0.0');
-            expect(code).toContain('-(-0.0)');
-        }
+        for (const code of [wgsl, glsl]) expect(code).not.toContain('--0.0');
+        expect(wgsl).toContain('-(-0.0f)');
+        expect(glsl).toContain('-(-0.0)');
     });
 });
 

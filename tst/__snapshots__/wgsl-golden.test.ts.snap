@@ -16,7 +16,7 @@ struct VertexOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = vec4f(input.position, 1.0);
+    output.position = vec4f(input.position, 1.0f);
     output.vZ = input.position.z;
     return output;
 }
@@ -34,8 +34,8 @@ struct FragmentOutput {
 @fragment
 fn fs_main(input: FragmentInput) -> FragmentOutput {
     var output: FragmentOutput;
-    output.color = vec4f(vec3f(0.4, 0.7, 1.0), 1.0);
-    output.frag_depth = 0.25 + input.vZ * 0.5;
+    output.color = vec4f(vec3f(0.4f, 0.7f, 1.0f), 1.0f);
+    output.frag_depth = 0.25f + input.vZ * 0.5f;
     return output;
 }",
   "fragmentEntryPoint": "fs_main",
@@ -65,7 +65,7 @@ struct VertexOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = vec4f(input.position, 1.0);
+    output.position = vec4f(input.position, 1.0f);
     return output;
 }
 
@@ -77,7 +77,7 @@ struct FragmentOutput {
 @fragment
 fn fs_main() -> FragmentOutput {
     var output: FragmentOutput;
-    output.frag_depth = 0.75;
+    output.frag_depth = 0.75f;
     return output;
 }",
   "fragmentEntryPoint": "fs_main",
@@ -101,7 +101,7 @@ struct VertexOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = vec4f(input.position, 1.0);
+    output.position = vec4f(input.position, 1.0f);
     return output;
 }
 
@@ -114,7 +114,7 @@ struct FragmentOutput {
 @fragment
 fn fs_main() -> FragmentOutput {
     var output: FragmentOutput;
-    output.color = vec4f(1.0, 0.0, 0.0, 1.0);
+    output.color = vec4f(1.0f, 0.0f, 0.0f, 1.0f);
     output.ids = vec4u(7u, 0u, 0u, 1u);
     return output;
 }",
@@ -185,9 +185,9 @@ struct Particle {
 fn cs_main(
     @builtin(global_invocation_id) global_id: vec3u
 ) {
-    var acc = 0.0;
+    var acc = 0.0f;
     for (var i: i32 = 0i; i < 4i; i++) {
-        if (storage0[global_id.x].life < 0.0) {
+        if (storage0[global_id.x].life < 0.0f) {
             continue;
         }
         if (i > 2i) {
@@ -195,7 +195,7 @@ fn cs_main(
         }
         acc = acc + storage0[global_id.x].life;
     }
-    let scaled = acc * 0.5;
+    let scaled = acc * 0.5f;
     storage0[global_id.x].life = scaled;
 }",
   "storage": [
@@ -286,7 +286,7 @@ struct VertexOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = vec4f(input.position, 1.0);
+    output.position = vec4f(input.position, 1.0f);
     return output;
 }
 
@@ -297,8 +297,8 @@ struct FragmentInput {
 
 @fragment
 fn fs_main(input: FragmentInput) -> @location(0) vec4f {
-    let _sel = select(vec3f(0.1, 0.1, 0.1), vec3f(0.9, 0.2, 0.2), (input.position.xy / uniforms_render.screenSize).x > 0.5);
-    return vec4f(_sel * (dot(_sel, vec3f(0.299, 0.587, 0.114))), 1.0);
+    let _sel = select(vec3f(0.1f, 0.1f, 0.1f), vec3f(0.9f, 0.2f, 0.2f), (input.position.xy / uniforms_render.screenSize).x > 0.5f);
+    return vec4f(_sel * (dot(_sel, vec3f(0.299, 0.587, 0.114))), 1.0f);
 }",
   "fragmentEntryPoint": "fs_main",
   "varyings": [],
@@ -340,7 +340,7 @@ struct VertexOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = uniforms_render.cameraProjectionMatrix * (uniforms_render.cameraViewMatrix * (uniforms_object.modelWorldMatrix * vec4f(input.position, 1.0)));
+    output.position = uniforms_render.cameraProjectionMatrix * (uniforms_render.cameraViewMatrix * (uniforms_object.modelWorldMatrix * vec4f(input.position, 1.0f)));
     output.vNormal = normalize(uniforms_object.modelNormalMatrix * input.normal);
     return output;
 }
@@ -352,7 +352,7 @@ struct FragmentInput {
 
 @fragment
 fn fs_main(input: FragmentInput) -> @location(0) vec4f {
-    return vec4f(vec3f(0.4, 0.7, 1.0) * (0.15 + max(dot(input.vNormal, normalize(vec3f(0.6, 1.0, 0.8))), 0.0)), 1.0);
+    return vec4f(vec3f(0.4f, 0.7f, 1.0f) * (0.15f + max(dot(input.vNormal, normalize(vec3f(0.6f, 1.0f, 0.8f))), 0.0f)), 1.0f);
 }",
   "fragmentEntryPoint": "fs_main",
   "varyings": [
@@ -397,7 +397,7 @@ struct VertexOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = vec4f(input.position, 1.0);
+    output.position = vec4f(input.position, 1.0f);
     return output;
 }
 

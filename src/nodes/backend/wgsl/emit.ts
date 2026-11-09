@@ -813,7 +813,7 @@ function generateTexture(ctx: BuildContext, node: TextureNode): string {
     // textureSample (default). Implicit-LOD sampling needs fragment-stage derivatives and is forbidden
     // in the vertex stage, so sample at the base level there.
     if (ctx.stage === 'vertex') {
-        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, 0.0${offsetSuffix})`;
+        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, 0.0f${offsetSuffix})`;
     }
     return `textureSample(${name}, ${samplerName}, ${uvExpr}${offsetSuffix})`;
 }
@@ -841,7 +841,7 @@ function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
     // Always negate the sample direction's X for WebGPU cube sampling. The CubeCamera stores
     // faces with swapped X (by design), and negating the sample direction un-does the swap so
     // the correct face is selected by the hardware.
-    const sampleDir = `${generateOperand(ctx, node.directionNode, Prec.Multiplicative)} * vec3f(-1.0, 1.0, 1.0)`;
+    const sampleDir = `${generateOperand(ctx, node.directionNode, Prec.Multiplicative)} * vec3f(-1.0f, 1.0f, 1.0f)`;
 
     // Cube textures do NOT support offset
 
@@ -875,7 +875,7 @@ function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
 
     // textureSample (default). Implicit LOD is vertex-forbidden — sample at base level there.
     if (ctx.stage === 'vertex') {
-        return `textureSampleLevel(${name}, ${samplerName}, ${sampleDir}, 0.0)`;
+        return `textureSampleLevel(${name}, ${samplerName}, ${sampleDir}, 0.0f)`;
     }
     return `textureSample(${name}, ${samplerName}, ${sampleDir})`;
 }
@@ -990,7 +990,7 @@ function generateArrayTexture(ctx: BuildContext, node: ArrayTextureNode): string
 
     // textureSample(t, s, coords, array_index [, offset]). Implicit LOD is vertex-forbidden — base level.
     if (ctx.stage === 'vertex') {
-        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${layerExpr}, 0.0${offsetSuffix})`;
+        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${layerExpr}, 0.0f${offsetSuffix})`;
     }
     return `textureSample(${name}, ${samplerName}, ${uvExpr}, ${layerExpr}${offsetSuffix})`;
 }

@@ -34,7 +34,7 @@ describe('textureGather on a depth texture', () => {
         expect(gathered.type).toBe(d.vec4f);
         const wgsl = gatherWgsl(() => gathered);
         expect(wgsl).toMatch(/: texture_depth_2d;/);
-        expect(wgsl).toMatch(/textureGather\(\w+, \w+, vec2f\(0\.5, 0\.5\)\)/);
+        expect(wgsl).toMatch(/textureGather\(\w+, \w+, vec2f\(0\.5f, 0\.5f\)\)/);
     });
 
     test('passes an offset through', () => {
@@ -42,14 +42,14 @@ describe('textureGather on a depth texture', () => {
         const wgsl = gatherWgsl(() =>
             textureGather(depth.bindingNode, depth.samplerNode!, vec2f(f32(0.5), f32(0.5)), vec2i(i32(1), i32(0))),
         );
-        expect(wgsl).toMatch(/textureGather\(\w+, \w+, vec2f\(0\.5, 0\.5\), vec2i\(1i?, 0i?\)\)/);
+        expect(wgsl).toMatch(/textureGather\(\w+, \w+, vec2f\(0\.5f, 0\.5f\), vec2i\(1i?, 0i?\)\)/);
     });
 
     test('takes the layer after the coords on a depth array texture', () => {
         const depth = depthTexture(new DepthTexture(8, 8, 'depth24plus', 2));
         const wgsl = gatherWgsl(() => textureGather(depth.bindingNode, depth.samplerNode!, vec2f(f32(0.5), f32(0.5)), i32(1)));
         expect(wgsl).toMatch(/: texture_depth_2d_array;/);
-        expect(wgsl).toMatch(/textureGather\(\w+, \w+, vec2f\(0\.5, 0\.5\), 1i\)/);
+        expect(wgsl).toMatch(/textureGather\(\w+, \w+, vec2f\(0\.5f, 0\.5f\), 1i\)/);
     });
 
     test('is rejected on WebGL2, as every gather is, naming the backend', () => {
