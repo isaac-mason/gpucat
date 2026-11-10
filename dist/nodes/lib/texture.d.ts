@@ -227,8 +227,8 @@ export declare class TextureNode<D extends FlatSampledTexture = d.texture2d> ext
     gradNode: [Node<d.vec2f>, Node<d.vec2f>] | null;
     /** Offset node for sampling with offset (2D and 2D-array only, must be const) */
     offsetNode: Node<d.vec2i> | null;
-    /** Integer coordinates for textureLoad */
-    loadCoords: Node<d.vec2i> | null;
+    /** Integer coordinates for textureLoad, as many as the texture has dimensions */
+    loadCoords: Node<d.TextureLoadCoordOf<D>> | null;
     /** Level for textureLoad (i32) */
     loadLevel: Node<d.i32> | null;
     constructor(bindingNode: TextureBindingNode<D>, uvNode?: Node<d.TextureCoordOf<D>> | null);
@@ -249,7 +249,7 @@ export declare class TextureNode<D extends FlatSampledTexture = d.texture2d> ext
     /** Add offset to sampling (2D and 2D-array only, must be const expression) */
     offset(offsetNode: Node<d.vec2i>): TextureNode<D>;
     /** Use textureLoad for direct texel fetch (no filtering). */
-    load(coords: Node<d.vec2i>, level?: Node<d.i32>): TextureNode<D>;
+    load(coords: Node<d.TextureLoadCoordOf<D>>, level?: Node<d.i32>): TextureNode<D>;
     /**
      * Read a struct record by index: `texture(t).load(schema, i)` returns an accessor whose fields
      * (`.color`, `.transform`, …) lazily decode from `rgba32uint` texels. `i` is a record index

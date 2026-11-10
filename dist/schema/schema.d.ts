@@ -401,6 +401,11 @@ export declare function textureSampleResultOf(desc: Texture): vec4f | vec4i | ve
  * Drives `TextureNode.sample()` so a 3D texture demands vec3 coords and a 2D one vec2.
  */
 export type TextureCoordOf<D> = D extends texture1d ? f32 : D extends texture3d ? vec3f : vec2f;
+/**
+ * The integer coordinate descriptor for *loading* a texel of descriptor D, as `textureLoad` takes it:
+ * `i32` for 1D, `vec3i` for 3D, `vec2i` otherwise. Drives `TextureNode.load()` as {@link TextureCoordOf} drives `sample()`.
+ */
+export type TextureLoadCoordOf<D> = D extends texture1d ? i32 : D extends texture3d ? vec3i : vec2i;
 export type textureDepth2d = {
     type: 'texture_depth_2d';
     wgslType: 'texture_depth_2d';

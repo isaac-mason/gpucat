@@ -18361,6 +18361,19 @@ function textureResultVec4(desc) {
     const sampleType = desc.sampleType?.type;
     return sampleType === 'u32' ? vec4u$1 : sampleType === 'i32' ? vec4i$1 : vec4f$1;
 }
+/**
+ * A texel is read at integer coordinates, one per dimension of the texture: an i32 for 1D, a vec3 for 3D, a vec2
+ * otherwise, signed or unsigned as `textureLoad` takes them. A mismatch throws where `.load` is written.
+ */
+function assertLoadCoords(desc, coords) {
+    const want = desc.type === 'texture_1d' ? 1 : desc.type === 'texture_3d' ? 3 : 2;
+    const got = coords.type.wgslType;
+    const width = got === 'i32' || got === 'u32' ? 1 : /^vec([234])[iu]$/.exec(got)?.[1];
+    if (Number(width) === want)
+        return;
+    const named = want === 1 ? 'an i32' : `a vec${want}i`;
+    throw new Error(`[gpucat] load: a ${desc.type} is read at ${named}, not ${/^[aeiou]/.test(got) ? 'an' : 'a'} ${got}`);
+}
 class TextureNode extends Node {
     kind = NodeKind.Texture;
     /** The texture binding, holds GPU resource, textureId, group. */
@@ -18392,7 +18405,7 @@ class TextureNode extends Node {
     gradNode = null;
     /** Offset node for sampling with offset (2D and 2D-array only, must be const) */
     offsetNode = null;
-    /** Integer coordinates for textureLoad */
+    /** Integer coordinates for textureLoad, as many as the texture has dimensions */
     loadCoords = null;
     /** Level for textureLoad (i32) */
     loadLevel = null;
@@ -18478,9 +18491,11 @@ class TextureNode extends Node {
             const texelBase = layout.texelStride === 1 ? idx : idx.mul(u32(layout.texelStride));
             return buildRecordAccessor(this.getBase(), schema, texelBase, storageRowWidth(this.getBase()));
         }
+        const coords = a;
+        assertLoadCoords(this.bindingNode.type, coords);
         const textureNode = this.clone();
         textureNode.samplingMode = 'load';
-        textureNode.loadCoords = a;
+        textureNode.loadCoords = coords;
         textureNode.loadLevel = b ?? null;
         textureNode.referenceNode = this.getBase();
         return textureNode;
