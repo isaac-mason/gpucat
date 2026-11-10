@@ -551,6 +551,18 @@ These are WebGPU-only. On the WebGL2 backend they throw a clear error, at shader
 - **Texture constant-offset sampling** and **`f16` / half** types.
 - The inspector's live-value **probe** (WebGPU-only; the rest of the inspector works).
 
+### Where WebGL2 shaders differ
+
+The GLSL a graph compiles to follows WGSL's rules, not GLSL's. Where the two languages give different results, the GLSL is written to give WGSL's: integer `/` and `%` by zero, `%` with a negative operand, shifts by 32 or more, and conversions of literals all come out as WGSL defines them, and a render target reads the right way up though WebGL stores it bottom-up. What's left are the places where matching WGSL would cost every shader, or where GLSL gives no handle on it:
+
+- **`select` runs only the side it picks.** WGSL's `select(f, t, c)` evaluates both sides. With a scalar condition, GLSL's `c ? t : f` evaluates one, so a texture sample or a derivative inside a side runs in non-uniform control flow, and its mip level or value is undefined. Sample, or take `dpdx`/`fwidth`, before the `select`, and select between the results. A vector condition selects per component and evaluates both, as WGSL does.
+- **A float converted to an int beyond the int's range, or a NaN, is undefined.** WGSL's `i32(x)` and `u32(x)` saturate; GLSL's `int(x)` leaves those values undefined. Most GPUs saturate anyway. If a value can stray that far, clamp it first: `i32(clamp(x, -2147483648, 2147483520))`, the largest f32 below the i32 maximum.
+- **`discard` ends the fragment.** In WGSL a discarded fragment runs on as a helper, so derivatives in the rest of its quad stay defined. In GLSL they're undefined after a `discard` some fragments of the quad take and others don't. Sample before you discard.
+- **Uniformity is not checked.** WGSL rejects a texture sample or a derivative in control flow that depends on a non-uniform value when the shader is created. GLSL compiles it, and the result is undefined. So a shader that runs on WebGL can fail on WebGPU, never the reverse.
+- **`precision` below `'highp'` narrows the numbers.** The `precision` renderer option set to `'mediump'` or `'lowp'` makes floats and ints narrower than WGSL's `f32` and `i32`, so results differ. The default, `'highp'`, matches.
+
+Neither language promises NaN or infinity survive a shader: WGSL lets an implementation assume there are none, and GLSL ES 3.00 doesn't require them. Don't branch on them on either backend.
+
 ### Renderer options
 
 Both renderers share a common set of options; each backend adds a few of its own.
