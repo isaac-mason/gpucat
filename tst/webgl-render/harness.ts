@@ -5131,8 +5131,8 @@ async function caseRenderTargetFlip(): Promise<CaseResult> {
 
 /**
  * rt-layer-orient: a layer of a 2D-array target and a slice of a 3D one, each drawn top red and bottom green, read
- * back by top-left screenUV: red is the array's sample, green its load, blue the 3D sample. All three run top to
- * bottom as WebGPU's do, so the top is white and the bottom black. WebGL renders bottom-up, and a 2D target's reads
+ * back by top-left screenUV: red is the array's sample, green its load, blue the 3D sample and alpha its load. All
+ * four run top to bottom as WebGPU's do, so the top is white and the bottom clear. WebGL renders bottom-up, and a 2D target's reads
  * were flipped back while these weren't, so they came out mirrored there.
  */
 async function caseRtLayerOrient(): Promise<CaseResult> {
@@ -5168,7 +5168,7 @@ async function caseRtLayerOrient(): Promise<CaseResult> {
                 arrayTexture(array, i32(1)).sample(screenUV).x,
                 arrayTexture(array, i32(1)).load(texel).x,
                 texture(volume.texture as Data3DTexture).sample(vec3(screenUV, 0.75)).x,
-                f32(1),
+                texture(volume.texture as Data3DTexture).load(vec3i(texel, 1)).x,
             ),
             depthTest: false,
         }),
@@ -5185,12 +5185,12 @@ async function caseRtLayerOrient(): Promise<CaseResult> {
     const top = texelOf(pixels, SIZE, CENTER, 3);
     const bottom = texelOf(pixels, SIZE, CENTER, SIZE - 4);
     renderer.dispose();
-    const ok = top.slice(0, 3).every((c) => c > 128) && bottom.slice(0, 3).every((c) => c < 128);
+    const ok = top.every((c) => c > 128) && bottom.every((c) => c < 128);
     return {
         name: 'rt-layer-orient',
         pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
         expected: [0, 255, 0, 255],
-        note: `top=[${top.slice(0, 3)}] wants all high, bottom=[${bottom.slice(0, 3)}] all low (array sample, array load, 3D sample); swapped means mirrored`,
+        note: `top=[${top}] wants all high, bottom=[${bottom}] all low (array sample, array load, 3D sample, 3D load); swapped means mirrored`,
     };
 }
 

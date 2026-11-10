@@ -1623,7 +1623,7 @@ chain.load(coords, mip);
 
 Two bindings of one texture are one binding only when they see the same range the same way. Bound by value, `storageTexture(mips[1], 'read')` and `storageTexture(mips[2], 'write')` in one kernel are two bindings. A view is a plain value, so two views of the same range are the same binding. Make the views a frame needs once and keep them.
 
-`texture()` takes a sampler only for sampling. A texture read only with `.load()` needs none, and sampling one bound without a sampler is an error that says so.
+`texture()` takes a sampler only for sampling. A texture read only with `.load()` needs none, and sampling one bound without a sampler is an error that says so. `.load()` takes one integer coordinate per dimension, as `.sample()` takes one float per dimension: a `vec2i` for a 2D texture, a `vec3i` for a 3D one. Another count throws where it's written.
 
 On WebGL a sampled view of a range of mips maps to the texture's base and max level. WebGL2 has no other views, so a view of a layer, a dimension or an aspect is an error there.
 

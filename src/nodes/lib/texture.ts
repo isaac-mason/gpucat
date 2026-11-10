@@ -388,6 +388,19 @@ function textureResultVec4(desc: d.Texture): d.vec4f | d.vec4u | d.vec4i {
     return sampleType === 'u32' ? d.vec4u : sampleType === 'i32' ? d.vec4i : d.vec4f;
 }
 
+/**
+ * A texel is read at integer coordinates, one per dimension of the texture: an i32 for 1D, a vec3 for 3D, a vec2
+ * otherwise, signed or unsigned as `textureLoad` takes them. A mismatch throws where `.load` is written.
+ */
+function assertLoadCoords(desc: FlatSampledTexture, coords: Node<d.Any>): void {
+    const want = desc.type === 'texture_1d' ? 1 : desc.type === 'texture_3d' ? 3 : 2;
+    const got = coords.type.wgslType;
+    const width = got === 'i32' || got === 'u32' ? 1 : /^vec([234])[iu]$/.exec(got)?.[1];
+    if (Number(width) === want) return;
+    const named = want === 1 ? 'an i32' : `a vec${want}i`;
+    throw new Error(`[gpucat] load: a ${desc.type} is read at ${named}, not ${/^[aeiou]/.test(got) ? 'an' : 'a'} ${got}`);
+}
+
 export class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Node<d.vec4f> {
     readonly kind = NodeKind.Texture;
 
@@ -429,8 +442,8 @@ export class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Nod
     /** Offset node for sampling with offset (2D and 2D-array only, must be const) */
     offsetNode: Node<d.vec2i> | null = null;
 
-    /** Integer coordinates for textureLoad */
-    loadCoords: Node<d.vec2i> | null = null;
+    /** Integer coordinates for textureLoad, as many as the texture has dimensions */
+    loadCoords: Node<d.TextureLoadCoordOf<D>> | null = null;
 
     /** Level for textureLoad (i32) */
     loadLevel: Node<d.i32> | null = null;
@@ -520,7 +533,7 @@ export class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Nod
     }
 
     /** Use textureLoad for direct texel fetch (no filtering). */
-    load(coords: Node<d.vec2i>, level?: Node<d.i32>): TextureNode<D>;
+    load(coords: Node<d.TextureLoadCoordOf<D>>, level?: Node<d.i32>): TextureNode<D>;
     /**
      * Read a struct record by index: `texture(t).load(schema, i)` returns an accessor whose fields
      * (`.color`, `.transform`, …) lazily decode from `rgba32uint` texels. `i` is a record index
@@ -528,7 +541,7 @@ export class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Nod
      */
     load<S extends d.StructSchema>(schema: StructDef<S>, index: Node<d.u32> | Node<d.i32>): RecordAccessor<S>;
     load(
-        a: Node<d.vec2i> | StructDef<d.StructSchema>,
+        a: Node<d.TextureLoadCoordOf<D>> | StructDef<d.StructSchema>,
         b?: Node<d.i32> | Node<d.u32>,
     ): TextureNode<D> | RecordAccessor<d.StructSchema> {
         // Struct read: first arg is a struct def (its `.type` is the literal 'struct'; a coord Node's
@@ -540,9 +553,11 @@ export class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Nod
             const texelBase = layout.texelStride === 1 ? idx : idx.mul(u32(layout.texelStride));
             return buildRecordAccessor(this.getBase(), schema, texelBase, storageRowWidth(this.getBase()));
         }
+        const coords = a as Node<d.TextureLoadCoordOf<D>>;
+        assertLoadCoords(this.bindingNode.type, coords);
         const textureNode = this.clone();
         textureNode.samplingMode = 'load';
-        textureNode.loadCoords = a as Node<d.vec2i>;
+        textureNode.loadCoords = coords;
         textureNode.loadLevel = (b as Node<d.i32>) ?? null;
         textureNode.referenceNode = this.getBase();
         return textureNode;
