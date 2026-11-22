@@ -15,7 +15,7 @@ const VIEW_BLOCK: readonly UniformNode<d.Any>[] = [
     cameraNear,
     cameraFar,
     screenSize,
-] as readonly UniformNode<d.Any>[];
+];
 
 /** `group`'s fixed block, or null for a group whose block is what each shader reads of it */
 export function fixedMembers(group: UniformGroup): readonly UniformNode<d.Any>[] | null {

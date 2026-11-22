@@ -9,7 +9,7 @@ beforeAll(() => {
 
 import { createRenderTarget } from '../src/core/render-target';
 import { compileGlsl, compileWgsl } from '../src/nodes/builder';
-import { f32, frameGroup, Uniform, uniform, vec4 } from '../src/nodes/nodes';
+import { f32, frameGroup, type Node, Uniform, uniform, vec4 } from '../src/nodes/nodes';
 import { fullscreen } from '../src/objects/fullscreen';
 import { frame } from '../src/renderer/core/frame';
 import { createMemoryTally, createRendererInfo } from '../src/renderer/core/info';
@@ -40,7 +40,7 @@ async function setup() {
 
 /** A fullscreen draw whose colour reads `uniforms`, so its frame block holds each of them. */
 function reading(...uniforms: Uniform<d.f32>[]) {
-    let red = f32(0);
+    let red: Node<d.f32> = f32(0);
     for (const u of uniforms) red = red.add(uniform(u));
     const mesh = fullscreen(vec4(red, f32(0), f32(0), f32(1)));
     mesh.material.depthTest = false;

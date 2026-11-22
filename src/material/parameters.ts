@@ -9,7 +9,7 @@ import type { Any } from '../schema/schema';
 export type TextureInput = TextureSource | { readonly _gpuTexture: GpuTexture };
 
 type Parameter =
-    | { kind: 'uniform'; value: Uniform<any> }
+    | { kind: 'uniform'; value: Uniform<Any> }
     | { kind: 'buffer'; value: GpuBuffer<Any> }
     | { kind: 'texture'; value: TextureInput };
 
@@ -28,7 +28,7 @@ type Parameter =
 export class MaterialParameters {
     private readonly values = new Map<string, Parameter>();
 
-    setUniform(name: string, uniform: Uniform<any>): this {
+    setUniform(name: string, uniform: Uniform<Any>): this {
         this.values.set(name, { kind: 'uniform', value: uniform });
         return this;
     }
@@ -59,8 +59,8 @@ export class MaterialParameters {
     }
 
     /** the uniform named `name`, undefined for none */
-    uniform(name: string): Uniform<any> | undefined {
-        return this.read(name, 'uniform')?.value as Uniform<any> | undefined;
+    uniform(name: string): Uniform<Any> | undefined {
+        return this.read(name, 'uniform')?.value as Uniform<Any> | undefined;
     }
 
     /** the buffer named `name`, undefined for none */
