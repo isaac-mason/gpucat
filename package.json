@@ -29,6 +29,7 @@
         "format": "biome format --write src/. tst/.",
         "lint": "biome lint --write src/. tst/.",
         "test": "vitest tst",
+        "release": "pnpm run build && vitest run tst && pnpm run typecheck && pnpm run typecheck:tst",
         "test:glsl": "node tst/glsl-compile/run.mjs",
         "test:wgsl": "node tst/wgsl-validate/run.mjs",
         "test:webgl": "node tst/webgl-render/run.mjs",
