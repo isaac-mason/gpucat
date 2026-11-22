@@ -1,10 +1,8 @@
 ![cover](./docs/cover.png)
 
 ```sh
-> npm install isaac-mason/gpucat
+> npm install gpucat@canary
 ```
-
-> gpucat is being built in public. installation is via the github repo instead of npm for now.
 
 # gpucat
 
