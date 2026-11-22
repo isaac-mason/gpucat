@@ -2569,11 +2569,10 @@ export function Loop(o: LoopParam, callback: (vars: LoopVars) => void): LoopNode
     const varName = `_loop_${_loopVarCounter++}`;
 
     let updateFn: ((vars: LoopVars) => void) | null = null;
-    if (typeof o === 'object' && o !== null && !(o instanceof Node)) {
-        const cfg = o as { type?: d.Scalar; name?: string; update?: unknown };
-        if (cfg.type) loopVarType = cfg.type;
-        if (cfg.name) callbackKey = cfg.name;
-        if (typeof cfg.update === 'function') updateFn = cfg.update as (vars: LoopVars) => void;
+    if (typeof o === 'object' && !(o instanceof Node)) {
+        if (o.type) loopVarType = o.type;
+        if (o.name) callbackKey = o.name;
+        if (typeof o.update === 'function') updateFn = o.update;
     }
 
     // Create the loop variable ParameterNode
