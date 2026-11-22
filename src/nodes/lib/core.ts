@@ -2441,24 +2441,23 @@ export class IfNode extends Node<d.Void> {
     }
 }
 
-export type LoopParam =
-    | Node<Any>
-    | number
-    | {
-          start?: Node<Any> | number;
-          end?: Node<Any> | number;
-          type?: d.Scalar;
-          /** inferred as three.js TSL infers it: '>=' when a numeric `start` is above a numeric `end`, else '<' */
-          condition?: '<' | '<=' | '>' | '>=';
-          /**
-           * How the loop variable steps, after three.js TSL's `Loop`: a number or a node adds itself (subtracts, with a
-           * '>' or '>=' condition), a string follows the variable as written (`'+= 2'`, `'*= 2'`), and a function is
-           * the step's own statement, given the loop variable as the body is. Left out, `++` (`--` counting down), or
-           * `+= 1.0` for a float. A for header holds one statement, so a function makes exactly one.
-           */
-          update?: Node<Any> | number | string | ((vars: LoopVars) => void);
-          name?: string;
-      };
+export type LoopParam = Node<Any> | number | LoopConfig;
+
+export type LoopConfig = {
+    start?: Node<Any> | number;
+    end?: Node<Any> | number;
+    type?: d.Scalar;
+    /** inferred as three.js TSL infers it: '>=' when a numeric `start` is above a numeric `end`, else '<' */
+    condition?: '<' | '<=' | '>' | '>=';
+    /**
+     * How the loop variable steps, after three.js TSL's `Loop`: a number or a node adds itself (subtracts, with a
+     * '>' or '>=' condition), a string follows the variable as written (`'+= 2'`, `'*= 2'`), and a function is
+     * the step's own statement, given the loop variable as the body is. Left out, `++` (`--` counting down), or
+     * `+= 1.0` for a float. A for header holds one statement, so a function makes exactly one.
+     */
+    update?: Node<Any> | number | string | ((vars: LoopVars) => void);
+    name?: string;
+};
 
 /**
  * A counted loop's range as three.js TSL completes it: a `start` with no `end` counts down from `start - 1` to 0, and a
@@ -2559,9 +2558,11 @@ export function If(condition: Node<Any> | boolean, thenBody: () => void): IfChai
 /** The loop variable is a scalar; `i32` unless a `LoopParam` names another `type`. */
 export type LoopVars = Record<string, Node<d.i32>>;
 
-export function Loop(range: number, callback: (vars: LoopVars) => void): LoopNode;
-export function Loop(o: LoopParam, callback: (vars: LoopVars) => void): LoopNode;
-export function Loop(o: number | LoopParam, callback: (vars: LoopVars) => void): LoopNode {
+// The config is its own overload: unioned with Node, whose own `update(frame)` would compete with the config's, an
+// `update` function written inline would get no parameter types.
+export function Loop(range: number | Node<Any>, callback: (vars: LoopVars) => void): LoopNode;
+export function Loop(o: LoopConfig, callback: (vars: LoopVars) => void): LoopNode;
+export function Loop(o: LoopParam, callback: (vars: LoopVars) => void): LoopNode {
     // Determine loop variable type and name from config
     let loopVarType: Any = d.i32;
     let callbackKey = 'i';

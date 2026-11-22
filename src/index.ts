@@ -230,6 +230,7 @@ export {
     type LiteralNode,
     Loop,
     type LoopNode,
+    type LoopConfig,
     type LoopParam,
     type LoopVars,
     length,
