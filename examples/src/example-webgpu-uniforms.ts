@@ -104,7 +104,7 @@ async function main() {
     // Approach 2: Name-based uniform - resolved from material.parameters
     // -------------------------------------------------------------------------
     // Each material instance can have its own color value.
-    // The shader declares a slot, material.uniforms provides the value.
+    // The shader declares a slot, material.parameters provides the value.
 
     const uColorNamed = uniform('namedColor', d.vec3f);
 
@@ -133,6 +133,7 @@ async function main() {
 
     // Right side: 3 boxes using name-based uniforms (each different color)
     const namedMeshes: Mesh[] = [];
+    const namedColors: Uniform<d.vec3f>[] = [];
     const colors = [
         [0.2, 0.6, 1.0], // blue
         [0.2, 1.0, 0.4], // green
@@ -140,13 +141,15 @@ async function main() {
     ];
 
     for (let i = 0; i < 3; i++) {
-        // Each mesh gets its own Material instance with its own uniforms map
+        // Each mesh gets its own Material instance with its own parameters
         const material = createMaterial({
             vertex: clipPosition2,
             fragment: vec4(litColor2, f32(1)),
         });
         // Set the color for this specific material instance
-        material.parameters.setUniform('namedColor', new Uniform(d.vec3f, colors[i]));
+        const namedColor = new Uniform(d.vec3f, colors[i]);
+        material.parameters.setUniform('namedColor', namedColor);
+        namedColors.push(namedColor);
 
         const mesh = new Mesh(geometry, material);
         mesh.position[0] = 2.5;
@@ -167,11 +170,8 @@ async function main() {
     inlineParams.add(uColorInline, 'value', { label: 'Color (affects all 3)' });
 
     const namedParams = inspector.createParameters('Named Uniforms (right)');
-    // For name-based, we need to access the Uniform from each material
-    for (let i = 0; i < namedMeshes.length; i++) {
-        const mesh = namedMeshes[i];
-        const colorUniform = mesh.material.uniforms.get('namedColor')!;
-        namedParams.add(colorUniform, 'value', { label: `Box ${i + 1} Color` });
+    for (let i = 0; i < namedColors.length; i++) {
+        namedParams.add(namedColors[i], 'value', { label: `Box ${i + 1} Color` });
     }
 
     // -------------------------------------------------------------------------

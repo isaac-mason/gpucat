@@ -1,4 +1,5 @@
 import { expect, test } from 'vitest';
+import { createRendererInfo } from '../src/renderer/core/info';
 import { createPassState, resetPassState, setBindGroups, takesPipeline } from '../src/renderer/webgpu/pass-state';
 
 /** an encoder that only records what is set on it */
@@ -11,7 +12,7 @@ function recordingEncoder() {
 }
 
 test('a group already bound at its index, at the same offset, is not set again; the skip is counted', () => {
-    const info = { set: 0, skipped: 0 };
+    const info = createRendererInfo().state;
     const state = createPassState(info);
     const { encoder, sets } = recordingEncoder();
     const a = {} as GPUBindGroup;
@@ -24,11 +25,11 @@ test('a group already bound at its index, at the same offset, is not set again; 
         [1, b, 256],
         [1, b, 512],
     ]);
-    expect(info).toEqual({ set: 3, skipped: 3 });
+    expect(info).toMatchObject({ set: 3, skipped: 3 });
 });
 
 test('an index a shader skips is left alone, and what is bound past it still holds', () => {
-    const info = { set: 0, skipped: 0 };
+    const info = createRendererInfo().state;
     const state = createPassState(info);
     const { encoder, sets } = recordingEncoder();
     const object = {} as GPUBindGroup;
@@ -38,7 +39,7 @@ test('an index a shader skips is left alone, and what is bound past it still hol
 });
 
 test('a pipeline is set once until another, and a reset forgets everything bound', () => {
-    const info = { set: 0, skipped: 0 };
+    const info = createRendererInfo().state;
     const state = createPassState(info);
     const first = {} as GPUComputePipeline;
     const second = {} as GPUComputePipeline;

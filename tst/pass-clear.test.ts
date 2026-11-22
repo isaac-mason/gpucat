@@ -3,6 +3,7 @@ import { createCubeRenderTarget, createRenderTarget } from '../src/index';
 import { createMemoryTally } from '../src/renderer/core/info';
 import { resolvePassParams } from '../src/renderer/core/pass-desc';
 import { createPassParams } from '../src/renderer/core/render-types';
+import { createBindGroupCache } from '../src/renderer/webgpu/bind-group-cache';
 import { resolveAttachments } from '../src/renderer/webgpu/render-pass';
 import { createTextureCache } from '../src/renderer/webgpu/textures';
 import type { WebGPUBackend } from '../src/renderer/webgpu/webgpu-backend';
@@ -28,7 +29,7 @@ function backend(): WebGPUBackend {
             } as unknown as GPUTexture;
         },
     } as unknown as GPUDevice;
-    return { device, textures: createTextureCache(createMemoryTally()) } as unknown as WebGPUBackend;
+    return { device, textures: createTextureCache(createMemoryTally(), createBindGroupCache()) } as unknown as WebGPUBackend;
 }
 
 const loadOpFor = (target: Parameters<typeof resolvePassParams>[0]['target'], desc: Record<string, unknown>) =>

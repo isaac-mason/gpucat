@@ -20,7 +20,10 @@ const camera = {
 } as unknown as View;
 
 function state() {
-    const nodes = NodeManager.createNodeManagerState({ releaseUniformBlock: () => {}, releaseRenderObject: () => {} });
+    const nodes = NodeManager.createNodeManagerState(
+        { releaseUniformBlock: () => {}, releaseBindGroup: () => {}, releaseRenderObject: () => {} },
+        'wgsl-uniform',
+    );
     return {
         inspector: null,
         _renderObjects: RenderObjects.createRenderObjectsState(nodes),
@@ -34,7 +37,7 @@ const mesh = (name: string) => {
     return m;
 };
 
-const record = (m: Mesh): DrawRecord => ({ kind: 'draw', mesh: m, material: m.material, opts: null });
+const record = (m: Mesh): DrawRecord => ({ kind: 'draw', mesh: m, material: m.material, opts: null, bin: null, sortKey: 0 });
 
 function ctx() {
     return getRenderContext(createRenderContextsState(), createRenderTarget(8, 8), null);

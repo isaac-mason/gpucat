@@ -133,7 +133,7 @@ test('materials binding the same texture and sampler share one bind group for th
     await drawFrame(renderer, meshes);
     const textureGroups = new Set(
         meshes.map((mesh) => {
-            const bindings = getBindings(renderer._renderObjects.renderObjects.values().find((ro) => ro.mesh === mesh)!);
+            const bindings = getBindings([...renderer._renderObjects.renderObjects].find((ro) => ro.mesh === mesh)!);
             const group = bindings.find((g) => g.bindings.some((binding) => binding.kind === 'texture'))!;
             return renderer.backend.bindings.data.get(group)!.current;
         }),

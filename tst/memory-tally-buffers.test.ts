@@ -158,11 +158,14 @@ describe('render objects', () => {
     test('disposing one releases the uniform blocks of its own groups, never the shared ones', () => {
         const released: object[] = [];
         const state = RenderObjects.createRenderObjectsState(
-            createNodeManagerState({
-                releaseUniformBlock: (key) => void released.push(key),
-                releaseBindGroup: () => {},
-                releaseRenderObject: () => {},
-            }),
+            createNodeManagerState(
+                {
+                    releaseUniformBlock: (key) => void released.push(key),
+                    releaseBindGroup: () => {},
+                    releaseRenderObject: () => {},
+                },
+                'wgsl-uniform',
+            ),
         );
         const mesh = { geometry: {} } as unknown as Mesh;
         const material = {} as unknown as Material;
