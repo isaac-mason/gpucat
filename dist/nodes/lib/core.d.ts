@@ -1005,7 +1005,8 @@ export declare class IfNode extends Node<d.Void> {
     elseBody: StackNode | null;
     constructor(condition: Node<Any>, thenBody: StackNode);
 }
-export type LoopParam = Node<Any> | number | {
+export type LoopParam = Node<Any> | number | LoopConfig;
+export type LoopConfig = {
     start?: Node<Any> | number;
     end?: Node<Any> | number;
     type?: d.Scalar;
@@ -1061,8 +1062,8 @@ export type IfChain = {
 export declare function If(condition: Node<Any> | boolean, thenBody: () => void): IfChain;
 /** The loop variable is a scalar; `i32` unless a `LoopParam` names another `type`. */
 export type LoopVars = Record<string, Node<d.i32>>;
-export declare function Loop(range: number, callback: (vars: LoopVars) => void): LoopNode;
-export declare function Loop(o: LoopParam, callback: (vars: LoopVars) => void): LoopNode;
+export declare function Loop(range: number | Node<Any>, callback: (vars: LoopVars) => void): LoopNode;
+export declare function Loop(o: LoopConfig, callback: (vars: LoopVars) => void): LoopNode;
 export declare const For: typeof Loop;
 export declare function While(condition: Node<Any>, body: () => void): void;
 export declare function Return(): void;

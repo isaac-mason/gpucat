@@ -22,7 +22,7 @@ export type TextureInput = TextureSource | {
  */
 export declare class MaterialParameters {
     private readonly values;
-    setUniform(name: string, uniform: Uniform<any>): this;
+    setUniform(name: string, uniform: Uniform<Any>): this;
     setBuffer(name: string, buffer: GpuBuffer<Any>): this;
     setTexture(name: string, texture: TextureInput): this;
     /** these values replaced by `source`'s, as a material rebuilt over new nodes keeps what its predecessor read */
@@ -30,7 +30,7 @@ export declare class MaterialParameters {
     delete(name: string): boolean;
     has(name: string): boolean;
     /** the uniform named `name`, undefined for none */
-    uniform(name: string): Uniform<any> | undefined;
+    uniform(name: string): Uniform<Any> | undefined;
     /** the buffer named `name`, undefined for none */
     buffer(name: string): GpuBuffer<Any> | undefined;
     /** the texture named `name`, undefined for none */

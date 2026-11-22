@@ -1,8 +1,8 @@
 import { type Any, type Infer, type TypedArrayFor } from '../schema/schema';
 /** What may be assigned to a uniform: the schema's own shape, a plain array, or a matching typed array. */
-export type UniformValue<T extends Any = Any> = Any extends T ? number | number[] | Float32Array | Int32Array | Uint32Array : Infer<T> | number[] | TypedArrayFor<T>;
+export type UniformValue<T extends Any = Any> = Infer<T> | number[] | TypedArrayFor<T>;
 /** What a uniform holds: no `number[]`, since a plain array is packed on write into the schema's own array. */
-export type UniformStored<T extends Any = Any> = Any extends T ? number | Float32Array | Int32Array | Uint32Array : Infer<T> | TypedArrayFor<T>;
+export type UniformStored<T extends Any = Any> = Infer<T> | TypedArrayFor<T>;
 /**
  * Update frequency for uniform groups.
  */
