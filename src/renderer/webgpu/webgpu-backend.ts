@@ -145,6 +145,7 @@ export class WebGPUBackend implements DeviceBackend {
     private readonly _opts: WebGPUBackendOptions;
     /** A handed-in device is the caller's to destroy, not ours. */
     private readonly _deviceProvided: boolean;
+    private _disposed = false;
     private _frame: FrameBackend.WebGPUFrameBackendState = null!;
 
     constructor(opts: WebGPUBackendOptions = {}) {
@@ -222,7 +223,7 @@ export class WebGPUBackend implements DeviceBackend {
             });
 
             this.device.lost.then((info) => {
-                if (info.reason === 'destroyed') return; // intentional teardown
+                if (this._disposed) return;
                 ops.handleDeviceLost(renderer, {
                     api: 'WebGPU',
                     message: info.message || 'Unknown reason',
@@ -413,6 +414,7 @@ export class WebGPUBackend implements DeviceBackend {
     }
 
     dispose(): void {
+        this._disposed = true;
         // whoever destroys the device, ours or the caller's, it must not meet a read map still pending
         for (const buffer of this._readbacks) buffer.destroy();
         this._readbacks.clear();
